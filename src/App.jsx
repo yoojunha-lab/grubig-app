@@ -55,30 +55,31 @@ const useHTML2PDF = () => {
   return isReady;
 };
 
-const SearchableSelect = ({ value, options, onChange, placeholder }) => {
+// ✅ 드롭다운 버그 픽스 (labelKey, valueKey 복구)
+const SearchableSelect = ({ value, options, onChange, placeholder, labelKey = 'name', valueKey = 'id' }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const wrapperRef = useRef(null);
 
   useEffect(() => {
-    const selected = options.find(o => o.id === value);
-    if (selected) setSearch(selected.name);
+    const selected = options.find(o => o[valueKey] === value);
+    if (selected) setSearch(selected[labelKey] || '');
     else setSearch('');
-  }, [value, options]);
+  }, [value, options, labelKey, valueKey]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
         setIsOpen(false);
-        const selected = options.find(o => o.id === value);
-        setSearch(selected ? selected.name : '');
+        const selected = options.find(o => o[valueKey] === value);
+        setSearch(selected ? selected[labelKey] || '' : '');
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [wrapperRef, value, options]);
+  }, [wrapperRef, value, options, labelKey, valueKey]);
 
-  const filteredOptions = options.filter(opt => String(opt.name).toLowerCase().includes(search.toLowerCase()));
+  const filteredOptions = options.filter(opt => String(opt[labelKey] || '').toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="relative flex-1" ref={wrapperRef}>
@@ -91,8 +92,8 @@ const SearchableSelect = ({ value, options, onChange, placeholder }) => {
         <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-80 overflow-y-auto">
           {filteredOptions.length > 0 ? (
             filteredOptions.map(opt => (
-              <button key={opt.id} onClick={() => { onChange(opt.id); setSearch(opt.name); setIsOpen(false); }} className={`w-full text-left px-3 py-2.5 text-sm hover:bg-blue-50 transition-colors border-b border-slate-50 last:border-0 ${value === opt.id ? 'bg-blue-50' : 'bg-white'}`}>
-                <div className="flex justify-between items-center mb-1"><span className={`font-medium ${value === opt.id ? 'text-blue-700' : 'text-slate-700'}`}>{opt.name}</span>{opt.price !== undefined && <span className="text-xs font-mono text-slate-500">{opt.currency === 'USD' ? '$' : '￦'}{opt.price.toLocaleString()}</span>}</div>
+              <button key={opt[valueKey]} onClick={() => { onChange(opt[valueKey]); setSearch(opt[labelKey]); setIsOpen(false); }} className={`w-full text-left px-3 py-2.5 text-sm hover:bg-blue-50 transition-colors border-b border-slate-50 last:border-0 ${value === opt[valueKey] ? 'bg-blue-50' : 'bg-white'}`}>
+                <div className="flex justify-between items-center mb-1"><span className={`font-medium ${value === opt[valueKey] ? 'text-blue-700' : 'text-slate-700'}`}>{opt[labelKey]}</span>{opt.price !== undefined && <span className="text-xs font-mono text-slate-500">{opt.currency === 'USD' ? '$' : '￦'}{opt.price.toLocaleString()}</span>}</div>
               </button>
             ))
           ) : <div className="px-3 py-4 text-center text-xs text-slate-400">검색 결과가 없습니다.</div>}
@@ -127,7 +128,6 @@ const App = () => {
   const [fabricSearchTerm, setFabricSearchTerm] = useState('');
   const [yarnSearchTerm, setYarnSearchTerm] = useState('');
   
-  // ✅ 리스트 확장(아코디언)을 위한 State 추가
   const [expandedFabricId, setExpandedFabricId] = useState(null);
 
   const printRef = useRef(null);
@@ -503,6 +503,7 @@ const App = () => {
       setQuoteInput(prev => ({ ...prev, currency: newCurrency, items: updatedItems }));
   };
 
+  // ✅ MCQ 100kg 자동 환산 로직 추가 완료
   const handleAddFabricToQuote = () => {
     if (!selectedFabricIdForQuote) { showToast("견적서에 추가할 원단을 선택해주세요.", 'error'); return; }
     const fabric = savedFabrics.find(f => f.id === selectedFabricIdForQuote);
@@ -512,8 +513,13 @@ const App = () => {
     const data1k = calc.tier1k[quoteInput.marketType]; const data3k = calc.tier3k[quoteInput.marketType]; const data5k = calc.tier5k[quoteInput.marketType];
     const extraMarkup = 1 + (Number(quoteInput.extraMargin) || 0) / 100;
     const formatQuote = (val) => quoteInput.currency === 'USD' ? Number(val.toFixed(2)) : Math.round(val / 100) * 100;
+    
+    // MCQ 계산 (100kg을 YD로 환산. 100 / (g/yd / 1000) = 100000 / g/yd)
+    const effectiveGYd = calc.effectiveGYd;
+    const mcqYd = Math.round(100000 / effectiveGYd);
+
     const newItem = {
-      fabricId: fabric.id, article: fabric.article, itemName: fabric.itemName, widthCut: fabric.widthCut, widthFull: fabric.widthFull, gsm: fabric.gsm, gYd: calculateGYd(fabric.gsm, fabric.widthFull),
+      fabricId: fabric.id, article: fabric.article, itemName: fabric.itemName, widthCut: fabric.widthCut, widthFull: fabric.widthFull, gsm: fabric.gsm, gYd: effectiveGYd, mcqYd: mcqYd,
       price1k: formatQuote((isBrand ? data1k.priceBrand : data1k.priceConverter) * extraMarkup),
       price3k: formatQuote((isBrand ? data3k.priceBrand : data3k.priceConverter) * extraMarkup),
       price5k: formatQuote((isBrand ? data5k.priceBrand : data5k.priceConverter) * extraMarkup),
@@ -552,7 +558,7 @@ const App = () => {
   const filteredYarns = yarnLibrary.filter(y => {
       const matchCategory = yarnFilterCategory === 'All' || y.category === yarnFilterCategory;
       const matchSupplier = yarnFilterSupplier === 'All' || (y.suppliers || []).some(s => s.name === yarnFilterSupplier);
-      const matchSearch = y.name.toLowerCase().includes(yarnSearchTerm.toLowerCase()) || (y.remarks && y.remarks.toLowerCase().includes(yarnSearchTerm.toLowerCase()));
+      const matchSearch = (y.name || '').toLowerCase().includes((yarnSearchTerm || '').toLowerCase()) || ((y.remarks || '').toLowerCase().includes((yarnSearchTerm || '').toLowerCase()));
       return matchCategory && matchSupplier && matchSearch;
   });
 
@@ -613,7 +619,7 @@ const App = () => {
                     {fabricInput.yarns.map((slot, idx) => (
                       <div key={idx} className="flex gap-2 items-center">
                          <span className="text-xs font-mono text-slate-400 w-4">{idx+1}</span>
-                         <SearchableSelect value={slot.yarnId} options={yarnSelectOptions} onChange={(id) => handleYarnSlotChange(idx, 'yarnId', id)} placeholder="원사 검색 (대표업체 기준)..." />
+                         <SearchableSelect value={slot.yarnId} options={yarnSelectOptions} onChange={(id) => handleYarnSlotChange(idx, 'yarnId', id)} placeholder="원사 검색 (대표업체 기준)..." labelKey="name" valueKey="id" />
                          <div className="relative w-24"><input type="number" value={slot.ratio} onChange={(e) => handleYarnSlotChange(idx, 'ratio', e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-right text-sm" /><span className="absolute right-2 top-2 text-xs text-slate-400">%</span></div>
                       </div>
                     ))}
@@ -707,7 +713,6 @@ const App = () => {
         {(activeTab === 'list' || activeTab === 'yarns' || activeTab === 'quotation' || activeTab === 'quoteHistory') && (
            <div className="print:hidden">
              
-             {/* ✅ TAB 2: LIST (아코디언 형태의 대시보드 추가) */}
              {activeTab === 'list' && (
                <div className="max-w-[1600px] mx-auto">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
@@ -754,13 +759,11 @@ const App = () => {
                                  </td>
                                </tr>
                                
-                               {/* ✅ 아코디언 상세 정보 패널 */}
                                {isExpanded && (
                                  <tr className="bg-slate-50/80 border-b-2 border-blue-100">
                                    <td colSpan="7" className="p-6 cursor-default" onClick={(e) => e.stopPropagation()}>
                                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                                           
-                                          {/* 1. 공임 및 로스 정보 */}
                                           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
                                               <h4 className="text-xs font-bold text-slate-500 mb-3 flex items-center gap-1 border-b border-slate-100 pb-2"><Factory className="w-3.5 h-3.5"/> Fees & Loss Breakdown</h4>
                                               <div className="space-y-2 text-xs text-slate-600">
@@ -772,7 +775,6 @@ const App = () => {
                                               </div>
                                           </div>
 
-                                          {/* 2. 마진 및 브랜드 직납 */}
                                           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col justify-between">
                                               <div>
                                                 <h4 className="text-xs font-bold text-slate-500 mb-3 flex items-center gap-1 border-b border-slate-100 pb-2"><TrendingUp className="w-3.5 h-3.5"/> Sales Margin & Extra</h4>
@@ -796,7 +798,6 @@ const App = () => {
                                               )}
                                           </div>
 
-                                          {/* 3. 판매 단가표 */}
                                           <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 shadow-sm text-white">
                                               <h4 className="text-xs font-bold text-slate-300 mb-3 flex items-center justify-between border-b border-slate-600 pb-2">
                                                  <span className="flex items-center gap-1"><DollarSign className="w-3.5 h-3.5"/> 최종 판매 단가표</span>
@@ -954,19 +955,19 @@ const App = () => {
                </div>
              )}
 
-             {/* TAB 4: QUOTATION */}
+             {/* ✅ TAB 4: QUOTATION (영어화, MCQ 컬럼 추가, 드롭다운 버그 픽스) */}
              {activeTab === 'quotation' && (
                <div className="max-w-7xl mx-auto space-y-8">
-                 <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><FileText className="w-6 h-6 text-indigo-600"/> 견적서 작성</h2><div className="flex gap-2"><button onClick={handleSaveQuote} className="bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800 flex items-center gap-2"><Save className="w-4 h-4"/> 견적서 클라우드 저장</button><button onClick={handleDownloadPDF} className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center gap-2 shadow-lg shadow-indigo-200"><Download className="w-4 h-4"/> PDF 다운로드</button></div></div>
+                 <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><FileText className="w-6 h-6 text-indigo-600"/> Quotation</h2><div className="flex gap-2"><button onClick={handleSaveQuote} className="bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800 flex items-center gap-2"><Save className="w-4 h-4"/> Save to Cloud</button><button onClick={handleDownloadPDF} className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center gap-2 shadow-lg shadow-indigo-200"><Download className="w-4 h-4"/> Download PDF</button></div></div>
                  
                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                     <h3 className="text-sm font-bold text-slate-400 uppercase mb-4">Buyer Information & Currency</h3>
                     <div className="grid grid-cols-1 lg:grid-cols-6 gap-6">
-                       <div className="lg:col-span-2"><label className="block text-xs font-bold text-slate-500 mb-1">Buyer Name</label><input type="text" value={quoteInput.buyerName} onChange={(e) => setQuoteInput({...quoteInput, buyerName: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2" placeholder="바이어 이름 입력"/></div>
+                       <div className="lg:col-span-2"><label className="block text-xs font-bold text-slate-500 mb-1">Buyer Name</label><input type="text" value={quoteInput.buyerName} onChange={(e) => setQuoteInput({...quoteInput, buyerName: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2" placeholder="Buyer Name"/></div>
                        <div className="lg:col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">Quote Date</label><input type="date" value={quoteInput.date} onChange={(e) => setQuoteInput({...quoteInput, date: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2"/></div>
                        <div className="lg:col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">Settings</label><div className="flex bg-slate-100 p-1 rounded-lg gap-1"><button onClick={() => setQuoteInput({...quoteInput, buyerType: 'converter'})} className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${quoteInput.buyerType === 'converter' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Conv</button><button onClick={() => setQuoteInput({...quoteInput, buyerType: 'brand'})} className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${quoteInput.buyerType === 'brand' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>Brand</button><div className="w-px bg-slate-300 mx-1"></div><button onClick={() => setQuoteInput({...quoteInput, marketType: 'domestic'})} className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${quoteInput.marketType === 'domestic' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Dom</button><button onClick={() => setQuoteInput({...quoteInput, marketType: 'export'})} className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${quoteInput.marketType === 'export' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Exp</button></div></div>
-                       <div className="lg:col-span-1"><label className="block text-xs font-bold text-indigo-500 mb-1 flex items-center gap-1">바이어 난이도 마진</label><div className="relative"><input type="number" value={quoteInput.extraMargin || 0} onChange={(e) => setQuoteInput({...quoteInput, extraMargin: Number(e.target.value)})} className="w-full bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-right font-bold text-indigo-700 outline-none" placeholder="0" /><span className="absolute right-3 top-2 text-xs text-indigo-400 font-bold">%</span></div></div>
-                       <div className="lg:col-span-1 bg-yellow-50/50 p-2 rounded-xl border border-yellow-100"><div className="flex flex-col gap-2"><div><div className="flex bg-white border border-slate-200 rounded-lg p-1"><button onClick={() => handleCurrencyToggle('KRW')} className={`flex-1 py-0.5 rounded text-[10px] font-bold transition-all ${quoteInput.currency === 'KRW' ? 'bg-slate-800 text-white' : 'text-slate-400'}`}>KRW</button><button onClick={() => handleCurrencyToggle('USD')} className={`flex-1 py-0.5 rounded text-[10px] font-bold transition-all ${quoteInput.currency === 'USD' ? 'bg-slate-800 text-white' : 'text-slate-400'}`}>USD</button></div></div><div className="flex items-center gap-2"><span className="text-[10px] text-slate-500 font-bold whitespace-nowrap">환율 (￦/$)</span><input type="number" value={quoteInput.exchangeRate} onChange={(e) => setQuoteInput({...quoteInput, exchangeRate: e.target.value})} className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-right font-mono font-bold text-slate-700 text-xs"/></div></div></div>
+                       <div className="lg:col-span-1"><label className="block text-xs font-bold text-indigo-500 mb-1 flex items-center gap-1">Extra Margin</label><div className="relative"><input type="number" value={quoteInput.extraMargin || 0} onChange={(e) => setQuoteInput({...quoteInput, extraMargin: Number(e.target.value)})} className="w-full bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-right font-bold text-indigo-700 outline-none" placeholder="0" /><span className="absolute right-3 top-2 text-xs text-indigo-400 font-bold">%</span></div></div>
+                       <div className="lg:col-span-1 bg-yellow-50/50 p-2 rounded-xl border border-yellow-100"><div className="flex flex-col gap-2"><div><div className="flex bg-white border border-slate-200 rounded-lg p-1"><button onClick={() => handleCurrencyToggle('KRW')} className={`flex-1 py-0.5 rounded text-[10px] font-bold transition-all ${quoteInput.currency === 'KRW' ? 'bg-slate-800 text-white' : 'text-slate-400'}`}>KRW</button><button onClick={() => handleCurrencyToggle('USD')} className={`flex-1 py-0.5 rounded text-[10px] font-bold transition-all ${quoteInput.currency === 'USD' ? 'bg-slate-800 text-white' : 'text-slate-400'}`}>USD</button></div></div><div className="flex items-center gap-2"><span className="text-[10px] text-slate-500 font-bold whitespace-nowrap">Rate (￦/$)</span><input type="number" value={quoteInput.exchangeRate} onChange={(e) => setQuoteInput({...quoteInput, exchangeRate: e.target.value})} className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-right font-mono font-bold text-slate-700 text-xs"/></div></div></div>
                     </div>
                  </div>
 
@@ -974,12 +975,12 @@ const App = () => {
                     <div className="flex justify-between items-center mb-4">
                        <h3 className="text-sm font-bold text-slate-400 uppercase">Select Fabrics</h3>
                        <div className="flex gap-2 w-full max-w-md">
-                          <SearchableSelect value={selectedFabricIdForQuote} options={savedFabrics} onChange={setSelectedFabricIdForQuote} placeholder="리스트에서 원단 검색..." labelKey="article" valueKey="id"/>
-                          <button onClick={handleAddFabricToQuote} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-100 shrink-0">+ 견적에 추가</button>
+                          <SearchableSelect value={selectedFabricIdForQuote} options={savedFabrics} onChange={setSelectedFabricIdForQuote} placeholder="Search Fabric..." labelKey="article" valueKey="id"/>
+                          <button onClick={handleAddFabricToQuote} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-100 shrink-0">+ Add</button>
                        </div>
                     </div>
-                    <div className="overflow-hidden rounded-xl border border-slate-200">
-                       <table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200"><tr><th className="p-4 w-12">No.</th><th className="p-4">Article</th><th className="p-4">Spec (품명)</th><th className="p-4 text-center">내폭</th><th className="p-4 text-center">외폭</th><th className="p-4 text-right">GSM</th><th className="p-4 text-right">g/YD</th><th className="p-4 w-28 bg-slate-100 text-right">1,000YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-4 w-28 bg-indigo-50 text-indigo-900 text-right">3,000YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-4 w-28 bg-slate-100 text-right">5,000YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-4 w-12 text-center"></th></tr></thead>
+                    <div className="overflow-hidden rounded-xl border border-slate-200 overflow-x-auto">
+                       <table className="w-full text-sm text-left min-w-[900px]"><thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200"><tr><th className="p-4 w-12">No.</th><th className="p-4">Article</th><th className="p-4">Spec</th><th className="p-4 text-center">Cut</th><th className="p-4 text-center">Full</th><th className="p-4 text-right">GSM</th><th className="p-4 text-right">g/YD</th><th className="p-4 text-right text-orange-600 bg-orange-50/50">MCQ (100kg)</th><th className="p-4 w-28 bg-slate-100 text-right">1,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-4 w-28 bg-indigo-50 text-indigo-900 text-right">3,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-4 w-28 bg-slate-100 text-right">5,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-4 w-12 text-center"></th></tr></thead>
                           <tbody className="divide-y divide-slate-100">
                              {quoteInput.items.map((item, idx) => (
                                 <tr key={idx} className="group hover:bg-slate-50">
@@ -990,13 +991,14 @@ const App = () => {
                                    <td className="p-4 text-slate-500 text-center">{item.widthFull}"</td>
                                    <td className="p-4 text-right text-slate-500">{item.gsm}</td>
                                    <td className="p-4 text-right text-slate-500 font-mono">{item.gYd}</td>
+                                   <td className="p-4 text-right text-orange-600 font-bold font-mono bg-orange-50/30">{(item.mcqYd || Math.round(100000 / item.gYd)).toLocaleString()} <span className="text-[10px] font-normal">YD</span></td>
                                    <td className="p-2 bg-slate-50"><input type="number" value={item.price1k} onChange={(e) => handleQuotePriceChange(idx, 'price1k', e.target.value)} className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-right text-slate-600 focus:border-indigo-500 outline-none"/></td>
                                    <td className="p-2 bg-indigo-50/30"><input type="number" value={item.price3k} onChange={(e) => handleQuotePriceChange(idx, 'price3k', e.target.value)} className="w-full bg-white border border-indigo-200 rounded px-2 py-1 text-right font-bold text-indigo-700 focus:border-indigo-500 outline-none"/></td>
                                    <td className="p-2 bg-slate-50"><input type="number" value={item.price5k} onChange={(e) => handleQuotePriceChange(idx, 'price5k', e.target.value)} className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-right text-slate-600 focus:border-indigo-500 outline-none"/></td>
                                    <td className="p-2 text-center"><button onClick={() => handleRemoveItemFromQuote(idx)} className="text-slate-300 hover:text-red-500 p-1"><X className="w-4 h-4"/></button></td>
                                 </tr>
                              ))}
-                             {quoteInput.items.length === 0 && <tr><td colSpan="11" className="p-8 text-center text-slate-400">원단을 검색하고 '+ 견적에 추가' 버튼을 눌러주세요.</td></tr>}
+                             {quoteInput.items.length === 0 && <tr><td colSpan="12" className="p-8 text-center text-slate-400">Search fabric and click '+ Add'</td></tr>}
                           </tbody>
                        </table>
                     </div>
@@ -1008,11 +1010,11 @@ const App = () => {
              {activeTab === 'quoteHistory' && (
                  <div className="max-w-6xl mx-auto space-y-6">
                     <div className="flex justify-between items-end">
-                       <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Calendar className="w-6 h-6 text-indigo-600"/> 견적 히스토리</h2>
+                       <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Calendar className="w-6 h-6 text-indigo-600"/> Quote History</h2>
                        <div className="flex items-center gap-2 mb-1 px-2">
-                          <span className="text-sm font-bold text-slate-500">작성자:</span>
+                          <span className="text-sm font-bold text-slate-500">Author:</span>
                           <select value={quoteAuthorFilter} onChange={(e) => setQuoteAuthorFilter(e.target.value)} className="bg-white border border-slate-200 text-sm font-bold text-slate-600 rounded px-2 py-1 outline-none cursor-pointer hover:border-slate-300 transition-colors">
-                              {uniqueAuthors.map(author => <option key={author} value={author}>{author === 'All' ? '전체 보기' : author}</option>)}
+                              {uniqueAuthors.map(author => <option key={author} value={author}>{author === 'All' ? 'All' : author}</option>)}
                           </select>
                        </div>
                     </div>
@@ -1024,33 +1026,60 @@ const App = () => {
                                 <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-bold">{quote.authorName}</span>
                              </div>
                              <h3 className="text-lg font-bold text-slate-800 mb-1">{quote.buyerName}</h3>
-                             <div className="flex gap-2 mb-4"><span className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold ${quote.buyerType === 'converter' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>{quote.buyerType}</span><span className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold border ${quote.marketType === 'domestic' ? 'border-blue-200 text-blue-600' : 'border-emerald-200 text-emerald-600'}`}>{quote.marketType === 'domestic' ? '내수' : '수출'}</span><span className="text-[10px] px-2 py-0.5 rounded uppercase font-bold bg-slate-100 text-slate-600">{quote.currency}</span></div>
+                             <div className="flex gap-2 mb-4"><span className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold ${quote.buyerType === 'converter' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>{quote.buyerType}</span><span className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold border ${quote.marketType === 'domestic' ? 'border-blue-200 text-blue-600' : 'border-emerald-200 text-emerald-600'}`}>{quote.marketType === 'domestic' ? 'Dom' : 'Exp'}</span><span className="text-[10px] px-2 py-0.5 rounded uppercase font-bold bg-slate-100 text-slate-600">{quote.currency}</span></div>
                              <div className="mt-4 flex gap-2">
-                                <button onClick={() => { setQuoteInput(quote); setActiveTab('quotation'); }} className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-lg text-sm font-bold hover:bg-slate-100 transition-colors">열기/수정</button>
-                                <button onClick={() => { setQuoteInput(quote); handleDownloadPDF(); }} className="flex-1 bg-indigo-50 text-indigo-600 py-2 rounded-lg text-sm font-bold hover:bg-indigo-100 transition-colors">PDF 다운</button>
+                                <button onClick={() => { setQuoteInput(quote); setActiveTab('quotation'); }} className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-lg text-sm font-bold hover:bg-slate-100 transition-colors">Open / Edit</button>
+                                <button onClick={() => { setQuoteInput(quote); handleDownloadPDF(); }} className="flex-1 bg-indigo-50 text-indigo-600 py-2 rounded-lg text-sm font-bold hover:bg-indigo-100 transition-colors">PDF Down</button>
                              </div>
                           </div>
                        ))}
-                       {filteredQuotes.length === 0 && <div className="col-span-full py-12 text-center text-slate-400">해당 조건의 견적서가 없습니다.</div>}
+                       {filteredQuotes.length === 0 && <div className="col-span-full py-12 text-center text-slate-400">No quotation history found.</div>}
                     </div>
                  </div>
              )}
            </div>
         )}
         
-        {/* 모달 */}
+        {/* 모달 생략 (동일) */}
         {isBulkModalOpen && ( <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4"><div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 relative"><button onClick={() => setIsBulkModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6"/></button><h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><FileSpreadsheet className="w-6 h-6 text-emerald-600"/> 원단 엑셀 일괄 등록</h3><div className="space-y-4"><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">1. 양식 다운로드 (원사정보 포함됨)</p><button onClick={handleDownloadTemplate} className="w-full flex justify-center items-center gap-2 bg-white border border-slate-300 py-2 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><Download className="w-4 h-4" /> 양식 다운로드 (.xlsx)</button></div><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">2. 파일 업로드</p><label className="w-full flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-white hover:bg-slate-50 transition-colors"><Upload className="w-8 h-8 text-slate-400 mb-2" /><span className="text-sm text-slate-500 font-medium">클릭하여 엑셀 파일 선택</span><input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleFileUpload} ref={fileInputRef} /></label></div></div></div></div> )}
         {isYarnBulkModalOpen && ( <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4"><div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 relative"><button onClick={() => setIsYarnBulkModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6"/></button><h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><FileSpreadsheet className="w-6 h-6 text-emerald-600"/> 원사 엑셀 일괄 등록</h3><div className="space-y-4"><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">1. 양식 다운로드</p><button onClick={handleDownloadYarnTemplate} className="w-full flex justify-center items-center gap-2 bg-white border border-slate-300 py-2 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><Download className="w-4 h-4" /> 원사 양식 다운로드 (.xlsx)</button></div><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">2. 파일 업로드</p><label className="w-full flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-white hover:bg-slate-50 transition-colors"><Upload className="w-8 h-8 text-slate-400 mb-2" /><span className="text-sm text-slate-500 font-medium">클릭하여 엑셀 파일 선택</span><input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleYarnFileUpload} ref={yarnFileInputRef} /></label></div></div></div></div> )}
 
+        {/* ✅ PDF 출력 렌더링 영역 (영어 변경 및 MCQ 추가) */}
         <div className={`fixed inset-0 bg-white z-[9999] p-12 overflow-y-auto ${isPdfGenerating ? 'block' : 'hidden'}`}>
            <div ref={printRef} className="w-[297mm] min-h-[210mm] mx-auto bg-white">
               <div className="flex justify-center mb-8"><div className="text-center"><div className="flex items-center justify-center gap-3 text-cyan-600 mb-2"><Cloud className="w-12 h-12 fill-current" /><h1 className="text-5xl font-extrabold tracking-tight">G R U B I G</h1></div></div></div>
               <div className="text-center border-b-2 border-slate-800 pb-4 mb-8"><h2 className="text-2xl font-serif font-bold text-slate-900 mb-1">FABRIC QUOTATION</h2><p className="text-slate-500 text-sm font-bold">FOB PRICE</p></div>
               <div className="flex justify-between mb-8"><div className="w-1/2"><p className="text-xs text-slate-400 uppercase font-bold mb-1">To</p><h2 className="text-xl font-bold text-slate-900">{quoteInput.buyerName}</h2><p className="text-sm text-slate-600 capitalize">{quoteInput.buyerType} Partner / {quoteInput.marketType === 'domestic' ? 'Domestic Market' : 'Export Market'}</p></div><div className="w-1/2 text-right"><p className="text-xs text-slate-400 uppercase font-bold mb-1">Date</p><h2 className="text-xl font-bold text-slate-900">{quoteInput.date}</h2><p className="text-xs text-slate-500 mt-2">Currency: {quoteInput.currency} (Rate: {quoteInput.exchangeRate})</p></div></div>
               <table className="w-full text-sm text-left mb-8 border-collapse">
-                 <thead><tr className="border-b-2 border-slate-800"><th className="py-2 font-bold text-slate-900">Article</th><th className="py-2 font-bold text-slate-900">Spec (품명)</th><th className="py-2 font-bold text-slate-900 text-center">내폭</th><th className="py-2 font-bold text-slate-900 text-center">외폭</th><th className="py-2 font-bold text-slate-900 text-right">GSM</th><th className="py-2 font-bold text-slate-900 text-right">g/YD</th><th className="py-2 font-bold text-slate-900 text-right">1,000 YD</th><th className="py-2 font-bold text-slate-900 text-right">3,000 YD</th><th className="py-2 font-bold text-slate-900 text-right">5,000 YD</th></tr></thead>
+                 <thead>
+                   <tr className="border-b-2 border-slate-800">
+                     <th className="py-2 font-bold text-slate-900">Article</th>
+                     <th className="py-2 font-bold text-slate-900">Spec</th>
+                     <th className="py-2 font-bold text-slate-900 text-center">Cut</th>
+                     <th className="py-2 font-bold text-slate-900 text-center">Full</th>
+                     <th className="py-2 font-bold text-slate-900 text-right">GSM</th>
+                     <th className="py-2 font-bold text-slate-900 text-right">g/YD</th>
+                     <th className="py-2 font-bold text-slate-900 text-right text-orange-600">MCQ(100kg)</th>
+                     <th className="py-2 font-bold text-slate-900 text-right">1,000 YD</th>
+                     <th className="py-2 font-bold text-slate-900 text-right">3,000 YD</th>
+                     <th className="py-2 font-bold text-slate-900 text-right">5,000 YD</th>
+                   </tr>
+                 </thead>
                  <tbody className="divide-y divide-slate-200">
-                    {quoteInput.items.map((item, idx) => ( <tr key={idx}><td className="py-4 font-bold text-slate-800">{item.article}</td><td className="py-4 text-slate-600">{item.itemName}</td><td className="py-4 text-center text-slate-500">{item.widthCut}"</td><td className="py-4 text-center text-slate-500">{item.widthFull}"</td><td className="py-4 text-right text-slate-500">{item.gsm}</td><td className="py-4 text-right text-slate-500 font-mono">{item.gYd}</td><td className="py-4 text-right font-mono">{formatQuotePrice(item.price1k)}</td><td className="py-4 text-right font-mono font-bold">{formatQuotePrice(item.price3k)}</td><td className="py-4 text-right font-mono">{formatQuotePrice(item.price5k)}</td></tr> ))}
+                    {quoteInput.items.map((item, idx) => ( 
+                      <tr key={idx}>
+                        <td className="py-4 font-bold text-slate-800">{item.article}</td>
+                        <td className="py-4 text-slate-600">{item.itemName}</td>
+                        <td className="py-4 text-center text-slate-500">{item.widthCut}"</td>
+                        <td className="py-4 text-center text-slate-500">{item.widthFull}"</td>
+                        <td className="py-4 text-right text-slate-500">{item.gsm}</td>
+                        <td className="py-4 text-right text-slate-500 font-mono">{item.gYd}</td>
+                        <td className="py-4 text-right text-slate-900 font-mono font-bold">{(item.mcqYd || Math.round(100000 / item.gYd)).toLocaleString()} YD</td>
+                        <td className="py-4 text-right font-mono">{formatQuotePrice(item.price1k)}</td>
+                        <td className="py-4 text-right font-mono font-bold">{formatQuotePrice(item.price3k)}</td>
+                        <td className="py-4 text-right font-mono">{formatQuotePrice(item.price5k)}</td>
+                      </tr> 
+                    ))}
                  </tbody>
               </table>
               <div className="border-t-2 border-slate-800 pt-6 mt-12 text-xs text-slate-500 font-medium leading-relaxed"><p className="mb-1">• VALID UNTIL: <span className="font-bold text-slate-800">{getLastDayOfMonth()}</span></p><p className="mb-1">• ±5% WEIGHT AND WIDTH TOLERANCE</p><p className="mb-1">• BULK PRICING NEGOTIABLE</p><p>• UPCHARGE APPLIES FOR ORDERS BELOW MCQ/MOQ</p></div>
