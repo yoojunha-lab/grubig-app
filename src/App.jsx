@@ -4,7 +4,7 @@ import {
   RotateCcw, Layers, Edit2, Check, X, Box, Search, ChevronDown,
   TrendingUp, Users, Factory, FileText, Printer, Calendar, Upload,
   Globe, Home, Percent, DollarSign, Coins, History, Tag, AlertCircle, HelpCircle, Info, Filter, Truck, Download,
-  Cloud, LogOut
+  Cloud, LogOut, Database
 } from 'lucide-react';
 
 // 🔥 Firebase 모듈
@@ -32,13 +32,7 @@ const YARN_CATEGORIES = ['소모', '방모', '화섬', 'SPANDEX', '면방', '린
 
 // ✅ 마진 6단계 규격화 설정 (0단계~6단계)
 const MARGIN_TIERS = {
-  0: 10,
-  1: 13,
-  2: 16,
-  3: 19,
-  4: 22,
-  5: 25,
-  6: 28
+  0: 10, 1: 13, 2: 16, 3: 19, 4: 22, 5: 25, 6: 28
 };
 
 // --- 라이브러리 로드 훅 ---
@@ -130,6 +124,9 @@ const App = () => {
   const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
   const [viewMode, setViewMode] = useState('domestic'); 
   const [yarnFilterCategory, setYarnFilterCategory] = useState('All');
+  const [yarnFilterSupplier, setYarnFilterSupplier] = useState('All'); 
+  const [quoteAuthorFilter, setQuoteAuthorFilter] = useState('All'); 
+
   const [editingFabricId, setEditingFabricId] = useState(null); 
   const [editingYarnId, setEditingYarnId] = useState(null);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
@@ -181,21 +178,21 @@ const App = () => {
 
   // --- 입력 폼 상태 (Fabric) ---
   const [fabricInput, setFabricInput] = useState({
-    article: '', itemName: '', widthFull: 58, widthCut: 56, gsm: 300, costGYd: '', exchangeRate: 1450,
-    knittingFee1k: 4000, knittingFee3k: 3000, knittingFee5k: 2500, dyeingFee: 2500, managementFeeYd: 100,
+    article: '', itemName: '', widthFull: 58, widthCut: 56, gsm: 300, costGYd: '', exchangeRate: 1450, remarks: '', 
+    knittingFee1k: 4000, knittingFee3k: 3000, knittingFee5k: 2500, dyeingFee: 2500,
     extraFee1k: 600, extraFee3k: 500, extraFee5k: 400,
-    losses: { tier1k: { knit: 8, dye: 13 }, tier3k: { knit: 5, dye: 10 }, tier5k: { knit: 5, dye: 10 } },
-    marginTier: 3, // ✅ 기본 3단계 (19%)
-    brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 }, // ✅ 직납 추가금
+    losses: { tier1k: { knit: 5, dye: 13 }, tier3k: { knit: 5, dye: 10 }, tier5k: { knit: 5, dye: 10 } }, 
+    marginTier: 3, 
+    brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 }, 
     yarns: [{ yarnId: '', ratio: 100 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }]
   });
 
-  const [yarnInput, setYarnInput] = useState({ category: '소모', name: '', price: '', currency: 'KRW', tariff: 8, supplier: '', remarks: '' });
+  // ✅ Yarn 상태에 freight(운반비) 속성 추가
+  const [yarnInput, setYarnInput] = useState({ category: '소모', name: '', price: '', currency: 'KRW', tariff: 8, freight: 0, supplier: '', remarks: '' });
   
   const [quoteInput, setQuoteInput] = useState({
     buyerName: '', buyerType: 'converter', marketType: 'domestic', currency: 'KRW', exchangeRate: 1450, date: new Date().toISOString().split('T')[0], 
-    extraMargin: 0, // ✅ 바이어 난이도 마진 (%)
-    items: [] 
+    extraMargin: 0, items: [] 
   });
   const [selectedFabricIdForQuote, setSelectedFabricIdForQuote] = useState('');
 
@@ -229,8 +226,13 @@ const App = () => {
         if (yarn) {
           const ratio = slot.ratio / 100;
           let priceInKrw = yarn.currency === 'USD' ? yarn.price * fabricExchangeRate : yarn.price;
+          
+          // ✅ 사장님 요청: 내수 단가 = 단가 * (1+관세) * (1+운반비)
+          const tariffRate = 1 + ((yarn.tariff || 0) / 100);
+          const freightRate = 1 + ((yarn.freight || 0) / 100);
+          
           yarnCostExport += priceInKrw * ratio; 
-          yarnCostDomestic += (priceInKrw * (1 + ((yarn.tariff || 0) / 100))) * ratio;
+          yarnCostDomestic += (priceInKrw * tariffRate * freightRate) * ratio;
         }
       }
     });
@@ -239,7 +241,6 @@ const App = () => {
     const effectiveGYd = fabricData.costGYd && Number(fabricData.costGYd) > 0 ? Number(fabricData.costGYd) : theoreticalGYd;
     const weightPerYdKg = effectiveGYd / 1000;
 
-    // ✅ 원가 및 6단계 마진/직납 추가금 적용 로직
     const calcTier = (tierKey, knittingFeeKg, qty) => {
       const specificLoss = fabricData.losses[tierKey] || { knit: 0, dye: 0 };
       const totalLossRate = ((Number(specificLoss.knit) || 0) + (Number(specificLoss.dye) || 0)) / 100;
@@ -254,35 +255,30 @@ const App = () => {
       const costYarnYdDomestic = (yarnCostDomestic / (1 - totalLossRate)) * weightPerYdKg;
       const costYarnYdExport = (yarnCostExport / (1 - totalLossRate)) * weightPerYdKg;
 
-      const totalCostYdDomesticKRW = costYarnYdDomestic + costKnitYd + costDyeYd + Number(fabricData.managementFeeYd) + extraFee;
-      const totalCostYdExportKRW = costYarnYdExport + costKnitYd + costDyeYd + Number(fabricData.managementFeeYd) + extraFee;
+      const totalCostYdDomesticKRW = costYarnYdDomestic + costKnitYd + costDyeYd + extraFee;
+      const totalCostYdExportKRW = costYarnYdExport + costKnitYd + costDyeYd + extraFee;
       
-      // ✅ 사장님의 새로운 마진 로직 적용
       const currentMarginTier = fabricData.marginTier !== undefined ? fabricData.marginTier : 3;
       const marginPct = MARGIN_TIERS[currentMarginTier];
       const brandEx = Number(fabricData.brandExtra?.[tierKey]) || 0;
 
       const domesticPriceConv = applyGrossMargin(totalCostYdDomesticKRW, marginPct);
-      const domesticPriceBrand = domesticPriceConv + brandEx; // Converter가 + 직납 추가금
+      const domesticPriceBrand = domesticPriceConv + brandEx;
 
       const totalCostYdExportUSD = totalCostYdExportKRW / fabricExchangeRate;
       const exportPriceConv = applyGrossMargin(totalCostYdExportUSD, marginPct);
-      const exportPriceBrand = exportPriceConv + (brandEx / fabricExchangeRate); // 달러 환산 추가
+      const exportPriceBrand = exportPriceConv + (brandEx / fabricExchangeRate);
 
       return {
         domestic: {
           currency: 'KRW',
           yarnCostYd: Math.round(costYarnYdDomestic), knitCostYd: Math.round(costKnitYd), dyeCostYd: Math.round(costDyeYd), extraFeeYd: Math.round(extraFee),
-          totalCostYd: Math.round(totalCostYdDomesticKRW),
-          priceConverter: smartRound(domesticPriceConv, 'KRW'),
-          priceBrand: smartRound(domesticPriceBrand, 'KRW'),
+          totalCostYd: Math.round(totalCostYdDomesticKRW), priceConverter: smartRound(domesticPriceConv, 'KRW'), priceBrand: smartRound(domesticPriceBrand, 'KRW'),
         },
         export: {
           currency: 'USD',
           yarnCostYd: Number((costYarnYdExport / fabricExchangeRate).toFixed(2)), knitCostYd: Number((costKnitYd / fabricExchangeRate).toFixed(2)), dyeCostYd: Number((costDyeYd / fabricExchangeRate).toFixed(2)), extraFeeYd: Number((extraFee / fabricExchangeRate).toFixed(2)),
-          totalCostYd: Number(totalCostYdExportUSD.toFixed(2)),
-          priceConverter: smartRound(exportPriceConv, 'USD'),
-          priceBrand: smartRound(exportPriceBrand, 'USD'),
+          totalCostYd: Number(totalCostYdExportUSD.toFixed(2)), priceConverter: smartRound(exportPriceConv, 'USD'), priceBrand: smartRound(exportPriceBrand, 'USD'),
         },
         requiredKg: Math.round((qty * weightPerYdKg) / (1 - totalLossRate))
       };
@@ -297,7 +293,7 @@ const App = () => {
     };
   };
 
-  const handleFabricChange = (e) => { const { name, value } = e.target; setFabricInput(prev => ({ ...prev, [name]: (name === 'article' || name === 'itemName' || name === 'costGYd') ? value : Number(value) })); };
+  const handleFabricChange = (e) => { const { name, value } = e.target; setFabricInput(prev => ({ ...prev, [name]: (name === 'article' || name === 'itemName' || name === 'costGYd' || name === 'remarks') ? value : Number(value) })); };
   const handleNestedChange = (section, tier, field, value) => {
     setFabricInput(prev => ({ ...prev, [section]: { ...prev[section], [tier]: field ? { ...prev[section][tier], [field]: Number(value) } : Number(value) } }));
   };
@@ -319,10 +315,10 @@ const App = () => {
 
   const resetForm = () => {
     setFabricInput({
-      article: '', itemName: '', widthFull: 58, widthCut: 56, gsm: 300, costGYd: '', exchangeRate: 1450,
-      knittingFee1k: 4000, knittingFee3k: 3000, knittingFee5k: 2500, dyeingFee: 2500, managementFeeYd: 100, 
+      article: '', itemName: '', widthFull: 58, widthCut: 56, gsm: 300, costGYd: '', exchangeRate: 1450, remarks: '',
+      knittingFee1k: 4000, knittingFee3k: 3000, knittingFee5k: 2500, dyeingFee: 2500,
       extraFee1k: 600, extraFee3k: 500, extraFee5k: 400,
-      losses: { tier1k: { knit: 8, dye: 13 }, tier3k: { knit: 5, dye: 10 }, tier5k: { knit: 5, dye: 10 } }, 
+      losses: { tier1k: { knit: 5, dye: 13 }, tier3k: { knit: 5, dye: 10 }, tier5k: { knit: 5, dye: 10 } }, 
       marginTier: 3, brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 },
       yarns: [{ yarnId: '', ratio: 100 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }]
     });
@@ -333,24 +329,51 @@ const App = () => {
 
   const handleEditFabric = (fabric) => { 
     setFabricInput({ 
-      ...fabric, 
+      ...fabric, remarks: fabric.remarks || '',
       extraFee1k: fabric.extraFee1k || 600, extraFee3k: fabric.extraFee3k || 500, extraFee5k: fabric.extraFee5k || 400,
-      losses: fabric.losses || { tier1k: { knit: 8, dye: 13 }, tier3k: { knit: 5, dye: 10 }, tier5k: { knit: 5, dye: 10 } },
+      losses: fabric.losses || { tier1k: { knit: 5, dye: 13 }, tier3k: { knit: 5, dye: 10 }, tier5k: { knit: 5, dye: 10 } },
       marginTier: fabric.marginTier !== undefined ? fabric.marginTier : 3,
       brandExtra: fabric.brandExtra || { tier1k: 1000, tier3k: 700, tier5k: 500 }
     }); 
     setEditingFabricId(fabric.id); setActiveTab('calculator'); 
   };
 
-  // --- 이하 EXCEL, YARN 저장 로직 (기존과 동일) ---
-  const EXCEL_HEADERS = ['Article', 'ItemName', 'WidthFull', 'WidthCut', 'GSM', 'CostGYd', 'KnittingFee1k', 'KnittingFee3k', 'KnittingFee5k', 'DyeingFee', 'ManagementFeeYd', 'ExtraFee1k', 'ExtraFee3k', 'ExtraFee5k'];
-  const handleDownloadTemplate = () => { /* 생략 없이 기존 코드 유지 */
+  const handleBackupFabrics = () => {
     if (!isXlsxReady) return;
-    const exampleRow = ['SAMPLE-01', 'Cotton Jersey', 58, 56, 300, 320, 4000, 3500, 3000, 2500, 100, 600, 500, 400];
+    const dataToExport = savedFabrics.map(f => {
+        const y1 = yarnLibrary.find(y => y.id === f.yarns[0]?.yarnId); const y2 = yarnLibrary.find(y => y.id === f.yarns[1]?.yarnId);
+        const y3 = yarnLibrary.find(y => y.id === f.yarns[2]?.yarnId); const y4 = yarnLibrary.find(y => y.id === f.yarns[3]?.yarnId);
+        return {
+            Article: f.article, ItemName: f.itemName, WidthFull: f.widthFull, WidthCut: f.widthCut, GSM: f.gsm, CostGYd: f.costGYd,
+            KnittingFee1k: f.knittingFee1k, KnittingFee3k: f.knittingFee3k, KnittingFee5k: f.knittingFee5k, DyeingFee: f.dyeingFee,
+            ExtraFee1k: f.extraFee1k, ExtraFee3k: f.extraFee3k, ExtraFee5k: f.extraFee5k, Remarks: f.remarks || '',
+            Yarn1_Name: y1 ? y1.name : '', Yarn1_Ratio: f.yarns[0]?.ratio || 0,
+            Yarn2_Name: y2 ? y2.name : '', Yarn2_Ratio: f.yarns[1]?.ratio || 0,
+            Yarn3_Name: y3 ? y3.name : '', Yarn3_Ratio: f.yarns[2]?.ratio || 0,
+            Yarn4_Name: y4 ? y4.name : '', Yarn4_Ratio: f.yarns[3]?.ratio || 0,
+        };
+    });
+    const ws = window.XLSX.utils.json_to_sheet(dataToExport); const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, "원단백업"); window.XLSX.writeFile(wb, `Fabric_Backup_${new Date().toLocaleDateString()}.xlsx`);
+  };
+
+  // ✅ 엑셀 백업 로직에 운반비(Freight) 추가
+  const handleBackupYarns = () => {
+    if (!isXlsxReady) return;
+    const dataToExport = yarnLibrary.map(y => ({ Category: y.category, Name: y.name, Supplier: y.supplier, Currency: y.currency, Price: y.price, Tariff: y.tariff, Freight: y.freight || 0, Remarks: y.remarks }));
+    const ws = window.XLSX.utils.json_to_sheet(dataToExport); const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, "원사백업"); window.XLSX.writeFile(wb, `Yarn_Backup_${new Date().toLocaleDateString()}.xlsx`);
+  };
+
+  const EXCEL_HEADERS = ['Article', 'ItemName', 'WidthFull', 'WidthCut', 'GSM', 'CostGYd', 'KnittingFee1k', 'KnittingFee3k', 'KnittingFee5k', 'DyeingFee', 'ExtraFee1k', 'ExtraFee3k', 'ExtraFee5k', 'Remarks', 'Yarn1_Name', 'Yarn1_Ratio', 'Yarn2_Name', 'Yarn2_Ratio', 'Yarn3_Name', 'Yarn3_Ratio', 'Yarn4_Name', 'Yarn4_Ratio'];
+  
+  const handleDownloadTemplate = () => {
+    if (!isXlsxReady) return;
+    const exampleRow = ['SAMPLE-01', 'Cotton Jersey', 58, 56, 300, 320, 4000, 3500, 3000, 2500, 600, 500, 400, '바이어 요청 샘플', 'CM 30s', 100, '', 0, '', 0, '', 0];
     const ws = window.XLSX.utils.aoa_to_sheet([EXCEL_HEADERS, exampleRow]);
-    ws['!cols'] = [{ wch: 15 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
     const wb = window.XLSX.utils.book_new(); window.XLSX.utils.book_append_sheet(wb, ws, "원단일괄등록"); window.XLSX.writeFile(wb, '원단등록_양식_상세.xlsx');
   };
+
   const handleFileUpload = (e) => {
     if (!isXlsxReady || !e.target.files[0]) return;
     const reader = new FileReader();
@@ -359,31 +382,54 @@ const App = () => {
         const ws = window.XLSX.read(evt.target.result, { type: 'binary' }).Sheets[window.XLSX.read(evt.target.result, { type: 'binary' }).SheetNames[0]];
         const data = window.XLSX.utils.sheet_to_json(ws, { header: 0 });
         if (data.length === 0) { showToast('데이터가 없습니다.', 'error'); return; }
+        
         const newFabrics = [];
+        let missingYarnNames = new Set();
+
         data.forEach((row, idx) => {
             if (!row.Article) return; const kFee1k = Number(row.KnittingFee1k) || 4000;
+            
+            let mappedYarns = [];
+            for(let i=1; i<=4; i++) {
+               const yName = row[`Yarn${i}_Name`]; const yRatio = Number(row[`Yarn${i}_Ratio`]) || 0;
+               if (yName) {
+                   const found = yarnLibrary.find(y => y.name === yName);
+                   if (found) mappedYarns.push({ yarnId: found.id, ratio: yRatio });
+                   else { missingYarnNames.add(yName); mappedYarns.push({ yarnId: '', ratio: yRatio }); }
+               } else { mappedYarns.push({ yarnId: '', ratio: 0 }); }
+            }
+
             newFabrics.push({
-                id: Date.now() + idx, date: new Date().toLocaleDateString(), article: row.Article || 'Unknown', itemName: row.ItemName || '',
+                id: Date.now() + idx, date: new Date().toLocaleDateString(), article: row.Article || 'Unknown', itemName: row.ItemName || '', remarks: row.Remarks || '',
                 widthFull: Number(row.WidthFull) || 58, widthCut: Number(row.WidthCut) || 56, gsm: Number(row.GSM) || 300, costGYd: row.CostGYd ? Number(row.CostGYd) : '', exchangeRate: 1450, 
-                knittingFee1k: kFee1k, knittingFee3k: Number(row.KnittingFee3k) || (kFee1k - 500), knittingFee5k: Number(row.KnittingFee5k) || (kFee1k - 1000), dyeingFee: Number(row.DyeingFee) || 2500, managementFeeYd: Number(row.ManagementFeeYd) || 100,
+                knittingFee1k: kFee1k, knittingFee3k: Number(row.KnittingFee3k) || (kFee1k - 500), knittingFee5k: Number(row.KnittingFee5k) || (kFee1k - 1000), dyeingFee: Number(row.DyeingFee) || 2500,
                 extraFee1k: Number(row.ExtraFee1k) || 600, extraFee3k: Number(row.ExtraFee3k) || 500, extraFee5k: Number(row.ExtraFee5k) || 400,
-                losses: { tier1k: { knit: 8, dye: 13 }, tier3k: { knit: 5, dye: 10 }, tier5k: { knit: 5, dye: 10 } },
+                losses: { tier1k: { knit: 5, dye: 13 }, tier3k: { knit: 5, dye: 10 }, tier5k: { knit: 5, dye: 10 } },
                 marginTier: 3, brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 },
-                yarns: [{ yarnId: '', ratio: 100 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }]
+                yarns: mappedYarns
             });
         });
-        setSavedFabrics([...newFabrics, ...savedFabrics]); saveBatchToCloud('fabrics', newFabrics); setIsBulkModalOpen(false); showToast(`${newFabrics.length}건이 등록되었습니다.`, 'success');
+        
+        setSavedFabrics([...newFabrics, ...savedFabrics]); saveBatchToCloud('fabrics', newFabrics); setIsBulkModalOpen(false); 
+        
+        if (missingYarnNames.size > 0) {
+            alert(`✅ 원단 등록은 완료되었으나, 다음 원사는 라이브러리에 없어서 '빈칸' 처리되었습니다.\n\n[없는 원사 목록]\n${[...missingYarnNames].join(', ')}\n\n* 등록 후 해당 원단을 라이브러리에 추가하거나 수정해주세요!`);
+        } else {
+            showToast(`${newFabrics.length}건이 완벽하게 등록되었습니다.`, 'success');
+        }
+        
         if (fileInputRef.current) fileInputRef.current.value = ''; 
       } catch (err) { showToast('엑셀 파일을 읽는 중 오류가 발생했습니다.', 'error'); }
     };
     reader.readAsBinaryString(e.target.files[0]);
   };
 
-  const YARN_EXCEL_HEADERS = ['Category', 'Name', 'Supplier', 'Currency', 'Price', 'Tariff', 'Remarks'];
-  const handleDownloadYarnTemplate = () => { /* 기존 코드 */
+  // ✅ 원사 엑셀 일괄 등록 양식 및 로직 수정 (운반비 포함)
+  const YARN_EXCEL_HEADERS = ['Category', 'Name', 'Supplier', 'Currency', 'Price', 'Tariff', 'Freight', 'Remarks'];
+  const handleDownloadYarnTemplate = () => { 
     if (!isXlsxReady) return;
-    const ws = window.XLSX.utils.aoa_to_sheet([YARN_EXCEL_HEADERS, ['소모', '2/48 Wool', 'Yarn Co.', 'KRW', 18000, 8, 'Standard']]);
-    ws['!cols'] = [{ wch: 10 }, { wch: 20 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 20 }];
+    const ws = window.XLSX.utils.aoa_to_sheet([YARN_EXCEL_HEADERS, ['소모', '2/48 Wool', 'Yarn Co.', 'KRW', 18000, 8, 2, 'Standard']]);
+    ws['!cols'] = [{ wch: 10 }, { wch: 20 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 20 }];
     const wb = window.XLSX.utils.book_new(); window.XLSX.utils.book_append_sheet(wb, ws, "원사일괄등록"); window.XLSX.writeFile(wb, '원사등록_양식.xlsx');
   };
   const handleYarnFileUpload = (e) => {
@@ -397,7 +443,7 @@ const App = () => {
         const newYarns = [];
         data.forEach((row, idx) => {
             if (!row.Name) return; 
-            newYarns.push({ id: `y${Date.now()}_${idx}`, category: row.Category || '소모', name: row.Name, supplier: row.Supplier || '', currency: row.Currency || 'KRW', price: Number(row.Price) || 0, tariff: row.Tariff !== undefined ? Number(row.Tariff) : 8, remarks: row.Remarks || '', history: [] });
+            newYarns.push({ id: `y${Date.now()}_${idx}`, category: row.Category || '소모', name: row.Name, supplier: row.Supplier || '', currency: row.Currency || 'KRW', price: Number(row.Price) || 0, tariff: row.Tariff !== undefined ? Number(row.Tariff) : 8, freight: row.Freight !== undefined ? Number(row.Freight) : 0, remarks: row.Remarks || '', history: [] });
         });
         setYarnLibrary([...newYarns, ...yarnLibrary]); saveBatchToCloud('yarns', newYarns); setIsYarnBulkModalOpen(false); showToast(`${newYarns.length}건의 원사가 등록되었습니다.`, 'success');
         if (yarnFileInputRef.current) yarnFileInputRef.current.value = ''; 
@@ -405,21 +451,23 @@ const App = () => {
     };
     reader.readAsBinaryString(e.target.files[0]);
   };
+
+  // ✅ 원사 저장 및 수정 로직에 freight(운반비) 추가
   const handleSaveYarn = () => {
     if (!yarnInput.name) { showToast("원사명을 입력해주세요.", 'error'); return; }
     let itemToSave;
     if (editingYarnId) {
       const existingYarn = yarnLibrary.find(y => y.id === editingYarnId); const newPrice = Number(yarnInput.price);
       let history = existingYarn.history || []; if (existingYarn.price !== newPrice) history = [{ date: new Date().toLocaleDateString(), price: existingYarn.price }, ...history];
-      itemToSave = { ...existingYarn, ...yarnInput, price: newPrice, tariff: Number(yarnInput.tariff), history };
+      itemToSave = { ...existingYarn, ...yarnInput, price: newPrice, tariff: Number(yarnInput.tariff), freight: Number(yarnInput.freight), history };
       setYarnLibrary(yarnLibrary.map(y => y.id === editingYarnId ? itemToSave : y)); showToast("원사 정보가 수정되었습니다.", 'success');
     } else {
-      itemToSave = { id: `y${Date.now()}`, ...yarnInput, price: Number(yarnInput.price), tariff: Number(yarnInput.tariff), history: [] }; setYarnLibrary([...yarnLibrary, itemToSave]); showToast("새로운 원사가 등록되었습니다.", 'success');
+      itemToSave = { id: `y${Date.now()}`, ...yarnInput, price: Number(yarnInput.price), tariff: Number(yarnInput.tariff), freight: Number(yarnInput.freight), history: [] }; setYarnLibrary([...yarnLibrary, itemToSave]); showToast("새로운 원사가 등록되었습니다.", 'success');
     }
-    saveDocToCloud('yarns', itemToSave); setEditingYarnId(null); setYarnInput({ category: '소모', name: '', price: '', currency: 'KRW', tariff: 8, supplier: '', remarks: '' });
+    saveDocToCloud('yarns', itemToSave); setEditingYarnId(null); setYarnInput({ category: '소모', name: '', price: '', currency: 'KRW', tariff: 8, freight: 0, supplier: '', remarks: '' });
   };
-  const handleEditYarn = (yarn) => { setYarnInput({ category: yarn.category || '소모', name: yarn.name, price: yarn.price, currency: yarn.currency || 'KRW', tariff: yarn.tariff, supplier: yarn.supplier || '', remarks: yarn.remarks || '' }); setEditingYarnId(yarn.id); };
-  const handleCancelYarnEdit = () => { setEditingYarnId(null); setYarnInput({ category: '소모', name: '', price: '', currency: 'KRW', tariff: 8, supplier: '', remarks: '' }); };
+  const handleEditYarn = (yarn) => { setYarnInput({ category: yarn.category || '소모', name: yarn.name, price: yarn.price, currency: yarn.currency || 'KRW', tariff: yarn.tariff, freight: yarn.freight || 0, supplier: yarn.supplier || '', remarks: yarn.remarks || '' }); setEditingYarnId(yarn.id); };
+  const handleCancelYarnEdit = () => { setEditingYarnId(null); setYarnInput({ category: '소모', name: '', price: '', currency: 'KRW', tariff: 8, freight: 0, supplier: '', remarks: '' }); };
   const handleDeleteYarn = (id) => { if (savedFabrics.some(fabric => fabric.yarns.some(y => y.yarnId === id && y.ratio > 0))) { alert("🚨 경고: 이 원사를 사용 중인 원단이 있습니다! 삭제 불가."); return; } if(window.confirm("삭제하시겠습니까?")) { setYarnLibrary(yarnLibrary.filter(y => y.id !== id)); deleteDocFromCloud('yarns', id); } };
 
   // --- 이벤트 핸들러: Quotation ---
@@ -441,7 +489,6 @@ const App = () => {
     const data3k = calc.tier3k[quoteInput.marketType];
     const data5k = calc.tier5k[quoteInput.marketType];
     
-    // ✅ 바이어 난이도 마진(%) 적용 로직!
     const extraMarkup = 1 + (Number(quoteInput.extraMargin) || 0) / 100;
     const formatQuote = (val) => quoteInput.currency === 'USD' ? Number(val.toFixed(2)) : Math.round(val / 100) * 100;
 
@@ -458,24 +505,55 @@ const App = () => {
 
   const handleQuotePriceChange = (index, field, value) => { const newItems = [...quoteInput.items]; newItems[index][field] = Number(value); setQuoteInput({ ...quoteInput, items: newItems }); };
   const handleRemoveItemFromQuote = (index) => { const newItems = quoteInput.items.filter((_, i) => i !== index); setQuoteInput({ ...quoteInput, items: newItems }); };
+  
   const handleSaveQuote = () => {
     if (!quoteInput.buyerName) { showToast("바이어 이름을 입력해주세요.", 'error'); return; }
     if (quoteInput.items.length === 0) { showToast("원단을 추가해주세요.", 'error'); return; }
-    const itemToSave = { id: Date.now(), createdAt: new Date().toLocaleString(), ...quoteInput };
+    
+    const authorName = user?.displayName || user?.email?.split('@')[0] || 'Unknown';
+    const itemToSave = { id: Date.now(), createdAt: new Date().toLocaleString(), authorName: authorName, ...quoteInput };
     setSavedQuotes([itemToSave, ...savedQuotes]); saveDocToCloud('quotes', itemToSave); showToast("견적서가 저장되었습니다.", 'success');
   };
+
   const handleDownloadPDF = () => {
     if (!isPdfReady) { showToast("PDF 로딩 중입니다.", 'error'); return; }
     if (quoteInput.items.length === 0) { showToast("내용이 없습니다.", 'error'); return; }
+    
     setIsPdfGenerating(true);
-    setTimeout(() => { if (printRef.current && window.html2pdf) { window.html2pdf().set({ margin: 10, filename: `Quotation_${quoteInput.buyerName}_${quoteInput.date}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } }).from(printRef.current).save().then(() => { setIsPdfGenerating(false); showToast("PDF 다운로드 완료.", 'success'); }); } else setIsPdfGenerating(false); }, 500);
+    showToast("PDF 생성 중... (잠시만 기다려주세요)", 'info');
+    
+    setTimeout(() => { 
+        if (printRef.current && window.html2pdf) { 
+            const opt = { 
+                margin: 10, filename: `Quotation_${quoteInput.buyerName}_${quoteInput.date}.pdf`, 
+                image: { type: 'jpeg', quality: 0.98 }, 
+                html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' }, 
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } 
+            };
+            window.html2pdf().set(opt).from(printRef.current).save().then(() => { 
+                setIsPdfGenerating(false); showToast("PDF 다운로드 완료.", 'success'); 
+            }); 
+        } else {
+            setIsPdfGenerating(false);
+        }
+    }, 800);
   };
+  
   const formatQuotePrice = (price) => { return quoteInput.currency === 'USD' ? `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `￦${Math.round(price).toLocaleString()}`; };
 
   // --- 렌더링용 필터 데이터 ---
   const currentCalc = calculateCost(fabricInput);
-  const filteredYarns = yarnFilterCategory === 'All' ? yarnLibrary : yarnLibrary.filter(y => y.category === yarnFilterCategory);
+  
+  const uniqueSuppliers = ['All', ...new Set(yarnLibrary.map(y => y.supplier).filter(Boolean))];
+  const filteredYarns = yarnLibrary.filter(y => 
+      (yarnFilterCategory === 'All' || y.category === yarnFilterCategory) && 
+      (yarnFilterSupplier === 'All' || y.supplier === yarnFilterSupplier)
+  );
+
   const filteredFabrics = savedFabrics.filter(fabric => (fabric.article && fabric.article.toLowerCase().includes(fabricSearchTerm.toLowerCase())) || (fabric.itemName && fabric.itemName.toLowerCase().includes(fabricSearchTerm.toLowerCase())));
+  
+  const uniqueAuthors = ['All', ...new Set(savedQuotes.map(q => q.authorName || 'Unknown'))];
+  const filteredQuotes = savedQuotes.filter(q => quoteAuthorFilter === 'All' || (q.authorName || 'Unknown') === quoteAuthorFilter);
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white font-bold animate-pulse">GRUBIG 시스템 접속 중...</div>;
   if (!user) return ( <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4"><div className="max-w-md w-full bg-slate-800 p-10 rounded-3xl text-center shadow-2xl border border-slate-700"><div className="bg-blue-600 w-20 h-20 rounded-2xl mx-auto flex items-center justify-center mb-6 shadow-lg shadow-blue-900"><Cloud className="text-white w-12 h-12" /></div><h1 className="text-3xl font-bold text-white mb-2">GRUBIG Cloud</h1><p className="text-slate-400 mb-8">@grubig.kr 전용 관리 시스템</p><button onClick={handleLogin} className="w-full flex items-center justify-center gap-3 bg-white text-slate-900 py-4 rounded-xl font-bold hover:bg-slate-100 transition-transform active:scale-95 shadow-xl"><img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6" alt="G" /> 구글 계정으로 로그인</button></div></div> );
@@ -514,6 +592,7 @@ const App = () => {
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
                   <h3 className="text-sm font-bold text-slate-400 uppercase mb-4 flex justify-between items-center"><span>1. Basic Info & Yarn <Info className="w-4 h-4 text-slate-300 inline"/></span><div className="flex items-center gap-2 bg-yellow-50 px-2 py-1 rounded border border-yellow-100"><label className="text-[10px] font-bold text-slate-500">적용 환율 (￦/$)</label><input type="number" name="exchangeRate" value={fabricInput.exchangeRate} onChange={handleFabricChange} className="w-16 bg-white border border-yellow-200 rounded text-right text-xs font-bold text-slate-700 px-1" /></div></h3>
                   <div className="grid grid-cols-2 gap-4 mb-4"><div><label className="block text-xs font-bold text-slate-500 mb-1">Article</label><input type="text" name="article" value={fabricInput.article} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2" placeholder="Ex. WO-24001" /></div><div><label className="block text-xs font-bold text-slate-500 mb-1">Item Name</label><input type="text" name="itemName" value={fabricInput.itemName} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2" placeholder="Item Name" /></div></div>
+                  <div className="grid grid-cols-1 mb-4"><label className="block text-xs font-bold text-slate-500 mb-1">특이사항 (비고)</label><input type="text" name="remarks" value={fabricInput.remarks} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2" placeholder="원단 특이사항 메모 (예: 효성 크레오라 사용 요청)" /></div>
                   <div className="grid grid-cols-4 gap-4 mb-4">
                     <div className="col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">내폭 (Cut)</label><input type="number" name="widthCut" value={fabricInput.widthCut} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-right" placeholder="56" /></div>
                     <div className="col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">외폭 (Full)</label><input type="number" name="widthFull" value={fabricInput.widthFull} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-right" placeholder="58" /></div>
@@ -534,8 +613,8 @@ const App = () => {
                   <h3 className="text-sm font-bold text-slate-400 uppercase mb-4 flex justify-between items-center">2. Fees & Cost Breakdown</h3>
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <div><label className="block text-xs font-bold text-slate-500 mb-1">염가공비 (￦/kg)</label><input type="number" name="dyeingFee" value={fabricInput.dyeingFee} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-right" placeholder="0" /></div>
-                    <div><label className="block text-xs font-bold text-purple-600 mb-1">관리비 (￦/YD)</label><input type="number" name="managementFeeYd" value={fabricInput.managementFeeYd} onChange={handleFabricChange} className="w-full bg-purple-50 border border-purple-100 text-purple-700 rounded-lg px-3 py-2 text-right font-bold" placeholder="0" /></div>
                   </div>
+                  
                   <div className="overflow-hidden rounded-xl border border-slate-200 text-xs text-center">
                     <div className="grid grid-cols-4 bg-slate-100 text-slate-600 font-bold py-2 border-b border-slate-200"><div className="text-left pl-3">항목 / 구간</div><div>1,000 YD</div><div className="text-blue-700 bg-blue-50/50">3,000 YD</div><div>5,000 YD</div></div>
                     <div className="divide-y divide-slate-100 bg-white">
@@ -554,37 +633,25 @@ const App = () => {
                   </div>
                 </div>
 
-                {/* ✅ 3. 새로운 Sales Margin & Brand Extra 설정 */}
+                {/* 3. Sales Margin & Brand Extra */}
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
                     <h3 className="text-sm font-bold text-slate-400 uppercase mb-4 flex items-center gap-2">
                       3. Sales Margin & Brand Extra <HelpCircle className="w-3 h-3 text-slate-300" title="Gross Margin (매출이익률) 방식: Price = Cost / (1 - Margin%)"/>
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      
-                      {/* 1) 마진 단계 선택 */}
                       <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 flex flex-col justify-between">
                         <div>
                            <div className="text-emerald-800 font-bold text-sm mb-2 flex items-center gap-2"><Factory className="w-4 h-4"/> 도매(Conv) 마진 단계 지정</div>
-                           <select 
-                             value={fabricInput.marginTier} 
-                             onChange={(e) => setFabricInput({...fabricInput, marginTier: Number(e.target.value)})} 
-                             className="w-full bg-white border border-emerald-200 rounded-lg px-3 py-2 text-emerald-800 font-bold mt-2"
-                           >
-                             {Object.entries(MARGIN_TIERS).map(([tier, pct]) => (
-                               <option key={tier} value={tier}>{tier}단계 ({pct}%)</option>
-                             ))}
+                           <select value={fabricInput.marginTier} onChange={(e) => setFabricInput({...fabricInput, marginTier: Number(e.target.value)})} className="w-full bg-white border border-emerald-200 rounded-lg px-3 py-2 text-emerald-800 font-bold mt-2">
+                             {Object.entries(MARGIN_TIERS).map(([tier, pct]) => ( <option key={tier} value={tier}>{tier}단계 ({pct}%)</option> ))}
                            </select>
                         </div>
                         <p className="text-xs text-emerald-600 mt-3">* 기본단가 = 제조원가 / (1 - {MARGIN_TIERS[fabricInput.marginTier || 0]}%) 로 계산됩니다.</p>
                       </div>
-
-                      {/* 2) 브랜드 직납 추가금 설정 */}
                       <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 flex flex-col justify-between">
                         <div>
                            <div className="text-indigo-800 font-bold text-sm mb-2 flex items-center gap-2"><Users className="w-4 h-4"/> Brand 직납 추가금 (￦/YD)</div>
-                           <div className="grid grid-cols-3 gap-2 text-center text-[10px] text-indigo-600 font-bold mb-1 mt-2">
-                             <span>1,000 YD</span><span>3,000 YD</span><span>5,000 YD</span>
-                           </div>
+                           <div className="grid grid-cols-3 gap-2 text-center text-[10px] text-indigo-600 font-bold mb-1 mt-2"><span>1,000 YD</span><span>3,000 YD</span><span>5,000 YD</span></div>
                            <div className="grid grid-cols-3 gap-2">
                              <input type="number" value={fabricInput.brandExtra.tier1k} onChange={(e) => handleNestedChange('brandExtra', 'tier1k', null, e.target.value)} className="w-full text-center rounded border border-indigo-200 text-sm font-bold text-indigo-700 py-1.5" placeholder="1000" />
                              <input type="number" value={fabricInput.brandExtra.tier3k} onChange={(e) => handleNestedChange('brandExtra', 'tier3k', null, e.target.value)} className="w-full text-center rounded border border-indigo-200 text-sm font-bold text-indigo-700 py-1.5" placeholder="700" />
@@ -593,7 +660,6 @@ const App = () => {
                         </div>
                         <p className="text-xs text-indigo-600 mt-3">* 기본단가에 위 금액(YD당)이 그대로 얹혀서 직납단가가 됩니다.</p>
                       </div>
-
                    </div>
                 </div>
               </div>
@@ -634,14 +700,17 @@ const App = () => {
         {(activeTab === 'list' || activeTab === 'yarns' || activeTab === 'quotation' || activeTab === 'quoteHistory') && (
            <div className="print:hidden">
              
-             {/* TAB 2: LIST (생략 없이 유지) */}
+             {/* TAB 2: LIST */}
              {activeTab === 'list' && (
                <div className="max-w-[1600px] mx-auto">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                      <div className="flex items-center gap-4"><h2 className="text-2xl font-bold text-slate-800">원단 리스트 ({filteredFabrics.length})</h2><span className={`text-xs font-bold px-3 py-1 rounded-full ${viewMode === 'domestic' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>{viewMode === 'domestic' ? '기준: 내수 (관세포함)' : '기준: 수출 (관세제외)'}</span></div>
                      <div className="flex gap-2 items-center w-full sm:w-auto">
                         <div className="relative flex-1 sm:w-64"><input type="text" placeholder="Article 또는 품명 검색..." value={fabricSearchTerm} onChange={(e) => setFabricSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg outline-none text-sm bg-white" /><Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />{fabricSearchTerm && <button onClick={() => setFabricSearchTerm('')} className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"><X className="w-4 h-4"/></button>}</div>
-                        <button onClick={() => setIsBulkModalOpen(true)} className="flex items-center shrink-0 gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-sm"><Upload className="w-4 h-4"/> 엑셀 등록</button>
+                        <div className="flex bg-white border border-slate-200 rounded-lg overflow-hidden shrink-0 shadow-sm">
+                           <button onClick={handleBackupFabrics} className="flex items-center gap-2 px-3 py-2 text-slate-600 hover:bg-slate-50 border-r border-slate-200 text-sm font-bold"><Database className="w-4 h-4 text-blue-500"/> 데이터 백업</button>
+                           <button onClick={() => setIsBulkModalOpen(true)} className="flex items-center gap-2 px-3 py-2 text-emerald-700 hover:bg-emerald-50 text-sm font-bold"><Upload className="w-4 h-4"/> 엑셀 등록</button>
+                        </div>
                      </div>
                   </div>
                   <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -655,17 +724,107 @@ const App = () => {
                </div>
              )}
 
-             {/* TAB 3: YARN LIBRARY (생략 없이 유지) */}
+             {/* ✅ TAB 3: YARN LIBRARY (운반비 항목 추가) */}
              {activeTab === 'yarns' && (
                <div className="max-w-6xl mx-auto space-y-6">
-                 <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-slate-800">원사 라이브러리 ({filteredYarns.length})</h2><div className="flex gap-2 items-center">{editingYarnId && <button onClick={handleCancelYarnEdit} className="text-sm text-slate-500 flex items-center gap-1 hover:text-slate-800 mr-2"><X className="w-4 h-4"/> 수정 취소</button>}<button onClick={() => setIsYarnBulkModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 shadow-sm text-sm font-bold"><Upload className="w-4 h-4"/> 엑셀 대량 등록</button></div></div>
-                 <div className={`bg-white p-6 rounded-2xl border transition-all ${editingYarnId ? 'border-yellow-400 ring-2 ring-yellow-100' : 'border-slate-200'}`}><div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-4"><div className="col-span-2"><label className="text-xs font-bold text-slate-500 mb-1 block">Category</label><select value={yarnInput.category} onChange={e => setYarnInput({...yarnInput, category: e.target.value})} className="w-full border rounded-lg p-2 text-sm bg-white">{YARN_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}</select></div><div className="col-span-3"><label className="text-xs font-bold text-slate-500 mb-1 block">원사명</label><input type="text" value={yarnInput.name} onChange={e=>setYarnInput({...yarnInput, name:e.target.value})} className="w-full border rounded-lg p-2 text-sm" placeholder="예: 2/48 Wool"/></div><div className="col-span-3"><label className="text-xs font-bold text-slate-500 mb-1 block">Supplier (공급처)</label><input type="text" value={yarnInput.supplier} onChange={e=>setYarnInput({...yarnInput, supplier:e.target.value})} className="w-full border rounded-lg p-2 text-sm" placeholder="예: Yarn Co."/></div><div className="col-span-4"><label className="text-xs font-bold text-slate-500 mb-1 block">특이사항</label><input type="text" value={yarnInput.remarks} onChange={e=>setYarnInput({...yarnInput, remarks:e.target.value})} className="w-full border rounded-lg p-2 text-sm" placeholder="메모..."/></div></div><div className="flex items-end gap-4"><div className="flex-1 grid grid-cols-3 gap-4"><div className="col-span-2 flex gap-2"><div className="w-24"><label className="text-xs font-bold text-slate-500 mb-1 block">화폐</label><select value={yarnInput.currency} onChange={e => setYarnInput({...yarnInput, currency: e.target.value})} className="w-full border rounded-lg p-2 text-sm font-bold bg-slate-50"><option value="KRW">KRW(￦)</option><option value="USD">USD($)</option></select></div><div className="flex-1"><label className="text-xs font-bold text-slate-500 mb-1 block">단가</label><input type="number" value={yarnInput.price} onChange={e=>setYarnInput({...yarnInput, price:e.target.value})} className="w-full border rounded-lg p-2 text-right font-mono font-bold" placeholder="0"/></div></div><div><label className="text-xs font-bold text-blue-600 mb-1 block">관세 (%)</label><input type="number" value={yarnInput.tariff} onChange={e=>setYarnInput({...yarnInput, tariff:e.target.value})} className="w-full border border-blue-200 rounded-lg p-2 text-right font-bold text-blue-700" placeholder="8"/></div></div><button onClick={handleSaveYarn} className={`px-8 py-2.5 rounded-lg flex gap-2 h-[42px] items-center font-bold text-white transition-colors ${editingYarnId ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-slate-900 hover:bg-slate-800'}`}>{editingYarnId ? <><Save className="w-4 h-4"/> 수정 저장</> : <><Plus className="w-4 h-4"/> 추가</>}</button></div></div>
-                 <div className="flex gap-2 border-b border-slate-200 pb-1 overflow-x-auto">{YARN_CATEGORIES.map(cat => ( <button key={cat} onClick={() => setYarnFilterCategory(cat)} className={`px-4 py-2 text-sm font-bold rounded-t-lg transition-colors ${yarnFilterCategory === cat ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>{cat}</button> ))}</div>
-                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"><table className="w-full text-sm text-left"><thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200"><tr><th className="p-4 w-24">Category</th><th className="p-4">Yarn Name</th><th className="p-4">Supplier</th><th className="p-4 text-right">Price (Export)</th><th className="p-4 text-right">Tariff</th><th className="p-4 text-right text-blue-600">Price (Domestic)</th><th className="p-4">Remarks</th><th className="p-4 text-center">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredYarns.map(y => ( <tr key={y.id} className="hover:bg-slate-50 group"><td className="p-4 text-slate-500 text-xs font-bold">{y.category || '-'}</td><td className="p-4 font-bold text-slate-800">{y.name}</td><td className="p-4 text-slate-600">{y.supplier || '-'}</td><td className="p-4 text-right font-mono relative group/price"><div className="flex items-center justify-end gap-2"><span>{y.currency === 'USD' ? '$' : '￦'}{y.price.toLocaleString()}</span>{y.history && y.history.length > 0 && ( <div className="relative"><History className="w-3 h-3 text-slate-400 cursor-help"/><div className="absolute right-0 top-full mt-2 w-40 bg-slate-800 text-white text-[10px] rounded p-2 z-50 hidden group-hover/price:block shadow-xl text-left pointer-events-none"><p className="font-bold mb-1 border-b border-slate-600 pb-1 text-slate-300">Price History</p>{y.history.map((h, i) => (<div key={i} className="flex justify-between py-0.5"><span className="text-slate-400">{h.date}</span><span className="font-mono">￦{h.price.toLocaleString()}</span></div>))}</div></div> )}</div></td><td className="p-4 text-right text-slate-500">{y.tariff || 0}%</td><td className="p-4 text-right font-mono font-bold text-blue-600">{y.currency === 'USD' ? <span className="text-xs text-slate-400 italic">Calc by Rate</span> : `￦${Math.round(y.price * (1 + (y.tariff||0)/100)).toLocaleString()}`}</td><td className="p-4 text-slate-500 text-xs">{y.remarks}</td><td className="p-4 text-center"><div className="flex justify-center gap-2"><button onClick={() => handleEditYarn(y)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"><Edit2 className="w-4 h-4"/></button><button onClick={() => handleDeleteYarn(y.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4"/></button></div></td></tr> ))}</tbody></table></div>
+                 <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-bold text-slate-800">원사 라이브러리 ({filteredYarns.length})</h2>
+                    <div className="flex gap-2 items-center">
+                       {editingYarnId && <button onClick={handleCancelYarnEdit} className="text-sm text-slate-500 flex items-center gap-1 hover:text-slate-800 mr-2"><X className="w-4 h-4"/> 수정 취소</button>}
+                       <div className="flex bg-white border border-slate-200 rounded-lg overflow-hidden shrink-0 shadow-sm">
+                          <button onClick={handleBackupYarns} className="flex items-center gap-2 px-3 py-2 text-slate-600 hover:bg-slate-50 border-r border-slate-200 text-sm font-bold"><Database className="w-4 h-4 text-blue-500"/> 데이터 백업</button>
+                          <button onClick={() => setIsYarnBulkModalOpen(true)} className="flex items-center gap-2 px-3 py-2 text-emerald-700 hover:bg-emerald-50 text-sm font-bold"><Upload className="w-4 h-4"/> 엑셀 대량 등록</button>
+                       </div>
+                    </div>
+                 </div>
+                 
+                 <div className={`bg-white p-6 rounded-2xl border transition-all ${editingYarnId ? 'border-yellow-400 ring-2 ring-yellow-100' : 'border-slate-200'}`}>
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-4">
+                       <div className="col-span-2"><label className="text-xs font-bold text-slate-500 mb-1 block">Category</label><select value={yarnInput.category} onChange={e => setYarnInput({...yarnInput, category: e.target.value})} className="w-full border rounded-lg p-2 text-sm bg-white">{YARN_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}</select></div>
+                       <div className="col-span-3"><label className="text-xs font-bold text-slate-500 mb-1 block">원사명</label><input type="text" value={yarnInput.name} onChange={e=>setYarnInput({...yarnInput, name:e.target.value})} className="w-full border rounded-lg p-2 text-sm" placeholder="예: 2/48 Wool"/></div>
+                       <div className="col-span-3"><label className="text-xs font-bold text-slate-500 mb-1 block">Supplier (공급처)</label><input type="text" value={yarnInput.supplier} onChange={e=>setYarnInput({...yarnInput, supplier:e.target.value})} className="w-full border rounded-lg p-2 text-sm" placeholder="예: Yarn Co."/></div>
+                       <div className="col-span-4"><label className="text-xs font-bold text-slate-500 mb-1 block">특이사항</label><input type="text" value={yarnInput.remarks} onChange={e=>setYarnInput({...yarnInput, remarks:e.target.value})} className="w-full border rounded-lg p-2 text-sm" placeholder="메모..."/></div>
+                    </div>
+                    
+                    <div className="flex items-end gap-4">
+                       {/* ✅ 관세 및 운반비 입력칸 구조 변경 */}
+                       <div className="flex-1 grid grid-cols-4 gap-4">
+                          <div className="col-span-2 flex gap-2">
+                             <div className="w-24">
+                                <label className="text-xs font-bold text-slate-500 mb-1 block">화폐</label>
+                                <select value={yarnInput.currency} onChange={e => setYarnInput({...yarnInput, currency: e.target.value})} className="w-full border rounded-lg p-2 text-sm font-bold bg-slate-50"><option value="KRW">KRW(￦)</option><option value="USD">USD($)</option></select>
+                             </div>
+                             <div className="flex-1">
+                                <label className="text-xs font-bold text-slate-500 mb-1 block">단가</label>
+                                <input type="number" value={yarnInput.price} onChange={e=>setYarnInput({...yarnInput, price:e.target.value})} className="w-full border rounded-lg p-2 text-right font-mono font-bold" placeholder="0"/>
+                             </div>
+                          </div>
+                          <div>
+                             <label className="text-xs font-bold text-blue-600 mb-1 block">관세 (%)</label>
+                             <input type="number" value={yarnInput.tariff} onChange={e=>setYarnInput({...yarnInput, tariff:e.target.value})} className="w-full border border-blue-200 rounded-lg p-2 text-right font-bold text-blue-700" placeholder="8"/>
+                          </div>
+                          <div>
+                             <label className="text-xs font-bold text-emerald-600 mb-1 block">운반비 (%)</label>
+                             <input type="number" value={yarnInput.freight} onChange={e=>setYarnInput({...yarnInput, freight:e.target.value})} className="w-full border border-emerald-200 rounded-lg p-2 text-right font-bold text-emerald-700" placeholder="0"/>
+                          </div>
+                       </div>
+                       <button onClick={handleSaveYarn} className={`px-8 py-2.5 rounded-lg flex gap-2 h-[42px] items-center font-bold text-white transition-colors ${editingYarnId ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-slate-900 hover:bg-slate-800'}`}>{editingYarnId ? <><Save className="w-4 h-4"/> 수정 저장</> : <><Plus className="w-4 h-4"/> 추가</>}</button>
+                    </div>
+                 </div>
+                 
+                 <div className="flex justify-between items-end border-b border-slate-200 pb-1 overflow-x-auto">
+                     <div className="flex gap-2">
+                        <button onClick={() => setYarnFilterCategory('All')} className={`px-4 py-2 text-sm font-bold rounded-t-lg transition-colors ${yarnFilterCategory === 'All' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>All</button>
+                        {YARN_CATEGORIES.map(cat => ( <button key={cat} onClick={() => setYarnFilterCategory(cat)} className={`px-4 py-2 text-sm font-bold rounded-t-lg transition-colors ${yarnFilterCategory === cat ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>{cat}</button> ))}
+                     </div>
+                     <div className="flex items-center gap-2 mb-1 px-2">
+                        <Filter className="w-4 h-4 text-slate-400"/>
+                        <select value={yarnFilterSupplier} onChange={(e) => setYarnFilterSupplier(e.target.value)} className="bg-white border border-slate-200 text-sm font-bold text-slate-600 rounded px-2 py-1 outline-none">
+                            {uniqueSuppliers.map(sup => <option key={sup} value={sup}>{sup === 'All' ? '전체 공급처 보기' : sup}</option>)}
+                        </select>
+                     </div>
+                 </div>
+
+                 {/* ✅ 테이블에 Freight 컬럼 추가 및 Domestic Price 계산식 변경 */}
+                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <table className="w-full text-sm text-left">
+                       <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
+                          <tr><th className="p-4 w-24">Category</th><th className="p-4">Yarn Name</th><th className="p-4">Supplier</th><th className="p-4 text-right">Price (Export)</th><th className="p-4 text-right">Tariff</th><th className="p-4 text-right">Freight</th><th className="p-4 text-right text-blue-600">Price (Domestic)</th><th className="p-4">Remarks</th><th className="p-4 text-center">Action</th></tr>
+                       </thead>
+                       <tbody className="divide-y divide-slate-100">
+                          {filteredYarns.map(y => ( 
+                             <tr key={y.id} className="hover:bg-slate-50 group">
+                                <td className="p-4 text-slate-500 text-xs font-bold">{y.category || '-'}</td>
+                                <td className="p-4 font-bold text-slate-800">{y.name}</td>
+                                <td className="p-4 text-slate-600">{y.supplier || '-'}</td>
+                                <td className="p-4 text-right font-mono relative group/price">
+                                   <div className="flex items-center justify-end gap-2">
+                                      <span>{y.currency === 'USD' ? '$' : '￦'}{y.price.toLocaleString()}</span>
+                                      {y.history && y.history.length > 0 && ( <div className="relative"><History className="w-3 h-3 text-slate-400 cursor-help"/><div className="absolute right-0 top-full mt-2 w-40 bg-slate-800 text-white text-[10px] rounded p-2 z-50 hidden group-hover/price:block shadow-xl text-left pointer-events-none"><p className="font-bold mb-1 border-b border-slate-600 pb-1 text-slate-300">Price History</p>{y.history.map((h, i) => (<div key={i} className="flex justify-between py-0.5"><span className="text-slate-400">{h.date}</span><span className="font-mono">￦{h.price.toLocaleString()}</span></div>))}</div></div> )}
+                                   </div>
+                                </td>
+                                <td className="p-4 text-right text-slate-500">{y.tariff || 0}%</td>
+                                <td className="p-4 text-right text-emerald-600 font-bold">{y.freight || 0}%</td>
+                                <td className="p-4 text-right font-mono font-bold text-blue-600">
+                                   {y.currency === 'USD' ? <span className="text-xs text-slate-400 italic">Calc by Rate</span> : `￦${Math.round(y.price * (1 + (y.tariff||0)/100) * (1 + (y.freight||0)/100)).toLocaleString()}`}
+                                </td>
+                                <td className="p-4 text-slate-500 text-xs">{y.remarks}</td>
+                                <td className="p-4 text-center">
+                                   <div className="flex justify-center gap-2">
+                                      <button onClick={() => handleEditYarn(y)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"><Edit2 className="w-4 h-4"/></button>
+                                      <button onClick={() => handleDeleteYarn(y.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4"/></button>
+                                   </div>
+                                </td>
+                             </tr> 
+                          ))}
+                          {filteredYarns.length === 0 && <tr><td colSpan="9" className="p-8 text-center text-slate-400">등록된 원사가 없습니다.</td></tr>}
+                       </tbody>
+                    </table>
+                 </div>
                </div>
              )}
 
-             {/* ✅ TAB 4: QUOTATION (바이어 난이도 마진 적용) */}
+             {/* TAB 4: QUOTATION */}
              {activeTab === 'quotation' && (
                <div className="max-w-7xl mx-auto space-y-8">
                  <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><FileText className="w-6 h-6 text-indigo-600"/> 견적서 작성</h2><div className="flex gap-2"><button onClick={handleSaveQuote} className="bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800 flex items-center gap-2"><Save className="w-4 h-4"/> 견적서 클라우드 저장</button><button onClick={handleDownloadPDF} className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center gap-2 shadow-lg shadow-indigo-200"><Download className="w-4 h-4"/> PDF 다운로드</button></div></div>
@@ -676,16 +835,7 @@ const App = () => {
                        <div className="lg:col-span-2"><label className="block text-xs font-bold text-slate-500 mb-1">Buyer Name</label><input type="text" value={quoteInput.buyerName} onChange={(e) => setQuoteInput({...quoteInput, buyerName: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2" placeholder="바이어 이름 입력"/></div>
                        <div className="lg:col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">Quote Date</label><input type="date" value={quoteInput.date} onChange={(e) => setQuoteInput({...quoteInput, date: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2"/></div>
                        <div className="lg:col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">Settings</label><div className="flex bg-slate-100 p-1 rounded-lg gap-1"><button onClick={() => setQuoteInput({...quoteInput, buyerType: 'converter'})} className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${quoteInput.buyerType === 'converter' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Conv</button><button onClick={() => setQuoteInput({...quoteInput, buyerType: 'brand'})} className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${quoteInput.buyerType === 'brand' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>Brand</button><div className="w-px bg-slate-300 mx-1"></div><button onClick={() => setQuoteInput({...quoteInput, marketType: 'domestic'})} className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${quoteInput.marketType === 'domestic' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Dom</button><button onClick={() => setQuoteInput({...quoteInput, marketType: 'export'})} className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${quoteInput.marketType === 'export' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Exp</button></div></div>
-                       
-                       {/* ✅ 추가 마진 입력칸 */}
-                       <div className="lg:col-span-1">
-                          <label className="block text-xs font-bold text-indigo-500 mb-1 flex items-center gap-1">바이어 난이도 마진</label>
-                          <div className="relative">
-                             <input type="number" value={quoteInput.extraMargin || 0} onChange={(e) => setQuoteInput({...quoteInput, extraMargin: Number(e.target.value)})} className="w-full bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-right font-bold text-indigo-700 outline-none" placeholder="0" />
-                             <span className="absolute right-3 top-2 text-xs text-indigo-400 font-bold">%</span>
-                          </div>
-                       </div>
-
+                       <div className="lg:col-span-1"><label className="block text-xs font-bold text-indigo-500 mb-1 flex items-center gap-1">바이어 난이도 마진</label><div className="relative"><input type="number" value={quoteInput.extraMargin || 0} onChange={(e) => setQuoteInput({...quoteInput, extraMargin: Number(e.target.value)})} className="w-full bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-right font-bold text-indigo-700 outline-none" placeholder="0" /><span className="absolute right-3 top-2 text-xs text-indigo-400 font-bold">%</span></div></div>
                        <div className="lg:col-span-1 bg-yellow-50/50 p-2 rounded-xl border border-yellow-100"><div className="flex flex-col gap-2"><div><div className="flex bg-white border border-slate-200 rounded-lg p-1"><button onClick={() => handleCurrencyToggle('KRW')} className={`flex-1 py-0.5 rounded text-[10px] font-bold transition-all ${quoteInput.currency === 'KRW' ? 'bg-slate-800 text-white' : 'text-slate-400'}`}>KRW</button><button onClick={() => handleCurrencyToggle('USD')} className={`flex-1 py-0.5 rounded text-[10px] font-bold transition-all ${quoteInput.currency === 'USD' ? 'bg-slate-800 text-white' : 'text-slate-400'}`}>USD</button></div></div><div className="flex items-center gap-2"><span className="text-[10px] text-slate-500 font-bold whitespace-nowrap">환율 (￦/$)</span><input type="number" value={quoteInput.exchangeRate} onChange={(e) => setQuoteInput({...quoteInput, exchangeRate: e.target.value})} className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-right font-mono font-bold text-slate-700 text-xs"/></div></div></div>
                     </div>
                  </div>
@@ -720,32 +870,50 @@ const App = () => {
                           </tbody>
                        </table>
                     </div>
-                    <p className="text-right text-xs text-slate-400 mt-2">* 바이어 난이도 마진은 원단을 추가하는 시점에 계산되어 반영됩니다.</p>
                  </div>
                </div>
              )}
 
-             {/* TAB 5: HISTORY (생략 없이 유지) */}
+             {/* TAB 5: HISTORY */}
              {activeTab === 'quoteHistory' && (
                  <div className="max-w-6xl mx-auto space-y-6">
-                    <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Calendar className="w-6 h-6 text-indigo-600"/> 견적 히스토리</h2>
+                    <div className="flex justify-between items-end">
+                       <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Calendar className="w-6 h-6 text-indigo-600"/> 견적 히스토리</h2>
+                       <div className="flex items-center gap-2 mb-1 px-2">
+                          <span className="text-sm font-bold text-slate-500">작성자:</span>
+                          <select value={quoteAuthorFilter} onChange={(e) => setQuoteAuthorFilter(e.target.value)} className="bg-white border border-slate-200 text-sm font-bold text-slate-600 rounded px-2 py-1 outline-none">
+                              {uniqueAuthors.map(author => <option key={author} value={author}>{author === 'All' ? '전체 보기' : author}</option>)}
+                          </select>
+                       </div>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                       {savedQuotes.map(quote => (
-                          <div key={quote.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow relative group"><p className="text-xs font-bold text-slate-400 mb-1">{quote.date}</p><h3 className="text-lg font-bold text-slate-800 mb-1">{quote.buyerName}</h3><div className="flex gap-2 mb-4"><span className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold ${quote.buyerType === 'converter' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>{quote.buyerType}</span><span className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold border ${quote.marketType === 'domestic' ? 'border-blue-200 text-blue-600' : 'border-emerald-200 text-emerald-600'}`}>{quote.marketType === 'domestic' ? '내수' : '수출'}</span><span className="text-[10px] px-2 py-0.5 rounded uppercase font-bold bg-slate-100 text-slate-600">{quote.currency}</span></div><div className="mt-4 flex gap-2"><button onClick={() => { setQuoteInput(quote); setActiveTab('quotation'); }} className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-lg text-sm font-bold hover:bg-slate-100">열기/수정</button><button onClick={() => { setQuoteInput(quote); setTimeout(() => handleDownloadPDF(), 300); }} className="flex-1 bg-indigo-50 text-indigo-600 py-2 rounded-lg text-sm font-bold hover:bg-indigo-100">PDF 다운</button></div></div>
+                       {filteredQuotes.map(quote => (
+                          <div key={quote.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow relative group">
+                             <div className="flex justify-between items-start mb-1">
+                                <p className="text-xs font-bold text-slate-400">{quote.date}</p>
+                                <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-bold">{quote.authorName}</span>
+                             </div>
+                             <h3 className="text-lg font-bold text-slate-800 mb-1">{quote.buyerName}</h3>
+                             <div className="flex gap-2 mb-4"><span className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold ${quote.buyerType === 'converter' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>{quote.buyerType}</span><span className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold border ${quote.marketType === 'domestic' ? 'border-blue-200 text-blue-600' : 'border-emerald-200 text-emerald-600'}`}>{quote.marketType === 'domestic' ? '내수' : '수출'}</span><span className="text-[10px] px-2 py-0.5 rounded uppercase font-bold bg-slate-100 text-slate-600">{quote.currency}</span></div>
+                             <div className="mt-4 flex gap-2">
+                                <button onClick={() => { setQuoteInput(quote); setActiveTab('quotation'); }} className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-lg text-sm font-bold hover:bg-slate-100">열기/수정</button>
+                                <button onClick={() => { setQuoteInput(quote); handleDownloadPDF(); }} className="flex-1 bg-indigo-50 text-indigo-600 py-2 rounded-lg text-sm font-bold hover:bg-indigo-100">PDF 다운</button>
+                             </div>
+                          </div>
                        ))}
-                       {savedQuotes.length === 0 && <div className="col-span-full py-12 text-center text-slate-400">저장된 견적서가 없습니다.</div>}
+                       {filteredQuotes.length === 0 && <div className="col-span-full py-12 text-center text-slate-400">해당 조건의 견적서가 없습니다.</div>}
                     </div>
                  </div>
              )}
            </div>
         )}
         
-        {/* 모달 및 PDF 렌더링 영역 (생략 없이 기존 코드 유지) */}
-        {isBulkModalOpen && ( <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4"><div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 relative"><button onClick={() => setIsBulkModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6"/></button><h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><FileSpreadsheet className="w-6 h-6 text-emerald-600"/> 엑셀 일괄 등록</h3><div className="space-y-4"><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">1. 양식 다운로드</p><button onClick={handleDownloadTemplate} className="w-full flex justify-center items-center gap-2 bg-white border border-slate-300 py-2 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><Download className="w-4 h-4" /> 양식 다운로드 (.xlsx)</button></div><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">2. 파일 업로드</p><label className="w-full flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-white hover:bg-slate-50 transition-colors"><Upload className="w-8 h-8 text-slate-400 mb-2" /><span className="text-sm text-slate-500 font-medium">클릭하여 엑셀 파일 선택</span><input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleFileUpload} ref={fileInputRef} /></label></div></div></div></div> )}
+        {/* 모달 */}
+        {isBulkModalOpen && ( <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4"><div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 relative"><button onClick={() => setIsBulkModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6"/></button><h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><FileSpreadsheet className="w-6 h-6 text-emerald-600"/> 원단 엑셀 일괄 등록</h3><div className="space-y-4"><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">1. 양식 다운로드 (원사정보 포함됨)</p><button onClick={handleDownloadTemplate} className="w-full flex justify-center items-center gap-2 bg-white border border-slate-300 py-2 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><Download className="w-4 h-4" /> 양식 다운로드 (.xlsx)</button></div><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">2. 파일 업로드</p><label className="w-full flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-white hover:bg-slate-50 transition-colors"><Upload className="w-8 h-8 text-slate-400 mb-2" /><span className="text-sm text-slate-500 font-medium">클릭하여 엑셀 파일 선택</span><input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleFileUpload} ref={fileInputRef} /></label></div></div></div></div> )}
         {isYarnBulkModalOpen && ( <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4"><div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 relative"><button onClick={() => setIsYarnBulkModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6"/></button><h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><FileSpreadsheet className="w-6 h-6 text-emerald-600"/> 원사 엑셀 일괄 등록</h3><div className="space-y-4"><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">1. 양식 다운로드</p><button onClick={handleDownloadYarnTemplate} className="w-full flex justify-center items-center gap-2 bg-white border border-slate-300 py-2 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><Download className="w-4 h-4" /> 원사 양식 다운로드 (.xlsx)</button></div><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">2. 파일 업로드</p><label className="w-full flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-white hover:bg-slate-50 transition-colors"><Upload className="w-8 h-8 text-slate-400 mb-2" /><span className="text-sm text-slate-500 font-medium">클릭하여 엑셀 파일 선택</span><input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleYarnFileUpload} ref={yarnFileInputRef} /></label></div></div></div></div> )}
 
-        <div ref={printRef} className={`fixed inset-0 bg-white z-[9999] p-12 ${isPdfGenerating ? 'block' : 'hidden'}`}>
-           <div className="max-w-[297mm] mx-auto landscape:max-w-none">
+        <div className={`fixed inset-0 bg-white z-[9999] p-12 overflow-y-auto ${isPdfGenerating ? 'block' : 'hidden'}`}>
+           <div ref={printRef} className="w-[297mm] min-h-[210mm] mx-auto bg-white">
               <div className="flex justify-center mb-8"><div className="text-center"><div className="flex items-center justify-center gap-3 text-cyan-600 mb-2"><Cloud className="w-12 h-12 fill-current" /><h1 className="text-5xl font-extrabold tracking-tight">G R U B I G</h1></div></div></div>
               <div className="text-center border-b-2 border-slate-800 pb-4 mb-8"><h2 className="text-2xl font-serif font-bold text-slate-900 mb-1">FABRIC QUOTATION</h2><p className="text-slate-500 text-sm font-bold">FOB PRICE</p></div>
               <div className="flex justify-between mb-8"><div className="w-1/2"><p className="text-xs text-slate-400 uppercase font-bold mb-1">To</p><h2 className="text-xl font-bold text-slate-900">{quoteInput.buyerName}</h2><p className="text-sm text-slate-600 capitalize">{quoteInput.buyerType} Partner / {quoteInput.marketType === 'domestic' ? 'Domestic Market' : 'Export Market'}</p></div><div className="w-1/2 text-right"><p className="text-xs text-slate-400 uppercase font-bold mb-1">Date</p><h2 className="text-xl font-bold text-slate-900">{quoteInput.date}</h2><p className="text-xs text-slate-500 mt-2">Currency: {quoteInput.currency} (Rate: {quoteInput.exchangeRate})</p></div></div>
