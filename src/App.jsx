@@ -201,7 +201,7 @@ const App = () => {
   const handleLogin = async () => signInWithPopup(auth, googleProvider);
   const handleLogout = () => signOut(auth);
 
-  // ✅ [개선됨] 3개의 방(Collection)에서 각각 데이터를 실시간으로 불러옵니다.
+  // ✅ 3개의 방(Collection)에서 각각 데이터를 실시간으로 불러옵니다.
   useEffect(() => {
     if (!user) return;
     
@@ -219,7 +219,7 @@ const App = () => {
     return () => { unsubYarns(); unsubFabrics(); unsubQuotes(); };
   }, [user]);
 
-  // ✅ [새로운 클라우드 매니저] 기존 saveToCloud를 대체하는 3가지 클라우드 전용 함수
+  // ✅ 클라우드 매니저
   const saveDocToCloud = async (colName, item) => {
     setSyncStatus('syncing');
     try { 
@@ -253,9 +253,10 @@ const App = () => {
     article: '', itemName: '', widthFull: 58, widthCut: 56, gsm: 300,
     costGYd: '', exchangeRate: 1450,
     knittingFee1k: 4000, knittingFee3k: 3000, knittingFee5k: 2500,
-    dyeingFee: 2500, dyeingLoss: 10, managementFeeYd: 100,
+    dyeingFee: 2500, managementFeeYd: 100,
     extraFee1k: 600, extraFee3k: 500, extraFee5k: 400,
-    losses: { tier1k: { knit: 8 }, tier3k: { knit: 5 }, tier5k: { knit: 5 } },
+    // ✅ 염가공 Loss 구간별 적용 추가
+    losses: { tier1k: { knit: 8, dye: 13 }, tier3k: { knit: 5, dye: 10 }, tier5k: { knit: 5, dye: 10 } },
     margins: { converter: { tier1k: 24, tier3k: 22, tier5k: 20 }, brand: { tier1k: 30, tier3k: 28, tier5k: 26 } },
     yarns: [{ yarnId: '', ratio: 100 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }]
   });
@@ -319,11 +320,12 @@ const App = () => {
     const effectiveGYd = fabricData.costGYd && Number(fabricData.costGYd) > 0 ? Number(fabricData.costGYd) : theoreticalGYd;
     const weightPerYdKg = effectiveGYd / 1000;
 
+    // ✅ 원가 로직 완벽 적용: 총 Loss율 = 편직 Loss + 염가공 Loss
     const calcTier = (tierKey, knittingFeeKg, qty) => {
-      const specificLoss = fabricData.losses[tierKey];
-      const rKnit = specificLoss.knit / 100; 
-      const rDye = fabricData.dyeingLoss / 100; 
-      const totalLossRate = rKnit + rDye;
+      const specificLoss = fabricData.losses[tierKey] || { knit: 0, dye: 0 };
+      const rKnit = (Number(specificLoss.knit) || 0) / 100; 
+      const rDye = (Number(specificLoss.dye) || 0) / 100; 
+      const totalLossRate = rKnit + rDye; // 핵심 로직!
 
       let extraFee = 0;
       if (tierKey === 'tier1k') extraFee = Number(fabricData.extraFee1k) || 600;
@@ -331,7 +333,7 @@ const App = () => {
       if (tierKey === 'tier5k') extraFee = Number(fabricData.extraFee5k) || 400;
 
       const costKnitYd = (Number(knittingFeeKg) / (1 - totalLossRate)) * weightPerYdKg;
-      const costDyeYd = (Number(fabricData.dyeingFee) / (1 - rDye)) * weightPerYdKg;
+      const costDyeYd = (Number(fabricData.dyeingFee) / (1 - totalLossRate)) * weightPerYdKg;
       const costYarnYdDomestic = (yarnCostDomestic / (1 - totalLossRate)) * weightPerYdKg;
       const costYarnYdExport = (yarnCostExport / (1 - totalLossRate)) * weightPerYdKg;
 
@@ -422,9 +424,9 @@ const App = () => {
   const resetForm = () => {
     setFabricInput({
       article: '', itemName: '', widthFull: 58, widthCut: 56, gsm: 300, costGYd: '', exchangeRate: 1450,
-      knittingFee1k: 4000, knittingFee3k: 3000, knittingFee5k: 2500, dyeingFee: 2500, dyeingLoss: 10, managementFeeYd: 100, 
+      knittingFee1k: 4000, knittingFee3k: 3000, knittingFee5k: 2500, dyeingFee: 2500, managementFeeYd: 100, 
       extraFee1k: 600, extraFee3k: 500, extraFee5k: 400,
-      losses: { tier1k: { knit: 8 }, tier3k: { knit: 5 }, tier5k: { knit: 5 } }, 
+      losses: { tier1k: { knit: 8, dye: 13 }, tier3k: { knit: 5, dye: 10 }, tier5k: { knit: 5, dye: 10 } }, 
       margins: { converter: { tier1k: 24, tier3k: 22, tier5k: 20 }, brand: { tier1k: 30, tier3k: 28, tier5k: 26 } },
       yarns: [{ yarnId: '', ratio: 100 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }]
     });
@@ -441,20 +443,21 @@ const App = () => {
   const handleEditFabric = (fabric) => { 
     setFabricInput({ 
       ...fabric, 
-      extraFee1k: fabric.extraFee1k || 600, extraFee3k: fabric.extraFee3k || 500, extraFee5k: fabric.extraFee5k || 400 
+      extraFee1k: fabric.extraFee1k || 600, extraFee3k: fabric.extraFee3k || 500, extraFee5k: fabric.extraFee5k || 400,
+      losses: fabric.losses || { tier1k: { knit: 8, dye: 13 }, tier3k: { knit: 5, dye: 10 }, tier5k: { knit: 5, dye: 10 } }
     }); 
     setEditingFabricId(fabric.id); 
     setActiveTab('calculator'); 
   };
 
   // --- EXCEL 관련 로직 ---
-  const EXCEL_HEADERS = ['Article', 'ItemName', 'WidthFull', 'WidthCut', 'GSM', 'CostGYd', 'KnittingFee1k', 'KnittingFee3k', 'KnittingFee5k', 'DyeingFee', 'DyeingLoss', 'ManagementFeeYd', 'ExtraFee1k', 'ExtraFee3k', 'ExtraFee5k'];
+  const EXCEL_HEADERS = ['Article', 'ItemName', 'WidthFull', 'WidthCut', 'GSM', 'CostGYd', 'KnittingFee1k', 'KnittingFee3k', 'KnittingFee5k', 'DyeingFee', 'ManagementFeeYd', 'ExtraFee1k', 'ExtraFee3k', 'ExtraFee5k'];
   
   const handleDownloadTemplate = () => {
     if (!isXlsxReady) return;
-    const exampleRow = ['SAMPLE-01', 'Cotton Jersey', 58, 56, 300, 320, 4000, 3500, 3000, 2500, 10, 100, 600, 500, 400];
+    const exampleRow = ['SAMPLE-01', 'Cotton Jersey', 58, 56, 300, 320, 4000, 3500, 3000, 2500, 100, 600, 500, 400];
     const ws = window.XLSX.utils.aoa_to_sheet([EXCEL_HEADERS, exampleRow]);
-    ws['!cols'] = [{ wch: 15 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
+    ws['!cols'] = [{ wch: 15 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
     const wb = window.XLSX.utils.book_new();
     window.XLSX.utils.book_append_sheet(wb, ws, "원단일괄등록");
     window.XLSX.writeFile(wb, '원단등록_양식_상세.xlsx');
@@ -492,10 +495,9 @@ const App = () => {
                 knittingFee3k: Number(row.KnittingFee3k) || (kFee1k - 500), 
                 knittingFee5k: Number(row.KnittingFee5k) || (kFee1k - 1000),
                 dyeingFee: Number(row.DyeingFee) || 2500, 
-                dyeingLoss: row.DyeingLoss !== undefined ? Number(row.DyeingLoss) : 10, 
                 managementFeeYd: Number(row.ManagementFeeYd) || 100,
                 extraFee1k: Number(row.ExtraFee1k) || 600, extraFee3k: Number(row.ExtraFee3k) || 500, extraFee5k: Number(row.ExtraFee5k) || 400,
-                losses: { tier1k: { knit: 8 }, tier3k: { knit: 5 }, tier5k: { knit: 5 } },
+                losses: { tier1k: { knit: 8, dye: 13 }, tier3k: { knit: 5, dye: 10 }, tier5k: { knit: 5, dye: 10 } },
                 margins: { converter: { tier1k: 24, tier3k: 22, tier5k: 20 }, brand: { tier1k: 30, tier3k: 28, tier5k: 26 } },
                 yarns: [{ yarnId: '', ratio: 100 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }]
             };
@@ -697,8 +699,6 @@ const App = () => {
   // --- 렌더링용 필터 데이터 ---
   const currentCalc = calculateCost(fabricInput);
   const filteredYarns = yarnFilterCategory === 'All' ? yarnLibrary : yarnLibrary.filter(y => y.category === yarnFilterCategory);
-  
-  // ✅ 추가된 기능: 원단 리스트 검색 필터
   const filteredFabrics = savedFabrics.filter(fabric => 
     (fabric.article && fabric.article.toLowerCase().includes(fabricSearchTerm.toLowerCase())) ||
     (fabric.itemName && fabric.itemName.toLowerCase().includes(fabricSearchTerm.toLowerCase()))
@@ -755,7 +755,7 @@ const App = () => {
         <nav className="flex-1 space-y-2">
           <button onClick={() => setActiveTab('calculator')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'calculator' ? 'bg-blue-600 text-white shadow-lg' : 'hover:bg-slate-800'}`}><Calculator className="w-5 h-5" /> <span>원단등록</span></button>
           <button onClick={() => setActiveTab('list')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'list' ? 'bg-blue-600 text-white shadow-lg' : 'hover:bg-slate-800'}`}><FileSpreadsheet className="w-5 h-5" /> <span>원단 리스트</span></button>
-          <button onClick={() => setActiveTab('yarns')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'yarns' ? 'bg-blue-600 text-white shadow-lg' : 'hover:bg-slate-800'}`}><Box className="w-5 h-5" /> <span>원사 라이브러리</span></button>
+          <button onClick={() => setActiveTab('yarns')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'yarns' ? 'bg-blue-600 text-white shadow-lg' : 'hover:bg-slate-800'}`}><Box className="w-5 h-5" /> <span>원사 라이브러</span></button>
           <div className="pt-4 mt-4 border-t border-slate-700">
             <p className="px-4 text-xs font-bold text-slate-500 mb-2 uppercase">Sales & Export</p>
             <button onClick={() => setActiveTab('quotation')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'quotation' ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-slate-800'}`}><FileText className="w-5 h-5" /> <span>견적서 작성</span></button>
@@ -800,9 +800,9 @@ const App = () => {
                     <div><label className="block text-xs font-bold text-slate-500 mb-1">Item Name</label><input type="text" name="itemName" value={fabricInput.itemName} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2" placeholder="Item Name" /></div>
                   </div>
                   <div className="grid grid-cols-4 gap-4 mb-4">
-              <div className="col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">내폭 (Cut)</label><input type="number" name="widthCut" value={fabricInput.widthCut} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-right" placeholder="56" /></div>
-              <div className="col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">외폭 (Full)</label><input type="number" name="widthFull" value={fabricInput.widthFull} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-right" placeholder="58" /></div>
-              <div className="col-span-1">
+                    <div className="col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">내폭 (Cut)</label><input type="number" name="widthCut" value={fabricInput.widthCut} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-right" placeholder="56" /></div>
+                    <div className="col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">외폭 (Full)</label><input type="number" name="widthFull" value={fabricInput.widthFull} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-right" placeholder="58" /></div>
+                    <div className="col-span-1">
                        <label className="block text-xs font-bold text-slate-500 mb-1">GSM</label>
                        <div className="relative">
                          <input type="number" name="gsm" value={fabricInput.gsm} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-right" placeholder="300" />
@@ -835,9 +835,8 @@ const App = () => {
                 {/* 2. Fees & Detailed Cost Breakdown Table */}
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
                   <h3 className="text-sm font-bold text-slate-400 uppercase mb-4 flex justify-between items-center">2. Fees & Cost Breakdown</h3>
-                  <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="grid grid-cols-2 gap-4 mb-4">
                     <div><label className="block text-xs font-bold text-slate-500 mb-1">염가공비 (￦/kg)</label><input type="number" name="dyeingFee" value={fabricInput.dyeingFee} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-right" placeholder="0" /></div>
-                    <div><label className="block text-xs font-bold text-slate-500 mb-1">염색 Loss (%)</label><input type="number" name="dyeingLoss" value={fabricInput.dyeingLoss} onChange={handleFabricChange} className="w-full bg-red-50 border border-red-100 text-red-600 rounded-lg px-3 py-2 text-right font-bold" placeholder="0" /></div>
                     <div><label className="block text-xs font-bold text-purple-600 mb-1">관리비 (￦/YD)</label><input type="number" name="managementFeeYd" value={fabricInput.managementFeeYd} onChange={handleFabricChange} className="w-full bg-purple-50 border border-purple-100 text-purple-700 rounded-lg px-3 py-2 text-right font-bold" placeholder="0" /></div>
                   </div>
                   <div className="overflow-hidden rounded-xl border border-slate-200 text-xs text-center">
@@ -855,12 +854,21 @@ const App = () => {
                           <div className="px-1 bg-blue-50/30"><input type="number" name="knittingFee3k" value={fabricInput.knittingFee3k} onChange={handleFabricChange} className="w-full text-center bg-transparent outline-none font-bold text-blue-700 border-b border-dashed border-blue-200 focus:border-blue-400" /></div>
                           <div className="px-1"><input type="number" name="knittingFee5k" value={fabricInput.knittingFee5k} onChange={handleFabricChange} className="w-full text-center bg-transparent outline-none border-b border-dashed border-slate-200 focus:border-blue-400" /></div>
                       </div>
+                      
+                      {/* 사장님이 원하셨던 구간별 편직 & 염가공 Loss 입력부 */}
                       <div className="grid grid-cols-4 py-1.5 items-center">
                           <div className="text-left pl-3 text-[11px] font-semibold text-slate-500">편직 Loss%</div>
                           <div className="px-1"><input type="number" value={fabricInput.losses.tier1k.knit} onChange={(e) => handleNestedChange('losses', 'tier1k', 'knit', e.target.value)} className="w-full text-center text-red-500 bg-transparent outline-none" /></div>
                           <div className="px-1 bg-blue-50/30"><input type="number" value={fabricInput.losses.tier3k.knit} onChange={(e) => handleNestedChange('losses', 'tier3k', 'knit', e.target.value)} className="w-full text-center text-red-500 bg-transparent outline-none font-bold" /></div>
                           <div className="px-1"><input type="number" value={fabricInput.losses.tier5k.knit} onChange={(e) => handleNestedChange('losses', 'tier5k', 'knit', e.target.value)} className="w-full text-center text-red-500 bg-transparent outline-none" /></div>
                       </div>
+                      <div className="grid grid-cols-4 py-1.5 items-center">
+                          <div className="text-left pl-3 text-[11px] font-semibold text-slate-500">염가공 Loss%</div>
+                          <div className="px-1"><input type="number" value={fabricInput.losses.tier1k.dye} onChange={(e) => handleNestedChange('losses', 'tier1k', 'dye', e.target.value)} className="w-full text-center text-red-500 bg-transparent outline-none" /></div>
+                          <div className="px-1 bg-blue-50/30"><input type="number" value={fabricInput.losses.tier3k.dye} onChange={(e) => handleNestedChange('losses', 'tier3k', 'dye', e.target.value)} className="w-full text-center text-red-500 bg-transparent outline-none font-bold" /></div>
+                          <div className="px-1"><input type="number" value={fabricInput.losses.tier5k.dye} onChange={(e) => handleNestedChange('losses', 'tier5k', 'dye', e.target.value)} className="w-full text-center text-red-500 bg-transparent outline-none" /></div>
+                      </div>
+
                       <div className="grid grid-cols-4 py-1.5 items-center">
                           <div className="text-left pl-3 text-[11px] font-semibold text-slate-500 flex items-center gap-1">
                               부대비용(YD) <Truck className="w-3 h-3 text-slate-300"/>
