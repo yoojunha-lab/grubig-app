@@ -8,19 +8,25 @@ export const useFabric = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFr
   const [editingFabricId, setEditingFabricId] = useState(null);
   const [expandedFabricId, setExpandedFabricId] = useState(null);
   
-  const initialFabricInput = {
-    article: '', itemName: '', widthFull: 58, widthCut: 56, gsm: 300, costGYd: '', exchangeRate: 1450, remarks: '',
+  const getInitialFabricInput = () => ({
+    article: '', itemName: '', widthFull: 58, widthCut: 56, gsm: 300, costGYd: '', exchangeRate: Number(localStorage.getItem('grubig_global_exchange_rate')) || 1450, remarks: '',
     knittingFee1k: 3000, knittingFee3k: 2000, knittingFee5k: 2000, dyeingFee: 8800, extraFee1k: 900, extraFee3k: 700, extraFee5k: 500,
     losses: { tier1k: { knit: 5, dye: 10 }, tier3k: { knit: 3, dye: 10 }, tier5k: { knit: 3, dye: 9 } },
     marginTier: 3, brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 },
     yarns: [{ yarnId: '', ratio: 100 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }]
-  };
+  });
 
-  const [fabricInput, setFabricInput] = useState(initialFabricInput);
+  const [fabricInput, setFabricInput] = useState(getInitialFabricInput);
 
   const handleFabricChange = (e) => {
     let { name, value } = e.target;
     if (name === 'article') value = String(value || '').toUpperCase();
+    
+    // 💡 환율 변경 시 글로벌(전역) 캐싱 처리
+    if (name === 'exchangeRate') {
+      localStorage.setItem('grubig_global_exchange_rate', value);
+    }
+
     setFabricInput(prev => ({ 
       ...prev, 
       [name]: (name === 'article' || name === 'itemName' || name === 'costGYd' || name === 'remarks') ? value : Number(value) 
@@ -44,7 +50,7 @@ export const useFabric = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFr
   };
 
   const resetFabricForm = () => {
-    setFabricInput(initialFabricInput);
+    setFabricInput(getInitialFabricInput());
     setEditingFabricId(null);
   };
 

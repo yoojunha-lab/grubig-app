@@ -18,8 +18,32 @@ export const CalculatorPage = ({
   handleSaveFabric,
   setActiveTab
 }) => {
+  const totalRatio = fabricInput.yarns.reduce((sum, yarn) => sum + (Number(yarn.ratio) || 0), 0);
+  const isRatioValid = totalRatio === 100;
+
+  const handleSaveSafe = () => {
+    if (!isRatioValid) {
+      alert(`[입력 오류] 원사 혼용률의 합계가 100%가 아닙니다.\n현재 합계: ${totalRatio}%\n\n정확한 단가 산출을 위해 원사 비율을 조정해 주세요.`);
+      return;
+    }
+    handleSaveFabric(setActiveTab);
+  };
+
+  // 엑셀 스타일의 Enter 키 포커스 이동 (Tab 역할)
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+      e.preventDefault();
+      const container = e.currentTarget;
+      const focusable = Array.from(container.querySelectorAll('input:not([disabled]), select:not([disabled]), button:not([disabled])'));
+      const index = focusable.indexOf(e.target);
+      if (index > -1 && index < focusable.length - 1) {
+        focusable[index + 1].focus();
+      }
+    }
+  };
+
   return (
-    <div className="max-w-7xl mx-auto space-y-6 print:hidden pb-28 md:pb-6 relative">
+    <div className="max-w-7xl mx-auto space-y-6 print:hidden pb-28 md:pb-6 relative" onKeyDown={handleKeyDown}>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -68,7 +92,12 @@ export const CalculatorPage = ({
               <div className="col-span-1"><label className="block text-xs font-bold text-blue-600 mb-1">실제 G/YD <span className="text-[10px] text-blue-400 font-normal">(g/yd)</span></label><input type="number" name="costGYd" value={fabricInput.costGYd} onChange={handleFabricChange} className="w-full bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-right font-bold text-blue-700 focus:ring-2 focus:ring-blue-500 outline-none transition-shadow" placeholder={num(currentCalcFull.theoreticalGYd)} /></div>
             </div>
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-2 mt-6">
-              <p className="text-xs text-slate-400 font-bold mb-2">원사 혼용률 (Yarn Composition)</p>
+              <div className="flex justify-between items-center mb-2">
+                <p className="text-xs text-slate-400 font-bold">원사 혼용률 (Yarn Composition)</p>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors ${isRatioValid ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-500 animate-pulse'}`}>
+                  합계: {totalRatio}% {isRatioValid ? '(정상)' : '(100%를 맞춰주세요)'}
+                </span>
+              </div>
               {fabricInput.yarns.map((slot, idx) => (
                 <div key={idx} className="flex gap-2 items-center flex-wrap sm:flex-nowrap">
                   <span className="text-xs font-mono text-slate-400 w-4 hidden sm:inline-block">{idx + 1}</span>
@@ -157,7 +186,7 @@ export const CalculatorPage = ({
               );
             })}
             {/* 데스크톱용 저장 버튼 */}
-            <button onClick={() => handleSaveFabric(setActiveTab)} className="hidden md:flex w-full bg-white text-slate-900 font-bold py-3 rounded-xl hover:bg-blue-50 transition-colors items-center justify-center gap-2 mt-4 shadow-lg shadow-blue-900/50">
+            <button onClick={handleSaveSafe} className="hidden md:flex w-full bg-white text-slate-900 font-bold py-3 rounded-xl hover:bg-blue-50 transition-colors items-center justify-center gap-2 mt-4 shadow-lg shadow-blue-900/50">
               {editingFabricId ? <><Save className="w-4 h-4" /> 수정 저장</> : <><Plus className="w-4 h-4" /> 클라우드 저장</>}
             </button>
           </div>
@@ -167,7 +196,7 @@ export const CalculatorPage = ({
       {/* 📱 모바일 하단 고정 플로팅 버튼 */}
       <div className="md:hidden fixed bottom-0 left-0 w-full p-4 bg-gradient-to-t from-slate-100 via-slate-50/95 to-transparent z-50 pb-6 pointer-events-none">
         <div className="pointer-events-auto">
-          <button onClick={() => handleSaveFabric(setActiveTab)} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-[0_8px_30px_rgb(59,130,246,0.3)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 border border-blue-500">
+          <button onClick={handleSaveSafe} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-[0_8px_30px_rgb(59,130,246,0.3)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 border border-blue-500">
             {editingFabricId ? <><Save className="w-5 h-5" /> 수정 내용 저장</> : <><Plus className="w-5 h-5" /> 장부(DB)에 저장하기</>}
           </button>
         </div>
