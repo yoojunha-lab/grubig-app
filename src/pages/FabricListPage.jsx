@@ -39,17 +39,17 @@ export const FabricListPage = ({
         </div>
       </div>
 
-      {/* ✅ 추가된 요약 위젯 (Dashboard Metrics) */}
+      {/* ✅ 추가된 요약 위젯 (Dashboard Metrics) - Floating Card Animation 추가 */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex items-center gap-4">
           <div className="p-3 bg-blue-50 text-blue-600 rounded-lg"><Database className="w-6 h-6" /></div>
           <div><p className="text-xs font-bold text-slate-500">총 등록 원단</p><p className="text-xl font-extrabold text-slate-800">{filteredFabrics.length} <span className="text-sm font-normal text-slate-500">종</span></p></div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex items-center gap-4">
           <div className="p-3 bg-emerald-50 text-emerald-600 rounded-lg"><DollarSign className="w-6 h-6" /></div>
           <div><p className="text-xs font-bold text-slate-500">현재 단가 모드</p><p className="text-xl font-extrabold text-slate-800">{viewMode === 'domestic' ? '내수용' : '수출용'}</p></div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex items-center gap-4">
           <div className="p-3 bg-indigo-50 text-indigo-600 rounded-lg"><TrendingUp className="w-6 h-6" /></div>
           <div><p className="text-xs font-bold text-slate-500">최근 업데이트</p><p className="text-xl font-extrabold text-slate-800">최신 유지 관리</p></div>
         </div>
@@ -83,34 +83,46 @@ export const FabricListPage = ({
 
               return (
                 <React.Fragment key={f.id}>
-                  <tr className={`cursor-pointer transition-colors ${isExpanded ? 'bg-blue-50/50 hover:bg-blue-50' : 'hover:bg-slate-50'}`} onClick={() => setExpandedFabricId(isExpanded ? null : f.id)}>
-                    <td className="p-3 text-slate-400 text-center border-r border-slate-50">{isExpanded ? <ChevronUp className="w-4 h-4 mx-auto" /> : <ChevronDown className="w-4 h-4 mx-auto" />}</td>
+                  <tr className={`group cursor-pointer transition-colors duration-200 ${isExpanded ? 'bg-blue-50/30' : 'hover:bg-slate-50'}`} onClick={() => setExpandedFabricId(isExpanded ? null : f.id)}>
+                    <td className="p-3 text-slate-400 text-center border-r border-slate-50">{isExpanded ? <ChevronUp className="w-4 h-4 mx-auto text-blue-500" /> : <ChevronDown className="w-4 h-4 mx-auto group-hover:text-blue-500 transition-colors" />}</td>
                     <td className="p-3 border-r border-slate-50"><b>{f.article}</b><div className="text-[10px] text-slate-500 truncate max-w-[120px]">{f.itemName}</div></td>
-                    <td className="p-3 text-center text-slate-600 text-xs border-r border-slate-50">{f.widthFull}" / {f.gsm}g</td>
+                    <td className="p-3 text-center border-r border-slate-50">
+                      <div className="flex items-center justify-center gap-1.5 font-mono text-[10px]">
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full">{f.widthFull}"</span>
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full">{f.gsm}g</span>
+                      </div>
+                    </td>
 
-                    <td className="p-2 text-right font-mono text-slate-500 text-xs border-r border-slate-50">{sym}{num(d1k?.totalCostYd)}</td>
-                    <td className="p-2 text-right font-mono text-blue-600 font-bold text-xs border-r border-slate-50 bg-blue-50/20">{sym}{num(d3k?.totalCostYd)}</td>
-                    <td className="p-2 text-right font-mono text-slate-500 text-xs border-r border-slate-100">{sym}{num(d5k?.totalCostYd)}</td>
+                    <td className="p-2 text-right font-mono text-slate-500 text-xs border-r border-slate-50">{sym}{num(d1k?.totalCostYd, viewMode)}</td>
+                    <td className="p-2 text-right font-mono text-blue-700 font-bold text-xs border-r border-slate-50 bg-blue-50/50">{sym}{num(d3k?.totalCostYd, viewMode)}</td>
+                    <td className="p-2 text-right font-mono text-slate-500 text-xs border-r border-slate-100">{sym}{num(d5k?.totalCostYd, viewMode)}</td>
 
-                    <td className="p-2 text-right font-mono text-emerald-600 text-xs border-r border-emerald-50">{sym}{num(d1k?.priceConverter)}</td>
-                    <td className="p-2 text-right font-mono text-emerald-700 font-bold text-xs border-r border-emerald-50 bg-emerald-50/30">{sym}{num(d3k?.priceConverter)}</td>
-                    <td className="p-2 text-right font-mono text-emerald-600 text-xs border-r border-slate-100">{sym}{num(d5k?.priceConverter)}</td>
+                    <td className="p-2 text-right font-mono text-emerald-600 text-xs border-r border-emerald-50">{sym}{num(d1k?.priceConverter, viewMode)}</td>
+                    <td className="p-2 text-right font-mono text-emerald-700 font-bold text-xs border-r border-emerald-50 bg-emerald-50/50">{sym}{num(d3k?.priceConverter, viewMode)}</td>
+                    <td className="p-2 text-right font-mono text-emerald-600 text-xs border-r border-slate-100">{sym}{num(d5k?.priceConverter, viewMode)}</td>
 
-                    <td className="p-2 text-right font-mono text-indigo-600 text-xs border-r border-indigo-50">{sym}{num(d1k?.priceBrand)}</td>
-                    <td className="p-2 text-right font-mono text-indigo-700 font-bold text-xs border-r border-indigo-50 bg-indigo-50/30">{sym}{num(d3k?.priceBrand)}</td>
-                    <td className="p-2 text-right font-mono text-indigo-600 text-xs border-r border-slate-50">{sym}{num(d5k?.priceBrand)}</td>
+                    <td className="p-2 text-right font-mono text-indigo-600 text-xs border-r border-indigo-50">{sym}{num(d1k?.priceBrand, viewMode)}</td>
+                    <td className="p-2 text-right font-mono text-indigo-700 font-bold text-xs border-r border-indigo-50 bg-indigo-50/50">{sym}{num(d3k?.priceBrand, viewMode)}</td>
+                    <td className="p-2 text-right font-mono text-indigo-600 text-xs border-r border-slate-50">{sym}{num(d5k?.priceBrand, viewMode)}</td>
 
-                    <td className="p-3 text-center flex justify-center gap-2 border-l border-slate-50">
-                      <button onClick={(e) => { e.stopPropagation(); handleEditFabric(f, setActiveTab); }} className="p-1.5 hover:bg-blue-100 text-blue-500 rounded transition-colors"><Edit2 className="w-4 h-4" /></button>
-                      <button onClick={(e) => { e.stopPropagation(); handleDeleteFabric(f.id); }} className="p-1.5 hover:bg-red-100 text-red-500 rounded transition-colors"><Trash2 className="w-4 h-4" /></button>
+                    <td className="p-3 text-center border-l border-slate-50 relative">
+                      {/* ActionButton 미니멀리즘: 평소엔 안보이다 호버시에만 나타남 */}
+                      <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                        <button onClick={(e) => { e.stopPropagation(); handleEditFabric(f, setActiveTab); }} className="p-1.5 hover:bg-blue-100 text-blue-500 rounded transition-colors"><Edit2 className="w-4 h-4" /></button>
+                        <button onClick={(e) => { e.stopPropagation(); handleDeleteFabric(f.id); }} className="p-1.5 hover:bg-red-100 text-red-500 rounded transition-colors"><Trash2 className="w-4 h-4" /></button>
+                      </div>
                     </td>
                   </tr>
 
                   {/* 🎯 아코디언 메뉴 UI 카드형으로 깔끔하게 전면 개편 */}
                   {isExpanded && (
-                    <tr className="bg-slate-50/80 border-b-2 border-blue-200">
-                      <td colSpan="13" className="p-3 sm:p-5 cursor-default" onClick={(e) => e.stopPropagation()}>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 max-w-[1200px] w-full">
+                    <tr className="bg-slate-50/80 border-b-2 border-blue-200 shadow-inner">
+                      <td colSpan="13" className="p-4 sm:p-6 cursor-default relative overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                        {/* 배경 장식 애니메이션 효과 */}
+                        <div className="absolute -top-10 -right-10 w-40 h-40 bg-blue-100/50 rounded-full blur-3xl pointer-events-none"></div>
+                        <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-emerald-100/40 rounded-full blur-3xl pointer-events-none"></div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 max-w-[1200px] w-full relative z-10">
 
                           {/* Card 1: 생산 정보 */}
                           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
@@ -160,9 +172,9 @@ export const FabricListPage = ({
                                 return (
                                   <div key={tier} className={`grid grid-cols-4 text-center font-mono py-1.5 rounded text-xs items-center ${is3k ? 'bg-slate-700 font-bold shadow-inner text-white' : 'text-slate-300'}`}>
                                     <div className="text-slate-400 text-[10px] font-bold">{label}</div>
-                                    <div>{num(d.totalCostYd)}</div>
-                                    <div className="text-emerald-400">{num(d.priceConverter)}</div>
-                                    <div className="text-indigo-400">{num(d.priceBrand)}</div>
+                                    <div>{num(d.totalCostYd, viewMode)}</div>
+                                    <div className="text-emerald-400">{num(d.priceConverter, viewMode)}</div>
+                                    <div className="text-indigo-400">{num(d.priceBrand, viewMode)}</div>
                                   </div>
                                 );
                               })}
@@ -221,11 +233,11 @@ export const FabricListPage = ({
               <div className="p-3 bg-white grid grid-cols-2 gap-2 text-xs border-b border-slate-50 cursor-pointer" onClick={() => setExpandedFabricId(isExpanded ? null : f.id)}>
                 <div className="bg-emerald-50/30 p-2.5 rounded-lg border border-emerald-100/50 flex flex-col justify-center items-center">
                   <div className="text-[10px] text-emerald-600/70 font-bold mb-0.5 uppercase tracking-wide">도매가 (3k)</div>
-                  <div className="font-mono font-extrabold text-emerald-700 text-sm">{sym}{num(c.tier3k[viewMode]?.priceConverter)}</div>
+                  <div className="font-mono font-extrabold text-emerald-700 text-sm">{sym}{num(c.tier3k[viewMode]?.priceConverter, viewMode)}</div>
                 </div>
                 <div className="bg-indigo-50/30 p-2.5 rounded-lg border border-indigo-100/50 flex flex-col justify-center items-center">
                   <div className="text-[10px] text-indigo-600/70 font-bold mb-0.5 uppercase tracking-wide">직납가 (3k)</div>
-                  <div className="font-mono font-extrabold text-indigo-700 text-sm">{sym}{num(c.tier3k[viewMode]?.priceBrand)}</div>
+                  <div className="font-mono font-extrabold text-indigo-700 text-sm">{sym}{num(c.tier3k[viewMode]?.priceBrand, viewMode)}</div>
                 </div>
               </div>
               
