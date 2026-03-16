@@ -2,8 +2,15 @@
 
 /**
  * 숫자를 한국어 표기법(천 단위 콤마)으로 포맷팅합니다.
+ * 내수(domestic)일 경우 정수(소수점 0자리), 수출(export)일 경우 소수점 둘째 자리 고정.
  */
-export const num = (v) => Number(v || 0).toLocaleString();
+export const num = (v, viewMode = 'domestic') => {
+  const isExport = viewMode === 'export';
+  return Number(v || 0).toLocaleString(undefined, {
+    minimumFractionDigits: isExport ? 2 : 0,
+    maximumFractionDigits: isExport ? 2 : 0
+  });
+};
 
 /**
  * 숫자를 USD(미국 달러) 표기법으로 소수점 둘째 자리까지 포맷팅합니다.
