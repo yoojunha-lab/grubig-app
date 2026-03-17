@@ -61,6 +61,13 @@ export const useFabric = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFr
 
   const handleSaveFabric = (setActiveTab) => {
     if (!fabricInput.article) { showToast("Article을 입력해주세요.", 'error'); return; }
+    
+    // [Phase 7 검증] 내폭은 외폭보다 클 수 없음
+    if (Number(fabricInput.widthCut) > Number(fabricInput.widthFull)) {
+      showToast("내폭(Cut)은 외폭(Full)보다 클 수 없습니다.", 'error');
+      return;
+    }
+
     const itemToSave = { id: editingFabricId || Date.now(), date: new Date().toLocaleDateString(), ...fabricInput };
     saveDocToCloud('fabrics', itemToSave); 
     resetFabricForm(); 

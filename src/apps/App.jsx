@@ -467,6 +467,7 @@ const App = () => {
             handleEditFabric={handleEditFabric}
             handleDeleteFabric={handleDeleteFabric}
             setActiveTab={setActiveTab}
+            yarnLibrary={yarnLibrary}
           />
         )}
 
