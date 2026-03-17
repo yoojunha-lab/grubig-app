@@ -85,10 +85,18 @@ export const FabricListPage = ({
                 <React.Fragment key={f.id}>
                   <tr className={`group cursor-pointer transition-colors duration-200 ${isExpanded ? 'bg-blue-50/30' : 'hover:bg-slate-50'}`} onClick={() => setExpandedFabricId(isExpanded ? null : f.id)}>
                     <td className="p-3 text-slate-400 text-center border-r border-slate-50">{isExpanded ? <ChevronUp className="w-4 h-4 mx-auto text-blue-500" /> : <ChevronDown className="w-4 h-4 mx-auto group-hover:text-blue-500 transition-colors" />}</td>
-                    <td className="p-3 border-r border-slate-50"><b>{f.article}</b><div className="text-[10px] text-slate-500 truncate max-w-[120px]">{f.itemName}</div></td>
+                    <td className="p-3 border-r border-slate-50">
+                      <div className="flex items-center gap-1.5">
+                        <b>{f.article}</b>
+                        {f.yarns && f.yarns.some(y => String(y.yarnId).startsWith('UNREGISTERED_')) && (
+                          <span title="미등록 원사 포함" className="cursor-help cursor-help-icon">⚠️</span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-slate-500 truncate max-w-[120px]">{f.itemName}</div>
+                    </td>
                     <td className="p-3 text-center border-r border-slate-50">
                       <div className="flex items-center justify-center gap-1.5 font-mono text-[10px]">
-                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full">{f.widthFull}"</span>
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full">{f.widthCut}/{f.widthFull}"</span>
                         <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full">{f.gsm}g</span>
                       </div>
                     </td>
@@ -214,10 +222,15 @@ export const FabricListPage = ({
             <div key={f.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden transition-shadow hover:shadow-md">
               <div className="p-4 border-b border-slate-100 flex justify-between items-start cursor-pointer bg-slate-50/50" onClick={() => setExpandedFabricId(isExpanded ? null : f.id)}>
                 <div>
-                  <div className="font-extrabold text-slate-800 text-lg uppercase tracking-tight">{f.article}</div>
+                  <div className="font-extrabold text-slate-800 text-lg uppercase tracking-tight flex items-center gap-1.5">
+                    {f.article}
+                    {f.yarns && f.yarns.some(y => String(y.yarnId).startsWith('UNREGISTERED_')) && (
+                      <span title="미등록 원사 포함" className="text-sm">⚠️</span>
+                    )}
+                  </div>
                   <div className="text-xs text-slate-500 font-medium">{f.itemName}</div>
                   <div className="text-[11px] font-mono text-slate-400 mt-1.5 flex items-center gap-1.5">
-                    <span className="bg-slate-200/50 px-1.5 py-0.5 rounded">{f.widthFull}"</span>
+                    <span className="bg-slate-200/50 px-1.5 py-0.5 rounded">{f.widthCut}/{f.widthFull}"</span>
                     <span className="bg-slate-200/50 px-1.5 py-0.5 rounded">{f.gsm}g</span>
                   </div>
                 </div>

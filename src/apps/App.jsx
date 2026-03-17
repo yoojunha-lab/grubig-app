@@ -174,11 +174,11 @@ const App = () => {
     window.XLSX.utils.book_append_sheet(wb, ws, "원사백업"); window.XLSX.writeFile(wb, `Yarn_Backup_${new Date().toLocaleDateString()}.xlsx`);
   };
 
-  const EXCEL_HEADERS = ['Article', 'ItemName', 'WidthFull', 'WidthCut', 'GSM', 'CostGYd', 'ExchangeRate', 'MarginTier', 'BrandExtra1k', 'BrandExtra3k', 'BrandExtra5k', 'KnittingFee1k', 'KnittingFee3k', 'KnittingFee5k', 'DyeingFee', 'ExtraFee1k', 'ExtraFee3k', 'ExtraFee5k', 'Remarks', 'Yarn1_Name', 'Yarn1_Ratio', 'Yarn2_Name', 'Yarn2_Ratio', 'Yarn3_Name', 'Yarn3_Ratio', 'Yarn4_Name', 'Yarn4_Ratio'];
+  const EXCEL_HEADERS = ['Article', 'ItemName', 'WidthFull', 'WidthCut', 'GSM', 'CostGYd', 'MarginTier', 'BrandExtra1k', 'BrandExtra3k', 'BrandExtra5k', 'KnittingFee1k', 'KnittingFee3k', 'KnittingFee5k', 'DyeingFee', 'ExtraFee1k', 'ExtraFee3k', 'ExtraFee5k', 'KnitLoss1k', 'KnitLoss3k', 'KnitLoss5k', 'DyeLoss1k', 'DyeLoss3k', 'DyeLoss5k', 'Remarks', 'Yarn1_Name', 'Yarn1_Ratio', 'Yarn2_Name', 'Yarn2_Ratio', 'Yarn3_Name', 'Yarn3_Ratio', 'Yarn4_Name', 'Yarn4_Ratio'];
 
   const handleDownloadTemplate = () => {
     if (!isXlsxReady) return;
-    const exampleRow = ['SAMPLE-01', 'Cotton Jersey', 58, 56, 300, 320, 1450, 3, 1000, 700, 500, 3000, 2000, 2000, 8800, 900, 700, 500, '바이어 요청 샘플', 'CM 30S', 100, '', 0, '', 0, '', 0];
+    const exampleRow = ['SAMPLE-01', 'Cotton Jersey', 58, 56, 300, 320, 3, 1000, 700, 500, 3000, 2000, 2000, 8800, 900, 700, 500, 5, 3, 3, 10, 10, 9, '바이어 요청 샘플', 'CM 30S', 100, '', 0, '', 0, '', 0];
     const ws = window.XLSX.utils.aoa_to_sheet([EXCEL_HEADERS, exampleRow]);
     const wb = window.XLSX.utils.book_new();
     window.XLSX.utils.book_append_sheet(wb, ws, "원단일괄등록");
@@ -200,21 +200,32 @@ const App = () => {
           let mappedYarns = [];
           for (let i = 1; i <= 4; i++) {
             const yName = row[`Yarn${i}_Name`] ? String(row[`Yarn${i}_Name`]).trim().toUpperCase() : '';
-            const yRatio = Number(row[`Yarn${i}_Ratio`]) || 0;
+            const rawRatio = row[`Yarn${i}_Ratio`];
+            const yRatio = rawRatio ? Number(String(rawRatio).replace(/%/g, '').trim()) || 0 : 0;
             if (yName) {
               const found = yarnLibrary.find(y => String(y.name).toUpperCase() === yName);
-              if (found) mappedYarns.push({ yarnId: found.id, ratio: yRatio });
-              else { missingYarnNames.add(yName); mappedYarns.push({ yarnId: '', ratio: yRatio }); }
+              if (found) {
+                mappedYarns.push({ yarnId: found.id, ratio: yRatio });
+              } else { 
+                missingYarnNames.add(yName); 
+                // DB에 일단 가짜 yarn 이름 정보라도 쑤셔넣어서 나중에 '수정'할 때 매칭시킬 수 있게 배려
+                mappedYarns.push({ yarnId: `UNREGISTERED_${yName}`, ratio: yRatio, tempName: yName }); 
+              }
             } else { mappedYarns.push({ yarnId: '', ratio: 0 }); }
           }
+          const getLoss = (field) => row[field] !== undefined ? Number(String(row[field]).replace(/%/g, '').trim()) : null;
+
           newFabrics.push({
             id: Date.now() + idx, date: new Date().toLocaleDateString(),
             article: String(row.Article || 'UNKNOWN').trim().toUpperCase(), itemName: String(row.ItemName || ''), remarks: String(row.Remarks || ''),
             widthFull: Number(row.WidthFull) || 58, widthCut: Number(row.WidthCut) || 56, gsm: Number(row.GSM) || 300, costGYd: row.CostGYd ? Number(row.CostGYd) : '',
-            exchangeRate: Number(row.ExchangeRate) || 1450,
             knittingFee1k: kFee1k, knittingFee3k: Number(row.KnittingFee3k) || 2000, knittingFee5k: Number(row.KnittingFee5k) || 2000, dyeingFee: Number(row.DyeingFee) || 8800,
             extraFee1k: Number(row.ExtraFee1k) || 900, extraFee3k: Number(row.ExtraFee3k) || 700, extraFee5k: Number(row.ExtraFee5k) || 500,
-            losses: { tier1k: { knit: 5, dye: 10 }, tier3k: { knit: 3, dye: 10 }, tier5k: { knit: 3, dye: 9 } },
+            losses: { 
+              tier1k: { knit: getLoss('KnitLoss1k') ?? 5, dye: getLoss('DyeLoss1k') ?? 10 }, 
+              tier3k: { knit: getLoss('KnitLoss3k') ?? 3, dye: getLoss('DyeLoss3k') ?? 10 }, 
+              tier5k: { knit: getLoss('KnitLoss5k') ?? 3, dye: getLoss('DyeLoss5k') ?? 9 } 
+            },
             marginTier: row.MarginTier !== undefined ? Number(row.MarginTier) : 3,
             brandExtra: {
               tier1k: row.BrandExtra1k !== undefined ? Number(row.BrandExtra1k) : 1000,
@@ -226,8 +237,13 @@ const App = () => {
         });
 
         setSavedFabrics([...newFabrics, ...savedFabrics]); saveBatchToCloud('fabrics', newFabrics); setIsBulkModalOpen(false);
-        if (missingYarnNames.size > 0) alert(`✅ 원단 등록은 완료되었으나, 다음 원사는 라이브러리에 없어서 '빈칸' 처리되었습니다.\n\n[없는 원사 목록]\n${[...missingYarnNames].join(', ')}\n\n* 등록 후 해당 원단을 라이브러리에 추가하거나 수정해주세요!`);
-        else showToast(`${newFabrics.length}건이 완벽하게 등록되었습니다.`, 'success');
+        
+        if (missingYarnNames.size > 0) {
+          alert(`✅ 총 ${newFabrics.length}건이 성공적으로 등록되었습니다.\n\n⚠️ 주의: 다음 원사 정보가 아직 라이브러리에 없어서 임시 텍스트로 등록되었습니다.\n해당 원단들의 수율 단가(Cost/gYD) 계산이 부정확할 수 있으니,\n이후 원사 라이브러리에 아래 원사들을 추가하시거나 원단을 수정해주세요.\n\n[미등록 원사 목록]\n${[...missingYarnNames].join(', ')}`);
+        } else {
+          showToast(`${newFabrics.length}건이 완벽하게 등록되었습니다.`, 'success');
+        }
+        
         if (fileInputRef.current) fileInputRef.current.value = '';
       } catch (err) { alert(`엑셀 업로드 중 오류가 발생했습니다: ${err.message}`); }
     };
@@ -344,7 +360,7 @@ const App = () => {
     if (!isPdfReady) { showToast("PDF 로딩 중입니다.", 'error'); return; }
     if (!quoteInput.items || quoteInput.items.length === 0) { showToast("내용이 없습니다.", 'error'); return; }
     setIsPdfGenerating(true); showToast("PDF 생성 중... (잠시만 기다려주세요)", 'info');
-    setTimeout(() => {
+    setTimeout(() => {                        
       if (printRef.current && window.html2pdf) {
         const opt = {
           margin: 0,
