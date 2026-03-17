@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Calendar, Search, X, Eye, Trash2, AlertCircle, Copy, ChevronDown, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { Calendar, Search, X, Eye, Trash2, AlertCircle, Copy, ChevronDown, ChevronRight, CheckCircle2, FileText } from 'lucide-react';
 import { num, usd, smartRound, getLastDayOfQuoteMonth } from '../utils/helpers';
 
 export const QuoteHistoryPage = ({
@@ -66,9 +66,11 @@ export const QuoteHistoryPage = ({
               <tr><th className="p-4 w-32">Date</th><th className="p-4">Buyer</th><th className="p-4 w-32">Type</th><th className="p-4 w-24 text-center">Items</th><th className="p-4 w-32">Author</th><th className="p-4 w-56 text-center">Action</th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredQuotesList.map(quote => (
+              {filteredQuotesList.map(quote => {
+                const isExpanded = expandedRowId === quote.id;
+                return (
                 <React.Fragment key={quote.id}>
-                <tr className="hover:bg-slate-50 group cursor-pointer transition-colors" onClick={(e) => toggleExpand(quote.id, e)}>
+                <tr className={`group cursor-pointer transition-colors ${isExpanded ? 'bg-slate-50' : 'bg-white hover:bg-slate-50'}`} onClick={(e) => toggleExpand(quote.id, e)}>
                   <td className="p-4 font-mono text-slate-500">{quote.date}</td>
                   <td className="p-4">
                     <div className="flex flex-col gap-1">
@@ -86,10 +88,10 @@ export const QuoteHistoryPage = ({
                     </div>
                   </td>
                   <td className="p-4 text-center">
-                    <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full font-bold flex items-center justify-center gap-1 w-max mx-auto shadow-sm">
+                    <div className={`px-3 py-1 rounded-full font-bold flex items-center justify-center gap-1 w-max mx-auto shadow-sm select-none transition-colors ${isExpanded ? 'bg-slate-200 text-slate-700' : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'}`}>
                       {quote.items?.length || 0} items
-                      {expandedRowId === quote.id ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
-                    </span>
+                      {isExpanded ? <ChevronDown className="w-4 h-4 opacity-70" /> : <ChevronRight className="w-4 h-4 opacity-70" />}
+                    </div>
                   </td>
                   <td className="p-4 text-slate-500 font-medium">{quote.authorName}</td>
                   <td className="p-4">
@@ -103,8 +105,8 @@ export const QuoteHistoryPage = ({
                   </td>
                 </tr>
                 {/* 확장된 미리보기 (Accordion) 영역 */}
-                {expandedRowId === quote.id && (
-                  <tr className="bg-slate-50/80 border-b border-slate-200">
+                {isExpanded && (
+                  <tr className="bg-slate-50 border-b border-slate-200">
                     <td colSpan="6" className="p-0">
                       <div className="px-6 py-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
                         <div>
@@ -140,7 +142,8 @@ export const QuoteHistoryPage = ({
                   </tr>
                 )}
               </React.Fragment>
-              ))}
+              );
+            })}
               {filteredQuotesList.length === 0 && <tr><td colSpan="6" className="p-12 text-center text-slate-400">No quotation history found matching the filters.</td></tr>}
             </tbody>
           </table>

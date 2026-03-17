@@ -30,20 +30,20 @@ export const YarnLibraryRow = React.memo(({
 
   return (
     <tr className="hover:bg-blue-50 group transition-colors">
-      <td className="px-6 py-5">
-        <span className={`text-[11px] font-bold px-2 py-1 rounded-md border uppercase whitespace-nowrap inline-block ${catColor}`}>
+      <td className="px-6 py-2.5">
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase whitespace-nowrap inline-block ${catColor}`}>
           {y.category || '-'}
         </span>
       </td>
-      <td className="px-6 py-5 font-bold text-slate-900 uppercase text-base tracking-tight">{y.name}</td>
-      <td className="px-6 py-5 font-medium text-slate-600 text-[11px] leading-relaxed uppercase">
+      <td className="px-6 py-2.5 font-bold text-slate-900 uppercase text-sm tracking-tight">{y.name}</td>
+      <td className="px-6 py-2.5 font-medium text-slate-600 text-[11px] uppercase">
         {y.suppliers?.map((s) => (
-          <span key={s.id} className="inline-block mr-1 mb-1">
+          <span key={s.id} className="inline-block mr-1">
             {s.isDefault ? <strong className="text-blue-600 bg-blue-50 border border-blue-100 rounded px-1 py-0.5">[{s.name}]</strong> : <span className="text-slate-500 bg-slate-50 border border-slate-100 rounded px-1 py-0.5">{s.name}</span>}
           </span>
         ))}
       </td>
-      <td className="px-6 py-5 text-right font-mono relative group/price">
+      <td className="px-6 py-2.5 text-right font-mono relative group/price">
         <div className="flex items-center justify-end gap-2">
           <span className="font-medium text-slate-700">{defSup.currency === 'USD' ? '$' : '￦'}{num(defSup.price)}</span>
           {defSup.history && defSup.history.length > 0 && (
@@ -62,26 +62,26 @@ export const YarnLibraryRow = React.memo(({
           )}
         </div>
       </td>
-      <td className="px-6 py-5 text-right text-slate-500 font-medium">{defSup.tariff || 0}%</td>
-      <td className="px-6 py-5 text-right font-bold text-emerald-600">
+      <td className="px-6 py-2.5 text-right text-slate-500 font-medium text-sm">{defSup.tariff || 0}%</td>
+      <td className="px-6 py-2.5 text-right font-bold text-emerald-600 text-sm">
         {defSup.freight || 0}%
-        {defSup.price > 0 && defSup.freight > 0 && <div className="text-[10px] text-slate-400 font-normal leading-tight mt-0.5">({Math.round(convertedPrice * defSup.freight / 100)}원)</div>}
+        {defSup.price > 0 && defSup.freight > 0 && <div className="text-[10px] text-slate-400 font-normal mt-px">({Math.round(convertedPrice * defSup.freight / 100)}원)</div>}
       </td>
-      <td className="px-6 py-5 text-right font-mono font-bold text-[15px]">
+      <td className="px-6 py-2.5 text-right font-mono font-bold text-sm">
         {defSup.currency === 'USD' ? (
-          <div className="flex flex-col items-end leading-tight gap-0.5">
+          <div className="flex flex-col items-end gap-0.5">
             <span className="text-blue-700">￦{num(domPrice)}</span>
-            <span className="text-[10px] text-slate-500 font-sans tracking-tight bg-slate-100 px-1 rounded">($적용)</span>
+            <span className="text-[9px] text-slate-500 font-sans tracking-tight bg-slate-100 px-1 rounded leading-none">($적용)</span>
           </div>
         ) : <span className="text-blue-700">￦{num(domPrice)}</span>}
       </td>
-      <td className="px-6 py-5 text-slate-500 text-xs max-w-[200px] leading-relaxed">
-        <div className="line-clamp-2" title={y.remarks}>{y.remarks}</div>
+      <td className="px-6 py-2.5 text-slate-500 text-xs max-w-[200px]">
+        <div className="line-clamp-2 leading-tight" title={y.remarks}>{y.remarks}</div>
       </td>
-      <td className="px-6 py-5 text-center">
+      <td className="px-6 py-2.5 text-center">
         <div className="flex justify-center gap-1 opacity-50 group-hover:opacity-100 transition-opacity">
-          <button onClick={() => handleEditYarn(y)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title="수정"><Edit2 className="w-4 h-4" /></button>
-          <button onClick={() => handleDeleteYarn(y.id, (id) => setYarnLibrary(yarnLibrary.filter(item => item.id !== id)))} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-100 rounded-lg transition-colors" title="삭제"><Trash2 className="w-4 h-4" /></button>
+          <button onClick={() => handleEditYarn(y)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-100 rounded-md transition-colors" title="수정"><Edit2 className="w-4 h-4" /></button>
+          <button onClick={() => handleDeleteYarn(y.id, (id) => setYarnLibrary(yarnLibrary.filter(item => item.id !== id)))} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-100 rounded-md transition-colors" title="삭제"><Trash2 className="w-4 h-4" /></button>
         </div>
       </td>
     </tr>

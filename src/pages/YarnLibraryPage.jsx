@@ -148,17 +148,17 @@ export const YarnLibraryPage = ({
 
       <div className="hidden md:block bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
         <table className="w-full text-sm text-left min-w-[900px]">
-          <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+          <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 uppercase tracking-tight text-[13px]">
             <tr>
-              <th className="px-6 py-4 w-28">Category</th>
-              <th className="px-6 py-4">Yarn Name</th>
-              <th className="px-6 py-4">Suppliers</th>
-              <th className="px-6 py-4 text-right">Price(Exp)</th>
-              <th className="px-6 py-4 text-right">Tariff</th>
-              <th className="px-6 py-4 text-right">Freight</th>
-              <th className="px-6 py-4 text-right text-blue-700">Price(Dom)</th>
-              <th className="px-6 py-4">Remarks</th>
-              <th className="px-6 py-4 text-center">Action</th>
+              <th className="px-6 py-3 w-28">Category</th>
+              <th className="px-6 py-3">Yarn Name</th>
+              <th className="px-6 py-3">Suppliers</th>
+              <th className="px-6 py-3 text-right">Price(Exp)</th>
+              <th className="px-6 py-3 text-right">Tariff</th>
+              <th className="px-6 py-3 text-right">Freight</th>
+              <th className="px-6 py-3 text-right text-blue-800">Price(Dom)</th>
+              <th className="px-6 py-3">Remarks</th>
+              <th className="px-6 py-3 text-center">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">

@@ -379,7 +379,7 @@ const App = () => {
 
   const currentCalcFull = calculateCost(fabricInput);
   const uniqueSuppliers = ['All', ...new Set(yarnLibrary.flatMap(y => (y.suppliers || []).map(s => String(s.name).toUpperCase())).filter(Boolean))];
-  const dynamicCategories = [...new Set([...DEFAULT_YARN_CATEGORIES, ...(categories || []), ...yarnLibrary.map(y => String(y.category || '').toUpperCase())])].filter(Boolean);
+  const dynamicCategories = [...new Set([...(categories || [])])].filter(Boolean);
 
   const filteredYarns = yarnLibrary.filter(y => {
     const matchCategory = yarnFilterCategory === 'All' || String(y.category || '').toUpperCase() === yarnFilterCategory;
