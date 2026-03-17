@@ -4,12 +4,12 @@ import { MARGIN_TIERS } from '../../constants/common';
 
 // GRUBIG ERP - 원단(Fabric) 도메인 로직 및 비용 계산 훅
 
-export const useFabric = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast) => {
+export const useFabric = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate) => {
   const [editingFabricId, setEditingFabricId] = useState(null);
   const [expandedFabricId, setExpandedFabricId] = useState(null);
   
   const getInitialFabricInput = () => ({
-    article: '', itemName: '', widthFull: 58, widthCut: 56, gsm: 300, costGYd: '', exchangeRate: Number(localStorage.getItem('grubig_global_exchange_rate')) || 1450, remarks: '',
+    article: '', itemName: '', widthFull: 58, widthCut: 56, gsm: 300, costGYd: '', remarks: '',
     knittingFee1k: 3000, knittingFee3k: 2000, knittingFee5k: 2000, dyeingFee: 8800, extraFee1k: 900, extraFee3k: 700, extraFee5k: 500,
     losses: { tier1k: { knit: 5, dye: 10 }, tier3k: { knit: 3, dye: 10 }, tier5k: { knit: 3, dye: 9 } },
     marginTier: 3, brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 },
@@ -21,11 +21,6 @@ export const useFabric = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFr
   const handleFabricChange = (e) => {
     let { name, value } = e.target;
     if (name === 'article') value = String(value || '').toUpperCase();
-    
-    // 💡 환율 변경 시 글로벌(전역) 캐싱 처리
-    if (name === 'exchangeRate') {
-      localStorage.setItem('grubig_global_exchange_rate', value);
-    }
 
     setFabricInput(prev => ({ 
       ...prev, 
@@ -93,7 +88,7 @@ export const useFabric = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFr
     if (!fabricData || !fabricData.yarns) return { avgYarnCostDomestic: 0, avgYarnCostExport: 0, effectiveGYd: 0, theoreticalGYd: 0, tier1k: getSafeTier(), tier3k: getSafeTier(), tier5k: getSafeTier() };
 
     let yarnCostDomestic = 0; let yarnCostExport = 0;
-    const fabricExchangeRate = overrideExchangeRate !== null ? Number(overrideExchangeRate) : (Number(fabricData.exchangeRate) || 1450);
+    const fabricExchangeRate = overrideExchangeRate !== null ? Number(overrideExchangeRate) : (globalExchangeRate || 1450);
 
     (fabricData.yarns || []).forEach(slot => {
       // Optional Chaining 도입으로 방어적 코드 작성

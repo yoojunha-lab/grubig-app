@@ -1,22 +1,37 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 // GRUBIG ERP - 견적서(Quotation) 도메인 로직 및 훅
 
-export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user) => {
+export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate) => {
   const [quoteInput, setQuoteInput] = useState({
-    buyerName: '', buyerType: 'converter', marketType: 'domestic', currency: 'KRW', exchangeRate: 1450, date: new Date().toISOString().split('T')[0], extraMargin: 0, remarks: '', items: []
+    buyerName: '', attention: '', buyerType: 'converter', marketType: 'domestic', currency: 'KRW', date: new Date().toISOString().split('T')[0], extraMargin: 0, remarks: '', items: []
   });
+
+  // 글로벌 환율 변동 시 기존 아이템 단가 재계산 연동
+  useEffect(() => {
+    if (quoteInput.items && quoteInput.items.length > 0 && quoteInput.marketType) {
+      setQuoteInput(prev => ({
+        ...prev,
+        items: prev.items.map(item => {
+          const fabric = savedFabrics.find(f => String(f.id) === String(item.fabricId));
+          if (!fabric) return item;
+          return createQuoteItem(fabric, globalExchangeRate, prev.marketType, prev.buyerType);
+        })
+      }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalExchangeRate, savedFabrics]);
 
   const handleQuoteSettingChange = (field, value) => {
     setQuoteInput(prev => {
       let next = { ...prev, [field]: value };
       if (field === 'marketType') next.currency = value === 'export' ? 'USD' : 'KRW';
 
-      if (['exchangeRate', 'marketType', 'buyerType'].includes(field)) {
+      if (['marketType', 'buyerType'].includes(field)) {
         next.items = next.items.map(item => {
           const fabric = savedFabrics.find(f => String(f.id) === String(item.fabricId));
           if (!fabric) return item;
-          return createQuoteItem(fabric, next.exchangeRate, next.marketType, next.buyerType);
+          return createQuoteItem(fabric, globalExchangeRate, next.marketType, next.buyerType);
         });
       }
       return next;
@@ -50,7 +65,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     if (!selectedFabricIdForQuote) { showToast("견적서에 추가할 원단을 선택해주세요.", 'error'); return; }
     const fabric = savedFabrics.find(f => String(f.id) === String(selectedFabricIdForQuote));
     if (!fabric) return;
-    const newItem = createQuoteItem(fabric, quoteInput.exchangeRate, quoteInput.marketType, quoteInput.buyerType);
+    const newItem = createQuoteItem(fabric, globalExchangeRate, quoteInput.marketType, quoteInput.buyerType);
     setQuoteInput(prev => ({ ...prev, items: [...(prev.items || []), newItem] })); 
     setSelectedFabricIdForQuote(''); 
     showToast(`원단이 추가되었습니다.`, 'success');
@@ -62,7 +77,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     let notFound = [];
     articles.forEach(art => {
       const fabric = savedFabrics.find(f => String(f.article).toUpperCase() === art);
-      if (fabric) { newItems.push(createQuoteItem(fabric, quoteInput.exchangeRate, quoteInput.marketType, quoteInput.buyerType)); }
+      if (fabric) { newItems.push(createQuoteItem(fabric, globalExchangeRate, quoteInput.marketType, quoteInput.buyerType)); }
       else { notFound.push(art); }
     });
     if (newItems.length > 0) {
@@ -102,10 +117,23 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     }
   };
 
+  const handleDuplicateQuote = (quoteToCopy, navigateCallback) => {
+    // ID와 Date를 갱신하여 복제본 생성
+    const duplicatedQuote = {
+      ...quoteToCopy,
+      id: Date.now(),
+      date: new Date().toISOString().split('T')[0],
+      buyerName: quoteToCopy.buyerName + ' (Copy)'
+    };
+    setQuoteInput(duplicatedQuote);
+    if(navigateCallback) navigateCallback();
+    showToast("견적서가 성공적으로 복제되었습니다. (날짜 최신화)", 'success');
+  };
+
   return {
     quoteInput, setQuoteInput,
     handleQuoteSettingChange, createQuoteItem,
     handleAddFabricToQuote, handleGridPaste, handleQuoteBasePriceChange,
-    handleRemoveItemFromQuote, handleSaveQuote, handleDeleteQuote
+    handleRemoveItemFromQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
   };
 };

@@ -27,7 +27,8 @@ export const YarnLibraryPage = ({
   handleEditYarn,
   handleDeleteYarn,
   yarnLibrary,
-  setYarnLibrary
+  setYarnLibrary,
+  globalExchangeRate
 }) => {
   return (
     <div className="max-w-6xl mx-auto space-y-6 w-full print:hidden">
@@ -42,15 +43,16 @@ export const YarnLibraryPage = ({
         </div>
       </div>
 
-      <div className={`bg-white p-4 sm:p-6 rounded-2xl border transition-all shadow-sm ${editingYarnId ? 'border-yellow-400 ring-4 ring-yellow-50' : 'border-slate-200'}`}>
+      {/* 원사 등록/수정 폼 (Sticky 적용해 스크롤을 따라다니도록 설정) */}
+      <div className={`bg-white/95 backdrop-blur-md p-4 sm:p-6 rounded-2xl border transition-all shadow-lg sticky top-0 md:top-2 z-40 ${editingYarnId ? 'border-yellow-400 ring-4 ring-yellow-50' : 'border-slate-200/80'}`}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <div className="flex gap-4">
             <div className="w-1/3">
               <label className="text-xs font-bold text-slate-500 mb-1 block">Category</label>
-              <input type="text" list="yarn-categories" value={yarnInput.category} onChange={e => setYarnInput({ ...yarnInput, category: e.target.value.toUpperCase() })} className="w-full border rounded-lg px-3 py-2 text-sm bg-white font-bold text-slate-700 uppercase" placeholder="카테고리" />
-              <datalist id="yarn-categories">
-                {dynamicCategories.map(cat => <option key={cat} value={cat} />)}
-              </datalist>
+              <select value={yarnInput.category || ''} onChange={e => setYarnInput({ ...yarnInput, category: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm bg-white font-bold text-slate-700 uppercase cursor-pointer">
+                <option value="" disabled>카테고리 선택</option>
+                {dynamicCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+              </select>
             </div>
             <div className="flex-1"><label className="text-xs font-bold text-slate-500 mb-1 block">원사명</label><input type="text" value={yarnInput.name} onChange={e => setYarnInput({ ...yarnInput, name: e.target.value.toUpperCase() })} className="w-full border rounded-lg px-3 py-2 text-sm font-bold uppercase" placeholder="예: 2/48 WOOL" /></div>
           </div>
@@ -62,7 +64,7 @@ export const YarnLibraryPage = ({
             <span className="font-bold text-sm text-slate-700 flex items-center gap-2"><Factory className="w-4 h-4 text-slate-400" /> 공급처(Supplier) 단가 관리</span>
             <button onClick={handleAddSupplier} className="text-xs bg-white border border-emerald-200 text-emerald-700 px-3 py-1.5 rounded-lg font-bold shadow-sm hover:bg-emerald-50 transition-colors">+ 새로운 업체 추가</button>
           </div>
-          <div className="space-y-3 min-w-[600px]">
+          <div className="space-y-3 min-w-[600px] max-h-[30vh] overflow-y-auto pr-2 overflow-x-hidden">
             {yarnInput.suppliers.map((sup, idx) => (
               <div key={sup.id} className={`flex flex-col gap-2 bg-white p-3 rounded-lg border shadow-sm relative transition-all ${sup.isDefault ? 'border-blue-300 ring-1 ring-blue-100' : 'border-slate-200 hover:border-slate-300'}`}>
                 <div className="flex flex-nowrap gap-3 items-start">
@@ -110,73 +112,121 @@ export const YarnLibraryPage = ({
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end border-b border-slate-200 pb-2 gap-4 overflow-x-auto">
-        <div className="flex gap-2 items-center">
-          <button onClick={() => setYarnFilterCategory('All')} className={`px-4 py-2 text-sm font-bold rounded-t-lg transition-colors whitespace-nowrap ${yarnFilterCategory === 'All' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>All</button>
-          {dynamicCategories.map(cat => (<button key={cat} onClick={() => setYarnFilterCategory(cat)} className={`px-4 py-2 text-sm font-bold rounded-t-lg transition-colors whitespace-nowrap ${yarnFilterCategory === cat ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>{cat}</button>))}
-          <button onClick={() => setIsCategoryModalOpen(true)} className="ml-2 px-2 py-1.5 bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-md text-xs font-bold flex items-center gap-1 transition-colors"><Settings className="w-3.5 h-3.5" /> 관리</button>
+      {/* 검색 및 필터 영역 강화 */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
+        <div className="relative flex-1 w-full md:max-w-xl">
+          <input
+            type="text"
+            placeholder="찾으시는 원사명이나 메모를 검색해 보세요..."
+            value={yarnSearchTerm}
+            onChange={(e) => setYarnSearchTerm(e.target.value.toUpperCase())}
+            className="w-full pl-12 pr-4 py-3 border-2 border-slate-200 rounded-xl outline-none text-base font-bold bg-slate-50 focus:bg-white focus:border-blue-500 transition-all uppercase placeholder:normal-case placeholder:font-normal"
+          />
+          <Search className="w-6 h-6 text-slate-400 absolute left-4 top-3" />
+          {yarnSearchTerm && (
+            <button onClick={() => setYarnSearchTerm('')} className="absolute right-4 top-3.5 text-slate-400 hover:text-slate-600 bg-slate-200 rounded-full p-0.5">
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
-        <div className="flex items-center gap-3 w-full sm:w-auto shrink-0">
-          <div className="relative flex-1 sm:w-48">
-            <input type="text" placeholder="원사명 검색..." value={yarnSearchTerm} onChange={(e) => setYarnSearchTerm(e.target.value.toUpperCase())} className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg outline-none text-sm bg-white shadow-sm focus:border-blue-400 uppercase" />
-            <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-2" />
-            {yarnSearchTerm && <button onClick={() => setYarnSearchTerm('')} className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"><X className="w-3.5 h-3.5" /></button>}
-          </div>
-          <div className="hidden sm:block h-6 w-px bg-slate-200 mx-1"></div>
-          <Filter className="hidden sm:block w-4 h-4 text-slate-400" />
-          <select value={yarnFilterSupplier} onChange={(e) => setYarnFilterSupplier(e.target.value)} className="hidden sm:block bg-white border border-slate-200 text-sm font-bold text-slate-600 rounded px-3 py-1.5 outline-none shadow-sm cursor-pointer hover:border-slate-300 transition-colors uppercase">
+        
+        <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+          <select value={yarnFilterCategory} onChange={(e) => setYarnFilterCategory(e.target.value)} className="bg-white border border-slate-200 text-sm font-bold text-slate-600 rounded-lg px-4 py-3 outline-none shadow-sm cursor-pointer hover:border-slate-300 transition-colors uppercase shrink-0">
+            <option value="All">전체 카테고리</option>
+            {dynamicCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+          </select>
+          <select value={yarnFilterSupplier} onChange={(e) => setYarnFilterSupplier(e.target.value)} className="bg-white border border-slate-200 text-sm font-bold text-slate-600 rounded-lg px-4 py-3 outline-none shadow-sm cursor-pointer hover:border-slate-300 transition-colors uppercase shrink-0">
             {uniqueSuppliers.map(sup => <option key={sup} value={sup}>{sup === 'All' ? '모든 공급처' : sup}</option>)}
           </select>
+          <button onClick={() => setIsCategoryModalOpen(true)} className="px-3 py-3 bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-lg text-sm font-bold flex items-center justify-center gap-1 transition-colors shrink-0 whitespace-nowrap">
+            <Settings className="w-4 h-4" /> 관리
+          </button>
         </div>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
-        <table className="w-full text-sm text-left min-w-[800px]">
-          <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
-            <tr><th className="p-4 w-24">Category</th><th className="p-4">Yarn Name</th><th className="p-4">Suppliers</th><th className="p-4 text-right">Price(Exp)</th><th className="p-4 text-right">Tariff</th><th className="p-4 text-right">Freight</th><th className="p-4 text-right text-blue-600">Price(Dom)</th><th className="p-4">Remarks</th><th className="p-4 text-center">Action</th></tr>
+        <table className="w-full text-sm text-left min-w-[900px]">
+          <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+            <tr>
+              <th className="px-6 py-4 w-28">Category</th>
+              <th className="px-6 py-4">Yarn Name</th>
+              <th className="px-6 py-4">Suppliers</th>
+              <th className="px-6 py-4 text-right">Price(Exp)</th>
+              <th className="px-6 py-4 text-right">Tariff</th>
+              <th className="px-6 py-4 text-right">Freight</th>
+              <th className="px-6 py-4 text-right text-blue-700">Price(Dom)</th>
+              <th className="px-6 py-4">Remarks</th>
+              <th className="px-6 py-4 text-center">Action</th>
+            </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filteredYarns.map((y) => {
               const defSup = y.suppliers?.find(s => s.isDefault) || y.suppliers?.[0] || {};
-              const domPrice = Math.round((defSup.price || 0) * (1 + ((defSup.tariff || 0) + (defSup.freight || 0)) / 100));
+              const convertedPrice = defSup.currency === 'USD' ? (defSup.price || 0) * (globalExchangeRate || 1450) : (defSup.price || 0);
+              const domPrice = Math.round(convertedPrice * (1 + ((defSup.tariff || 0) + (defSup.freight || 0)) / 100));
+
+              // 카테고리별 동적 색상 생성 함수
+              const getCategoryColor = (cat) => {
+                const colors = [
+                  'bg-blue-100 text-blue-800 border-blue-200',
+                  'bg-emerald-100 text-emerald-800 border-emerald-200',
+                  'bg-purple-100 text-purple-800 border-purple-200',
+                  'bg-amber-100 text-amber-800 border-amber-200',
+                  'bg-rose-100 text-rose-800 border-rose-200',
+                  'bg-indigo-100 text-indigo-800 border-indigo-200',
+                ];
+                const hash = String(cat).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+                return colors[hash % colors.length];
+              };
+              const catColor = getCategoryColor(y.category || '-');
 
               return (
-                <tr key={y.id} className="hover:bg-slate-50 group transition-colors">
-                  <td className="p-4 text-slate-500 text-xs font-bold uppercase">{y.category || '-'}</td>
-                  <td className="p-4 font-bold text-slate-800 uppercase">{y.name}</td>
-                  <td className="p-4 font-medium text-slate-600 text-[11px] leading-relaxed uppercase">
+                <tr key={y.id} className="hover:bg-blue-50 group transition-colors">
+                  <td className="px-6 py-5">
+                    <span className={`text-[11px] font-bold px-2 py-1 rounded-md border uppercase whitespace-nowrap inline-block ${catColor}`}>
+                      {y.category || '-'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-5 font-bold text-slate-900 uppercase text-base tracking-tight">{y.name}</td>
+                  <td className="px-6 py-5 font-medium text-slate-600 text-[11px] leading-relaxed uppercase">
                     {y.suppliers?.map((s, i) => (
-                      <span key={s.id}>
-                        {s.isDefault ? <strong className="text-blue-600 font-bold">[{s.name}]</strong> : s.name}
-                        {i < y.suppliers.length - 1 && ', '}
+                      <span key={s.id} className="inline-block mr-1 mb-1">
+                        {s.isDefault ? <strong className="text-blue-600 bg-blue-50 border border-blue-100 rounded px-1 py-0.5">[{s.name}]</strong> : <span className="text-slate-500 bg-slate-50 border border-slate-100 rounded px-1 py-0.5">{s.name}</span>}
                       </span>
                     ))}
                   </td>
-                  <td className="p-4 text-right font-mono relative group/price">
+                  <td className="px-6 py-5 text-right font-mono relative group/price">
                     <div className="flex items-center justify-end gap-2">
-                      <span>{defSup.currency === 'USD' ? '$' : '￦'}{num(defSup.price)}</span>
-                      {defSup.history && defSup.history.length > 0 && (<div className="relative"><History className="w-3 h-3 text-slate-400 cursor-help hover:text-blue-500" /><div className="absolute right-0 top-full mt-2 w-40 bg-slate-800 text-white text-[10px] rounded p-2 z-50 hidden group-hover/price:block shadow-xl text-left pointer-events-none"><p className="font-bold mb-1 border-b border-slate-600 pb-1 text-slate-300">[{defSup.name}] Price History</p>{defSup.history.map((h, idx) => (<div key={idx} className="flex justify-between py-0.5"><span className="text-slate-400">{h.date}</span><span className="font-mono">￦{num(h.price)}</span></div>))}</div></div>)}
+                      <span className="font-medium text-slate-700">{defSup.currency === 'USD' ? '$' : '￦'}{num(defSup.price)}</span>
+                      {defSup.history && defSup.history.length > 0 && (<div className="relative"><History className="w-3.5 h-3.5 text-slate-400 cursor-help hover:text-blue-500" /><div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 text-white text-[11px] rounded-lg p-3 z-50 hidden group-hover/price:block shadow-xl text-left pointer-events-none border border-slate-700"><p className="font-bold mb-2 border-b border-slate-600 pb-2 text-slate-300">[{defSup.name}] 단가 히스토리</p>{defSup.history.map((h, idx) => (<div key={idx} className="flex justify-between py-1"><span className="text-slate-400">{h.date}</span><span className="font-mono text-emerald-400">￦{num(h.price)}</span></div>))}</div></div>)}
                     </div>
                   </td>
-                  <td className="p-4 text-right text-slate-500">{defSup.tariff || 0}%</td>
-                  <td className="p-4 text-right text-emerald-600 font-bold">
+                  <td className="px-6 py-5 text-right text-slate-500 font-medium">{defSup.tariff || 0}%</td>
+                  <td className="px-6 py-5 text-right font-bold text-emerald-600">
                     {defSup.freight || 0}%
-                    {defSup.price > 0 && defSup.freight > 0 && defSup.currency === 'KRW' && <div className="text-[9px] text-slate-400 font-normal leading-tight">({Math.round(defSup.price * defSup.freight / 100)}원)</div>}
+                    {defSup.price > 0 && defSup.freight > 0 && <div className="text-[10px] text-slate-400 font-normal leading-tight mt-0.5">({Math.round(convertedPrice * defSup.freight / 100)}원)</div>}
                   </td>
-                  <td className="p-4 text-right font-mono font-bold text-blue-600">
-                    {defSup.currency === 'USD' ? <span className="text-xs text-slate-400 italic">Calc by Rate</span> : `￦${num(domPrice)}`}
+                  <td className="px-6 py-5 text-right font-mono font-bold text-[15px]">
+                    {defSup.currency === 'USD' ? (
+                      <div className="flex flex-col items-end leading-tight gap-0.5">
+                        <span className="text-blue-700">￦{num(domPrice)}</span>
+                        <span className="text-[10px] text-slate-500 font-sans tracking-tight bg-slate-100 px-1 rounded">($적용)</span>
+                      </div>
+                    ) : <span className="text-blue-700">￦{num(domPrice)}</span>}
                   </td>
-                  <td className="p-4 text-slate-500 text-xs truncate max-w-[150px]" title={y.remarks}>{y.remarks}</td>
-                  <td className="p-4 text-center">
-                    <div className="flex justify-center gap-2">
-                      <button onClick={() => handleEditYarn(y)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="전체 수정"><Edit2 className="w-4 h-4" /></button>
-                      <button onClick={() => handleDeleteYarn(y.id, (id) => setYarnLibrary(yarnLibrary.filter(y => y.id !== id)))} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors" title="전체 삭제"><Trash2 className="w-4 h-4" /></button>
+                  <td className="px-6 py-5 text-slate-500 text-xs max-w-[200px] leading-relaxed">
+                    <div className="line-clamp-2" title={y.remarks}>{y.remarks}</div>
+                  </td>
+                  <td className="px-6 py-5 text-center">
+                    <div className="flex justify-center gap-1 opacity-50 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => handleEditYarn(y)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title="수정"><Edit2 className="w-4 h-4" /></button>
+                      <button onClick={() => handleDeleteYarn(y.id, (id) => setYarnLibrary(yarnLibrary.filter(y => y.id !== id)))} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-100 rounded-lg transition-colors" title="삭제"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </td>
                 </tr>
               );
             })}
-            {filteredYarns.length === 0 && <tr><td colSpan="9" className="p-8 text-center text-slate-400">등록된 원사가 없습니다.</td></tr>}
+            {filteredYarns.length === 0 && <tr><td colSpan="9" className="p-16 text-center text-slate-500 font-medium">검색 결과가 없거나 등록된 원사가 없습니다.</td></tr>}
           </tbody>
         </table>
       </div>

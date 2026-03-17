@@ -16,7 +16,8 @@ export const CalculatorPage = ({
   handleNestedChange,
   setFabricInput,
   handleSaveFabric,
-  setActiveTab
+  setActiveTab,
+  globalExchangeRate
 }) => {
   const totalRatio = fabricInput.yarns.reduce((sum, yarn) => sum + (Number(yarn.ratio) || 0), 0);
   const isRatioValid = totalRatio === 100;
@@ -72,9 +73,9 @@ export const CalculatorPage = ({
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
             <h3 className="text-sm font-bold text-slate-400 uppercase mb-4 flex justify-between items-center">
               <span>1. Basic Info & Yarn <Info className="w-4 h-4 text-slate-300 inline" /></span>
-              <div className="flex items-center gap-2 bg-yellow-50 px-2 py-1 rounded border border-yellow-100">
-                <label className="text-[10px] font-bold text-slate-500">적용 환율 (￦/$)</label>
-                <input type="number" name="exchangeRate" value={fabricInput.exchangeRate} onChange={handleFabricChange} className="w-16 bg-white border border-yellow-200 rounded text-right text-xs font-bold text-slate-700 px-1" />
+              <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm" title="사이드바의 전역 환율 자동 적용중">
+                <label className="text-[10px] font-bold text-slate-500 tracking-wide uppercase">전역 환율 💸</label>
+                <div className="font-mono text-sm font-bold text-slate-700">￦{num(globalExchangeRate)}</div>
               </div>
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">

@@ -1,5 +1,5 @@
-import React from 'react';
-import { Calendar, Search, X, Eye, Trash2, AlertCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { Calendar, Search, X, Eye, Trash2, AlertCircle, Copy, ChevronDown, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { num, usd, smartRound, getLastDayOfQuoteMonth } from '../utils/helpers';
 
 export const QuoteHistoryPage = ({
@@ -20,8 +20,17 @@ export const QuoteHistoryPage = ({
   handleDownloadPDF,
   handleDeleteQuote,
   savedQuotes,
-  setSavedQuotes
+  setSavedQuotes,
+  handleDuplicateQuote
 }) => {
+  const [expandedRowId, setExpandedRowId] = useState(null);
+
+  const toggleExpand = (id, e) => {
+    // 버튼 클릭 시에는 아코디언 이벤트 방지
+    if (e.target.closest('button')) return;
+    setExpandedRowId(expandedRowId === id ? null : id);
+  };
+
   return (
     <>
       <div className="max-w-[1600px] mx-auto space-y-6 print:hidden w-full">
@@ -58,11 +67,17 @@ export const QuoteHistoryPage = ({
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredQuotesList.map(quote => (
-                <tr key={quote.id} className="hover:bg-slate-50 group">
+                <React.Fragment key={quote.id}>
+                <tr className="hover:bg-slate-50 group cursor-pointer transition-colors" onClick={(e) => toggleExpand(quote.id, e)}>
                   <td className="p-4 font-mono text-slate-500">{quote.date}</td>
-                  <td className="p-4 font-bold text-slate-800 text-base uppercase">
-                    {quote.buyerName}
-                    {quote.remarks && <div className="text-[10px] text-slate-400 font-normal mt-0.5 truncate max-w-[200px]" title={quote.remarks}>{quote.remarks}</div>}
+                  <td className="p-4">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-800 text-base uppercase">{quote.buyerName}</span>
+                        {quote.remarks && <span className="text-[11px] text-slate-500 bg-yellow-50 px-2 py-0.5 rounded border border-yellow-100 max-w-[200px] truncate" title={quote.remarks}>{quote.remarks}</span>}
+                      </div>
+                      {quote.attention && <div className="text-[11px] text-indigo-500 font-bold uppercase tracking-tight">ATTN: {quote.attention}</div>}
+                    </div>
                   </td>
                   <td className="p-4">
                     <div className="flex flex-col gap-1">
@@ -70,17 +85,61 @@ export const QuoteHistoryPage = ({
                       <span className={`text-[10px] w-max px-2 py-0.5 rounded font-bold uppercase border ${quote.marketType === 'domestic' ? 'border-blue-200 text-blue-600' : 'border-emerald-200 text-emerald-600'}`}>{quote.marketType === 'domestic' ? 'DOM' : 'EXP'} ({quote.currency})</span>
                     </div>
                   </td>
-                  <td className="p-4 text-center"><span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full font-bold">{quote.items?.length || 0}</span></td>
+                  <td className="p-4 text-center">
+                    <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full font-bold flex items-center justify-center gap-1 w-max mx-auto shadow-sm">
+                      {quote.items?.length || 0} items
+                      {expandedRowId === quote.id ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
+                    </span>
+                  </td>
                   <td className="p-4 text-slate-500 font-medium">{quote.authorName}</td>
                   <td className="p-4">
-                    <div className="flex gap-2 justify-center">
-                      <button onClick={() => setQuickViewQuote(quote)} className="bg-blue-50 text-blue-600 px-2 py-1.5 rounded text-xs font-bold hover:bg-blue-100 transition-colors flex items-center gap-1" title="미리보기"><Eye className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => { setQuoteInput(quote); setActiveTab('quotation'); }} className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-200 transition-colors">Edit</button>
-                      <button onClick={() => { setQuoteInput(quote); handleDownloadPDF(); }} className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-100 transition-colors">PDF</button>
-                      <button onClick={() => handleDeleteQuote(quote.id, (id) => setSavedQuotes(savedQuotes.filter(q => q.id !== id)))} className="text-slate-300 hover:text-red-500 p-1.5 rounded hover:bg-red-50 transition-colors" title="삭제"><Trash2 className="w-4 h-4" /></button>
+                    <div className="flex gap-1.5 justify-center">
+                      <button onClick={(e) => { e.stopPropagation(); setQuickViewQuote(quote); }} className="bg-blue-50 text-blue-600 px-2 py-1.5 rounded text-xs font-bold hover:bg-blue-100 transition-colors flex items-center gap-1" title="PDF 미리보기"><Eye className="w-3.5 h-3.5" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); handleDuplicateQuote(quote, () => setActiveTab('quotation')); }} className="bg-emerald-50 text-emerald-600 px-2 py-1.5 rounded text-xs font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1" title="이 견적서를 복사하여 새 견적서 작성하기"><Copy className="w-3.5 h-3.5" /> <span className="hidden sm:inline">복제</span></button>
+                      <button onClick={(e) => { e.stopPropagation(); setQuoteInput(quote); setActiveTab('quotation'); }} className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-200 transition-colors">수정</button>
+                      <button onClick={(e) => { e.stopPropagation(); setQuoteInput(quote); handleDownloadPDF(); }} className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-100 transition-colors">PDF</button>
+                      <button onClick={(e) => { e.stopPropagation(); handleDeleteQuote(quote.id, (id) => setSavedQuotes(savedQuotes.filter(q => q.id !== id))); }} className="text-slate-300 hover:text-red-500 p-1.5 rounded hover:bg-red-50 transition-colors" title="삭제"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </td>
                 </tr>
+                {/* 확장된 미리보기 (Accordion) 영역 */}
+                {expandedRowId === quote.id && (
+                  <tr className="bg-slate-50/80 border-b border-slate-200">
+                    <td colSpan="6" className="p-0">
+                      <div className="px-6 py-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> 포함된 품목 리스트</p>
+                          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shrink-0">
+                            <table className="w-full text-xs text-left">
+                              <thead className="bg-slate-50 text-slate-500">
+                                <tr><th className="py-2 px-3 font-bold">Article</th><th className="py-2 px-3">Spec</th><th className="py-2 px-3 text-right">MCQ</th></tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {(quote.items || []).map((item, idx) => (
+                                  <tr key={idx} className="hover:bg-slate-50">
+                                    <td className="py-2 px-3 font-bold text-slate-800 uppercase">{item.article}</td>
+                                    <td className="py-2 px-3 text-slate-600 truncate max-w-[150px]" title={item.itemName}>{item.itemName}</td>
+                                    <td className="py-2 px-3 text-right text-orange-600 font-bold">{num(item.mcqYd || 300)} YD</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                        <div className="flex flex-col justify-end">
+                           <div className="bg-blue-50/50 border border-blue-100 p-3 rounded-lg flex items-start gap-2">
+                             <CheckCircle2 className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                             <div className="text-xs text-blue-800 leading-relaxed">
+                               이 견적서는 <strong className="font-bold">{quote.date}</strong>에 작성되었습니다.<br/>
+                               새로운 견적서가 필요하다면 우측 상단의 <strong className="text-emerald-600">[복제]</strong> 버튼을 눌러보세요.
+                             </div>
+                           </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
               ))}
               {filteredQuotesList.length === 0 && <tr><td colSpan="6" className="p-12 text-center text-slate-400">No quotation history found matching the filters.</td></tr>}
             </tbody>
@@ -103,7 +162,8 @@ export const QuoteHistoryPage = ({
             <div className="flex justify-between mb-6">
               <div className="w-1/2">
                 <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">To</p>
-                <h2 className="text-xl font-bold text-slate-900 uppercase">{quickViewQuote.buyerName}</h2>
+                <h2 className="text-xl font-bold text-slate-900 uppercase leading-none mb-1">{quickViewQuote.buyerName}</h2>
+                {quickViewQuote.attention && <p className="text-xs font-bold text-slate-600 uppercase">ATTN: {quickViewQuote.attention}</p>}
               </div>
               <div className="w-1/2 text-right">
                 <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">Date</p>

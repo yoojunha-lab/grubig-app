@@ -1,5 +1,5 @@
-import React from 'react';
-import { FileText, Save, Download, DollarSign, X, Plus, ClipboardPaste } from 'lucide-react';
+import React, { useState } from 'react';
+import { FileText, Save, Download, DollarSign, X, Plus, ClipboardPaste, GripVertical } from 'lucide-react';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { num, smartRound } from '../utils/helpers';
 
@@ -22,8 +22,43 @@ export const QuotationPage = ({
   handleRemoveItemFromQuote,
   createQuoteItem,
   showToast,
-  handleGridPaste
+  handleGridPaste,
+  globalExchangeRate,
+  buyers = [],
+  setIsBuyerModalOpen
 }) => {
+  // 드래그 앤 드롭 상태 관리
+  const [draggedItemIndex, setDraggedItemIndex] = useState(null);
+  const [dragOverItemIndex, setDragOverItemIndex] = useState(null);
+
+  const handleDragStart = (e, index) => {
+    setDraggedItemIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    // Firefox 오류 방지를 위해 임의의 데이터 셋팅
+    e.dataTransfer.setData('text/plain', index);
+  };
+
+  const handleDragEnter = (e, index) => {
+    e.preventDefault();
+    if (index !== draggedItemIndex) {
+      setDragOverItemIndex(index);
+    }
+  };
+
+  const handleDragEnd = (e) => {
+    e.preventDefault();
+    if (draggedItemIndex !== null && dragOverItemIndex !== null && draggedItemIndex !== dragOverItemIndex) {
+      // 순서 변경 적용 로직
+      const newItems = [...(quoteInput.items || [])];
+      const draggedItem = newItems.splice(draggedItemIndex, 1)[0];
+      newItems.splice(dragOverItemIndex, 0, draggedItem);
+      
+      setQuoteInput({ ...quoteInput, items: newItems });
+    }
+    setDraggedItemIndex(null);
+    setDragOverItemIndex(null);
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 w-full print:hidden">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -37,7 +72,20 @@ export const QuotationPage = ({
       <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
         <h3 className="text-sm font-bold text-slate-400 uppercase mb-4">Buyer Information & Currency</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 sm:gap-6">
-          <div className="lg:col-span-2"><label className="block text-xs font-bold text-slate-500 mb-1">Buyer Name</label><input type="text" value={quoteInput.buyerName} onChange={(e) => setQuoteInput({ ...quoteInput, buyerName: e.target.value.toUpperCase() })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 uppercase" placeholder="Buyer Name" /></div>
+          <div className="lg:col-span-2">
+            <div className="flex justify-between items-center mb-1">
+              <label className="block text-xs font-bold text-slate-500">Buyer Name</label>
+              <button onClick={() => setIsBuyerModalOpen(true)} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-bold bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors">+ 바이어 관리</button>
+            </div>
+            <select value={quoteInput.buyerName} onChange={(e) => setQuoteInput({ ...quoteInput, buyerName: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 uppercase cursor-pointer text-sm font-bold text-slate-700 outline-none focus:ring-1 ring-indigo-400">
+              <option value="" disabled>등록된 바이어 선택</option>
+              {buyers.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </div>
+          <div className="lg:col-span-2">
+            <label className="block text-xs font-bold text-slate-500 mb-1">Attention (담당자)</label>
+            <input type="text" value={quoteInput.attention || ''} onChange={(e) => setQuoteInput({ ...quoteInput, attention: e.target.value.toUpperCase() })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 uppercase" placeholder="예: MR. JOHN" />
+          </div>
           <div className="lg:col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">Quote Date</label><input type="date" value={quoteInput.date} onChange={(e) => setQuoteInput({ ...quoteInput, date: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2" /></div>
           <div className="lg:col-span-1">
             <label className="block text-xs font-bold text-slate-500 mb-1">Settings</label>
@@ -56,9 +104,9 @@ export const QuotationPage = ({
               <span className="absolute right-3 top-2 text-xs text-indigo-400 font-bold">%</span>
             </div>
           </div>
-          <div className="lg:col-span-1 bg-yellow-50/50 p-2 rounded-xl border border-yellow-100 flex flex-col justify-center">
-            <label className="text-[10px] text-slate-500 font-bold mb-1 flex items-center gap-1"><DollarSign className="w-3 h-3" />Exchange Rate (￦/$)</label>
-            <input type="number" value={quoteInput.exchangeRate} onChange={(e) => handleQuoteSettingChange('exchangeRate', e.target.value)} className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-right font-mono font-bold text-slate-700 text-sm outline-none focus:border-yellow-400" />
+          <div className="lg:col-span-1 bg-slate-50 p-2 rounded-xl border border-slate-200 flex flex-col justify-center gap-1 relative" title="사이드바의 전역 환율 자동 적용중">
+            <label className="text-[10px] text-slate-500 font-bold flex items-center gap-1 uppercase tracking-wide"><DollarSign className="w-3 h-3 text-emerald-500" /> Global Rate (￦/$)</label>
+            <div className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-right font-mono font-bold text-slate-600 text-sm shadow-sm">￦{num(globalExchangeRate)}</div>
           </div>
 
           <div className="col-span-1 sm:col-span-2 lg:col-span-6 mt-2">
@@ -81,13 +129,22 @@ export const QuotationPage = ({
         <div className="overflow-hidden rounded-xl border border-slate-200 overflow-x-auto">
           <table className="w-full text-sm text-left min-w-[900px]">
             <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
-              <tr><th className="p-3 w-12 text-center">No.</th><th className="p-3">Article</th><th className="p-3">Spec</th><th className="p-3 text-center">Cut</th><th className="p-3 text-center">Full</th><th className="p-3 text-right">GSM</th><th className="p-3 text-right">g/YD</th><th className="p-3 text-right text-orange-600 bg-orange-50/50">MCQ</th><th className="p-3 w-28 bg-slate-100 text-right">1,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-28 bg-indigo-50 text-indigo-900 text-right">3,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-28 bg-slate-100 text-right">5,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-10 text-center"></th></tr>
+              <tr><th className="p-3 w-8 text-center"></th><th className="p-3 w-10 text-center">No.</th><th className="p-3">Article</th><th className="p-3">Spec</th><th className="p-3 text-center">Cut</th><th className="p-3 text-center">Full</th><th className="p-3 text-right">GSM</th><th className="p-3 text-right">g/YD</th><th className="p-3 text-right text-orange-600 bg-orange-50/50">MCQ</th><th className="p-3 w-28 bg-slate-100 text-right">1,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-28 bg-indigo-50 text-indigo-900 text-right">3,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-28 bg-slate-100 text-right">5,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-10 text-center"></th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {quoteInput.items.map((item, idx) => (
-                <tr key={idx} className="group hover:bg-slate-50">
+                <tr 
+                  key={item.fabricId + idx} // 리스트 변경 감지를 위해 키 강화
+                  draggable="true"
+                  onDragStart={(e) => handleDragStart(e, idx)}
+                  onDragEnter={(e) => handleDragEnter(e, idx)}
+                  onDragEnd={handleDragEnd}
+                  onDragOver={(e) => e.preventDefault()}
+                  className={`group hover:bg-slate-50 transition-colors ${draggedItemIndex === idx ? 'opacity-30 bg-indigo-50' : ''} ${dragOverItemIndex === idx ? 'border-t-2 border-indigo-400 bg-indigo-50/30' : ''}`}
+                >
+                  <td className="p-1 px-2 text-center text-slate-300 hover:text-indigo-500 cursor-grab active:cursor-grabbing"><GripVertical className="w-4 h-4 mx-auto" /></td>
                   <td className="p-3 text-slate-400 font-mono text-center text-xs">{idx + 1}</td>
-                  <td className="p-3 font-bold text-slate-800 text-xs uppercase">{item.article}</td>
+                  <td className="p-3 font-bold text-slate-800 text-xs uppercase cursor-grab active:cursor-grabbing">{item.article}</td>
                   <td className="p-3 text-slate-600 text-xs">{item.itemName}</td>
                   <td className="p-3 text-slate-500 text-center text-xs">{item.widthCut}"</td>
                   <td className="p-3 text-slate-500 text-center text-xs">{item.widthFull}"</td>
@@ -112,8 +169,9 @@ export const QuotationPage = ({
               ))}
 
               <tr>
-                <td className="p-2 text-center text-slate-300"><Plus className="w-4 h-4 mx-auto" /></td>
-                <td className="p-2" colSpan="2">
+                <td className="p-2 text-center bg-slate-50 rounded-bl-xl border-t border-slate-200 pointer-events-none"></td>
+                <td className="p-2 text-center text-slate-300 bg-slate-50 border-t border-slate-200 pointer-events-none"><Plus className="w-4 h-4 mx-auto" /></td>
+                <td className="p-2 border-t border-slate-200 bg-slate-50" colSpan="2">
                   <input
                     type="text"
                     placeholder="Article 입력 후 Enter 또는 엑셀(세로) 복붙..."
@@ -125,7 +183,7 @@ export const QuotationPage = ({
                         if (!art) return;
                         const fabric = savedFabrics.find(f => String(f.article).toUpperCase() === art);
                         if (fabric) {
-                          setQuoteInput(prev => ({ ...prev, items: [...(prev.items || []), createQuoteItem(fabric, prev.exchangeRate, prev.marketType, prev.buyerType)] }));
+                          setQuoteInput(prev => ({ ...prev, items: [...(prev.items || []), createQuoteItem(fabric, globalExchangeRate, prev.marketType, prev.buyerType)] }));
                           showToast('추가 완료', 'success'); e.target.value = '';
                         } else alert(`'${art}' 원단을 찾을 수 없습니다.`);
                       }
@@ -137,8 +195,8 @@ export const QuotationPage = ({
                     }}
                   />
                 </td>
-                <td colSpan="9" className="p-2 text-xs text-slate-400 bg-slate-50/50 flex items-center gap-1 h-[42px]">
-                  <ClipboardPaste className="w-3.5 h-3.5" /> 왼쪽 칸을 클릭하고 엑셀 Article을 붙여넣기 해보세요.
+                <td colSpan="9" className="p-2 text-xs text-slate-400 border-t border-slate-200 bg-slate-50/50 flex items-center gap-1 h-[42px] rounded-br-xl">
+                  <ClipboardPaste className="w-3.5 h-3.5 text-indigo-400" /> <span className="hidden sm:inline">왼쪽 칸을 클릭하고</span> 엑셀 Article(원단명) 열을 복사 후 붙여넣어 보세요.
                 </td>
               </tr>
             </tbody>

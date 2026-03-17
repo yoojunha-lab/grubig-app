@@ -14,7 +14,7 @@ export const PDFRenderer = ({
       <div ref={printRef} className="w-[210mm] min-h-[297mm] bg-white px-10 py-12">
         <div className="flex justify-center mb-6">
           <div className="text-center w-full">
-            <img src="/logo.png" alt="GRUBIG Logo" className="h-16 object-contain mx-auto mb-2" onError={(e) => e.target.style.display = 'none'} />
+            <img src="/logo.png" alt="GRUBIG Logo" className="h-[100px] object-contain mx-auto mb-2" onError={(e) => e.target.style.display = 'none'} />
           </div>
         </div>
         <div className="text-center border-b-2 border-slate-800 pb-3 mb-6">
@@ -24,9 +24,10 @@ export const PDFRenderer = ({
         <div className="flex justify-between mb-6">
           <div className="w-1/2">
             <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">To</p>
-            <h2 className="text-xl font-bold text-slate-900 uppercase">
-              {String(quoteInput.buyerName || '').replace(/[^a-zA-Z0-9\s-]/g, '')}
+            <h2 className="text-xl font-bold text-slate-900 uppercase leading-none mb-1">
+              {quoteInput.buyerName || ''}
             </h2>
+            {quoteInput.attention && <p className="text-xs font-bold text-slate-600 uppercase">ATTN: {quoteInput.attention}</p>}
           </div>
           <div className="w-1/2 text-right">
             <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">Date</p>
@@ -66,11 +67,15 @@ export const PDFRenderer = ({
             ))}
           </tbody>
         </table>
-        <div className="border-t-2 border-slate-800 pt-6 mt-10 text-[10px] text-slate-500 font-medium leading-relaxed">
+        <div className="border-t-2 border-slate-800 pt-6 mt-10 text-[10px] text-slate-500 font-medium leading-relaxed pb-8">
           <p className="mb-1">• VALID UNTIL: <span className="font-bold text-slate-800">{getLastDayOfQuoteMonth(quoteInput.date)}</span></p>
           <p className="mb-1">• ±5% WEIGHT AND WIDTH TOLERANCE</p>
           <p className="mb-1">• BULK PRICING NEGOTIABLE</p>
-          <p>• UPCHARGE APPLIES FOR ORDERS BELOW MCQ/MOQ</p>
+          <p className="mb-4">• UPCHARGE APPLIES FOR ORDERS BELOW MCQ/MOQ</p>
+          
+          <div className="mt-8 pt-4 border-t border-slate-200 text-center text-xs font-bold text-slate-400 uppercase tracking-[0.2em]">
+            Made in Korea
+          </div>
         </div>
       </div>
     </div>

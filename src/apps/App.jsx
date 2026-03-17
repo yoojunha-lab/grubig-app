@@ -44,10 +44,17 @@ const App = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const [activeTab, setActiveTab] = useState('calculator');
+  const [globalExchangeRate, setGlobalExchangeRate] = useState(() => Number(localStorage.getItem('grubig_global_exchange_rate')) || 1450);
+
+  useEffect(() => {
+    localStorage.setItem('grubig_global_exchange_rate', globalExchangeRate);
+  }, [globalExchangeRate]);
+
   const [yarnLibrary, setYarnLibrary] = useState([]);
   const [savedFabrics, setSavedFabrics] = useState([]);
   const [savedQuotes, setSavedQuotes] = useState([]);
   const [categories, setCategories] = useState(DEFAULT_YARN_CATEGORIES);
+  const [buyers, setBuyers] = useState([]);
 
   const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
   const [viewMode, setViewMode] = useState('domestic');
@@ -62,6 +69,7 @@ const App = () => {
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isYarnBulkModalOpen, setIsYarnBulkModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [isBuyerModalOpen, setIsBuyerModalOpen] = useState(false);
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
 
   const [fabricSearchTerm, setFabricSearchTerm] = useState('');
@@ -89,10 +97,11 @@ const App = () => {
   useEffect(() => {
     if (!user) return;
     const unsubSettings = onSnapshot(doc(db, 'settings', 'general'), (docSnap) => {
-      if (docSnap.exists() && docSnap.data().yarnCategories) {
-        setCategories(docSnap.data().yarnCategories);
+      if (docSnap.exists()) {
+        if (docSnap.data().yarnCategories) setCategories(docSnap.data().yarnCategories);
+        if (docSnap.data().buyers) setBuyers(docSnap.data().buyers);
       } else {
-        setDoc(doc(db, 'settings', 'general'), { yarnCategories: DEFAULT_YARN_CATEGORIES }, { merge: true });
+        setDoc(doc(db, 'settings', 'general'), { yarnCategories: DEFAULT_YARN_CATEGORIES, buyers: [] }, { merge: true });
       }
     });
     const unsubYarns = onSnapshot(collection(db, 'yarns'), (snapshot) => {
@@ -118,7 +127,7 @@ const App = () => {
     fabricInput, setFabricInput, editingFabricId, expandedFabricId, setExpandedFabricId,
     handleFabricChange, handleNestedChange, handleYarnSlotChange,
     handleSaveFabric, handleEditFabric, handleDeleteFabric, resetFabricForm, calculateCost, getMergedYarnName
-  } = useFabric(yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast);
+  } = useFabric(yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate);
 
   const {
     yarnInput, setYarnInput, editingYarnId,
@@ -129,16 +138,17 @@ const App = () => {
   const {
     quoteInput, setQuoteInput, handleQuoteSettingChange, createQuoteItem,
     handleAddFabricToQuote, handleGridPaste, handleQuoteBasePriceChange,
-    handleRemoveItemFromQuote, handleSaveQuote, handleDeleteQuote
-  } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user);
+    handleRemoveItemFromQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
+  } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate);
 
   const [selectedFabricIdForQuote, setSelectedFabricIdForQuote] = useState('');
   const [bulkArticleInput, setBulkArticleInput] = useState('');
 
   const [editingCategoryOld, setEditingCategoryOld] = useState(null);
   const [editingCategoryNew, setEditingCategoryNew] = useState('');
+  const [editingBuyerNew, setEditingBuyerNew] = useState('');
 
-// OLD CALCULATION LOGICS MOVED TO HOOKS
+  // OLD CALCULATION LOGICS MOVED TO HOOKS
 
   const handleBackupFabrics = () => {
     if (!isXlsxReady) return;
@@ -165,13 +175,13 @@ const App = () => {
   };
 
   const EXCEL_HEADERS = ['Article', 'ItemName', 'WidthFull', 'WidthCut', 'GSM', 'CostGYd', 'ExchangeRate', 'MarginTier', 'BrandExtra1k', 'BrandExtra3k', 'BrandExtra5k', 'KnittingFee1k', 'KnittingFee3k', 'KnittingFee5k', 'DyeingFee', 'ExtraFee1k', 'ExtraFee3k', 'ExtraFee5k', 'Remarks', 'Yarn1_Name', 'Yarn1_Ratio', 'Yarn2_Name', 'Yarn2_Ratio', 'Yarn3_Name', 'Yarn3_Ratio', 'Yarn4_Name', 'Yarn4_Ratio'];
-  
+
   const handleDownloadTemplate = () => {
     if (!isXlsxReady) return;
     const exampleRow = ['SAMPLE-01', 'Cotton Jersey', 58, 56, 300, 320, 1450, 3, 1000, 700, 500, 3000, 2000, 2000, 8800, 900, 700, 500, '바이어 요청 샘플', 'CM 30S', 100, '', 0, '', 0, '', 0];
     const ws = window.XLSX.utils.aoa_to_sheet([EXCEL_HEADERS, exampleRow]);
-    const wb = window.XLSX.utils.book_new(); 
-    window.XLSX.utils.book_append_sheet(wb, ws, "원단일괄등록"); 
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, "원단일괄등록");
     window.XLSX.writeFile(wb, '원단등록_양식_상세.xlsx', { bookType: 'xlsx', type: 'binary' });
   };
 
@@ -200,17 +210,17 @@ const App = () => {
           newFabrics.push({
             id: Date.now() + idx, date: new Date().toLocaleDateString(),
             article: String(row.Article || 'UNKNOWN').trim().toUpperCase(), itemName: String(row.ItemName || ''), remarks: String(row.Remarks || ''),
-            widthFull: Number(row.WidthFull) || 58, widthCut: Number(row.WidthCut) || 56, gsm: Number(row.GSM) || 300, costGYd: row.CostGYd ? Number(row.CostGYd) : '', 
+            widthFull: Number(row.WidthFull) || 58, widthCut: Number(row.WidthCut) || 56, gsm: Number(row.GSM) || 300, costGYd: row.CostGYd ? Number(row.CostGYd) : '',
             exchangeRate: Number(row.ExchangeRate) || 1450,
             knittingFee1k: kFee1k, knittingFee3k: Number(row.KnittingFee3k) || 2000, knittingFee5k: Number(row.KnittingFee5k) || 2000, dyeingFee: Number(row.DyeingFee) || 8800,
             extraFee1k: Number(row.ExtraFee1k) || 900, extraFee3k: Number(row.ExtraFee3k) || 700, extraFee5k: Number(row.ExtraFee5k) || 500,
             losses: { tier1k: { knit: 5, dye: 10 }, tier3k: { knit: 3, dye: 10 }, tier5k: { knit: 3, dye: 9 } },
-            marginTier: row.MarginTier !== undefined ? Number(row.MarginTier) : 3, 
-            brandExtra: { 
-              tier1k: row.BrandExtra1k !== undefined ? Number(row.BrandExtra1k) : 1000, 
-              tier3k: row.BrandExtra3k !== undefined ? Number(row.BrandExtra3k) : 700, 
-              tier5k: row.BrandExtra5k !== undefined ? Number(row.BrandExtra5k) : 500 
-            }, 
+            marginTier: row.MarginTier !== undefined ? Number(row.MarginTier) : 3,
+            brandExtra: {
+              tier1k: row.BrandExtra1k !== undefined ? Number(row.BrandExtra1k) : 1000,
+              tier3k: row.BrandExtra3k !== undefined ? Number(row.BrandExtra3k) : 700,
+              tier5k: row.BrandExtra5k !== undefined ? Number(row.BrandExtra5k) : 500
+            },
             yarns: mappedYarns
           });
         });
@@ -228,8 +238,8 @@ const App = () => {
   const handleDownloadYarnTemplate = () => {
     if (!isXlsxReady) return;
     const ws = window.XLSX.utils.aoa_to_sheet([YARN_EXCEL_HEADERS, ['소모', '2/48 WOOL', 'XINAO', 'KRW', 18000, 8, 2, 'Standard']]);
-    const wb = window.XLSX.utils.book_new(); 
-    window.XLSX.utils.book_append_sheet(wb, ws, "원사일괄등록"); 
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, "원사일괄등록");
     window.XLSX.writeFile(wb, '원사등록_양식.xlsx', { bookType: 'xlsx', type: 'binary' });
   };
   const handleYarnFileUpload = (e) => {
@@ -264,7 +274,7 @@ const App = () => {
     reader.readAsBinaryString(e.target.files[0]);
   };
 
-// OLD SUPPLIER LOGICS MOVED TO HOOKS
+  // OLD SUPPLIER LOGICS MOVED TO HOOKS
 
   const handleSaveCategoryEdit = async (oldName, newName) => {
     const safeNewName = String(newName || '').trim();
@@ -303,7 +313,32 @@ const App = () => {
     }
   };
 
-// OLD QUOTATION LOGICS MOVED TO HOOKS
+  const handleSaveBuyer = async (newName) => {
+    const safeNewName = String(newName || '').trim().toUpperCase();
+    if (!safeNewName) { alert("바이어 상호명을 입력해주세요."); return; }
+    if (buyers.includes(safeNewName)) { alert("이미 등록된 바이어입니다."); return; }
+    try {
+      setSyncStatus('syncing');
+      const updatedBuyers = [...buyers, safeNewName].sort();
+      await setDoc(doc(db, 'settings', 'general'), { buyers: updatedBuyers }, { merge: true });
+      setEditingBuyerNew('');
+      setSyncStatus('saved'); showToast('새로운 바이어가 추가되었습니다.', 'success');
+    } catch (e) {
+      setSyncStatus('error'); alert(`오류 발생: ${e.message}`);
+    }
+  };
+
+  const handleDeleteBuyer = async (buyerName) => {
+    const isUsed = savedQuotes.some(q => String(q.buyerName).toUpperCase() === String(buyerName).toUpperCase());
+    if (isUsed) { if(!window.confirm("이미 이 바이어로 작성된 견적 히스토리가 있습니다. 그래도 목록에서 삭제하시겠습니까? (기존 히스토리는 유지됩니다)")) return; }
+    else if (!window.confirm(`'${buyerName}' 바이어를 목록에서 삭제하시겠습니까?`)) return;
+    
+    const newBuyers = buyers.filter(b => b !== buyerName);
+    await setDoc(doc(db, 'settings', 'general'), { buyers: newBuyers }, { merge: true });
+    showToast('바이어가 삭제되었습니다.', 'success');
+  };
+
+  // OLD QUOTATION LOGICS MOVED TO HOOKS
 
   const handleDownloadPDF = () => {
     if (!isPdfReady) { showToast("PDF 로딩 중입니다.", 'error'); return; }
@@ -376,6 +411,8 @@ const App = () => {
         setViewMode={setViewMode}
         syncStatus={syncStatus}
         handleLogout={handleLogout}
+        globalExchangeRate={globalExchangeRate}
+        setGlobalExchangeRate={setGlobalExchangeRate}
       />
 
       <div className="flex-1 p-4 md:p-8 overflow-y-auto max-h-[calc(100vh-60px)] md:max-h-screen print:p-0 print:overflow-visible relative w-full overflow-x-hidden">
@@ -395,6 +432,7 @@ const App = () => {
             setFabricInput={setFabricInput}
             handleSaveFabric={handleSaveFabric}
             setActiveTab={setActiveTab}
+            globalExchangeRate={globalExchangeRate}
           />
         )}
 
@@ -444,6 +482,7 @@ const App = () => {
             handleDeleteYarn={handleDeleteYarn}
             yarnLibrary={yarnLibrary}
             setYarnLibrary={setYarnLibrary}
+            globalExchangeRate={globalExchangeRate}
           />
         )}
 
@@ -469,6 +508,9 @@ const App = () => {
             createQuoteItem={createQuoteItem}
             showToast={showToast}
             handleGridPaste={handleGridPaste}
+            globalExchangeRate={globalExchangeRate}
+            buyers={buyers}
+            setIsBuyerModalOpen={setIsBuyerModalOpen}
           />
         )}
 
@@ -493,6 +535,7 @@ const App = () => {
             handleDeleteQuote={handleDeleteQuote}
             savedQuotes={savedQuotes}
             setSavedQuotes={setSavedQuotes}
+            handleDuplicateQuote={handleDuplicateQuote}
           />
         )}        {/* 모달 3종 (엑셀 업로드 2 + 카테고리 관리) */}
         {isBulkModalOpen && (<div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4"><div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 relative"><button onClick={() => setIsBulkModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6" /></button><h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><FileSpreadsheet className="w-6 h-6 text-emerald-600" /> 원단 엑셀 일괄 등록</h3><div className="space-y-4"><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">1. 양식 다운로드 (원사정보 포함됨)</p><button onClick={handleDownloadTemplate} className="w-full flex justify-center items-center gap-2 bg-white border border-slate-300 py-2 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><Download className="w-4 h-4" /> 양식 다운로드 (.xlsx)</button></div><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">2. 파일 업로드</p><label className="w-full flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-white hover:bg-slate-50 transition-colors"><Upload className="w-8 h-8 text-slate-400 mb-2" /><span className="text-sm text-slate-500 font-medium">클릭하여 엑셀 파일 선택</span><input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleFileUpload} ref={fileInputRef} /></label></div></div></div></div>)}
@@ -539,6 +582,34 @@ const App = () => {
           </div>
         )}
 
+        {/* Buyer Manager Modal */}
+        {isBuyerModalOpen && (
+          <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6 relative">
+              <button onClick={() => { setIsBuyerModalOpen(false); setEditingBuyerNew(''); }} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6" /></button>
+              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Users className="w-5 h-5 text-slate-500" /> 바이어 사전 등록 관리</h3>
+              <div className="bg-indigo-50 text-indigo-800 text-xs p-3 rounded-lg mb-4">
+                ℹ️ 이곳에 바이어를 등록해 두면 견적서 작성 시 <b>오타 없이 정확하고 빠르게</b> 바이어를 선택할 수 있습니다.
+              </div>
+              <div className="space-y-2 max-h-60 overflow-y-auto mb-4 p-2 border border-slate-100 rounded-lg bg-slate-50">
+                {buyers.length === 0 && <p className="text-xs text-slate-400 text-center py-4">등록된 바이어가 없습니다.</p>}
+                {buyers.map((b, idx) => (
+                  <div key={idx} className="flex justify-between items-center bg-white p-2 rounded shadow-sm border border-slate-200">
+                    <span className="font-bold text-sm text-slate-700 uppercase">{b}</span>
+                    <button onClick={() => handleDeleteBuyer(b)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t border-slate-200 pt-4">
+                <p className="text-xs font-bold text-slate-500 mb-2">새 바이어 추가</p>
+                <div className="flex gap-2">
+                  <input type="text" value={editingBuyerNew} onChange={e => setEditingBuyerNew(String(e.target.value).toUpperCase())} placeholder="등록할 바이어 상호명..." className="flex-1 border border-slate-300 rounded px-3 py-2 text-sm outline-none focus:ring-1 ring-indigo-500 uppercase" onKeyDown={e => e.key === 'Enter' && handleSaveBuyer(editingBuyerNew)} />
+                  <button onClick={() => handleSaveBuyer(editingBuyerNew)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-indigo-700 whitespace-nowrap">추가</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* PDF Document */}
         <PDFRenderer

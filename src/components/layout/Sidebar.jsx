@@ -1,7 +1,7 @@
 import React from 'react';
-import { Cloud, Menu, Layers, Home, Globe, Calculator, FileSpreadsheet, Box, FileText, Calendar, LogOut } from 'lucide-react';
+import { Cloud, Menu, Layers, Home, Globe, Calculator, FileSpreadsheet, Box, FileText, Calendar, LogOut, DollarSign } from 'lucide-react';
 
-export const Sidebar = ({ isMobileMenuOpen, setIsMobileMenuOpen, activeTab, setActiveTab, viewMode, setViewMode, syncStatus, handleLogout }) => {
+export const Sidebar = ({ isMobileMenuOpen, setIsMobileMenuOpen, activeTab, setActiveTab, viewMode, setViewMode, syncStatus, handleLogout, globalExchangeRate, setGlobalExchangeRate }) => {
   return (
     <>
       <div className="md:hidden bg-slate-900/90 backdrop-blur-md text-white p-4 flex justify-between items-center z-50 sticky top-0 h-[60px] border-b border-slate-800/50 shadow-sm">
@@ -21,6 +21,15 @@ export const Sidebar = ({ isMobileMenuOpen, setIsMobileMenuOpen, activeTab, setA
             </div>
           </div>
           {syncStatus === 'syncing' ? <Cloud className="w-4 h-4 text-yellow-400 animate-pulse drop-shadow-md" title="동기화 중..." /> : <Cloud className="w-4 h-4 text-emerald-400 drop-shadow-md" title="안전하게 저장됨" />}
+        </div>
+        
+        <div className="mb-6 bg-slate-800/30 p-3 rounded-xl border border-slate-700/50">
+          <label className="text-[10px] text-slate-400 font-bold mb-2 block uppercase tracking-wider flex items-center gap-1"><DollarSign className="w-4 h-4 text-yellow-500" /> 전역 적용 환율 (Global)</label>
+          <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded-lg border border-slate-700">
+            <span className="text-yellow-500 font-bold text-sm pl-1">￦</span>
+            <input type="number" value={globalExchangeRate} onChange={e => setGlobalExchangeRate(Number(e.target.value))} className="w-full bg-transparent border-none text-white text-right font-mono font-bold focus:ring-0 outline-none p-0 text-base" />
+            <span className="text-slate-500 font-bold text-xs pr-1">/ $</span>
+          </div>
         </div>
         
         <div className="bg-slate-800/50 p-1.5 rounded-xl mb-6 flex text-xs font-bold border border-slate-700/50 shadow-inner">
