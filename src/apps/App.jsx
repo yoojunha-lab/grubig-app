@@ -22,6 +22,8 @@ import { useXLSX, useHTML2PDF } from '../hooks/useExternalScripts';
 import { useFabric } from '../hooks/domains/useFabric';
 import { useYarn } from '../hooks/domains/useYarn';
 import { useQuotation } from '../hooks/domains/useQuotation';
+import { useDevRequest } from '../hooks/domains/useDevRequest';
+import { useDesignSheet } from '../hooks/domains/useDesignSheet';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
 import { SearchableSelect } from '../components/common/SearchableSelect';
@@ -36,6 +38,10 @@ import { YarnLibraryPage } from '../pages/YarnLibraryPage';
 import { QuotationPage } from '../pages/QuotationPage';
 import { QuoteHistoryPage } from '../pages/QuoteHistoryPage';
 import { PDFRenderer } from '../components/quote/PDFRenderer';
+import { DevRequestPage } from '../pages/DevRequestPage';
+import { DesignSheetPage } from '../pages/DesignSheetPage';
+import { DesignSheetListPage } from '../pages/DesignSheetListPage';
+import { DevStatusPage } from '../pages/DevStatusPage';
 
 const App = () => {
   const [user, setUser] = useState(null);
@@ -55,6 +61,8 @@ const App = () => {
   const [savedQuotes, setSavedQuotes] = useState([]);
   const [categories, setCategories] = useState(DEFAULT_YARN_CATEGORIES);
   const [buyers, setBuyers] = useState([]);
+  const [devRequests, setDevRequests] = useState([]);
+  const [designSheets, setDesignSheets] = useState([]);
 
   const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
   const [viewMode, setViewMode] = useState('domestic');
@@ -113,7 +121,9 @@ const App = () => {
     });
     const unsubFabrics = onSnapshot(collection(db, 'fabrics'), (snapshot) => setSavedFabrics(snapshot.docs.map(doc => doc.data())));
     const unsubQuotes = onSnapshot(collection(db, 'quotes'), (snapshot) => { setSavedQuotes(snapshot.docs.map(doc => doc.data())); setSyncStatus('saved'); });
-    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); };
+    const unsubDevReqs = onSnapshot(collection(db, 'devRequests'), (snapshot) => setDevRequests(snapshot.docs.map(doc => doc.data())));
+    const unsubDesignSheets = onSnapshot(collection(db, 'designSheets'), (snapshot) => setDesignSheets(snapshot.docs.map(doc => doc.data())));
+    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); };
   }, [user]);
 
   const saveDocToCloud = async (colName, item) => { setSyncStatus('syncing'); try { await saveDocument(colName, item); setSyncStatus('saved'); } catch (e) { setSyncStatus('error'); showToast("저장 실패", "error"); } };
@@ -140,6 +150,28 @@ const App = () => {
     handleAddFabricToQuote, handleGridPaste, handleQuoteBasePriceChange,
     handleRemoveItemFromQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
   } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate);
+
+  // ⚓️ 설계서 시스템 훅
+  const {
+    devInput, setDevInput, editingDevId,
+    handleDevChange, handleSpecChange,
+    handleSaveDevRequest, handleEditDevRequest, handleDeleteDevRequest,
+    resetDevForm, generateDevOrderNo, createDesignSheetFromDev,
+    updateDevStatus, confirmDevAndLink
+  } = useDevRequest(devRequests, saveDocToCloud, deleteDocFromCloud, showToast);
+
+  const {
+    sheetInput, setSheetInput, editingSheetId,
+    handleSheetChange, handleSectionChange,
+    handleSheetYarnChange, handleCostInputChange, handleCostNestedChange,
+    handleActualDataChange,
+    handleSaveSheet, handleEditSheet, handleDeleteSheet,
+    resetSheetForm, getStageIndex, advanceStage,
+    createImprovedVersion, addOrderNumber, removeOrderNumber,
+    getDesignCost, initFromDevRequest, dropDesignSheet
+  } = useDesignSheet(designSheets, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate);
+
+  const devPrintRef = useRef(null);
 
   const [selectedFabricIdForQuote, setSelectedFabricIdForQuote] = useState('');
   const [bulkArticleInput, setBulkArticleInput] = useState('');
@@ -528,6 +560,79 @@ const App = () => {
             globalExchangeRate={globalExchangeRate}
             buyers={buyers}
             setIsBuyerModalOpen={setIsBuyerModalOpen}
+          />
+        )}
+
+        {/* TAB: 개발 현황 (의뢰 등록 + 진행현황 통합) */}
+        {activeTab === 'devStatus' && (
+          <DevStatusPage
+            devRequests={devRequests}
+            designSheets={designSheets}
+            devInput={devInput}
+            editingDevId={editingDevId}
+            handleDevChange={handleDevChange}
+            handleSpecChange={handleSpecChange}
+            handleSaveDevRequest={handleSaveDevRequest}
+            handleEditDevRequest={handleEditDevRequest}
+            handleDeleteDevRequest={handleDeleteDevRequest}
+            resetDevForm={resetDevForm}
+            createDesignSheetFromDev={createDesignSheetFromDev}
+            initFromDevRequest={initFromDevRequest}
+            updateDevStatus={updateDevStatus}
+            confirmDevAndLink={confirmDevAndLink}
+            handleEditSheet={handleEditSheet}
+            advanceStage={advanceStage}
+            dropDesignSheet={dropDesignSheet}
+            handleSaveSheet={handleSaveSheet}
+            setActiveTab={setActiveTab}
+            user={user}
+            buyers={buyers}
+            yarnLibrary={yarnLibrary}
+            viewMode={viewMode}
+            devPrintRef={devPrintRef}
+          />
+        )}
+
+        {/* TAB: 설계서 작성 */}
+        {activeTab === 'designSheet' && (
+          <DesignSheetPage
+            sheetInput={sheetInput}
+            editingSheetId={editingSheetId}
+            handleSheetChange={handleSheetChange}
+            handleSectionChange={handleSectionChange}
+            handleSheetYarnChange={handleSheetYarnChange}
+            handleCostInputChange={handleCostInputChange}
+            handleCostNestedChange={handleCostNestedChange}
+            handleActualDataChange={handleActualDataChange}
+            handleSaveSheet={handleSaveSheet}
+            resetSheetForm={resetSheetForm}
+            advanceStage={advanceStage}
+            getDesignCost={getDesignCost}
+            yarnSelectOptions={yarnSelectOptions}
+            user={user}
+            viewMode={viewMode}
+            setActiveTab={setActiveTab}
+            globalExchangeRate={globalExchangeRate}
+            devRequests={devRequests}
+          />
+        )}
+
+        {/* TAB: 설계서 목록 */}
+        {activeTab === 'designList' && (
+          <DesignSheetListPage
+            designSheets={designSheets}
+            handleEditSheet={handleEditSheet}
+            handleDeleteSheet={handleDeleteSheet}
+            createImprovedVersion={createImprovedVersion}
+            addOrderNumber={addOrderNumber}
+            removeOrderNumber={removeOrderNumber}
+            advanceStage={advanceStage}
+            getDesignCost={getDesignCost}
+            setActiveTab={setActiveTab}
+            user={user}
+            viewMode={viewMode}
+            yarnLibrary={yarnLibrary}
+            saveDocToCloud={saveDocToCloud}
           />
         )}
 
