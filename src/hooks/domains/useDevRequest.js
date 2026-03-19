@@ -1,54 +1,46 @@
 import { useState } from 'react';
 
 // GRUBIG ERP - 바이어 R&D 개발 의뢰 관리 훅
+// 상태: pending(대기) → analyzing(분석) → confirmed(개발투입확정, 설계서 저장 시 자동) / rejected(미진행)
 
 export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, showToast) => {
   const [editingDevId, setEditingDevId] = useState(null);
 
-  // 개발 의뢰 초기 입력 폼
   const getInitialDevInput = () => ({
     buyerName: '',
+    assignee: '',              // 담당자 (영업 담당자)
     requestDate: new Date().toISOString().slice(0, 10),
     targetSpec: {
-      composition: '',        // 혼용률
-      targetPrice: '',        // 타겟 단가
+      composition: '',         // 혼용률
+      targetPrice: '',         // 타겟 단가
       feeling: '',             // 원하는 느낌
-      analysisDeadline: '',   // 분석 납기일자
-      sampleDeadline: '',     // 샘플 생산 납기일자 (설계서 진행 납기)
-      otherRequests: ''       // 기타 요청사항
+      analysisDeadline: '',    // 분석 납기
+      sampleDeadline: '',      // 샘플 생산 납기 (설계서 진행 납기)
+      otherRequests: ''        // 기타 요청
     },
-    swatchNote: '',            // 스와치 관련 메모
+    swatchNote: '',
     status: 'pending'          // pending | analyzing | confirmed | rejected
   });
 
   const [devInput, setDevInput] = useState(getInitialDevInput);
 
-  // 개발 오더넘버 자동 채번: F-[끝2자리연도]D[3자리순번]
-  // 예) 2026년 → F-26D001, F-26D002 ...
+  // 개발 오더넘버 자동 채번
   const generateDevOrderNo = () => {
-    const year = new Date().getFullYear().toString().slice(-2); // '26'
+    const year = new Date().getFullYear().toString().slice(-2);
     const prefix = `F-${year}D`;
-
-    // 같은 연도의 기존 개발 의뢰 중 가장 큰 순번을 찾아 +1
     const existingNos = (devRequests || [])
       .map(d => d.devOrderNo || '')
       .filter(no => no.startsWith(prefix))
-      .map(no => {
-        const numPart = parseInt(no.replace(prefix, ''), 10);
-        return isNaN(numPart) ? 0 : numPart;
-      });
-
+      .map(no => { const n = parseInt(no.replace(prefix, ''), 10); return isNaN(n) ? 0 : n; });
     const nextNum = existingNos.length > 0 ? Math.max(...existingNos) + 1 : 1;
     return `${prefix}${String(nextNum).padStart(3, '0')}`;
   };
 
-  // 일반 필드 변경 핸들러
   const handleDevChange = (e) => {
     const { name, value } = e.target;
     setDevInput(prev => ({ ...prev, [name]: name === 'buyerName' ? String(value).toUpperCase() : value }));
   };
 
-  // 중첩 필드(targetSpec) 변경 핸들러
   const handleSpecChange = (field, value) => {
     setDevInput(prev => ({
       ...prev,
@@ -56,55 +48,55 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     }));
   };
 
-  // 폼 리셋
   const resetDevForm = () => {
     setDevInput(getInitialDevInput());
     setEditingDevId(null);
   };
 
-  // 저장 (새로 생성 or 수정)
+  // 저장 — boolean 반환 (true=성공, false=실패 → 모달 유지)
   const handleSaveDevRequest = (user) => {
     if (!devInput.buyerName) {
-      showToast('바이어명을 입력해주세요.', 'error');
-      return;
+      showToast('바이어명을 선택해주세요.', 'error');
+      return false;
     }
-    // 분석 납기 필수
     if (!devInput.targetSpec?.analysisDeadline) {
       showToast('분석 납기일자를 입력해주세요.', 'error');
-      return;
+      return false;
     }
 
     const now = new Date().toISOString();
     const isNew = !editingDevId;
+    const existing = isNew ? null : devRequests.find(d => d.id === editingDevId);
 
     const itemToSave = {
       ...devInput,
       id: editingDevId || `dev_${Date.now()}`,
-      devOrderNo: isNew ? generateDevOrderNo() : (devRequests.find(d => d.id === editingDevId)?.devOrderNo || generateDevOrderNo()),
-      linkedDesignSheetId: isNew ? null : (devRequests.find(d => d.id === editingDevId)?.linkedDesignSheetId || null),
-      createdBy: isNew ? (user?.email || '') : (devRequests.find(d => d.id === editingDevId)?.createdBy || ''),
-      createdAt: isNew ? now : (devRequests.find(d => d.id === editingDevId)?.createdAt || now),
+      devOrderNo: isNew ? generateDevOrderNo() : (existing?.devOrderNo || generateDevOrderNo()),
+      linkedDesignSheetId: isNew ? null : (existing?.linkedDesignSheetId || null),
+      createdBy: isNew ? (user?.email || '') : (existing?.createdBy || ''),
+      createdAt: isNew ? now : (existing?.createdAt || now),
       updatedAt: now
     };
 
     saveDocToCloud('devRequests', itemToSave);
     resetDevForm();
     showToast(isNew ? '개발 의뢰가 등록되었습니다.' : '개발 의뢰가 수정되었습니다.', 'success');
+    return true;
   };
 
-  // 수정 모드 진입
   const handleEditDevRequest = (devReq) => {
+    const defaultSpec = getInitialDevInput().targetSpec;
     setDevInput({
       buyerName: devReq.buyerName || '',
+      assignee: devReq.assignee || '',
       requestDate: devReq.requestDate || new Date().toISOString().slice(0, 10),
-      targetSpec: devReq.targetSpec || getInitialDevInput().targetSpec,
+      targetSpec: { ...defaultSpec, ...(devReq.targetSpec || {}) },
       swatchNote: devReq.swatchNote || '',
       status: devReq.status || 'pending'
     });
     setEditingDevId(devReq.id);
   };
 
-  // 삭제
   const handleDeleteDevRequest = (id) => {
     if (window.confirm('정말로 이 개발 의뢰를 삭제하시겠습니까?')) {
       deleteDocFromCloud('devRequests', id).then(() => {
@@ -113,20 +105,20 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     }
   };
 
-  // 개발 확정→설계서 연동용 초기 데이터 생성
-  const createDesignSheetFromDev = (devReq) => {
-    return {
-      devOrderNo: devReq.devOrderNo,
-      buyerName: devReq.buyerName,
-      devRequestId: devReq.id,
-      initialComposition: devReq.targetSpec?.composition || '',
-      feeling: devReq.targetSpec?.feeling || '',
-      sampleDeadline: devReq.targetSpec?.sampleDeadline || ''  // 설계서 진행 납기로 전달
-    };
-  };
+  // 설계서 작성 시 전달할 데이터
+  const createDesignSheetFromDev = (devReq) => ({
+    devOrderNo: devReq.devOrderNo,
+    devRequestId: devReq.id,
+    sampleDeadline: devReq.targetSpec?.sampleDeadline || ''
+  });
 
-  // 상태만 변경 (아코디언 내 드롭다운용)
+  // 상태 변경 (드롭다운 — confirmed 직접 선택 불가)
   const updateDevStatus = (devReqId, newStatus) => {
+    // confirmed는 설계서 저장으로만 자동 전환 (수동 불가)
+    if (newStatus === 'confirmed') {
+      showToast('개발투입확정은 설계서 저장 시 자동으로 처리됩니다.', 'error');
+      return;
+    }
     const devReq = devRequests.find(d => d.id === devReqId);
     if (!devReq) return;
     saveDocToCloud('devRequests', {
@@ -137,14 +129,17 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     showToast(`상태가 변경되었습니다.`, 'success');
   };
 
-  // 확정 + 설계서 연결 (설계서 ID를 받아서 의뢰에 기록)
-  const confirmDevAndLink = (devReqId, designSheetId) => {
+  // 설계서 저장 시 자동 확정 (연결 + confirmed 전환)
+  // 설계서가 저장되면 이 함수가 호출 → 의뢰를 자동 '개발투입확정'으로
+  const linkAndConfirm = (devReqId, designSheetId) => {
     const devReq = devRequests.find(d => d.id === devReqId);
     if (!devReq) return;
+    // 이미 확정+연결된 경우 → 중복 저장 방지 (설계서 수정 저장 시)
+    if (devReq.status === 'confirmed' && devReq.linkedDesignSheetId === designSheetId) return;
     saveDocToCloud('devRequests', {
       ...devReq,
+      linkedDesignSheetId: designSheetId,
       status: 'confirmed',
-      linkedDesignSheetId: designSheetId || null,
       updatedAt: new Date().toISOString()
     });
   };
@@ -155,6 +150,6 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     handleDevChange, handleSpecChange,
     handleSaveDevRequest, handleEditDevRequest, handleDeleteDevRequest,
     resetDevForm, generateDevOrderNo, createDesignSheetFromDev,
-    updateDevStatus, confirmDevAndLink
+    updateDevStatus, linkAndConfirm
   };
 };

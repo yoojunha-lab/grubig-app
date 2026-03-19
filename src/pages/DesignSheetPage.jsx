@@ -36,17 +36,20 @@ export const DesignSheetPage = ({
   viewMode,
   setActiveTab,
   globalExchangeRate,
-  devRequests
+  devRequests,
+  generateSelfDevOrderNo,
+  linkAndConfirm,
+  advanceToEztex
 }) => {
   // === 필드 잠금 로직 ===
-  // 확정 이후 → 개발번호 수정불가
-  // EZ-TEX 등록 이후 → EZ-TEX 오더번호 수정불가
-  // 아이템화 이후 → 전체 읽기전용
-  const STAGE_ORDER = ['draft', 'confirmed', 'eztex', 'sampling', 'articled'];
+  // eztex 이후 → 개발번호 수정불가
+  // sampling 이후 → EZ-TEX O/D NO. 수정불가
+  // 아이템화(articled) → 전체 읽기전용
+  const STAGE_ORDER = ['draft', 'eztex', 'sampling', 'articled'];
   const stageIdx = STAGE_ORDER.indexOf(sheetInput.stage || 'draft');
-  const isDevOrderLocked = stageIdx >= 1 || !!sheetInput.devRequestId; // 확정 이상 or 의뢰 연결
-  const isEztexLocked = stageIdx >= 2; // EZ-TEX 등록 이상
-  const isFullyLocked = stageIdx >= 4; // 아이템화
+  const isDevOrderLocked = stageIdx >= 1 || !!sheetInput.devRequestId; // eztex 이상 or 의뢰 연결
+  const isEztexLocked = stageIdx >= 2; // sampling 이상 (EZ-TEX 번호 입력 후)
+  const isFullyLocked = stageIdx >= 3; // 아이템화
 
   // 연결된 개발의뢰 찾기
   const linkedDevReq = sheetInput.devRequestId
@@ -86,7 +89,15 @@ export const DesignSheetPage = ({
   const costData = getDesignCost?.(sheetInput) || null;
 
   const handleSaveAndGo = () => {
-    handleSaveSheet(user);
+    // 연결 + 확정 + eztex 전환을 한 번에 처리하는 콜백
+    const onLink = (devReqId, sheetId) => {
+      // 1) 의뢰 연결 + 자동 확정
+      if (linkAndConfirm) linkAndConfirm(devReqId, sheetId);
+      // 2) 설계서 자동 eztex 전환 (개발의뢰건: 확정 시 draft→eztex)
+      if (advanceToEztex) advanceToEztex(sheetId);
+    };
+    // generateSelfDevOrderNo를 3번째 인자로 전달 → save 내부에서 동기적으로 번호 채번
+    handleSaveSheet(user, onLink, generateSelfDevOrderNo);
     setActiveTab('devStatus');
   };
 
@@ -156,9 +167,9 @@ export const DesignSheetPage = ({
               placeholder="F-26D001" readOnly={isDevOrderLocked}
               className={`w-full bg-transparent border-none p-0 text-xs font-mono font-bold uppercase outline-none ${isDevOrderLocked?'text-slate-500 cursor-not-allowed':'placeholder-slate-300'}`}/>
           </div>
-          {/* EZ-TEX */}
+          {/* EZ-TEX O/D NO. */}
           <div className="border-b border-dashed border-slate-200 pb-1">
-            <label className="block text-[9px] font-bold text-slate-400 uppercase flex items-center gap-1">EZ-TEX {isEztexLocked && <Lock className="w-2.5 h-2.5 text-amber-500"/>}</label>
+            <label className="block text-[9px] font-bold text-slate-400 uppercase flex items-center gap-1">EZ-TEX O/D NO. {isEztexLocked && <Lock className="w-2.5 h-2.5 text-amber-500"/>}</label>
             <input type="text" name="eztexOrderNo" value={sheetInput.eztexOrderNo||''} onChange={handleSheetChange}
               placeholder="EZ-TEX 등록 시" readOnly={isEztexLocked||isFullyLocked}
               className={`w-full bg-transparent border-none p-0 text-xs font-mono font-bold uppercase outline-none ${isEztexLocked?'text-slate-500 cursor-not-allowed':'placeholder-slate-300'}`}/>
@@ -170,13 +181,6 @@ export const DesignSheetPage = ({
               placeholder="아이템화 시" readOnly={isFullyLocked}
               className={`w-full bg-transparent border-none p-0 text-xs font-mono font-bold uppercase outline-none ${isFullyLocked?'text-slate-500 cursor-not-allowed':'placeholder-slate-300'}`}/>
           </div>
-          {/* Buyer */}
-          <div className="border-b border-dashed border-slate-200 pb-1">
-            <label className="block text-[9px] font-bold text-slate-400 uppercase">Buyer</label>
-            <input type="text" name="buyerName" value={sheetInput.buyerName||''} onChange={handleSheetChange}
-              placeholder="바이어명" readOnly={isFullyLocked}
-              className="w-full bg-transparent border-none p-0 text-xs font-bold uppercase outline-none placeholder-slate-300"/>
-          </div>
           {/* 원단명 */}
           <div className="border-b border-dashed border-slate-200 pb-1">
             <label className="block text-[9px] font-bold text-slate-400 uppercase">원단명</label>
@@ -184,17 +188,17 @@ export const DesignSheetPage = ({
               placeholder="예: Wool Interlock" readOnly={isFullyLocked}
               className="w-full bg-transparent border-none p-0 text-xs font-bold outline-none placeholder-slate-300"/>
           </div>
-          {/* 담당자 */}
-          <div className="border-b border-dashed border-slate-200 pb-1">
-            <label className="block text-[9px] font-bold text-slate-400 uppercase">담당자</label>
-            <input type="text" name="assignee" value={sheetInput.assignee||''} onChange={handleSheetChange}
-              placeholder="담당자"
-              className="w-full bg-transparent border-none p-0 text-xs outline-none placeholder-slate-300"/>
-          </div>
           {/* Version */}
           <div className="border-b border-dashed border-slate-200 pb-1">
             <label className="block text-[9px] font-bold text-slate-400 uppercase">Version</label>
             <span className="text-xs font-mono font-bold text-slate-600">v{sheetInput.version || 1}</span>
+          </div>
+          {/* 샘플 생산 납기 */}
+          <div className="border-b border-dashed border-slate-200 pb-1">
+            <label className="block text-[9px] font-bold text-red-400 uppercase">샘플 생산 납기 📅</label>
+            <input type="date" name="deadline" value={sheetInput.deadline||''} onChange={handleSheetChange}
+              readOnly={isFullyLocked}
+              className={`w-full bg-transparent border-none p-0 text-xs font-mono font-bold outline-none ${isFullyLocked?'text-slate-500 cursor-not-allowed':'placeholder-slate-300'}`}/>
           </div>
         </div>
       </div>

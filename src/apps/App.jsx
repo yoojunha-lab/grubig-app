@@ -157,8 +157,13 @@ const App = () => {
     handleDevChange, handleSpecChange,
     handleSaveDevRequest, handleEditDevRequest, handleDeleteDevRequest,
     resetDevForm, generateDevOrderNo, createDesignSheetFromDev,
-    updateDevStatus, confirmDevAndLink
+    updateDevStatus, linkAndConfirm
   } = useDevRequest(devRequests, saveDocToCloud, deleteDocFromCloud, showToast);
+
+  // 아이템화 시 원단 자동 등록용 함수
+  const saveFabricFromSheet = (fabricData) => {
+    saveDocToCloud('fabrics', fabricData);
+  };
 
   const {
     sheetInput, setSheetInput, editingSheetId,
@@ -167,9 +172,11 @@ const App = () => {
     handleActualDataChange,
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
     resetSheetForm, getStageIndex, advanceStage,
+    autoAdvanceEztex, advanceToEztex,
     createImprovedVersion, addOrderNumber, removeOrderNumber,
-    getDesignCost, initFromDevRequest, dropDesignSheet
-  } = useDesignSheet(designSheets, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate);
+    getDesignCost, initFromDevRequest, dropDesignSheet,
+    generateSelfDevOrderNo
+  } = useDesignSheet(designSheets, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet);
 
   const devPrintRef = useRef(null);
 
@@ -579,11 +586,12 @@ const App = () => {
             createDesignSheetFromDev={createDesignSheetFromDev}
             initFromDevRequest={initFromDevRequest}
             updateDevStatus={updateDevStatus}
-            confirmDevAndLink={confirmDevAndLink}
             handleEditSheet={handleEditSheet}
-            advanceStage={advanceStage}
-            dropDesignSheet={dropDesignSheet}
             handleSaveSheet={handleSaveSheet}
+            advanceStage={advanceStage}
+            advanceToEztex={advanceToEztex}
+            autoAdvanceEztex={autoAdvanceEztex}
+            dropDesignSheet={dropDesignSheet}
             setActiveTab={setActiveTab}
             user={user}
             buyers={buyers}
@@ -614,6 +622,9 @@ const App = () => {
             setActiveTab={setActiveTab}
             globalExchangeRate={globalExchangeRate}
             devRequests={devRequests}
+            generateSelfDevOrderNo={generateSelfDevOrderNo}
+            linkAndConfirm={linkAndConfirm}
+            advanceToEztex={advanceToEztex}
           />
         )}
 
@@ -621,6 +632,7 @@ const App = () => {
         {activeTab === 'designList' && (
           <DesignSheetListPage
             designSheets={designSheets}
+            devRequests={devRequests}
             handleEditSheet={handleEditSheet}
             handleDeleteSheet={handleDeleteSheet}
             createImprovedVersion={createImprovedVersion}

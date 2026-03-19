@@ -3,7 +3,7 @@ import { DESIGN_STAGES } from '../../constants/common';
 
 // GRUBIG ERP - 원단 설계서 도메인 로직 훅
 
-export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate) => {
+export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet) => {
   const [editingSheetId, setEditingSheetId] = useState(null);
 
   // 설계서 초기 입력 폼
@@ -16,8 +16,9 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
     version: 1,
     parentId: null,
     stage: 'draft',
-    assignee: '',
-    buyerName: '',
+    status: 'active',        // active | dropped
+    devRequestId: null,      // 연결된 개발의뢰 ID
+    deadline: '',            // 납기 (설계서 전체 납기 관리)
 
     // (1) 원사 정보 (기존 원사 라이브러리 연동)
     yarns: [
@@ -110,7 +111,7 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
       ...prev,
       [section]: {
         ...prev[section],
-        [field]: typeof prev[section]?.[field] === 'boolean' ? value : value
+        [field]: value
       }
     }));
   };
@@ -174,7 +175,7 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
     return DESIGN_STAGES.findIndex(s => s.key === stageKey);
   };
 
-  // 다음 단계로 진행
+  // 다음 단계로 진행 (draft → eztex → sampling → articled)
   const advanceStage = (sheetId) => {
     const sheet = designSheets.find(s => s.id === sheetId);
     if (!sheet) return;
@@ -187,15 +188,11 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
 
     const nextStage = DESIGN_STAGES[currentIdx + 1].key;
 
-    // EZ-TEX 단계 진입 시 eztexOrderNo 확인
-    if (nextStage === 'eztex' && !sheet.eztexOrderNo) {
-      showToast('EZ-TEX 오더넘버를 먼저 입력해주세요.', 'error');
-      return;
-    }
+    // EZ-TEX 단계 진입 시 eztexOrderNo 확인 불필요 (등록 대기 단계이므로)
 
     // 아이템화 단계 진입 시 articleNo 확인
     if (nextStage === 'articled' && !sheet.articleNo) {
-      showToast('아티클 번호를 먼저 입력해주세요.', 'error');
+      showToast('Article 번호를 먼저 입력해주세요.', 'error');
       return;
     }
 
@@ -207,31 +204,79 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
 
     saveDocToCloud('designSheets', updatedSheet);
     showToast(`'${DESIGN_STAGES[currentIdx + 1].label}' 단계로 진행되었습니다.`, 'success');
+
+    // 아이템화 완료 시 → 원단 자동 등록
+    if (nextStage === 'articled' && saveFabricFromSheet) {
+      registerFabricFromSheet(updatedSheet);
+    }
+  };
+
+  // EZ-TEX O/D NO. 입력 시 자동으로 sampling으로 진행
+  const autoAdvanceEztex = (sheetId, eztexOrderNo) => {
+    const sheet = designSheets.find(s => s.id === sheetId);
+    if (!sheet) return;
+    if (sheet.stage !== 'eztex') return; // eztex 단계에서만 작동
+    if (!eztexOrderNo?.trim()) return;
+
+    const updatedSheet = {
+      ...sheet,
+      eztexOrderNo: eztexOrderNo.trim(),
+      stage: 'sampling',
+      updatedAt: new Date().toISOString()
+    };
+    saveDocToCloud('designSheets', updatedSheet);
+    showToast(`EZ-TEX O/D NO. 등록 완료 → '샘플 진행' 단계로 자동 진행되었습니다.`, 'success');
+  };
+
+  // 개발투입확정 시 설계서를 draft → eztex로 자동 전환
+  const advanceToEztex = (sheetId) => {
+    const sheet = designSheets.find(s => s.id === sheetId);
+    if (!sheet) return;
+    if (sheet.stage !== 'draft') return; // draft에서만 작동
+    saveDocToCloud('designSheets', {
+      ...sheet,
+      stage: 'eztex',
+      updatedAt: new Date().toISOString()
+    });
   };
 
   // --- CRUD ---
 
   // 저장 (새로 생성 or 수정)
-  const handleSaveSheet = (user) => {
-    if (!sheetInput.devOrderNo) {
+  // onLinkToDevRequest: (devReqId, sheetId) => void — 설계서 저장 시 의뢰에 자동 연결
+  // generateSelfNo: () => string — 자체 설계서 번호 생성 (external)
+  const handleSaveSheet = (user, onLinkToDevRequest, generateSelfNo) => {
+    // 자체 설계서인 경우 번호 자동 채번 (비동기 setState 문제 해결: 저장 시점에 직접 세팅)
+    let finalInput = { ...sheetInput };
+    if (!finalInput.devOrderNo && !finalInput.devRequestId && generateSelfNo) {
+      finalInput.devOrderNo = generateSelfNo();
+    }
+
+    if (!finalInput.devOrderNo) {
       showToast('개발 오더넘버를 입력해주세요.', 'error');
       return;
     }
 
     const now = new Date().toISOString();
     const isNew = !editingSheetId;
-
     const existing = isNew ? null : designSheets.find(s => s.id === editingSheetId);
 
     const itemToSave = {
-      ...sheetInput,
+      ...finalInput,
       id: editingSheetId || `ds_${Date.now()}`,
+      status: finalInput.status || 'active',
       createdBy: isNew ? (user?.email || '') : (existing?.createdBy || ''),
       createdAt: isNew ? now : (existing?.createdAt || now),
       updatedAt: now
     };
 
     saveDocToCloud('designSheets', itemToSave);
+
+    // 의뢰 연결: devRequestId가 있으면 의뢰에 설계서 ID를 기록
+    if (itemToSave.devRequestId && onLinkToDevRequest) {
+      onLinkToDevRequest(itemToSave.devRequestId, itemToSave.id);
+    }
+
     resetSheetForm();
     showToast(isNew ? '설계서가 저장되었습니다.' : '설계서가 수정되었습니다.', 'success');
     return itemToSave.id;
@@ -294,15 +339,17 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
       id: `ds_${Date.now()}`,
       version: maxVersion + 1,
       parentId: rootId,
-      stage: 'draft',
+      stage: 'articled',           // 개선본은 진행단계 없이 바로 아이템화 상태
+      status: 'active',
       orderNumbers: [],
+      articleNo: '',               // 새 Article 번호는 보관함에서 직접 입력
       createdBy: user?.email || '',
       createdAt: now,
       updatedAt: now
     };
 
     saveDocToCloud('designSheets', newSheet);
-    showToast(`v${newSheet.version} 개선본이 생성되었습니다.`, 'success');
+    showToast(`v${newSheet.version} 개선본이 생성되었습니다. (보관함에서 Article 번호를 입력해주세요)`, 'success');
     return newSheet;
   };
 
@@ -359,16 +406,58 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
     return calculateCost(fabricData);
   };
 
-  // 개발 의뢰에서 설계서로 연동 시 초기값 세팅
+  // 개발 의뢰에서 설계서로 연동 시 초기값 세팅 (buyerName 제거 — 의뢰에서 참조)
   const initFromDevRequest = (devData) => {
     const initial = getInitialSheetInput();
     setSheetInput({
       ...initial,
       devOrderNo: devData.devOrderNo || '',
-      buyerName: devData.buyerName || '',
-      devRequestId: devData.devRequestId || null  // 어떤 개발의뢰와 연결되었는지 추적
+      devRequestId: devData.devRequestId || null,
+      deadline: devData.sampleDeadline || ''  // 샘플 생산 납기 자동 연동
     });
     setEditingSheetId(null);
+  };
+
+  // 자체 설계서 번호 생성 (S-26D001 형식)
+  const generateSelfDevOrderNo = () => {
+    const year = new Date().getFullYear().toString().slice(-2);
+    const prefix = `S-${year}D`;
+    const existingNos = (designSheets || [])
+      .map(d => d.devOrderNo || '')
+      .filter(no => no.startsWith(prefix))
+      .map(no => { const n = parseInt(no.replace(prefix, ''), 10); return isNaN(n) ? 0 : n; });
+    const nextNum = existingNos.length > 0 ? Math.max(...existingNos) + 1 : 1;
+    return `${prefix}${String(nextNum).padStart(3, '0')}`;
+  };
+
+  // 아이템화 시 원단 자동 등록 (savedFabrics에 변환 저장)
+  const registerFabricFromSheet = (sheet) => {
+    if (!saveFabricFromSheet) return;
+    const fabricData = {
+      id: Date.now(),
+      date: new Date().toLocaleDateString(),
+      article: sheet.articleNo || '',
+      itemName: sheet.fabricName || '',
+      // costInput 필드를 원단등록 필드와 매핑
+      widthFull: sheet.costInput?.widthFull || 58,
+      widthCut: sheet.costInput?.widthCut || 56,
+      gsm: sheet.costInput?.gsm || 300,
+      costGYd: sheet.costInput?.costGYd || '',
+      knittingFee1k: sheet.costInput?.knittingFee1k || 3000,
+      knittingFee3k: sheet.costInput?.knittingFee3k || 2000,
+      knittingFee5k: sheet.costInput?.knittingFee5k || 2000,
+      dyeingFee: sheet.costInput?.dyeingFee || 8800,
+      extraFee1k: sheet.costInput?.extraFee1k || 900,
+      extraFee3k: sheet.costInput?.extraFee3k || 700,
+      extraFee5k: sheet.costInput?.extraFee5k || 500,
+      losses: sheet.costInput?.losses || { tier1k:{knit:5,dye:10}, tier3k:{knit:3,dye:10}, tier5k:{knit:3,dye:9} },
+      marginTier: sheet.costInput?.marginTier || 3,
+      brandExtra: sheet.costInput?.brandExtra || { tier1k:1000, tier3k:700, tier5k:500 },
+      yarns: sheet.yarns || [],
+      remarks: `설계서 아이템화 자동 등록 (${sheet.devOrderNo || ''})`
+    };
+    saveFabricFromSheet(fabricData);
+    showToast(`Article ${sheet.articleNo} 원단이 자동 등록되었습니다.`, 'success');
   };
 
   // DROP 처리 (설계서를 보관함으로 이동, 현황에서 숨김)
@@ -392,7 +481,9 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
     handleActualDataChange,
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
     resetSheetForm, getStageIndex, advanceStage,
+    autoAdvanceEztex, advanceToEztex,
     createImprovedVersion, addOrderNumber, removeOrderNumber,
-    getDesignCost, initFromDevRequest, dropDesignSheet
+    getDesignCost, initFromDevRequest, dropDesignSheet,
+    generateSelfDevOrderNo, registerFabricFromSheet
   };
 };
