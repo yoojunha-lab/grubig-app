@@ -13,9 +13,9 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
     articleNo: '',
     fabricName: '',       // 원단명
     orderNumbers: [],
-    version: 1,
-    parentId: null,
     stage: 'draft',
+    changeHistory: [],       // 변경 이력 [{date, fields:{필드: 이전값}, reason}]
+    changeReason: '',        // 변경사유 (저장 시 이력에 기록 후 제거)
     status: 'active',        // active | dropped
     devRequestId: null,      // 연결된 개발의뢰 ID
     deadline: '',            // 납기 (설계서 전체 납기 관리)
@@ -126,9 +126,21 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
     setSheetInput(prev => ({ ...prev, yarns: newYarns }));
   };
 
-  // Cost 입력 필드 변경
+  // Cost 입력 필드 변경 (brandExtra_tier1k 같은 네스트 키도 처리)
   const handleCostInputChange = (e) => {
     const { name, value } = e.target;
+    // brandExtra_tier1k → costInput.brandExtra.tier1k
+    if (name.startsWith('brandExtra_')) {
+      const tier = name.split('_')[1];
+      setSheetInput(prev => ({
+        ...prev,
+        costInput: {
+          ...prev.costInput,
+          brandExtra: { ...(prev.costInput?.brandExtra || {}), [tier]: Number(value) }
+        }
+      }));
+      return;
+    }
     setSheetInput(prev => ({
       ...prev,
       costInput: {
@@ -188,7 +200,11 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
 
     const nextStage = DESIGN_STAGES[currentIdx + 1].key;
 
-    // EZ-TEX 단계 진입 시 eztexOrderNo 확인 불필요 (등록 대기 단계이므로)
+    // eztex → sampling 진행 시: EZ-TEX O/D NO. 필수 검증
+    if (nextStage === 'sampling' && !sheet.eztexOrderNo?.trim()) {
+      showToast('EZ-TEX O/D NO.를 먼저 입력해주세요.', 'error');
+      return;
+    }
 
     // 아이템화 단계 진입 시 articleNo 확인
     if (nextStage === 'articled' && !sheet.articleNo) {
@@ -270,11 +286,65 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
       updatedAt: now
     };
 
+    // === 변경 이력 감지 (수정 모드에서만) ===
+    if (!isNew && existing) {
+      const changedFields = {};
+      // 최상위 필드 비교
+      ['fabricName', 'eztexOrderNo', 'articleNo', 'deadline', 'devOrderNo'].forEach(key => {
+        if (String(finalInput[key] || '') !== String(existing[key] || '')) {
+          changedFields[key] = existing[key] || '';
+        }
+      });
+      // 중첩 섹션 비교 (knitting, dyeing, finishing, actualData)
+      ['knitting', 'dyeing', 'finishing', 'actualData'].forEach(section => {
+        Object.keys(finalInput[section] || {}).forEach(field => {
+          if (field === 'feeders') return; // 배열은 별도 비교 제외
+          const newVal = String(finalInput[section]?.[field] || '');
+          const oldVal = String(existing[section]?.[field] || '');
+          if (newVal !== oldVal) {
+            changedFields[`${section}.${field}`] = oldVal;
+          }
+        });
+      });
+      // costInput 주요 필드 비교
+      ['widthFull', 'widthCut', 'gsm', 'costGYd', 'knittingFee1k', 'knittingFee3k', 'knittingFee5k',
+       'dyeingFee', 'extraFee1k', 'extraFee3k', 'extraFee5k', 'marginTier'].forEach(key => {
+        if (String(finalInput.costInput?.[key] ?? '') !== String(existing.costInput?.[key] ?? '')) {
+          changedFields[`costInput.${key}`] = existing.costInput?.[key] ?? '';
+        }
+      });
+      // 변경사항이 있으면 이력에 추가
+      if (Object.keys(changedFields).length > 0) {
+        const historyEntry = {
+          date: now,
+          fields: changedFields,
+          reason: finalInput.changeReason || ''
+        };
+        itemToSave.changeHistory = [
+          historyEntry,
+          ...(existing.changeHistory || [])
+        ];
+      }
+    }
+    // changeReason은 임시 필드이므로 Firebase에 저장하지 않음
+    delete itemToSave.changeReason;
+
     saveDocToCloud('designSheets', itemToSave);
 
     // 의뢰 연결: devRequestId가 있으면 의뢰에 설계서 ID를 기록
     if (itemToSave.devRequestId && onLinkToDevRequest) {
       onLinkToDevRequest(itemToSave.devRequestId, itemToSave.id);
+    }
+
+    // 저장 직후 stage 자동 전환 (draft → eztex)
+    // Firebase 비동기 타이밍 문제: advanceToEztex가 designSheets state에서 시트를 찾지 못하므로
+    // 여기서 직접 stage를 'eztex'로 세팅하여 한 번에 저장
+    if (itemToSave.stage === 'draft') {
+      saveDocToCloud('designSheets', {
+        ...itemToSave,
+        stage: 'eztex',
+        updatedAt: new Date().toISOString()
+      });
     }
 
     resetSheetForm();
@@ -317,41 +387,8 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
     }
   };
 
-  // --- 버전(개선) 관리 ---
-
-  // 개선본 생성: 기존 설계서를 복제하고 version +1, parentId 연결
-  const createImprovedVersion = (originalSheet, user) => {
-    // 아이템 등록된 설계서만 개선본 생성 가능
-    if (originalSheet.stage !== 'articled') {
-      showToast('아이템 등록된 설계서만 개선본을 생성할 수 있습니다.', 'error');
-      return null;
-    }
-    // 같은 parentId(또는 원본 id)를 가진 설계서들 중 최대 버전을 찾음
-    const rootId = originalSheet.parentId || originalSheet.id;
-    const siblings = designSheets.filter(s =>
-      s.id === rootId || s.parentId === rootId
-    );
-    const maxVersion = Math.max(...siblings.map(s => s.version || 1), 0);
-
-    const now = new Date().toISOString();
-    const newSheet = {
-      ...originalSheet,
-      id: `ds_${Date.now()}`,
-      version: maxVersion + 1,
-      parentId: rootId,
-      stage: 'articled',           // 개선본은 진행단계 없이 바로 아이템화 상태
-      status: 'active',
-      orderNumbers: [],
-      articleNo: '',               // 새 Article 번호는 보관함에서 직접 입력
-      createdBy: user?.email || '',
-      createdAt: now,
-      updatedAt: now
-    };
-
-    saveDocToCloud('designSheets', newSheet);
-    showToast(`v${newSheet.version} 개선본이 생성되었습니다. (보관함에서 Article 번호를 입력해주세요)`, 'success');
-    return newSheet;
-  };
+  // --- 버전(개선) 관리 제거됨 → 변경 이력 방식으로 대체 ---
+  // 설계서 수정 시 handleSaveSheet 내부에서 자동으로 changeHistory에 이력 축적
 
   // --- 오더넘버(O/N) 연결 ---
 
@@ -473,6 +510,19 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
     showToast('DROP 처리되었습니다.', 'success');
   };
 
+  // DROP 복원 (실수로 Drop한 것 되돌리기)
+  const restoreFromDrop = (sheetId) => {
+    const sheet = designSheets.find(s => s.id === sheetId);
+    if (!sheet) return;
+    if (!window.confirm('이 설계서를 복원하시겠습니까?\n(Drop 전 단계로 복원됩니다)')) return;
+    saveDocToCloud('designSheets', {
+      ...sheet,
+      status: 'active',
+      updatedAt: new Date().toISOString()
+    });
+    showToast('복원되었습니다.', 'success');
+  };
+
   return {
     sheetInput, setSheetInput,
     editingSheetId,
@@ -482,8 +532,8 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
     resetSheetForm, getStageIndex, advanceStage,
     autoAdvanceEztex, advanceToEztex,
-    createImprovedVersion, addOrderNumber, removeOrderNumber,
-    getDesignCost, initFromDevRequest, dropDesignSheet,
+    addOrderNumber, removeOrderNumber,
+    getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
     generateSelfDevOrderNo, registerFabricFromSheet
   };
 };

@@ -9,6 +9,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
   const getInitialDevInput = () => ({
     buyerName: '',
     assignee: '',              // 담당자 (영업 담당자)
+    devItem: '',               // 개발 아이템명 (어떤 것을 개발하는지)
     requestDate: new Date().toISOString().slice(0, 10),
     targetSpec: {
       composition: '',         // 혼용률
@@ -89,6 +90,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     setDevInput({
       buyerName: devReq.buyerName || '',
       assignee: devReq.assignee || '',
+      devItem: devReq.devItem || '',       // 개발 아이템명 복원 (누락 방지)
       requestDate: devReq.requestDate || new Date().toISOString().slice(0, 10),
       targetSpec: { ...defaultSpec, ...(devReq.targetSpec || {}) },
       swatchNote: devReq.swatchNote || '',
@@ -112,18 +114,22 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     sampleDeadline: devReq.targetSpec?.sampleDeadline || ''
   });
 
-  // 상태 변경 (드롭다운 — confirmed 직접 선택 불가)
+  // 상태 변경 (드롭다운)
   const updateDevStatus = (devReqId, newStatus) => {
-    // confirmed는 설계서 저장으로만 자동 전환 (수동 불가)
+    const devReq = devRequests.find(d => d.id === devReqId);
+    if (!devReq) return;
+
+    // confirmed로 수동 전환 차단 (설계서 저장으로만 자동 처리)
     if (newStatus === 'confirmed') {
       showToast('개발투입확정은 설계서 저장 시 자동으로 처리됩니다.', 'error');
       return;
     }
-    const devReq = devRequests.find(d => d.id === devReqId);
-    if (!devReq) return;
+
     saveDocToCloud('devRequests', {
       ...devReq,
       status: newStatus,
+      // confirmed → 다른 상태로 돌리면 linkedDesignSheetId도 해제
+      linkedDesignSheetId: devReq.status === 'confirmed' ? null : (devReq.linkedDesignSheetId || null),
       updatedAt: new Date().toISOString()
     });
     showToast(`상태가 변경되었습니다.`, 'success');

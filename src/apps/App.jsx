@@ -160,6 +160,20 @@ const App = () => {
     updateDevStatus, linkAndConfirm
   } = useDevRequest(devRequests, saveDocToCloud, deleteDocFromCloud, showToast);
 
+  // 의뢰 삭제 래퍼: 연결된 설계서의 devRequestId도 정리 (미아 방지)
+  const handleDeleteDevWithCleanup = (devReqId) => {
+    // 연결된 설계서 찾아서 devRequestId 해제
+    const linkedSheets = (designSheets || []).filter(s => s.devRequestId === devReqId);
+    linkedSheets.forEach(sheet => {
+      saveDocToCloud('designSheets', {
+        ...sheet,
+        devRequestId: null,
+        updatedAt: new Date().toISOString()
+      });
+    });
+    handleDeleteDevRequest(devReqId);
+  };
+
   // 아이템화 시 원단 자동 등록용 함수
   const saveFabricFromSheet = (fabricData) => {
     saveDocToCloud('fabrics', fabricData);
@@ -173,8 +187,8 @@ const App = () => {
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
     resetSheetForm, getStageIndex, advanceStage,
     autoAdvanceEztex, advanceToEztex,
-    createImprovedVersion, addOrderNumber, removeOrderNumber,
-    getDesignCost, initFromDevRequest, dropDesignSheet,
+    addOrderNumber, removeOrderNumber,
+    getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
     generateSelfDevOrderNo
   } = useDesignSheet(designSheets, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet);
 
@@ -581,12 +595,13 @@ const App = () => {
             handleSpecChange={handleSpecChange}
             handleSaveDevRequest={handleSaveDevRequest}
             handleEditDevRequest={handleEditDevRequest}
-            handleDeleteDevRequest={handleDeleteDevRequest}
+            handleDeleteDevRequest={handleDeleteDevWithCleanup}
             resetDevForm={resetDevForm}
             createDesignSheetFromDev={createDesignSheetFromDev}
             initFromDevRequest={initFromDevRequest}
             updateDevStatus={updateDevStatus}
             handleEditSheet={handleEditSheet}
+            handleDeleteSheet={handleDeleteSheet}
             handleSaveSheet={handleSaveSheet}
             advanceStage={advanceStage}
             advanceToEztex={advanceToEztex}
@@ -613,6 +628,7 @@ const App = () => {
             handleCostNestedChange={handleCostNestedChange}
             handleActualDataChange={handleActualDataChange}
             handleSaveSheet={handleSaveSheet}
+            handleDeleteSheet={handleDeleteSheet}
             resetSheetForm={resetSheetForm}
             advanceStage={advanceStage}
             getDesignCost={getDesignCost}
@@ -635,9 +651,6 @@ const App = () => {
             devRequests={devRequests}
             handleEditSheet={handleEditSheet}
             handleDeleteSheet={handleDeleteSheet}
-            createImprovedVersion={createImprovedVersion}
-            addOrderNumber={addOrderNumber}
-            removeOrderNumber={removeOrderNumber}
             advanceStage={advanceStage}
             getDesignCost={getDesignCost}
             setActiveTab={setActiveTab}
@@ -645,6 +658,7 @@ const App = () => {
             viewMode={viewMode}
             yarnLibrary={yarnLibrary}
             saveDocToCloud={saveDocToCloud}
+            restoreFromDrop={restoreFromDrop}
           />
         )}
 
