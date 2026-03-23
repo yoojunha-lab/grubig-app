@@ -212,6 +212,15 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
       return;
     }
 
+    // [방어] 아이템화 진입 시 필수 스펙(GSM, 내폭, 외폭) 검증
+    if (nextStage === 'articled') {
+      const ci = sheet.costInput || {};
+      if (!ci.gsm || !ci.widthCut || !ci.widthFull) {
+        showToast('아이템화 전에 최종 스펙(GSM, 내폭, 외폭)을 모두 입력해주세요.', 'error');
+        return;
+      }
+    }
+
     const updatedSheet = {
       ...sheet,
       stage: nextStage,
@@ -271,6 +280,20 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
     if (!finalInput.devOrderNo) {
       showToast('개발 오더넘버를 입력해주세요.', 'error');
       return;
+    }
+
+    // [방어] 원단명 필수 입력 검증
+    if (!finalInput.fabricName?.trim()) {
+      showToast('원단명(Name)을 반드시 입력해주세요.', 'error');
+      return;
+    }
+
+    // [방어] 수정 모드에서 변경사유 미입력 시 경고 (저장은 허용)
+    const isEditing = !!editingSheetId;
+    if (isEditing && !finalInput.changeReason?.trim()) {
+      if (!window.confirm('설계 변경 사유가 비어있습니다.\n이력 관리를 위해 사유 입력을 권장합니다.\n\n그래도 저장하시겠습니까?')) {
+        return;
+      }
     }
 
     const now = new Date().toISOString();
@@ -336,16 +359,9 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
       onLinkToDevRequest(itemToSave.devRequestId, itemToSave.id);
     }
 
-    // 저장 직후 stage 자동 전환 (draft → eztex)
-    // Firebase 비동기 타이밍 문제: advanceToEztex가 designSheets state에서 시트를 찾지 못하므로
-    // 여기서 직접 stage를 'eztex'로 세팅하여 한 번에 저장
-    if (itemToSave.stage === 'draft') {
-      saveDocToCloud('designSheets', {
-        ...itemToSave,
-        stage: 'eztex',
-        updatedAt: new Date().toISOString()
-      });
-    }
+    // [제거됨] draft → eztex 자동 전환 로직 제거
+    // 이유: 설계서 저장 ≠ 단계 전환. 아직 작성 중인 설계서가 강제로 다음 단계로 넘어가는 것을 방지
+    // 단계 전환은 생산관리자가 '다음 단계로' 버튼을 명시적으로 클릭해야만 진행됩니다.
 
     resetSheetForm();
     showToast(isNew ? '설계서가 저장되었습니다.' : '설계서가 수정되었습니다.', 'success');
@@ -380,7 +396,20 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
 
   // 삭제
   const handleDeleteSheet = (id) => {
-    if (window.confirm('정말로 이 설계서를 삭제하시겠습니까? (삭제된 설계서는 복구할 수 없습니다.)')) {
+    const sheet = designSheets.find(s => s.id === id);
+
+    // [방어] 아이템화 완료 설계서는 삭제 차단 — 확정된 생산 데이터 보호
+    if (sheet?.stage === 'articled') {
+      showToast('아이템화가 완료된 설계서는 삭제할 수 없습니다. (데이터 보호)', 'error');
+      return;
+    }
+
+    // [방어] 샘플 진행 중인 설계서는 이중 경고
+    const msg = sheet?.stage === 'sampling'
+      ? '⚠️ 샘플 진행 중인 설계서입니다!\n정말로 영구 삭제하시겠습니까? (복구 불가)'
+      : '정말로 이 설계서를 삭제하시겠습니까? (삭제된 설계서는 복구할 수 없습니다.)';
+
+    if (window.confirm(msg)) {
       deleteDocFromCloud('designSheets', id).then(() => {
         showToast('설계서가 삭제되었습니다.', 'success');
       });
@@ -501,6 +530,13 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
   const dropDesignSheet = (sheetId) => {
     const sheet = designSheets.find(s => s.id === sheetId);
     if (!sheet) return;
+
+    // [방어] 아이템화 완료 설계서는 DROP 차단 — 이미 원단 등록 완료
+    if (sheet.stage === 'articled') {
+      showToast('아이템화가 완료된 설계서는 DROP할 수 없습니다. (이미 원단 등록 완료)', 'error');
+      return;
+    }
+
     if (!window.confirm('이 설계서를 DROP 처리하시겠습니까?\n(보관함으로 이동되며 현황에서 숨겨집니다)')) return;
     saveDocToCloud('designSheets', {
       ...sheet,

@@ -22,6 +22,8 @@ export const DevStatusPage = ({
   const [showRejected, setShowRejected] = useState(false);
   const [printTarget, setPrintTarget] = useState(null);
   const [printType, setPrintType] = useState('report');
+  // EZ-TEX O/D NO. 인라인 입력용 ref 저장소
+  const eztexInputRefs = useRef({});
 
   const statusLabels = { pending: '대기중', analyzing: '분석 중', confirmed: '개발투입확정', rejected: '미진행' };
   const statusCls = {
@@ -225,10 +227,10 @@ export const DevStatusPage = ({
              </div>
              <div className="flex gap-2 w-full max-w-[250px]">
                 <input type="text" placeholder="예: F-26S001" defaultValue={sheet.eztexOrderNo||''}
-                  id={`ez-input-${sheet.id}`}
+                  ref={el => { eztexInputRefs.current[sheet.id] = el; }}
                   className="flex-1 w-full border border-violet-300 shadow-inner rounded px-2 py-1 text-xs font-mono font-bold focus:ring-2 ring-violet-400 outline-none uppercase"/>
                 <button onClick={()=>{
-                  const inputVal = document.getElementById(`ez-input-${sheet.id}`)?.value;
+                  const inputVal = eztexInputRefs.current[sheet.id]?.value;
                   if(!inputVal) return alert('번호를 입력해주세요.');
                   autoAdvanceEztex(sheet.id, inputVal);
                 }} className="shrink-0 px-3 py-1 text-xs font-bold text-white bg-violet-600 rounded shadow hover:bg-violet-700">

@@ -2,7 +2,7 @@ import React from 'react';
 import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2 } from 'lucide-react';
 import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
-import { num } from '../utils/helpers';
+import { num, calculateGYd } from '../utils/helpers';
 
 // 편직 조직도 관련 부호
 const KNIT_SYMBOLS = ['︹', '︺', '︿', '﹀', '━', '┃', '╋', '○', '●', '◎', '△', '▽'];
@@ -62,24 +62,27 @@ export const DesignSheetPage = ({
 
   const linkedDevReq = sheetInput.devRequestId ? (devRequests || []).find(d => d.id === sheetInput.devRequestId) : null;
   const feeders = sheetInput.knitting?.feeders || [{ symbol: '', loopLength: '', yarnSlot: '' }];
+  const [selectedFeederIdx, setSelectedFeederIdx] = React.useState(0);
 
   const handleFeederChange = (idx, field, value) => {
     const newFeeders = [...feeders];
     newFeeders[idx] = { ...newFeeders[idx], [field]: value };
     handleSectionChange('knitting', 'feeders', newFeeders);
   };
-  const addFeeder = () => handleSectionChange('knitting', 'feeders', [...feeders, { symbol: '', loopLength: '', yarnSlot: '' }]);
+  const addFeeder = () => { handleSectionChange('knitting', 'feeders', [...feeders, { symbol: '', loopLength: '', yarnSlot: '' }]); setSelectedFeederIdx(feeders.length); };
   const removeFeeder = (idx) => {
     if (feeders.length <= 1) return;
     handleSectionChange('knitting', 'feeders', feeders.filter((_, i) => i !== idx));
   };
   const insertSymbol = (symbol) => {
-    const lastIdx = feeders.length - 1;
-    handleFeederChange(lastIdx, 'symbol', (feeders[lastIdx]?.symbol || '') + symbol);
+    const safeIdx = selectedFeederIdx < feeders.length ? selectedFeederIdx : feeders.length - 1;
+    handleFeederChange(safeIdx, 'symbol', (feeders[safeIdx]?.symbol || '') + symbol);
   };
   const toggleBool = (section, field) => handleSectionChange(section, field, !sheetInput[section]?.[field]);
 
   const costData = getDesignCost?.(sheetInput) || null;
+  // 이론 G/YD = GSM × 외폭 × 변환계수
+  const theoreticalGYd = calculateGYd(Number(sheetInput.costInput?.gsm || 0), Number(sheetInput.costInput?.widthFull || 0));
 
   const handleSaveAndGo = () => {
     const onLink = (devReqId, sheetId) => { if (linkAndConfirm) linkAndConfirm(devReqId, sheetId); };
@@ -161,6 +164,30 @@ export const DesignSheetPage = ({
 
           <Th span={1}>원단명 (Name)</Th>
           <Td span={7}><TInput name="fabricName" value={sheetInput.fabricName||''} onChange={handleSheetChange} readOnly={isFullyLocked} placeholder="직관적인 원단명 (예: Wool Interlock)" className="text-sm font-extrabold text-slate-900 border-b-2 focus:border-blue-400"/></Td>
+
+          <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black">내폭 (")</Th>
+          <Td span={1} className="bg-indigo-50"><TInput type="number" name="widthCut" value={sheetInput.costInput?.widthCut??''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder="56" className="text-center font-mono font-black text-indigo-800 text-sm"/></Td>
+          <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black">외폭 (")</Th>
+          <Td span={1} className="bg-indigo-50"><TInput type="number" name="widthFull" value={sheetInput.costInput?.widthFull??''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder="58" className="text-center font-mono font-black text-indigo-800 text-sm"/></Td>
+          <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black">GSM</Th>
+          <Td span={1} className="bg-indigo-50"><TInput type="number" name="gsm" value={sheetInput.costInput?.gsm??''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder="300" className="text-center font-mono font-black text-indigo-800 text-sm"/></Td>
+          <Th span={1} className="bg-slate-100 text-slate-500 justify-center text-[10px]">G/YD (이론)</Th>
+          <Td span={1} className="bg-slate-50"><div className="text-center font-mono font-bold text-slate-500 text-sm py-1">{theoreticalGYd > 0 ? num(theoreticalGYd) : '-'}</div></Td>
+        </div>
+
+        {/* 생산 G/YD (별도 강조 표시) */}
+        <div className="flex items-center gap-3 mb-6 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 bg-blue-600 rounded-full block"/>
+            <span className="text-xs font-black text-blue-800">생산 G/YD</span>
+            <span className="text-[9px] text-blue-400 font-bold">(원가 계산 기준)</span>
+          </div>
+          <input type="number" name="costGYd" value={sheetInput.costInput?.costGYd??''} onChange={handleCostInputChange}
+            readOnly={isFullyLocked}
+            placeholder={theoreticalGYd > 0 ? `실제 ${num(theoreticalGYd)} g/yd` : '이론값 입력 필요'}
+            className="w-32 bg-white border-2 border-blue-300 rounded-lg px-3 py-1.5 text-center font-mono font-black text-blue-700 text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-inner placeholder:text-blue-300 placeholder:font-normal"
+          />
+          <span className="text-[10px] text-blue-500">{`← 안전마진 포함 g/yd (예: ${theoreticalGYd > 0 ? num(theoreticalGYd + 10) : '330'})`}</span>
         </div>
 
 
@@ -239,13 +266,13 @@ export const DesignSheetPage = ({
 
             {feeders.map((feeder, idx) => (
               <React.Fragment key={idx}>
-                <Td span={1} className="flex items-center justify-center bg-slate-50"><span className="text-[10px] font-mono font-bold text-slate-500">{idx+1}</span></Td>
+                <Td span={1} className={`flex items-center justify-center cursor-pointer transition-colors ${selectedFeederIdx === idx ? 'bg-blue-100 ring-2 ring-inset ring-blue-400' : 'bg-slate-50 hover:bg-blue-50'}`} onClick={() => setSelectedFeederIdx(idx)}><span className={`text-[10px] font-mono font-bold ${selectedFeederIdx === idx ? 'text-blue-700' : 'text-slate-500'}`}>{idx+1}{selectedFeederIdx === idx && ' ◄'}</span></Td>
                 <Td span={2}>
                   <TSelect value={feeder.yarnSlot||''} onChange={e=>handleFeederChange(idx,'yarnSlot',e.target.value)} disabled={isFullyLocked}>
                     <option value="">-</option><option value="1">Yarn #1</option><option value="2">Yarn #2</option><option value="3">Yarn #3</option><option value="4">Yarn #4</option>
                   </TSelect>
                 </Td>
-                <Td span={6}><TInput value={feeder.symbol||''} onChange={e=>handleFeederChange(idx,'symbol',e.target.value)} readOnly={isFullyLocked} placeholder="부호 나열" className="text-center font-mono text-sm tracking-widest text-slate-800"/></Td>
+                <Td span={6}><TInput value={feeder.symbol||''} onChange={e=>handleFeederChange(idx,'symbol',e.target.value)} readOnly={isFullyLocked} placeholder="부호 나열" onFocus={() => setSelectedFeederIdx(idx)} className={`text-center font-mono text-sm tracking-widest ${selectedFeederIdx === idx ? 'text-blue-800 bg-blue-50/50' : 'text-slate-800'}`}/></Td>
                 <Td span={2}><TInput value={feeder.loopLength||''} onChange={e=>handleFeederChange(idx,'loopLength',e.target.value)} readOnly={isFullyLocked} placeholder="L/L" className="text-center font-mono"/></Td>
                 <Td span={1} className="flex items-center justify-center">
                   {!isFullyLocked && <button onClick={()=>removeFeeder(idx)} disabled={feeders.length<=1} className="p-1 text-slate-400 hover:text-red-500 disabled:opacity-30"><Minus className="w-3 h-3"/></button>}
@@ -297,20 +324,8 @@ export const DesignSheetPage = ({
           <p className="text-[9px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200">※ 색칠된 칸이 최종 거래 스펙 및 가격의 기준이 됩니다.</p>
         </div>
         
-        <div className="border-l border-t-2 border-slate-800 grid grid-cols-4 md:grid-cols-10 mb-6 bg-slate-50">
+        <div className="border-2 border-slate-300 rounded-lg overflow-hidden grid grid-cols-4 md:grid-cols-10 mb-8 bg-white shadow-sm">
           
-          {/* 스펙 실측 ROW */}
-          <Th span={1} className="bg-emerald-100 !border-b-emerald-200 text-emerald-900 justify-center">생지중량 G/YD</Th>
-          <Td span={1} className="bg-emerald-50"><TInput value={sheetInput.actualData?.greigeWeight||''} onChange={e=>handleActualDataChange('greigeWeight',e.target.value)} placeholder="320" className="text-center font-mono font-bold text-emerald-700"/></Td>
-          <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black focus:!bg-indigo-100">최종 외폭 (")</Th>
-          <Td span={1} className="bg-indigo-50"><TInput type="number" name="widthFull" value={sheetInput.costInput?.widthFull??''} onChange={handleCostInputChange} placeholder="58" className="text-center font-mono font-black text-indigo-800 text-sm focus:!bg-indigo-100"/></Td>
-          <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black focus:!bg-indigo-100">최종 내폭 (")</Th>
-          <Td span={1} className="bg-indigo-50"><TInput type="number" name="widthCut" value={sheetInput.costInput?.widthCut??''} onChange={handleCostInputChange} placeholder="56" className="text-center font-mono font-black text-indigo-800 text-sm focus:!bg-indigo-100"/></Td>
-          <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black focus:!bg-indigo-100">최종 GSM</Th>
-          <Td span={1} className="bg-indigo-50"><TInput type="number" name="gsm" value={sheetInput.costInput?.gsm??''} onChange={handleCostInputChange} placeholder="300" className="text-center font-mono font-black text-indigo-800 text-sm focus:!bg-indigo-100"/></Td>
-          <Th span={1} className="bg-indigo-100 !border-indigo-200 text-indigo-900 justify-center border-l border-l-slate-300">G/YD (수동)</Th>
-          <Td span={1} className="bg-white"><TInput type="number" name="costGYd" value={sheetInput.costInput?.costGYd??''} onChange={handleCostInputChange} className="text-center font-mono font-bold bg-yellow-50"/></Td>
-
           {/* 원가 항목 제목 ROW */}
           <Th span={1} className="bg-slate-200 justify-center text-[9px] !py-0.5">항목</Th>
           <Th span={3} className="bg-slate-200 justify-center text-[9px] !py-0.5">기본 생산 요율 적용 단가 (1K / 3K / 5K)</Th>
@@ -324,7 +339,7 @@ export const DesignSheetPage = ({
           </Td>
 
           {/* 원가 항목 데이터 ROW 1 (편직/염색 등) */}
-          <Th span={1} className="bg-slate-100">편직비/YD</Th>
+          <Th span={1} className="bg-slate-100">편직비(KG)</Th>
           <Td span={3} className="flex divide-x divide-slate-200">
              <TInput type="number" name="knittingFee1k" value={sheetInput.costInput?.knittingFee1k??''} onChange={handleCostInputChange} placeholder="1K" className="text-right font-mono w-1/3 text-slate-700"/>
              <TInput type="number" name="knittingFee3k" value={sheetInput.costInput?.knittingFee3k??''} onChange={handleCostInputChange} placeholder="3K" className="text-right font-mono w-1/3 font-bold text-slate-800 bg-indigo-50/30"/>
@@ -336,14 +351,14 @@ export const DesignSheetPage = ({
           <Td span={2} className="flex divide-x divide-slate-200 bg-blue-50">
              {['tier1k','tier3k','tier5k'].map(t=><TInput key={t} type="number" value={sheetInput.costInput?.losses?.[t]?.dye??''} onChange={e=>handleCostNestedChange('losses',t,'dye',e.target.value)} placeholder={`${t[4]}K%`} className="text-center w-1/3 font-mono text-[10px] text-blue-700"/>)}
           </Td>
-          <Th span={1} className="bg-slate-100 border-l border-l-slate-300">염가공비/YD</Th>
+          <Th span={1} className="bg-slate-100 border-l border-l-slate-300">염가공비(KG)</Th>
           {/* 염가공비는 ROW가 병합된 느낌으로 하나로 둠 */}
           <Td span={1} rowSpan={3} className="border-l border-l-slate-300">
              <TInput type="number" name="dyeingFee" value={sheetInput.costInput?.dyeingFee??''} onChange={handleCostInputChange} placeholder="전구간 통합" className="text-center h-full font-mono text-sm font-bold bg-white text-slate-800"/>
           </Td>
 
           {/* 원가 항목 데이터 ROW 2 (부대비) */}
-          <Th span={1} className="bg-slate-100 text-slate-500">부대비/YD</Th>
+          <Th span={1} className="bg-slate-100 text-slate-500">부대비(YD)</Th>
           <Td span={3} className="flex divide-x divide-slate-200">
              <TInput type="number" name="extraFee1k" value={sheetInput.costInput?.extraFee1k??''} onChange={handleCostInputChange} placeholder="1K" className="text-right font-mono w-1/3 text-slate-500"/>
              <TInput type="number" name="extraFee3k" value={sheetInput.costInput?.extraFee3k??''} onChange={handleCostInputChange} placeholder="3K" className="text-right font-mono w-1/3 text-slate-500"/>
@@ -356,7 +371,7 @@ export const DesignSheetPage = ({
           <Th span={1} className="bg-slate-100 border-l border-l-slate-300 border-b-none"></Th>
 
           {/* 원가 항목 데이터 ROW 3 (Summary Banner) */}
-          <Td span={9} className="bg-slate-800 p-0 border-none rounded-bl border-b-[3px] border-b-indigo-500">
+          <Td span={10} className="bg-slate-800 p-0 border-none">
             {costData && (
               <div className="flex divide-x divide-slate-700">
                  {['tier1k','tier3k','tier5k'].map((tier,i) => {

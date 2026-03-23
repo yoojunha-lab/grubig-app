@@ -283,10 +283,12 @@ export const DesignSheetListPage = ({
                   <RotateCcw className="w-3 h-3" /> 복원
                 </button>
               )}
-              <button onClick={() => handleDeleteSheet(sheet.id)}
+              {sheet.stage !== 'articled' && (
+                <button onClick={() => handleDeleteSheet(sheet.id)}
                 className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 rounded hover:bg-red-100 ml-auto">
                 <Trash2 className="w-3 h-3" /> 삭제
               </button>
+              )}
             </div>
           </div>
         )}

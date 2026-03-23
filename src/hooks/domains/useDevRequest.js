@@ -100,6 +100,14 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
   };
 
   const handleDeleteDevRequest = (id) => {
+    const devReq = (devRequests || []).find(d => d.id === id);
+
+    // [방어] 설계서가 연결된 의뢰는 삭제 차단 — 고아 설계서 발생 방지
+    if (devReq?.linkedDesignSheetId) {
+      showToast('설계서가 연결된 의뢰는 삭제할 수 없습니다. 연결된 설계서를 먼저 정리해주세요.', 'error');
+      return;
+    }
+
     if (window.confirm('정말로 이 개발 의뢰를 삭제하시겠습니까?')) {
       deleteDocFromCloud('devRequests', id).then(() => {
         showToast('삭제되었습니다.', 'success');
@@ -123,6 +131,13 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     if (newStatus === 'confirmed') {
       showToast('개발투입확정은 설계서 저장 시 자동으로 처리됩니다.', 'error');
       return;
+    }
+
+    // [방어] confirmed → 다른 상태로 되돌릴 때, 연결된 설계서가 있으면 경고
+    if (devReq.status === 'confirmed' && devReq.linkedDesignSheetId) {
+      if (!window.confirm('⚠️ 이 의뢰에는 연결된 설계서가 있습니다.\n상태를 변경하면 설계서 연결이 해제됩니다.\n\n정말 계속하시겠습니까?')) {
+        return;
+      }
     }
 
     saveDocToCloud('devRequests', {
