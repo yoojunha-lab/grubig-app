@@ -7,20 +7,21 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
   const [editingDevId, setEditingDevId] = useState(null);
 
   const getInitialDevInput = () => ({
+    devOrderNo: '',            // 사용자 직접 입력 (비어있으면 추천번호 자동 적용)
     buyerName: '',
-    assignee: '',              // 담당자 (영업 담당자)
-    devItem: '',               // 개발 아이템명 (어떤 것을 개발하는지)
+    assignee: '',
+    devItem: '',
     requestDate: new Date().toISOString().slice(0, 10),
     targetSpec: {
-      composition: '',         // 혼용률
-      targetPrice: '',         // 타겟 단가
-      feeling: '',             // 원하는 느낌
-      analysisDeadline: '',    // 분석 납기
-      sampleDeadline: '',      // 샘플 생산 납기 (설계서 진행 납기)
-      otherRequests: ''        // 기타 요청
+      composition: '',
+      targetPrice: '',
+      feeling: '',
+      analysisDeadline: '',
+      sampleDeadline: '',
+      otherRequests: ''
     },
     swatchNote: '',
-    status: 'pending'          // pending | analyzing | confirmed | rejected
+    status: 'pending'
   });
 
   const [devInput, setDevInput] = useState(getInitialDevInput);
@@ -69,10 +70,24 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     const isNew = !editingDevId;
     const existing = isNew ? null : devRequests.find(d => d.id === editingDevId);
 
+    // 개발번호: 사용자 입력값 우선, 없으면 자동 발번
+    let devOrderNo;
+    if (isNew) {
+      devOrderNo = devInput.devOrderNo?.trim() || generateDevOrderNo();
+      // 중복 검증
+      const isDuplicate = (devRequests || []).some(d => d.devOrderNo === devOrderNo);
+      if (isDuplicate) {
+        showToast(`개발번호 '${devOrderNo}'는 이미 사용 중입니다. 다른 번호를 입력해주세요.`, 'error');
+        return false;
+      }
+    } else {
+      devOrderNo = existing?.devOrderNo || generateDevOrderNo();
+    }
+
     const itemToSave = {
       ...devInput,
       id: editingDevId || `dev_${Date.now()}`,
-      devOrderNo: isNew ? generateDevOrderNo() : (existing?.devOrderNo || generateDevOrderNo()),
+      devOrderNo,
       linkedDesignSheetId: isNew ? null : (existing?.linkedDesignSheetId || null),
       createdBy: isNew ? (user?.email || '') : (existing?.createdBy || ''),
       createdAt: isNew ? now : (existing?.createdAt || now),
@@ -88,9 +103,10 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
   const handleEditDevRequest = (devReq) => {
     const defaultSpec = getInitialDevInput().targetSpec;
     setDevInput({
+      devOrderNo: devReq.devOrderNo || '',
       buyerName: devReq.buyerName || '',
       assignee: devReq.assignee || '',
-      devItem: devReq.devItem || '',       // 개발 아이템명 복원 (누락 방지)
+      devItem: devReq.devItem || '',
       requestDate: devReq.requestDate || new Date().toISOString().slice(0, 10),
       targetSpec: { ...defaultSpec, ...(devReq.targetSpec || {}) },
       swatchNote: devReq.swatchNote || '',
@@ -127,11 +143,8 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     const devReq = devRequests.find(d => d.id === devReqId);
     if (!devReq) return;
 
-    // confirmed로 수동 전환 차단 (설계서 저장으로만 자동 처리)
-    if (newStatus === 'confirmed') {
-      showToast('개발투입확정은 설계서 저장 시 자동으로 처리됩니다.', 'error');
-      return;
-    }
+    // 참고: confirmed 전환은 드롭다운에서 수동으로도 가능하고,
+    // 설계서 저장 시 linkAndConfirm()을 통해 자동으로도 처리됩니다.
 
     // [방어] confirmed → 다른 상태로 되돌릴 때, 연결된 설계서가 있으면 경고
     if (devReq.status === 'confirmed' && devReq.linkedDesignSheetId) {

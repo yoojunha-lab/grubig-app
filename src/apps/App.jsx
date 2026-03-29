@@ -64,6 +64,12 @@ const App = () => {
   const [devRequests, setDevRequests] = useState([]);
   const [designSheets, setDesignSheets] = useState([]);
 
+  // 마스터 데이터 (settings/general에 배열로 저장)
+  const [knittingFactories, setKnittingFactories] = useState([]);
+  const [dyeingFactories, setDyeingFactories] = useState([]);
+  const [machineTypes, setMachineTypes] = useState([]);
+  const [structures, setStructures] = useState([]);
+
   const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
   const [viewMode, setViewMode] = useState('domestic');
   const [yarnFilterCategory, setYarnFilterCategory] = useState('All');
@@ -83,6 +89,8 @@ const App = () => {
   const [fabricSearchTerm, setFabricSearchTerm] = useState('');
   const [yarnSearchTerm, setYarnSearchTerm] = useState('');
   const [quickViewQuote, setQuickViewQuote] = useState(null);
+  
+  const [isDesignSheetModalOpen, setIsDesignSheetModalOpen] = useState(false);
 
   const printRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -106,10 +114,16 @@ const App = () => {
     if (!user) return;
     const unsubSettings = onSnapshot(doc(db, 'settings', 'general'), (docSnap) => {
       if (docSnap.exists()) {
-        if (docSnap.data().yarnCategories) setCategories(docSnap.data().yarnCategories);
-        if (docSnap.data().buyers) setBuyers(docSnap.data().buyers);
+        const d = docSnap.data();
+        if (d.yarnCategories) setCategories(d.yarnCategories);
+        if (d.buyers) setBuyers(d.buyers);
+        // 마스터 데이터 4종 로딩
+        setKnittingFactories(d.knittingFactories || []);
+        setDyeingFactories(d.dyeingFactories || []);
+        setMachineTypes(d.machineTypes || []);
+        setStructures(d.structures || []);
       } else {
-        setDoc(doc(db, 'settings', 'general'), { yarnCategories: DEFAULT_YARN_CATEGORIES, buyers: [] }, { merge: true });
+        setDoc(doc(db, 'settings', 'general'), { yarnCategories: DEFAULT_YARN_CATEGORIES, buyers: [], knittingFactories: [], dyeingFactories: [], machineTypes: [], structures: [] }, { merge: true });
       }
     });
     const unsubYarns = onSnapshot(collection(db, 'yarns'), (snapshot) => {
@@ -132,12 +146,31 @@ const App = () => {
 
   const showToast = (message, type = 'success') => { setNotification({ show: true, message, type }); setTimeout(() => setNotification(prev => ({ ...prev, show: false })), 3000); };
 
+  // 마스터 데이터 등록/삭제 공용 함수 (settings/general 문서의 배열 필드)
+  const addMasterItem = async (field, name) => {
+    const trimmed = String(name).trim();
+    if (!trimmed) { showToast('이름을 입력해주세요.', 'error'); return false; }
+    // 현재 값 참조 (buyers, knittingFactories 등)
+    const currentMap = { buyers, knittingFactories, dyeingFactories, machineTypes, structures };
+    const current = currentMap[field] || [];
+    if (current.includes(trimmed)) { showToast('이미 등록된 항목입니다.', 'error'); return false; }
+    await setDoc(doc(db, 'settings', 'general'), { [field]: [...current, trimmed] }, { merge: true });
+    showToast(`'${trimmed}' 등록 완료`, 'success');
+    return true;
+  };
+  const removeMasterItem = async (field, name) => {
+    const currentMap = { buyers, knittingFactories, dyeingFactories, machineTypes, structures };
+    const current = currentMap[field] || [];
+    await setDoc(doc(db, 'settings', 'general'), { [field]: current.filter(i => i !== name) }, { merge: true });
+    showToast(`'${name}' 삭제됨`, 'success');
+  };
+
   // ⚓️ 커스텀 도메인 훅 사용
   const {
     fabricInput, setFabricInput, editingFabricId, expandedFabricId, setExpandedFabricId,
     handleFabricChange, handleNestedChange, handleYarnSlotChange,
     handleSaveFabric, handleEditFabric, handleDeleteFabric, resetFabricForm, calculateCost, getMergedYarnName
-  } = useFabric(yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate);
+  } = useFabric(yarnLibrary, savedFabrics, designSheets, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate);
 
   const {
     yarnInput, setYarnInput, editingYarnId,
@@ -188,9 +221,8 @@ const App = () => {
     resetSheetForm, getStageIndex, advanceStage,
     autoAdvanceEztex, advanceToEztex,
     addOrderNumber, removeOrderNumber,
-    getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
-    generateSelfDevOrderNo
-  } = useDesignSheet(designSheets, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet);
+    getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop
+  } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet);
 
   const devPrintRef = useRef(null);
 
@@ -521,6 +553,7 @@ const App = () => {
             handleDeleteFabric={handleDeleteFabric}
             setActiveTab={setActiveTab}
             yarnLibrary={yarnLibrary}
+            designSheets={designSheets}
           />
         )}
 
@@ -613,35 +646,51 @@ const App = () => {
             yarnLibrary={yarnLibrary}
             viewMode={viewMode}
             devPrintRef={devPrintRef}
+            addMasterItem={addMasterItem}
+            generateDevOrderNo={generateDevOrderNo}
+            setIsBuyerModalOpen={setIsBuyerModalOpen}
           />
         )}
 
-        {/* TAB: 설계서 작성 */}
-        {activeTab === 'designSheet' && (
-          <DesignSheetPage
-            sheetInput={sheetInput}
-            editingSheetId={editingSheetId}
-            handleSheetChange={handleSheetChange}
-            handleSectionChange={handleSectionChange}
-            handleSheetYarnChange={handleSheetYarnChange}
-            handleCostInputChange={handleCostInputChange}
-            handleCostNestedChange={handleCostNestedChange}
-            handleActualDataChange={handleActualDataChange}
-            handleSaveSheet={handleSaveSheet}
-            handleDeleteSheet={handleDeleteSheet}
-            resetSheetForm={resetSheetForm}
-            advanceStage={advanceStage}
-            getDesignCost={getDesignCost}
-            yarnSelectOptions={yarnSelectOptions}
-            user={user}
-            viewMode={viewMode}
-            setActiveTab={setActiveTab}
-            globalExchangeRate={globalExchangeRate}
-            devRequests={devRequests}
-            generateSelfDevOrderNo={generateSelfDevOrderNo}
-            linkAndConfirm={linkAndConfirm}
-            advanceToEztex={advanceToEztex}
-          />
+        {/* TAB: 설계서 작성 (팝업 모달 형태) */}
+        {isDesignSheetModalOpen && (
+          <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4 md:p-8">
+             <div className="w-full max-w-5xl relative bg-transparent" onClick={e=>e.stopPropagation()}>
+               <DesignSheetPage
+                 sheetInput={sheetInput}
+                 editingSheetId={editingSheetId}
+                 handleSheetChange={handleSheetChange}
+                 handleSectionChange={handleSectionChange}
+                 handleSheetYarnChange={handleSheetYarnChange}
+                 handleCostInputChange={handleCostInputChange}
+                 handleCostNestedChange={handleCostNestedChange}
+                 handleActualDataChange={handleActualDataChange}
+                 handleSaveSheet={handleSaveSheet}
+                 handleDeleteSheet={handleDeleteSheet}
+                 resetSheetForm={resetSheetForm}
+                 advanceStage={advanceStage}
+                 getDesignCost={getDesignCost}
+                 yarnSelectOptions={yarnSelectOptions}
+                 user={user}
+                 viewMode={viewMode}
+                 setActiveTab={(tab) => { if(tab==='devStatus' || tab==='designList') setIsDesignSheetModalOpen(false); }}
+                 globalExchangeRate={globalExchangeRate}
+                 devRequests={devRequests}
+                 setSheetInput={setSheetInput}
+                 linkAndConfirm={linkAndConfirm}
+                 advanceToEztex={advanceToEztex}
+                 closeModal={() => setIsDesignSheetModalOpen(false)}
+                 designSheets={designSheets}
+                 knittingFactories={knittingFactories}
+                 dyeingFactories={dyeingFactories}
+                 machineTypes={machineTypes}
+                 structures={structures}
+                 addMasterItem={addMasterItem}
+                 savedFabrics={savedFabrics}
+                 registerFabricFromSheet={registerFabricFromSheet}
+               />
+             </div>
+          </div>
         )}
 
         {/* TAB: 설계서 목록 */}
@@ -649,8 +698,9 @@ const App = () => {
           <DesignSheetListPage
             designSheets={designSheets}
             devRequests={devRequests}
-            handleEditSheet={handleEditSheet}
+            handleEditSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
             handleDeleteSheet={handleDeleteSheet}
+            initFromDevRequest={initFromDevRequest}
             advanceStage={advanceStage}
             getDesignCost={getDesignCost}
             setActiveTab={setActiveTab}
@@ -659,6 +709,10 @@ const App = () => {
             yarnLibrary={yarnLibrary}
             saveDocToCloud={saveDocToCloud}
             restoreFromDrop={restoreFromDrop}
+            resetSheetForm={resetSheetForm}
+            setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
+            generateSelfDevOrderNo={generateSelfDevOrderNo}
+            setSheetInput={setSheetInput}
           />
         )}
 

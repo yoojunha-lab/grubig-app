@@ -3,7 +3,7 @@ import { DESIGN_STAGES } from '../../constants/common';
 
 // GRUBIG ERP - 원단 설계서 도메인 로직 훅
 
-export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet) => {
+export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet) => {
   const [editingSheetId, setEditingSheetId] = useState(null);
 
   // 설계서 초기 입력 폼
@@ -269,16 +269,13 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
 
   // 저장 (새로 생성 or 수정)
   // onLinkToDevRequest: (devReqId, sheetId) => void — 설계서 저장 시 의뢰에 자동 연결
-  // generateSelfNo: () => string — 자체 설계서 번호 생성 (external)
-  const handleSaveSheet = (user, onLinkToDevRequest, generateSelfNo) => {
-    // 자체 설계서인 경우 번호 자동 채번 (비동기 setState 문제 해결: 저장 시점에 직접 세팅)
+  const handleSaveSheet = (user, onLinkToDevRequest) => {
     let finalInput = { ...sheetInput };
-    if (!finalInput.devOrderNo && !finalInput.devRequestId && generateSelfNo) {
-      finalInput.devOrderNo = generateSelfNo();
-    }
 
-    if (!finalInput.devOrderNo) {
-      showToast('개발 오더넘버를 입력해주세요.', 'error');
+    // [New] 자체 설계서인 경우 개발오더넘버를 필수값에서 제외
+    // 의뢰가 연결된 설계서만 개발번호 필수 입력 검증
+    if (finalInput.devRequestId && !finalInput.devOrderNo) {
+      showToast('연결된 개발 의뢰의 개발번호(devOrderNo)가 누락되었습니다.', 'error');
       return;
     }
 
@@ -353,6 +350,31 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
     delete itemToSave.changeReason;
 
     saveDocToCloud('designSheets', itemToSave);
+
+    // [New 양방향 동기화] 연결된 원단이 있다면 해당 원단 DB도 같은 값으로 덮어씀
+    if (itemToSave.linkedFabricId) {
+      const linkedFabric = savedFabrics?.find(f => f.id === itemToSave.linkedFabricId);
+      if (linkedFabric) {
+        saveDocToCloud('fabrics', {
+          ...linkedFabric,
+          widthFull: itemToSave.costInput?.widthFull || 58,
+          widthCut: itemToSave.costInput?.widthCut || 56,
+          gsm: itemToSave.costInput?.gsm || 300,
+          costGYd: itemToSave.costInput?.costGYd || '',
+          knittingFee1k: itemToSave.costInput?.knittingFee1k || 3000,
+          knittingFee3k: itemToSave.costInput?.knittingFee3k || 2000,
+          knittingFee5k: itemToSave.costInput?.knittingFee5k || 2000,
+          dyeingFee: itemToSave.costInput?.dyeingFee || 8800,
+          extraFee1k: itemToSave.costInput?.extraFee1k || 900,
+          extraFee3k: itemToSave.costInput?.extraFee3k || 700,
+          extraFee5k: itemToSave.costInput?.extraFee5k || 500,
+          losses: itemToSave.costInput?.losses || { tier1k:{knit:5,dye:10}, tier3k:{knit:3,dye:10}, tier5k:{knit:3,dye:9} },
+          marginTier: itemToSave.costInput?.marginTier || 3,
+          brandExtra: itemToSave.costInput?.brandExtra || { tier1k:1000, tier3k:700, tier5k:500 },
+          yarns: itemToSave.yarns || []
+        });
+      }
+    }
 
     // 의뢰 연결: devRequestId가 있으면 의뢰에 설계서 ID를 기록
     if (itemToSave.devRequestId && onLinkToDevRequest) {
@@ -499,8 +521,10 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
   // 아이템화 시 원단 자동 등록 (savedFabrics에 변환 저장)
   const registerFabricFromSheet = (sheet) => {
     if (!saveFabricFromSheet) return;
+    const fabricId = Date.now();
     const fabricData = {
-      id: Date.now(),
+      id: fabricId,
+      linkedSheetId: sheet.id, // [New] 연결되는 설계서 ID
       date: new Date().toLocaleDateString(),
       article: sheet.articleNo || '',
       itemName: sheet.fabricName || '',
@@ -523,6 +547,15 @@ export const useDesignSheet = (designSheets, yarnLibrary, saveDocToCloud, delete
       remarks: `설계서 아이템화 자동 등록 (${sheet.devOrderNo || ''})`
     };
     saveFabricFromSheet(fabricData);
+    
+    // 설계서 쪽에도 linkedFabricId 기록
+    saveDocToCloud('designSheets', {
+        ...sheet,
+        stage: 'articled', // 보장
+        linkedFabricId: fabricId,
+        updatedAt: new Date().toISOString()
+    });
+    
     showToast(`Article ${sheet.articleNo} 원단이 자동 등록되었습니다.`, 'success');
   };
 

@@ -38,6 +38,17 @@ export const MobileFabricCard = React.memo(({
             <span className="bg-slate-200/50 px-1.5 py-0.5 rounded">{f.widthCut}/{f.widthFull}"</span>
             <span className="bg-slate-200/50 px-1.5 py-0.5 rounded">{f.gsm}g</span>
           </div>
+          {/* 모바일 뷰 연동 설계서 표시 */}
+          {f.linkedSheetId && (() => {
+            const sheet = (designSheets||[]).find(s => s.id === f.linkedSheetId);
+            return sheet ? (
+              <div className="mt-1.5">
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded border border-blue-200 shadow-sm">
+                  🔗 연동 설계서: {sheet.devOrderNo || 'S-26D...'}
+                </span>
+              </div>
+            ) : null;
+          })()}
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex gap-1.5">
@@ -156,5 +167,6 @@ export const MobileFabricCard = React.memo(({
   return prevProps.f === nextProps.f &&
          prevProps.viewMode === nextProps.viewMode &&
          prevProps.isExpanded === nextProps.isExpanded &&
-         prevProps.yarnLibrary === nextProps.yarnLibrary;
+         prevProps.yarnLibrary === nextProps.yarnLibrary &&
+         prevProps.designSheets === nextProps.designSheets;
 });

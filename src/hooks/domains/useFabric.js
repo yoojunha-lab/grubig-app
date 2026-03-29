@@ -4,7 +4,7 @@ import { MARGIN_TIERS } from '../../constants/common';
 
 // GRUBIG ERP - 원단(Fabric) 도메인 로직 및 비용 계산 훅
 
-export const useFabric = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate) => {
+export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate) => {
   const [editingFabricId, setEditingFabricId] = useState(null);
   const [expandedFabricId, setExpandedFabricId] = useState(null);
   
@@ -70,6 +70,36 @@ export const useFabric = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFr
 
     const itemToSave = { id: editingFabricId || Date.now(), date: new Date().toLocaleDateString(), ...fabricInput };
     saveDocToCloud('fabrics', itemToSave); 
+
+    // [양방향 동기화] 설계서가 연결되어 있다면 설계서 DB도 같이 업데이트
+    if (itemToSave.linkedSheetId) {
+       const linkedSheet = designSheets?.find(s => s.id === itemToSave.linkedSheetId);
+       if (linkedSheet) {
+          saveDocToCloud('designSheets', {
+             ...linkedSheet,
+             costInput: {
+                ...linkedSheet.costInput,
+                widthFull: itemToSave.widthFull || 58,
+                widthCut: itemToSave.widthCut || 56,
+                gsm: itemToSave.gsm || 300,
+                costGYd: itemToSave.costGYd || '',
+                knittingFee1k: itemToSave.knittingFee1k || 3000,
+                knittingFee3k: itemToSave.knittingFee3k || 2000,
+                knittingFee5k: itemToSave.knittingFee5k || 2000,
+                dyeingFee: itemToSave.dyeingFee || 8800,
+                extraFee1k: itemToSave.extraFee1k || 900,
+                extraFee3k: itemToSave.extraFee3k || 700,
+                extraFee5k: itemToSave.extraFee5k || 500,
+                losses: itemToSave.losses || { tier1k:{knit:5,dye:10}, tier3k:{knit:3,dye:10}, tier5k:{knit:3,dye:9} },
+                marginTier: itemToSave.marginTier || 3,
+                brandExtra: itemToSave.brandExtra || { tier1k:1000, tier3k:700, tier5k:500 }
+             },
+             yarns: itemToSave.yarns || [],
+             updatedAt: new Date().toISOString()
+          });
+       }
+    }
+
     resetFabricForm(); 
     if (setActiveTab) setActiveTab('list');
   };
@@ -108,7 +138,7 @@ export const useFabric = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFr
             const ratio = Number(slot.ratio) / 100;
             let priceInKrw = sup.currency === 'USD' ? Number(sup.price || 0) * fabricExchangeRate : Number(sup.price || 0);
             const tariffAmt = priceInKrw * ((Number(sup.tariff) || 0) / 100);
-            const freightAmt = priceInKrw * ((Number(sup.freight) || 0) / 100);
+            const freightAmt = Number(sup.freight) || 0;
             yarnCostExport += (priceInKrw + freightAmt) * ratio;
             yarnCostDomestic += (priceInKrw + tariffAmt + freightAmt) * ratio;
           }

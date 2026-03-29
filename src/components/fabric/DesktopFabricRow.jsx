@@ -12,7 +12,8 @@ export const DesktopFabricRow = React.memo(({
   handleDeleteFabric,
   setActiveTab,
   calculateCost,
-  yarnLibrary
+  yarnLibrary,
+  designSheets
 }) => {
   // calculateCost를 f와 calculateCost 의존성으로만 재계산 (렌더 최적화)
   const c = useMemo(() => calculateCost(f), [f, calculateCost]);
@@ -39,6 +40,19 @@ export const DesktopFabricRow = React.memo(({
             )}
           </div>
           <div className="text-[11px] text-slate-500 font-medium truncate mt-0.5">{f.itemName}</div>
+        </td>
+        {/* 새 연동 설계서 컬럼 */}
+        <td className="p-2 border-r border-slate-50 text-center align-middle">
+          {f.linkedSheetId ? (() => {
+            const sheet = (designSheets||[]).find(s => s.id === f.linkedSheetId);
+            return sheet ? (
+              <div className="flex flex-col items-center justify-center gap-0.5">
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded border border-blue-200 shadow-sm whitespace-nowrap">
+                  🔗 {sheet.devOrderNo || '연결됨'}
+                </span>
+              </div>
+            ) : <span className="text-slate-300 text-[10px]">-</span>;
+          })() : <span className="text-slate-300 text-[10px] font-bold">-</span>}
         </td>
         <td className="p-2 border-r border-slate-50 align-middle">
           <div className="flex flex-col gap-1 w-full text-[11px]">
@@ -135,7 +149,7 @@ export const DesktopFabricRow = React.memo(({
 
       {isExpanded && (
         <tr className="bg-slate-50/80 border-b-2 border-blue-200 shadow-inner">
-          <td colSpan="13" className="p-4 sm:p-6 cursor-default relative overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <td colSpan="14" className="p-4 sm:p-6 cursor-default relative overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="absolute -top-10 -right-10 w-40 h-40 bg-blue-100/50 rounded-full blur-3xl pointer-events-none"></div>
             <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-emerald-100/40 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -254,5 +268,6 @@ export const DesktopFabricRow = React.memo(({
   return prevProps.f === nextProps.f &&
          prevProps.viewMode === nextProps.viewMode &&
          prevProps.isExpanded === nextProps.isExpanded &&
-         prevProps.yarnLibrary === nextProps.yarnLibrary;
+         prevProps.yarnLibrary === nextProps.yarnLibrary &&
+         prevProps.designSheets === nextProps.designSheets;
 });

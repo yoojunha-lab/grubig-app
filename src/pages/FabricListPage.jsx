@@ -16,7 +16,8 @@ export const FabricListPage = ({
   handleEditFabric,
   handleDeleteFabric,
   setActiveTab,
-  yarnLibrary
+  yarnLibrary,
+  designSheets
 }) => {
   return (
     <div className="max-w-[1600px] mx-auto print:hidden w-full">
@@ -61,6 +62,7 @@ export const FabricListPage = ({
             <tr className="text-xs uppercase tracking-wider text-slate-500 bg-slate-100/50">
               <th className="font-bold p-2 text-center border-r border-slate-200 w-10"><Filter className="w-4 h-4 mx-auto" /></th>
               <th className="font-bold p-2 text-left border-r border-slate-200 w-1/5 min-w-[180px]">Article & Info</th>
+              <th className="font-bold p-2 text-center border-r border-slate-200 w-28 text-blue-700 bg-blue-50/50">연동 설계서</th>
               <th className="font-bold p-2 text-left border-r border-slate-200 min-w-[140px]">Spec</th>
               <th className="font-bold p-2 text-left border-r border-slate-200 min-w-[220px]">사용 원사 (Yarn Mix)</th>
               <th className="font-bold p-2 text-center border-r border-slate-200">편직비 & LOSS</th>
@@ -70,7 +72,7 @@ export const FabricListPage = ({
               <th className="font-bold p-2 text-center w-12"></th>
             </tr>
             <tr className="text-[10px] text-center bg-slate-50/50">
-              <th className="p-1 border-b border-r border-slate-200" colSpan="7"></th>
+              <th className="p-1 border-b border-r border-slate-200" colSpan="8"></th>
               <th className="p-1 border-b border-r border-slate-200 text-slate-500">1k</th>
               <th className="p-1 border-b border-r border-slate-200 font-bold text-slate-600 bg-slate-100/50">3k</th>
               <th className="p-1 border-b border-r border-slate-200 text-slate-500">5k</th>
@@ -90,6 +92,7 @@ export const FabricListPage = ({
                 setActiveTab={setActiveTab}
                 calculateCost={calculateCost}
                 yarnLibrary={yarnLibrary}
+                designSheets={designSheets}
               />
             ))}
             {filteredFabrics.length === 0 && (
@@ -120,6 +123,7 @@ export const FabricListPage = ({
             setActiveTab={setActiveTab}
             calculateCost={calculateCost}
             yarnLibrary={yarnLibrary}
+            designSheets={designSheets}
           />
         ))}
         {filteredFabrics.length === 0 && (

@@ -12,7 +12,9 @@ export const YarnLibraryRow = React.memo(({
 }) => {
   const defSup = y.suppliers?.find(s => s.isDefault) || y.suppliers?.[0] || {};
   const convertedPrice = defSup.currency === 'USD' ? (defSup.price || 0) * (globalExchangeRate || 1450) : (defSup.price || 0);
-  const domPrice = Math.round(convertedPrice * (1 + ((defSup.tariff || 0) + (defSup.freight || 0)) / 100));
+  const tariffAmt = convertedPrice * ((defSup.tariff || 0) / 100);
+  const freightAmt = defSup.freight ? Number(defSup.freight) : 0;
+  const domPrice = Math.round(convertedPrice + tariffAmt + freightAmt);
 
   const getCategoryColor = (cat) => {
     const colors = [
@@ -64,8 +66,7 @@ export const YarnLibraryRow = React.memo(({
       </td>
       <td className="px-6 py-2.5 text-right text-slate-500 font-medium text-sm">{defSup.tariff || 0}%</td>
       <td className="px-6 py-2.5 text-right font-bold text-emerald-600 text-sm">
-        {defSup.freight || 0}%
-        {defSup.price > 0 && defSup.freight > 0 && <div className="text-[10px] text-slate-400 font-normal mt-px">({Math.round(convertedPrice * defSup.freight / 100)}원)</div>}
+        ￦{num(freightAmt)}
       </td>
       <td className="px-6 py-2.5 text-right font-mono font-bold text-sm">
         {defSup.currency === 'USD' ? (

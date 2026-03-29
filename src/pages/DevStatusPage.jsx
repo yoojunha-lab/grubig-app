@@ -14,7 +14,8 @@ export const DevStatusPage = ({
   handleEditDevRequest, handleDeleteDevRequest, resetDevForm,
   createDesignSheetFromDev, initFromDevRequest, updateDevStatus,
   handleEditSheet, handleDeleteSheet, advanceStage, advanceToEztex, autoAdvanceEztex, dropDesignSheet,
-  handleSaveSheet, setActiveTab, user, buyers, yarnLibrary, viewMode, devPrintRef
+  handleSaveSheet, setActiveTab, user, buyers, yarnLibrary, viewMode, devPrintRef,
+  addMasterItem, generateDevOrderNo, setIsBuyerModalOpen
 }) => {
   const [showDevModal, setShowDevModal] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
@@ -97,7 +98,8 @@ export const DevStatusPage = ({
   const handleGoToSheet = (devReq) => {
     const data = createDesignSheetFromDev(devReq);
     initFromDevRequest(data);
-    setActiveTab('designSheet');
+    // 설계서 보관함으로 이동 (설계서 진입은 보관함에서만)
+    setActiveTab('designList');
   };
 
   const openNewModal = () => { resetDevForm(); setShowDevModal(true); };
@@ -160,109 +162,7 @@ export const DevStatusPage = ({
     );
   };
 
-  // ==========================================
-  // [컴포넌트] 생산 관리용 "문서(표)형" 설계서 카드
-  // ==========================================
-  const DesignSheetTableCard = ({ sheet }) => {
-    const si = stageInfo(sheet.stage);
-    const ld = getLinkedDev(sheet.devRequestId);
-    const dlBadge = deadlineBadge(sheet.deadline);
-    const comp = getComp(sheet.yarns);
-    const cost = viewMode==='export' ? `$${(sheet.costInput?.costGYd||0)}/yd` : `₩${num(sheet.costInput?.costGYd||0)}`;
-    const isEditingEztex = sheet.stage === 'eztex';
-    
-    return (
-      <div className={`bg-white rounded-xl border overflow-hidden shadow-sm transition-all ${dlBadge?.urgent ? 'border-red-300' : 'border-slate-200'}`}>
-        
-        {/* 헤더: 진행단계, 관리번호, 원단명 */}
-        <div className={`px-4 py-2.5 flex flex-wrap items-center justify-between border-b ${dlBadge?.urgent ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-100'}`}>
-           <div className="flex items-center gap-2">
-             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border leading-none ${si.bg} ${si.text} ${si.border}`}>{si.label}</span>
-             <span className="text-sm font-mono font-extrabold text-slate-700">{sheet.devOrderNo||'-'}</span>
-             {sheet.eztexOrderNo && <span className="text-[10px] font-mono font-bold text-violet-600 bg-violet-100 border border-violet-200 px-1.5 py-0.5 rounded leading-none">{sheet.eztexOrderNo}</span>}
-             <span className="text-sm font-bold text-blue-900 border-l border-slate-300 pl-2">
-               {sheet.fabricName || '(원단명 미입력)'}
-               {ld?.buyerName && <span className="text-xs font-normal text-slate-500 ml-1">· {ld.buyerName}</span>}
-             </span>
-           </div>
-           
-           <div className="flex items-center gap-2 mt-2 sm:mt-0">
-              {sheet.changeHistory?.length > 0 && <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">📝 이력 {sheet.changeHistory.length}건</span>}
-              {dlBadge && <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${dlBadge.c}`}><Clock className="w-2.5 h-2.5 inline mr-1"/>{dlBadge.t}</span>}
-           </div>
-        </div>
 
-        {/* 바디: 실제 설계서 느낌의 격자(Grid) 표 */}
-        <div className="p-0">
-          <table className="w-full text-xs text-left">
-            <tbody className="divide-y divide-slate-100">
-              <tr>
-                 <th className="bg-slate-50 px-4 py-2 w-[15%] min-w-[70px] text-slate-500 font-bold border-r border-slate-100">혼용률</th>
-                 <td className="px-4 py-2 w-[35%] text-slate-800 border-r border-slate-100 font-medium">{comp}</td>
-                 <th className="bg-slate-50 px-4 py-2 w-[15%] min-w-[70px] text-slate-500 font-bold border-r border-slate-100">생산 요약</th>
-                 <td className="px-4 py-2 w-[35%] text-slate-700">
-                   <div className="flex items-center gap-2 text-[10px]">
-                      <span className="bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap">편직: <strong className="text-slate-800">{sheet.knitting?.factory||'-'}</strong></span>
-                      <span className="bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap">염색: <strong className="text-slate-800">{sheet.dyeing?.factory||'-'}</strong></span>
-                   </div>
-                 </td>
-              </tr>
-              <tr>
-                 <th className="bg-slate-50 px-4 py-2 text-slate-500 font-bold border-r border-slate-100">스펙</th>
-                 <td className="px-4 py-2 text-slate-700 border-r border-slate-100">
-                   폭: <span className="font-mono">{sheet.costInput?.widthCut||'-'}/{sheet.costInput?.widthFull||'-'}"</span> · 중량: <span className="font-mono">{sheet.costInput?.gsm||'-'}g</span>
-                 </td>
-                 <th className="bg-slate-50 px-4 py-2 text-slate-500 font-bold border-r border-slate-100">원가/야드</th>
-                 <td className="px-4 py-2 text-emerald-700 font-extrabold font-mono text-sm">{cost}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* 인라인 진행 입력 (EZ-TEX 대기 상태) */}
-        {isEditingEztex && (
-          <div className="bg-violet-50/50 border-t border-violet-100 px-4 py-2.5 flex items-center justify-between">
-             <div className="text-[10px] font-extrabold text-violet-700 uppercase flex items-center gap-1.5">
-               <ArrowRight className="w-3.5 h-3.5"/> 다음 작업: EZ-TEX O/D NO. 발행 및 저장
-             </div>
-             <div className="flex gap-2 w-full max-w-[250px]">
-                <input type="text" placeholder="예: F-26S001" defaultValue={sheet.eztexOrderNo||''}
-                  ref={el => { eztexInputRefs.current[sheet.id] = el; }}
-                  className="flex-1 w-full border border-violet-300 shadow-inner rounded px-2 py-1 text-xs font-mono font-bold focus:ring-2 ring-violet-400 outline-none uppercase"/>
-                <button onClick={()=>{
-                  const inputVal = eztexInputRefs.current[sheet.id]?.value;
-                  if(!inputVal) return alert('번호를 입력해주세요.');
-                  autoAdvanceEztex(sheet.id, inputVal);
-                }} className="shrink-0 px-3 py-1 text-xs font-bold text-white bg-violet-600 rounded shadow hover:bg-violet-700">
-                  발번 & 샘플이동
-                </button>
-             </div>
-          </div>
-        )}
-
-        {/* 하단 투명 액션 바 */}
-        <div className="border-t border-slate-100 px-4 py-2 bg-slate-50/30 flex items-center justify-between text-[10px]">
-           <button onClick={()=>{handleEditSheet(sheet);setActiveTab('designSheet')}} className="font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 bg-white border border-blue-200 px-2 py-1 rounded shadow-sm">
-             <Edit2 className="w-3 h-3"/> 설계서 원본 바로입력
-           </button>
-           
-           <div className="flex gap-2">
-             <button onClick={()=>dropDesignSheet(sheet.id)} className="font-bold text-slate-400 hover:text-red-600 px-2 py-1">DROP 처리</button>
-             {sheet.stage === 'draft' && (
-               <button onClick={()=>handleDeleteSheet(sheet.id)} className="font-bold text-red-500 hover:text-red-700 bg-red-50 border border-red-200 px-2 py-1 rounded shadow-sm flex items-center gap-1">
-                 <Trash2 className="w-3 h-3" /> 영구 삭제
-               </button>
-             )}
-             {!isEditingEztex && sheet.stage !== 'articled' && (
-                <button onClick={()=>advanceStage(sheet.id)} className="flex items-center gap-1 font-bold text-white bg-emerald-600 px-3 py-1 rounded shadow hover:bg-emerald-700">
-                  다음 단계로 <ChevronRight className="w-3 h-3"/>
-                </button>
-             )}
-           </div>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="space-y-6">
@@ -281,146 +181,152 @@ export const DevStatusPage = ({
           <button onClick={openNewModal} className="flex items-center gap-1.5 px-4 py-2 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-md hover:shadow-lg active:scale-95 transition-all">
             <Plus className="w-3.5 h-3.5"/> 새 의뢰 등록
           </button>
-          <button onClick={()=>setActiveTab('designSheet')} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-lg shadow-sm hover:bg-slate-50 transition-all">
-            <Edit2 className="w-3.5 h-3.5"/> 자체 설계서
-          </button>
         </div>
       </div>
 
-      {/* 📊 2. 통합 파이프라인 요약 (Dashboard) */}
-      <div className="bg-slate-800 rounded-xl p-4 shadow-inner overflow-x-auto">
-        <div className="flex items-center justify-between min-w-max gap-3 px-2">
-           {/* 의뢰 파트 */}
-           <div className="flex items-center gap-3">
-              <div className="text-center">
-                 <p className="text-[10px] text-slate-400 font-bold mb-1">요구 분석</p>
-                 <div className="bg-amber-100 text-amber-700 w-12 h-12 rounded-full flex items-center justify-center text-lg font-extrabold mx-auto shadow-md border-2 border-amber-300">{pipelineCounts.requests}</div>
-              </div>
-              <ChevronRight className="w-5 h-5 text-slate-600"/>
-              <div className="text-center">
-                 <p className="text-[10px] text-slate-400 font-bold mb-1">설계 작성 대기</p>
-                 <div className="bg-emerald-100 text-emerald-700 w-12 h-12 rounded-full flex items-center justify-center text-lg font-extrabold mx-auto shadow-md border-2 border-emerald-300">{pipelineCounts.confirmedReqs - pipelineCounts.draft - pipelineCounts.eztex - pipelineCounts.sampling - pipelineCounts.articled > 0 ? pipelineCounts.confirmedReqs - pipelineCounts.draft - pipelineCounts.eztex - pipelineCounts.sampling - pipelineCounts.articled : 0}</div>
-              </div>
-           </div>
-           
-           <div className="w-6 h-1 bg-slate-700 rounded-full mx-2" />
-           
-           {/* 생산 파트 */}
-           <div className="flex items-center gap-3">
-              {Object.keys(sheetsByStage).map((stage, i) => {
-                 const sInfo = DESIGN_STAGES.find(s=>s.key===stage);
-                 const count = pipelineCounts[stage];
-                 const isLast = i === Object.keys(sheetsByStage).length - 1;
-                 const isActive = count > 0;
-                 return (
-                   <React.Fragment key={stage}>
-                     <div className="text-center">
-                        <p className={`text-[10px] ${isActive ? 'text-blue-300 font-bold' : 'text-slate-500'} mb-1`}>{sInfo.label.split(' ')[0]}</p>
-                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-extrabold mx-auto border-2 transition-all
-                           ${isActive ? `bg-blue-600 text-white border-blue-400 shadow-[0_0_15px_rgba(37,99,235,0.4)]` : `bg-slate-700 text-slate-400 border-slate-600`}`}>
-                           {count}
-                        </div>
-                     </div>
-                     {!isLast && <ChevronRight className="w-5 h-5 text-slate-600"/>}
-                   </React.Fragment>
-                 )
-              })}
-           </div>
-        </div>
+      {/* 📊 2. 통합 파이프라인 요약 (Dashboard) 대신 칸반 보드 형태 제공 */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
+         {/* 대기중 */}
+         <div className="bg-slate-100/50 rounded-xl p-3 border border-slate-200 min-h-[500px]">
+            <h3 className="flex justify-between items-center text-sm font-extrabold text-slate-700 mb-3 border-b-2 border-amber-300 pb-2">
+               대기중 <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-xs">{filterSearch(devRequests.filter(d=>d.status==='pending')).length}</span>
+            </h3>
+            <div className="space-y-3">
+               {filterSearch(devRequests.filter(d=>d.status==='pending')).map(d => <DevReqSummaryCard key={d.id} d={d} />)}
+            </div>
+         </div>
+
+         {/* 분석중 */}
+         <div className="bg-slate-100/50 rounded-xl p-3 border border-slate-200 min-h-[500px]">
+            <h3 className="flex justify-between items-center text-sm font-extrabold text-slate-700 mb-3 border-b-2 border-blue-300 pb-2">
+               분석 중 <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{filterSearch(devRequests.filter(d=>d.status==='analyzing')).length}</span>
+            </h3>
+            <div className="space-y-3">
+               {filterSearch(devRequests.filter(d=>d.status==='analyzing')).map(d => <DevReqSummaryCard key={d.id} d={d} />)}
+            </div>
+         </div>
+
+         {/* 확정하기 */}
+         <div className="bg-slate-100/50 rounded-xl p-3 border border-slate-200 min-h-[500px]">
+            <h3 className="flex justify-between items-center text-sm font-extrabold text-slate-700 mb-3 border-b-2 border-emerald-300 pb-2">
+               개발투입확정 <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-xs">{filterSearch(devRequests.filter(d=>d.status==='confirmed')).length}</span>
+            </h3>
+            <div className="space-y-3">
+               {filterSearch(devRequests.filter(d=>d.status==='confirmed')).map(d => <DevReqSummaryCard key={d.id} d={d} />)}
+            </div>
+         </div>
+
+         {/* 미진행 */}
+         <div className="bg-slate-100/50 rounded-xl p-3 border border-slate-200 min-h-[500px] opacity-70">
+            <h3 className="flex justify-between items-center text-sm font-extrabold text-slate-700 mb-3 border-b-2 border-red-300 pb-2">
+               미진행 <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-xs">{filterSearch(devRequests.filter(d=>d.status==='rejected')).length}</span>
+            </h3>
+            <div className="space-y-3">
+               {filterSearch(devRequests.filter(d=>d.status==='rejected')).map(d => <DevReqSummaryCard key={d.id} d={d} />)}
+            </div>
+         </div>
       </div>
 
-      {/* 🔍 검색 바 */}
-      <div className="relative">
-        <Search className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2"/>
-        <input type="text" placeholder="오더번호, 바이어명, 원단명으로 전체 진행 건 찾기..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}
-          className="w-full bg-white border-2 border-slate-200 rounded-xl pl-12 pr-4 py-3 text-sm focus:border-indigo-400 focus:ring-4 ring-indigo-100 outline-none transition-all shadow-sm"/>
-      </div>
+      {/* 📋 설계서 단계 현황 — 단계별 칸반 그룹 */}
+      {(() => {
+        const activeSheets = (designSheets||[]).filter(s => s.status !== 'dropped' && !s.isArchived);
+        if (activeSheets.length === 0) return null;
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-        
-        {/* ----------------------------------------- */}
-        {/* 섹션 1: 신규 접수 & 분석 중 (의뢰 건) */}
-        {/* ----------------------------------------- */}
-        <div className="xl:col-span-1 space-y-4">
-           <h3 className="flex items-center gap-2 text-sm font-extrabold text-slate-800 border-b-2 border-slate-800 pb-2">
-              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"/> 처리 대기중인 의뢰 <span className="text-slate-400">({filterSearch([...pendingDevReqs, ...confirmedDevReqs.filter(d=>!getLinkedSheet(d))]).length})</span>
-           </h3>
-           
-           <div className="space-y-3">
-             {filterSearch([...pendingDevReqs, ...confirmedDevReqs.filter(d=>!getLinkedSheet(d))])
-                 .sort((a,b)=>(getDaysUntil(a.targetSpec?.analysisDeadline)??9999)-(getDaysUntil(b.targetSpec?.analysisDeadline)??9999))
-                 .map(d => <DevReqSummaryCard key={d.id} d={d} />)}
-                 
-             {filterSearch([...pendingDevReqs, ...confirmedDevReqs.filter(d=>!getLinkedSheet(d))]).length === 0 && (
-                <div className="text-center py-8 bg-slate-50 border border-slate-200 border-dashed rounded-xl text-slate-400">
-                  <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-30 text-emerald-500"/>
-                  <span className="text-xs font-bold">밀린 요건 분석이 없습니다.</span>
-                </div>
-             )}
-           </div>
+        // 단계별 그룹화
+        const grouped = {};
+        DESIGN_STAGES.forEach(st => { grouped[st.key] = []; });
+        activeSheets.forEach(s => {
+          if (grouped[s.stage]) grouped[s.stage].push(s);
+          else grouped['draft'].push(s); // stage 없으면 draft로 분류
+        });
 
-           {/* 미진행 처리건 열기 */}
-           {rejectedDevReqs.length > 0 && (
-             <div className="pt-4">
-                <button onClick={()=>setShowRejected(!showRejected)} className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-500 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-1 transition-colors">
-                  {showRejected?<ChevronUp className="w-3.5 h-3.5"/>:<ChevronDown className="w-3.5 h-3.5"/>} 삭제/미진행 이력 열람
-                </button>
-                {showRejected && (
-                  <div className="mt-3 space-y-2 opacity-60">
-                    {rejectedDevReqs.map(d => <DevReqSummaryCard key={d.id} d={d} />)}
+        const stageStyle = {
+          draft: { col: 'border-slate-400 bg-slate-50/30', badge: 'bg-slate-200 text-slate-800' },
+          eztex: { col: 'border-violet-400 bg-violet-50/30', badge: 'bg-violet-200 text-violet-800' },
+          sampling: { col: 'border-amber-400 bg-amber-50/30', badge: 'bg-amber-200 text-amber-800' },
+          articled: { col: 'border-emerald-400 bg-emerald-50/30', badge: 'bg-emerald-200 text-emerald-800' }
+        };
+
+        return (
+          <div className="mt-8 space-y-4">
+            <h2 className="text-xl font-extrabold text-slate-800 flex items-center gap-2 mb-2">
+              <div className="bg-gradient-to-br from-violet-500 to-purple-600 p-1.5 rounded-lg text-white shadow-lg shadow-violet-200">
+                <FileText className="w-4 h-4"/>
+              </div>
+              설계서 단계 현황
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
+              {DESIGN_STAGES.map(stage => {
+                const items = grouped[stage.key];
+                const style = stageStyle[stage.key];
+                return (
+                  <div key={stage.key} className={`bg-slate-50/50 rounded-xl p-4 border border-slate-200 shadow-sm flex flex-col max-h-[700px] border-t-4 ${style.col}`}>
+                    {/* 칼럼 헤더 (상단 칸반과 동일한 구조) */}
+                    <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-200 border-dashed">
+                      <h3 className="text-sm font-extrabold text-slate-800 tracking-tight">{stage.label}</h3>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${style.badge}`}>{items.length}</span>
+                    </div>
+
+                    {/* 아이템 목록 */}
+                    <div className="flex flex-col gap-3 overflow-y-auto custom-scrollbar pr-1 pb-2">
+                      {items.length === 0 ? (
+                        <p className="text-sm text-slate-400 text-center py-8 font-medium">항목 없음</p>
+                      ) : items.map(s => {
+                        const linkedDev = getLinkedDev(s.devRequestId);
+                        const db = deadlineBadge(s.deadline);
+                        return (
+                          <div key={s.id} className="bg-white hover:bg-slate-50 rounded-xl border border-slate-200 hover:border-blue-300 shadow-sm p-3.5 cursor-pointer transition-all flex flex-col gap-2.5 relative group"
+                            onClick={() => handleEditSheet?.(s)}>
+                            {/* 상단 뱃지 / 디데이 */}
+                            <div className="flex items-start justify-between">
+                              <span className="text-[11px] font-mono font-bold text-violet-700 bg-violet-50 px-2 py-1 rounded-md border border-violet-100 shrink-0">{s.devOrderNo || '자체 설계'}</span>
+                              <div className="flex flex-col items-end gap-1">
+                                {db && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border shadow-sm ${db.c}`}><Clock className="w-2.5 h-2.5 inline mr-0.5"/>{db.t}</span>}
+                              </div>
+                            </div>
+                            
+                            {/* 메인 정보 (원단명) */}
+                            <div>
+                              <h4 className="text-[15px] font-extrabold text-slate-800 leading-snug group-hover:text-blue-700 transition-colors uppercase">{s.fabricName || '원단명 미입력'}</h4>
+                              {/* 꼬리표 정보 */}
+                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                {linkedDev?.buyerName && <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-bold">{linkedDev.buyerName}</span>}
+                                {s.articleNo && <span className="text-[10px] font-mono bg-emerald-50 text-emerald-700 font-extrabold px-1.5 py-0.5 rounded border border-emerald-100">{s.articleNo}</span>}
+                              </div>
+                            </div>
+
+                            {/* EZ-TEX 단계: 인라인 O/D NO. 입력 */}
+                            {stage.key === 'eztex' && (
+                              <div className="mt-1 flex items-center gap-1.5 pt-3 border-t border-slate-100" onClick={e => e.stopPropagation()}>
+                                <input
+                                  ref={el => { eztexInputRefs.current[s.id] = el; }}
+                                  type="text"
+                                  placeholder="EZTEX O/D 입고용 입력"
+                                  defaultValue={s.eztexOrderNo || ''}
+                                  className="flex-1 w-0 border border-slate-200 bg-slate-50 rounded px-2 py-1.5 text-xs font-mono focus:bg-white focus:ring-2 ring-violet-200 outline-none transition-all placeholder:text-slate-300"
+                                  onKeyDown={e => { if (e.key === 'Enter') { const val = eztexInputRefs.current[s.id]?.value?.trim(); if (val) autoAdvanceEztex(s.id, val); }}}
+                                />
+                                <button
+                                  onClick={() => { const val = eztexInputRefs.current[s.id]?.value?.trim(); if (val) autoAdvanceEztex(s.id, val); else alert('O/D NO.를 입력해주세요.'); }}
+                                  className="px-2.5 py-1.5 bg-violet-600 text-white text-[10px] font-bold rounded hover:bg-violet-700 active:scale-95 transition-all shadow-sm shrink-0 whitespace-nowrap"
+                                >
+                                  등록
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                )}
-             </div>
-           )}
-        </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
-
-        {/* ----------------------------------------- */}
-        {/* 섹션 2: 생산 라인 (설계서 카드들) */}
-        {/* ----------------------------------------- */}
-        <div className="xl:col-span-2 space-y-8">
-           
-           {/* 단계별로 필터링된 내용을 렌더링. 단, 아이템화 완료는 별도 처리 */}
-           {['draft', 'eztex', 'sampling'].map(stageKey => {
-             const items = filterSearch(sheetsByStage[stageKey]);
-             if (items.length === 0) return null;
-             
-             const stg = DESIGN_STAGES.find(s=>s.key===stageKey);
-             const col = STAGE_COLORS[stageKey];
-             
-             return (
-               <div key={stageKey} className="space-y-3">
-                 <h3 className={`flex items-center gap-2 text-sm font-extrabold text-slate-800 border-b-2 pb-2`} style={{borderColor: col.text.split('text-')[1] ? `var(--${col.text.split('text-')[1]})` : '#334155'}}>
-                   <span className={`px-2 py-0.5 rounded text-[10px] text-white bg-slate-800`}>{stg.label} 진행중</span>
-                   <span className="text-slate-400 text-xs">총 {items.length}건</span>
-                 </h3>
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-3">
-                   {items.map(sheet => <DesignSheetTableCard key={sheet.id} sheet={sheet} />)}
-                 </div>
-               </div>
-             );
-           })}
-
-           {/* 아이템화 완료건 (별도 하단 처리) */}
-           {filterSearch(sheetsByStage.articled).length > 0 && (
-             <div className="pt-6 border-t border-slate-200">
-               <h3 className="flex items-center gap-2 text-xs font-extrabold text-slate-500 mb-3 ml-2">
-                 ✅ 생산 완료 (아이템화)
-               </h3>
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 opacity-90">
-                 {filterSearch(sheetsByStage.articled).map(sheet => <DesignSheetTableCard key={sheet.id} sheet={sheet} />)}
-               </div>
-             </div>
-           )}
-
-           {filterSearch(activeSheets).length === 0 && (
-              <div className="text-center py-20 bg-slate-50 border border-slate-200 border-dashed rounded-xl text-slate-400 w-full">
-                <FileText className="w-12 h-12 mx-auto mb-3 opacity-20"/>
-                <span className="text-sm font-bold">진행 중인 생산(설계서) 스케줄이 없습니다.</span>
-              </div>
-           )}
-        </div>
-      </div>
 
       {/* 모달 등 팝업 (코드 생략 없이 원본유지) */}
       {showDevModal && (
@@ -434,9 +340,23 @@ export const DevStatusPage = ({
               <button onClick={()=>setShowDevModal(false)} className="p-1.5 hover:bg-slate-100 rounded-lg"><X className="w-5 h-5 text-slate-400"/></button>
             </div>
             <div className="p-4 space-y-3">
+              {/* 개발번호 입력란 (새 의뢰일 때만 표시) */}
+              {!editingDevId && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 mb-0.5">개발번호 <span className="text-slate-400">(비워두면 자동 발번)</span></label>
+                  <input type="text" name="devOrderNo" value={devInput.devOrderNo||''} onChange={handleDevChange}
+                    placeholder={generateDevOrderNo ? generateDevOrderNo() : 'F-26D001'}
+                    className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs font-mono font-bold focus:ring-2 ring-violet-200 outline-none placeholder:text-slate-300"/>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-red-500 mb-0.5">바이어명 *</label>
+                  <div className="flex justify-between items-center mb-0.5">
+                    <label className="block text-[10px] font-bold text-red-500">바이어명 *</label>
+                    <button type="button" onClick={() => setIsBuyerModalOpen(true)} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-bold bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors whitespace-nowrap">
+                      + 바이어 관리
+                    </button>
+                  </div>
                   <select name="buyerName" value={devInput.buyerName} onChange={handleDevChange}
                     className="w-full border border-red-300 rounded-lg px-2 py-2 text-xs font-bold focus:ring-2 ring-red-200 outline-none uppercase bg-red-50/30">
                     <option value="">-- 선택 --</option>

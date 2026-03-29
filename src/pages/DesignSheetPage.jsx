@@ -50,15 +50,27 @@ export const DesignSheetPage = ({
   setActiveTab,
   globalExchangeRate,
   devRequests,
-  generateSelfDevOrderNo,
   linkAndConfirm,
-  advanceToEztex
+  advanceToEztex,
+  closeModal,
+  designSheets,
+  setSheetInput,
+  // 마스터 데이터 프롭스
+  knittingFactories,
+  dyeingFactories,
+  machineTypes: machineTypesList,
+  structures: structuresList,
+  addMasterItem,
+  savedFabrics,
+  registerFabricFromSheet
 }) => {
   const STAGE_ORDER = ['draft', 'eztex', 'sampling', 'articled'];
   const stageIdx = STAGE_ORDER.indexOf(sheetInput.stage || 'draft');
-  const isDevOrderLocked = stageIdx >= 1 || !!sheetInput.devRequestId;
+  const isSelfDesignSheet = !sheetInput.devRequestId;
+  const isDevOrderLocked = true; // 현재 시스템에서 자체설계서는 빈칸 유지(Lock), 의뢰 연결건은 자동 부여 후 Lock
   const isEztexLocked = stageIdx >= 2;
   const isFullyLocked = stageIdx >= 3;
+  const isLinkedToFabric = !!sheetInput.linkedFabricId; // 원단 연동 시 공유 변수 Lock
 
   const linkedDevReq = sheetInput.devRequestId ? (devRequests || []).find(d => d.id === sheetInput.devRequestId) : null;
   const feeders = sheetInput.knitting?.feeders || [{ symbol: '', loopLength: '', yarnSlot: '' }];
@@ -86,8 +98,9 @@ export const DesignSheetPage = ({
 
   const handleSaveAndGo = () => {
     const onLink = (devReqId, sheetId) => { if (linkAndConfirm) linkAndConfirm(devReqId, sheetId); };
-    handleSaveSheet(user, onLink, generateSelfDevOrderNo);
-    setActiveTab('devStatus');
+    handleSaveSheet(user, onLink);
+    if (closeModal) closeModal();
+    else if (setActiveTab) setActiveTab('devStatus');
   };
 
   const getCompStatus = () => {
@@ -111,9 +124,9 @@ export const DesignSheetPage = ({
          </div>
          <div className="flex gap-2">
             {editingSheetId && !isFullyLocked && (
-              <button onClick={() => { handleDeleteSheet(editingSheetId); setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded shadow-sm transition-colors flex items-center gap-1"><Trash2 className="w-3.5 h-3.5"/> 삭제</button>
+              <button onClick={() => { handleDeleteSheet(editingSheetId); if(closeModal) closeModal(); else setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded shadow-sm transition-colors flex items-center gap-1"><Trash2 className="w-3.5 h-3.5"/> 삭제</button>
             )}
-            <button onClick={() => { resetSheetForm(); setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded shadow-sm transition-colors flex items-center gap-1"><X className="w-3.5 h-3.5"/> 취소</button>
+            <button onClick={() => { resetSheetForm(); if(closeModal) closeModal(); else setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded shadow-sm transition-colors flex items-center gap-1"><X className="w-3.5 h-3.5"/> 닫기</button>
             <button onClick={handleSaveAndGo} className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded shadow-md transition-colors flex items-center gap-1.5"><Save className="w-3.5 h-3.5"/> 명세서 저장</button>
          </div>
       </div>
@@ -154,11 +167,11 @@ export const DesignSheetPage = ({
         <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-slate-800 block"/> 문서 식별 정보</h3>
         <div className="border-l border-t border-slate-300 grid grid-cols-4 md:grid-cols-8 mb-6">
           <Th span={1}>개발번호 {isDevOrderLocked&&<Lock className="inline w-2.5 h-2.5 ml-1"/>}</Th>
-          <Td span={1}><TInput name="devOrderNo" value={sheetInput.devOrderNo||''} onChange={handleSheetChange} readOnly={isDevOrderLocked} placeholder="자동 발번" className={`font-mono font-extrabold text-blue-700 ${isDevOrderLocked?'bg-slate-50':''}`}/></Td>
+          <Td span={1}><TInput name="devOrderNo" value={sheetInput.devOrderNo||''} onChange={handleSheetChange} readOnly={isDevOrderLocked} placeholder={isSelfDesignSheet ? '자체 설계서 (할당안됨)' : '자동 발번'} className={`font-mono font-extrabold ${isSelfDesignSheet ? 'text-slate-400 bg-slate-100' : 'text-blue-700 bg-slate-50'}`}/></Td>
           <Th span={1}>EZ-TEX NO {isEztexLocked&&<Lock className="inline w-2.5 h-2.5 ml-1"/>}</Th>
           <Td span={1}><TInput name="eztexOrderNo" value={sheetInput.eztexOrderNo||''} onChange={handleSheetChange} readOnly={isEztexLocked||isFullyLocked} placeholder="품번" className={`font-mono font-extrabold text-violet-700 ${isEztexLocked?'bg-slate-50':''}`}/></Td>
-          <Th span={1}>Article No. {isFullyLocked&&<Lock className="inline w-2.5 h-2.5 ml-1"/>}</Th>
-          <Td span={1}><TInput name="articleNo" value={sheetInput.articleNo||''} onChange={handleSheetChange} readOnly={isFullyLocked} placeholder="아티클" className={`font-mono font-extrabold text-emerald-700 ${isFullyLocked?'bg-slate-50':''}`}/></Td>
+          <Th span={1}>Article No. {(isFullyLocked||isLinkedToFabric)&&<Lock className="inline w-2.5 h-2.5 ml-1"/>}</Th>
+          <Td span={1}><TInput name="articleNo" value={sheetInput.articleNo||''} onChange={handleSheetChange} readOnly={isFullyLocked||isLinkedToFabric} placeholder="아티클" className={`font-mono font-extrabold text-emerald-700 ${(isFullyLocked||isLinkedToFabric)?'bg-slate-50':''}`}/></Td>
           <Th span={1} className="text-red-700 bg-red-50/50">샘플 납기</Th>
           <Td span={1}><TInput type="date" name="deadline" value={sheetInput.deadline||''} onChange={handleSheetChange} readOnly={isFullyLocked} className="font-mono font-bold text-red-600"/></Td>
 
@@ -220,12 +233,35 @@ export const DesignSheetPage = ({
         <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-slate-800 block"/> 편직 사양 (Knitting Specification)</h3>
         <div className="border-l border-t border-slate-300 grid grid-cols-6 md:grid-cols-12 mb-2">
           <Th span={2}>편직처 (Factory)</Th>
-          <Td span={4}><TInput value={sheetInput.knitting?.factory||''} onChange={e=>handleSectionChange('knitting','factory',e.target.value)} readOnly={isFullyLocked} placeholder="업체명"/></Td>
+          <Td span={4}>
+            <div className="flex items-center gap-1">
+              <TSelect value={sheetInput.knitting?.factory||''} onChange={e=>handleSectionChange('knitting','factory',e.target.value)} disabled={isFullyLocked}>
+                <option value="">-- 선택 --</option>
+                {(knittingFactories||[]).map(f => <option key={f} value={f}>{f}</option>)}
+              </TSelect>
+              {!isFullyLocked && <button type="button" onClick={() => { const n = prompt('새 편직처를 등록하세요:'); if(n) addMasterItem?.('knittingFactories', n); }} className="shrink-0 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 bg-violet-50 border border-violet-200 rounded hover:bg-violet-100">+ 등록</button>}
+            </div>
+          </Td>
           <Th span={2}>조직 (Structure)</Th>
-          <Td span={4}><TInput value={sheetInput.knitting?.structure||''} onChange={e=>handleSectionChange('knitting','structure',e.target.value)} readOnly={isFullyLocked} placeholder="싱글저지, 인터로크..."/></Td>
+          <Td span={4}>
+            <div className="flex flex-wrap gap-1 p-1">
+               {(structuresList||[]).map(s => (
+                 <button type="button" key={s} onClick={()=>!isFullyLocked&&handleSectionChange('knitting','structure',s)} className={`px-2 py-0.5 text-[10px] rounded border ${sheetInput.knitting?.structure === s ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{s}</button>
+               ))}
+               {!isFullyLocked && <button type="button" onClick={() => { const n = prompt('새 조직을 등록하세요:'); if(n) addMasterItem?.('structures', n); }} className="px-2 py-0.5 text-[10px] rounded border border-dashed border-violet-300 text-violet-500 hover:bg-violet-50">+ 추가</button>}
+               <TInput value={sheetInput.knitting?.structure||''} onChange={e=>handleSectionChange('knitting','structure',e.target.value)} readOnly={isFullyLocked} placeholder="기타 입력" className="w-[80px] border-b border-slate-300 ml-1 !py-0 !min-h-5" />
+            </div>
+          </Td>
 
           <Th span={2}>기종 (Machine)</Th>
-          <Td span={4}><TInput value={sheetInput.knitting?.machineType||''} onChange={e=>handleSectionChange('knitting','machineType',e.target.value)} readOnly={isFullyLocked} placeholder="환편기, 횡편기"/></Td>
+          <Td span={4}>
+            <div className="flex flex-wrap gap-1 p-1">
+               {(machineTypesList||[]).map(m => (
+                 <button type="button" key={m} onClick={()=>!isFullyLocked&&handleSectionChange('knitting','machineType',m)} className={`px-2 py-0.5 text-[10px] rounded border ${sheetInput.knitting?.machineType === m ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{m}</button>
+               ))}
+               {!isFullyLocked && <button type="button" onClick={() => { const n = prompt('새 기종을 등록하세요:'); if(n) addMasterItem?.('machineTypes', n); }} className="px-2 py-0.5 text-[10px] rounded border border-dashed border-violet-300 text-violet-500 hover:bg-violet-50">+ 추가</button>}
+            </div>
+          </Td>
           <Th span={2}>게이지 (Gauge)</Th>
           <Td span={4}><TInput type="number" value={sheetInput.knitting?.gauge||''} onChange={e=>handleSectionChange('knitting','gauge',e.target.value)} readOnly={isFullyLocked} placeholder="28" className="font-mono"/></Td>
 
@@ -289,7 +325,15 @@ export const DesignSheetPage = ({
         <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-slate-800 block"/> 염색 및 가공 (Dyeing & Finishing)</h3>
         <div className="border-l border-t border-slate-300 grid grid-cols-4 md:grid-cols-8 mb-6">
           <Th span={1}>염가공처</Th>
-          <Td span={3}><TInput value={sheetInput.dyeing?.factory||''} onChange={e=>handleSectionChange('dyeing','factory',e.target.value)} readOnly={isFullyLocked} placeholder="공장명"/></Td>
+          <Td span={3}>
+            <div className="flex items-center gap-1">
+              <TSelect value={sheetInput.dyeing?.factory||''} onChange={e=>handleSectionChange('dyeing','factory',e.target.value)} disabled={isFullyLocked}>
+                <option value="">-- 선택 --</option>
+                {(dyeingFactories||[]).map(f => <option key={f} value={f}>{f}</option>)}
+              </TSelect>
+              {!isFullyLocked && <button type="button" onClick={() => { const n = prompt('새 염가공처를 등록하세요:'); if(n) addMasterItem?.('dyeingFactories', n); }} className="shrink-0 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 bg-violet-50 border border-violet-200 rounded hover:bg-violet-100">+ 등록</button>}
+            </div>
+          </Td>
           <Th span={1}>가공방법</Th>
           <Td span={3}><TInput value={sheetInput.dyeing?.processMethod||''} onChange={e=>handleSectionChange('dyeing','processMethod',e.target.value)} readOnly={isFullyLocked} placeholder="릴렉스 → 텐타"/></Td>
           
@@ -409,11 +453,131 @@ export const DesignSheetPage = ({
 
         {/* 메모 및 서명 영역 */}
         {editingSheetId && (
-          <div className="mt-8 border-2 border-amber-300 bg-amber-50 p-4 relative mb-4">
+          <div className="mt-8 border-2 border-amber-300 bg-amber-50 p-4 relative mb-6">
             <h4 className="absolute -top-2 left-4 bg-amber-50 px-2 text-[10px] font-extrabold text-amber-700 tracking-wider">※ 설계 변경 사유</h4>
             <textarea value={sheetInput.changeReason||''} onChange={e=>handleSheetChange({target:{name:'changeReason',value:e.target.value}})} placeholder="수정 사유를 기재해 주세요 (이력 보관 시 필요)" className="w-full bg-transparent border-none outline-none text-xs text-amber-900 placeholder-amber-400/50 resize-none h-10 mt-1"/>
           </div>
         )}
+
+        {/* 변경 이력 아코디언 컴포넌트 */}
+        {sheetInput.changeHistory && sheetInput.changeHistory.length > 0 && (
+          <details className="mb-6 group bg-slate-50 border border-slate-200 rounded-lg overflow-hidden cursor-pointer shadow-sm">
+            <summary className="p-3 text-xs font-bold text-slate-600 flex items-center justify-between hover:bg-slate-100 transition-colors list-none">
+              <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-slate-400" /> 과거 변경 이력 열람 (총 {sheetInput.changeHistory.length}건)</span>
+              <span className="text-[10px] text-slate-400 bg-white px-2 py-0.5 rounded border">자세히 보기 ▽</span>
+            </summary>
+            <div className="bg-white border-t border-slate-200 p-4 space-y-4 max-h-60 overflow-y-auto w-full">
+              {sheetInput.changeHistory.map((entry, idx) => (
+                <div key={idx} className="relative pl-4 border-l-2 border-amber-300">
+                  <div className="absolute -left-[5px] top-1 w-2 h-2 rounded-full bg-amber-400" />
+                  <p className="text-[10px] font-bold text-amber-600 mb-1">
+                    {new Date(entry.date).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                  {entry.reason && (
+                    <p className="text-[10px] text-slate-600 bg-amber-50 px-2 py-1 flex rounded mb-2 w-wrap">
+                      📝 {entry.reason}
+                    </p>
+                  )}
+                  <div className="space-y-0.5 mt-2 break-all w-wrap">
+                    {Object.entries(entry.fields || {}).map(([key, val]) => (
+                      <div key={key} className="flex flex-wrap gap-1 text-[10px]">
+                        <span className="font-bold text-slate-500 whitespace-nowrap">{key}:</span>
+                        <span className="text-red-400 line-through whitespace-nowrap">{String(val) || '(비어있음)'}</span>
+                        <span className="text-slate-300 whitespace-nowrap">→</span>
+                        <span className="text-emerald-600 font-bold whitespace-nowrap">현재값 적용됨</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+
+        {/* 원단 리스트 연동 섹션 */}
+        <div className="mb-6 p-4 bg-blue-50/50 rounded-lg border border-blue-200">
+          <h3 className="text-xs font-extrabold text-blue-800 mb-2 flex items-center gap-1.5">
+            <LinkIcon className="w-3.5 h-3.5" /> 원단 리스트 연동
+          </h3>
+          {sheetInput.linkedFabricId ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
+                ✓ 연결됨: 원단 ID #{sheetInput.linkedFabricId}
+              </span>
+              <span className="text-[10px] text-slate-500">양방향 동기화 활성</span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {/* 설계서 내용으로 새 원단 등록 */}
+              {editingSheetId && (
+                <button type="button" onClick={() => {
+                  if (!sheetInput?.articleNo?.trim()) {
+                    alert('원단을 등록하려면 상단의 [Article 번호]를 반드시 입력해야 합니다.');
+                    return;
+                  }
+                  if (window.confirm('입력된 스펙을 바탕으로 새 원단을 원단 장부에 등록하시겠습니까?\n(현재 작성 중인 설계서 내용도 함께 저장되며, [아이템화] 단계로 전환됩니다)')) {
+                    // 1. 설계서 최신 데이터 강제 저장 (이력 추적 등 시스템 동작 보장)
+                    if (handleSaveSheet) handleSaveSheet(user);
+                    
+                    // 2. 최신 입력값(sheetInput)을 병합하여 원단 시스템에 등록 (데이터 누락/구버전화 방지)
+                    const sheet = (designSheets||[]).find(s => s.id === editingSheetId);
+                    if (sheet && registerFabricFromSheet) {
+                      registerFabricFromSheet({ ...sheet, ...sheetInput, id: editingSheetId });
+                      closeModal?.();
+                    }
+                  }
+                }} className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 rounded-lg shadow-sm hover:bg-blue-700 active:scale-95 transition-all flex items-center gap-1">
+                  <Plus className="w-3.5 h-3.5" /> 원단 리스트에 등록
+                </button>
+              )}
+              {/* 기존 원단에서 연결 */}
+              <select onChange={(e) => {
+                const fabId = e.target.value;
+                if (!fabId) return;
+                const fab = (savedFabrics||[]).find(f => String(f.id) === fabId);
+                if (!fab) return;
+                if (window.confirm(`[${fab.article}] 원단의 스펙을 불러와 이 설계서에 덮어씁니다.\n계속하시겠습니까?`)) {
+                  // 설계서에 원단 데이터(15개 변수 전체) 일괄 반영
+                  if (setSheetInput) {
+                    setSheetInput(prev => ({
+                      ...prev,
+                      linkedFabricId: Number(fabId),
+                      articleNo: fab.article || '',
+                      fabricName: fab.itemName || '',
+                      yarns: fab.yarns || [],
+                      costInput: {
+                        ...(prev.costInput || {}),
+                        widthFull: fab.widthFull || 58,
+                        widthCut: fab.widthCut || 56,
+                        gsm: fab.gsm || 300,
+                        costGYd: fab.costGYd || '',
+                        knittingFee1k: fab.knittingFee1k || 3000,
+                        knittingFee3k: fab.knittingFee3k || 2000,
+                        knittingFee5k: fab.knittingFee5k || 2000,
+                        dyeingFee: fab.dyeingFee || 8800,
+                        extraFee1k: fab.extraFee1k || 900,
+                        extraFee3k: fab.extraFee3k || 700,
+                        extraFee5k: fab.extraFee5k || 500,
+                        losses: fab.losses || { tier1k:{knit:5,dye:10}, tier3k:{knit:3,dye:10}, tier5k:{knit:3,dye:9} },
+                        marginTier: fab.marginTier || 3,
+                        brandExtra: fab.brandExtra || { tier1k:1000, tier3k:700, tier5k:500 }
+                      }
+                    }));
+                  }
+                  
+                  setTimeout(() => alert('원단 스펙이 폼에 적용되었습니다.\n내용을 확인하신 후 반드시 우측 상단의 [설계서 저장] 버튼을 눌러야 완전히 연결됩니다.'), 300);
+                } else {
+                  e.target.value = '';
+                }
+              }} className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white focus:ring-2 ring-blue-200 outline-none" defaultValue="">
+                <option value="">기존 원단에서 연결...</option>
+                {(savedFabrics||[]).filter(f => !f.linkedSheetId).map(f => (
+                  <option key={f.id} value={f.id}>{f.article || '미등록'} - {f.itemName || '이름없음'}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
 
         <div className="flex items-end justify-between mt-6 pt-4 border-t-2 border-slate-900">
            <div>
