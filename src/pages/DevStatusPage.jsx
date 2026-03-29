@@ -229,16 +229,8 @@ export const DevStatusPage = ({
 
       {/* 📋 설계서 단계 현황 — 단계별 칸반 그룹 */}
       {(() => {
-        const activeSheets = (designSheets||[]).filter(s => s.status !== 'dropped' && !s.isArchived);
+        // [D2 최적화] 상단 useMemo에서 이미 계산한 sheetsByStage를 사용 (이중 계산 제거)
         if (activeSheets.length === 0) return null;
-
-        // 단계별 그룹화
-        const grouped = {};
-        DESIGN_STAGES.forEach(st => { grouped[st.key] = []; });
-        activeSheets.forEach(s => {
-          if (grouped[s.stage]) grouped[s.stage].push(s);
-          else grouped['draft'].push(s); // stage 없으면 draft로 분류
-        });
 
         const stageStyle = {
           draft: { col: 'border-slate-400 bg-slate-50/30', badge: 'bg-slate-200 text-slate-800' },
@@ -258,7 +250,7 @@ export const DevStatusPage = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
               {DESIGN_STAGES.map(stage => {
-                const items = grouped[stage.key];
+                const items = sheetsByStage[stage.key] || [];
                 const style = stageStyle[stage.key];
                 return (
                   <div key={stage.key} className={`bg-slate-50/50 rounded-xl p-4 border border-slate-200 shadow-sm flex flex-col max-h-[700px] border-t-4 ${style.col}`}>

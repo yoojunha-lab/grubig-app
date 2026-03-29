@@ -3,7 +3,7 @@ import { useState } from 'react';
 // GRUBIG ERP - 바이어 R&D 개발 의뢰 관리 훅
 // 상태: pending(대기) → analyzing(분석) → confirmed(개발투입확정, 설계서 저장 시 자동) / rejected(미진행)
 
-export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, showToast) => {
+export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, showToast, designSheets) => {
   const [editingDevId, setEditingDevId] = useState(null);
 
   const getInitialDevInput = () => ({
@@ -150,6 +150,18 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     if (devReq.status === 'confirmed' && devReq.linkedDesignSheetId) {
       if (!window.confirm('⚠️ 이 의뢰에는 연결된 설계서가 있습니다.\n상태를 변경하면 설계서 연결이 해제됩니다.\n\n정말 계속하시겠습니까?')) {
         return;
+      }
+    }
+
+    // [A3 수정] confirmed → 다른 상태로 롤백 시, 연결된 설계서의 devRequestId도 해제하여 고아 방지
+    if (devReq.status === 'confirmed' && devReq.linkedDesignSheetId && designSheets) {
+      const linkedSheet = designSheets.find(s => s.id === devReq.linkedDesignSheetId);
+      if (linkedSheet) {
+        saveDocToCloud('designSheets', {
+          ...linkedSheet,
+          devRequestId: null,
+          updatedAt: new Date().toISOString()
+        });
       }
     }
 

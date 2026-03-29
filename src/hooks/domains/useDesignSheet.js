@@ -3,7 +3,7 @@ import { DESIGN_STAGES } from '../../constants/common';
 
 // GRUBIG ERP - 원단 설계서 도메인 로직 훅
 
-export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet) => {
+export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet, devRequests) => {
   const [editingSheetId, setEditingSheetId] = useState(null);
 
   // 설계서 초기 입력 폼
@@ -221,6 +221,12 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       }
     }
 
+    // [A2 방어] 이미 원단이 등록된 설계서는 중복 등록 차단
+    if (nextStage === 'articled' && sheet.linkedFabricId) {
+      showToast('이미 원단이 등록된 설계서입니다. 중복 등록을 방지합니다.', 'error');
+      return;
+    }
+
     const updatedSheet = {
       ...sheet,
       stage: nextStage,
@@ -351,27 +357,30 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
     saveDocToCloud('designSheets', itemToSave);
 
-    // [New 양방향 동기화] 연결된 원단이 있다면 해당 원단 DB도 같은 값으로 덮어씀
+    // [양방향 동기화] 연결된 원단이 있다면 해당 원단 DB도 같은 값으로 덮어씀
+    // [B4 수정] ?? 연산자로 사용자가 의도한 0값을 보존
     if (itemToSave.linkedFabricId) {
-      const linkedFabric = savedFabrics?.find(f => f.id === itemToSave.linkedFabricId);
+      const linkedFabric = savedFabrics?.find(f => String(f.id) === String(itemToSave.linkedFabricId));
       if (linkedFabric) {
+        const ci = itemToSave.costInput || {};
         saveDocToCloud('fabrics', {
           ...linkedFabric,
-          widthFull: itemToSave.costInput?.widthFull || 58,
-          widthCut: itemToSave.costInput?.widthCut || 56,
-          gsm: itemToSave.costInput?.gsm || 300,
-          costGYd: itemToSave.costInput?.costGYd || '',
-          knittingFee1k: itemToSave.costInput?.knittingFee1k || 3000,
-          knittingFee3k: itemToSave.costInput?.knittingFee3k || 2000,
-          knittingFee5k: itemToSave.costInput?.knittingFee5k || 2000,
-          dyeingFee: itemToSave.costInput?.dyeingFee || 8800,
-          extraFee1k: itemToSave.costInput?.extraFee1k || 900,
-          extraFee3k: itemToSave.costInput?.extraFee3k || 700,
-          extraFee5k: itemToSave.costInput?.extraFee5k || 500,
-          losses: itemToSave.costInput?.losses || { tier1k:{knit:5,dye:10}, tier3k:{knit:3,dye:10}, tier5k:{knit:3,dye:9} },
-          marginTier: itemToSave.costInput?.marginTier || 3,
-          brandExtra: itemToSave.costInput?.brandExtra || { tier1k:1000, tier3k:700, tier5k:500 },
-          yarns: itemToSave.yarns || []
+          widthFull: ci.widthFull ?? linkedFabric.widthFull,
+          widthCut: ci.widthCut ?? linkedFabric.widthCut,
+          gsm: ci.gsm ?? linkedFabric.gsm,
+          costGYd: ci.costGYd ?? linkedFabric.costGYd,
+          knittingFee1k: ci.knittingFee1k ?? linkedFabric.knittingFee1k,
+          knittingFee3k: ci.knittingFee3k ?? linkedFabric.knittingFee3k,
+          knittingFee5k: ci.knittingFee5k ?? linkedFabric.knittingFee5k,
+          dyeingFee: ci.dyeingFee ?? linkedFabric.dyeingFee,
+          extraFee1k: ci.extraFee1k ?? linkedFabric.extraFee1k,
+          extraFee3k: ci.extraFee3k ?? linkedFabric.extraFee3k,
+          extraFee5k: ci.extraFee5k ?? linkedFabric.extraFee5k,
+          losses: ci.losses ?? linkedFabric.losses,
+          marginTier: ci.marginTier ?? linkedFabric.marginTier,
+          brandExtra: ci.brandExtra ?? linkedFabric.brandExtra,
+          yarns: itemToSave.yarns || linkedFabric.yarns || [],
+          _syncedFromSheet: true // 무한 루프 방지 플래그
         });
       }
     }
@@ -432,6 +441,17 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       : '정말로 이 설계서를 삭제하시겠습니까? (삭제된 설계서는 복구할 수 없습니다.)';
 
     if (window.confirm(msg)) {
+      // [A4 수정] 삭제 전 연결된 의뢰의 linkedDesignSheetId를 해제 → 의뢰 영구잠김 방지
+      if (sheet?.devRequestId && devRequests) {
+        const linkedDev = devRequests.find(d => d.id === sheet.devRequestId);
+        if (linkedDev?.linkedDesignSheetId === id) {
+          saveDocToCloud('devRequests', {
+            ...linkedDev,
+            linkedDesignSheetId: null,
+            updatedAt: new Date().toISOString()
+          });
+        }
+      }
       deleteDocFromCloud('designSheets', id).then(() => {
         showToast('설계서가 삭제되었습니다.', 'success');
       });
@@ -506,43 +526,42 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     setEditingSheetId(null);
   };
 
-  // 자체 설계서 번호 생성 (S-26D001 형식)
-  const generateSelfDevOrderNo = () => {
-    const year = new Date().getFullYear().toString().slice(-2);
-    const prefix = `S-${year}D`;
-    const existingNos = (designSheets || [])
-      .map(d => d.devOrderNo || '')
-      .filter(no => no.startsWith(prefix))
-      .map(no => { const n = parseInt(no.replace(prefix, ''), 10); return isNaN(n) ? 0 : n; });
-    const nextNum = existingNos.length > 0 ? Math.max(...existingNos) + 1 : 1;
-    return `${prefix}${String(nextNum).padStart(3, '0')}`;
-  };
+  // [D3] generateSelfDevOrderNo 제거됨 — 자체 설계서는 빈칸 유지 정책 (데드코드 정리)
 
   // 아이템화 시 원단 자동 등록 (savedFabrics에 변환 저장)
   const registerFabricFromSheet = (sheet) => {
     if (!saveFabricFromSheet) return;
-    const fabricId = Date.now();
+
+    // [A2 방어] 이미 원단이 등록된 설계서는 중복 등록 차단
+    if (sheet.linkedFabricId) {
+      showToast('이미 원단이 등록된 설계서입니다.', 'error');
+      return;
+    }
+
+    // [B3 수정] ID를 문자열로 생성하여 타입 불일치 방지
+    const fabricId = `fab_${Date.now()}`;
+    const ci = sheet.costInput || {};
     const fabricData = {
       id: fabricId,
-      linkedSheetId: sheet.id, // [New] 연결되는 설계서 ID
+      linkedSheetId: sheet.id,
       date: new Date().toLocaleDateString(),
       article: sheet.articleNo || '',
       itemName: sheet.fabricName || '',
-      // costInput 필드를 원단등록 필드와 매핑
-      widthFull: sheet.costInput?.widthFull || 58,
-      widthCut: sheet.costInput?.widthCut || 56,
-      gsm: sheet.costInput?.gsm || 300,
-      costGYd: sheet.costInput?.costGYd || '',
-      knittingFee1k: sheet.costInput?.knittingFee1k || 3000,
-      knittingFee3k: sheet.costInput?.knittingFee3k || 2000,
-      knittingFee5k: sheet.costInput?.knittingFee5k || 2000,
-      dyeingFee: sheet.costInput?.dyeingFee || 8800,
-      extraFee1k: sheet.costInput?.extraFee1k || 900,
-      extraFee3k: sheet.costInput?.extraFee3k || 700,
-      extraFee5k: sheet.costInput?.extraFee5k || 500,
-      losses: sheet.costInput?.losses || { tier1k:{knit:5,dye:10}, tier3k:{knit:3,dye:10}, tier5k:{knit:3,dye:9} },
-      marginTier: sheet.costInput?.marginTier || 3,
-      brandExtra: sheet.costInput?.brandExtra || { tier1k:1000, tier3k:700, tier5k:500 },
+      // [B4 수정] ?? 연산자로 0값 보존
+      widthFull: ci.widthFull ?? 58,
+      widthCut: ci.widthCut ?? 56,
+      gsm: ci.gsm ?? 300,
+      costGYd: ci.costGYd ?? '',
+      knittingFee1k: ci.knittingFee1k ?? 3000,
+      knittingFee3k: ci.knittingFee3k ?? 2000,
+      knittingFee5k: ci.knittingFee5k ?? 2000,
+      dyeingFee: ci.dyeingFee ?? 8800,
+      extraFee1k: ci.extraFee1k ?? 900,
+      extraFee3k: ci.extraFee3k ?? 700,
+      extraFee5k: ci.extraFee5k ?? 500,
+      losses: ci.losses ?? { tier1k:{knit:5,dye:10}, tier3k:{knit:3,dye:10}, tier5k:{knit:3,dye:9} },
+      marginTier: ci.marginTier ?? 3,
+      brandExtra: ci.brandExtra ?? { tier1k:1000, tier3k:700, tier5k:500 },
       yarns: sheet.yarns || [],
       remarks: `설계서 아이템화 자동 등록 (${sheet.devOrderNo || ''})`
     };
@@ -551,7 +570,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     // 설계서 쪽에도 linkedFabricId 기록
     saveDocToCloud('designSheets', {
         ...sheet,
-        stage: 'articled', // 보장
+        stage: 'articled',
         linkedFabricId: fabricId,
         updatedAt: new Date().toISOString()
     });
@@ -571,6 +590,19 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     }
 
     if (!window.confirm('이 설계서를 DROP 처리하시겠습니까?\n(보관함으로 이동되며 현황에서 숨겨집니다)')) return;
+
+    // [A5 수정] DROP 시 연결된 의뢰의 linkedDesignSheetId도 해제 → 의뢰 잠김 방지
+    if (sheet.devRequestId && devRequests) {
+      const linkedDev = devRequests.find(d => d.id === sheet.devRequestId);
+      if (linkedDev?.linkedDesignSheetId === sheetId) {
+        saveDocToCloud('devRequests', {
+          ...linkedDev,
+          linkedDesignSheetId: null,
+          updatedAt: new Date().toISOString()
+        });
+      }
+    }
+
     saveDocToCloud('designSheets', {
       ...sheet,
       status: 'dropped',
@@ -603,6 +635,6 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     autoAdvanceEztex, advanceToEztex,
     addOrderNumber, removeOrderNumber,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
-    generateSelfDevOrderNo, registerFabricFromSheet
+    registerFabricFromSheet
   };
 };

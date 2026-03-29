@@ -191,7 +191,7 @@ const App = () => {
     handleSaveDevRequest, handleEditDevRequest, handleDeleteDevRequest,
     resetDevForm, generateDevOrderNo, createDesignSheetFromDev,
     updateDevStatus, linkAndConfirm
-  } = useDevRequest(devRequests, saveDocToCloud, deleteDocFromCloud, showToast);
+  } = useDevRequest(devRequests, saveDocToCloud, deleteDocFromCloud, showToast, designSheets);
 
   // 의뢰 삭제 래퍼: 연결된 설계서의 devRequestId도 정리 (미아 방지)
   const handleDeleteDevWithCleanup = (devReqId) => {
@@ -222,7 +222,7 @@ const App = () => {
     autoAdvanceEztex, advanceToEztex,
     addOrderNumber, removeOrderNumber,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop
-  } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet);
+  } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet, devRequests);
 
   const devPrintRef = useRef(null);
 

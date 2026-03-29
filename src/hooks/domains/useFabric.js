@@ -69,32 +69,37 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     }
 
     const itemToSave = { id: editingFabricId || Date.now(), date: new Date().toLocaleDateString(), ...fabricInput };
+
+    // [B1 방어] _syncedFromSheet 플래그 제거 (저장 시 플래그가 남지 않도록)
+    delete itemToSave._syncedFromSheet;
+
     saveDocToCloud('fabrics', itemToSave); 
 
-    // [양방향 동기화] 설계서가 연결되어 있다면 설계서 DB도 같이 업데이트
-    if (itemToSave.linkedSheetId) {
-       const linkedSheet = designSheets?.find(s => s.id === itemToSave.linkedSheetId);
+    // [양방향 동기화 + B1 무한루프 방어] 
+    // _syncedFromSheet 플래그가 있으면 설계서에서 트리거된 동기화이므로 다시 설계서를 업데이트하지 않음
+    if (itemToSave.linkedSheetId && !fabricInput._syncedFromSheet) {
+       const linkedSheet = designSheets?.find(s => String(s.id) === String(itemToSave.linkedSheetId));
        if (linkedSheet) {
           saveDocToCloud('designSheets', {
              ...linkedSheet,
              costInput: {
                 ...linkedSheet.costInput,
-                widthFull: itemToSave.widthFull || 58,
-                widthCut: itemToSave.widthCut || 56,
-                gsm: itemToSave.gsm || 300,
-                costGYd: itemToSave.costGYd || '',
-                knittingFee1k: itemToSave.knittingFee1k || 3000,
-                knittingFee3k: itemToSave.knittingFee3k || 2000,
-                knittingFee5k: itemToSave.knittingFee5k || 2000,
-                dyeingFee: itemToSave.dyeingFee || 8800,
-                extraFee1k: itemToSave.extraFee1k || 900,
-                extraFee3k: itemToSave.extraFee3k || 700,
-                extraFee5k: itemToSave.extraFee5k || 500,
-                losses: itemToSave.losses || { tier1k:{knit:5,dye:10}, tier3k:{knit:3,dye:10}, tier5k:{knit:3,dye:9} },
-                marginTier: itemToSave.marginTier || 3,
-                brandExtra: itemToSave.brandExtra || { tier1k:1000, tier3k:700, tier5k:500 }
+                widthFull: itemToSave.widthFull ?? linkedSheet.costInput?.widthFull,
+                widthCut: itemToSave.widthCut ?? linkedSheet.costInput?.widthCut,
+                gsm: itemToSave.gsm ?? linkedSheet.costInput?.gsm,
+                costGYd: itemToSave.costGYd ?? linkedSheet.costInput?.costGYd,
+                knittingFee1k: itemToSave.knittingFee1k ?? linkedSheet.costInput?.knittingFee1k,
+                knittingFee3k: itemToSave.knittingFee3k ?? linkedSheet.costInput?.knittingFee3k,
+                knittingFee5k: itemToSave.knittingFee5k ?? linkedSheet.costInput?.knittingFee5k,
+                dyeingFee: itemToSave.dyeingFee ?? linkedSheet.costInput?.dyeingFee,
+                extraFee1k: itemToSave.extraFee1k ?? linkedSheet.costInput?.extraFee1k,
+                extraFee3k: itemToSave.extraFee3k ?? linkedSheet.costInput?.extraFee3k,
+                extraFee5k: itemToSave.extraFee5k ?? linkedSheet.costInput?.extraFee5k,
+                losses: itemToSave.losses ?? linkedSheet.costInput?.losses,
+                marginTier: itemToSave.marginTier ?? linkedSheet.costInput?.marginTier,
+                brandExtra: itemToSave.brandExtra ?? linkedSheet.costInput?.brandExtra
              },
-             yarns: itemToSave.yarns || [],
+             yarns: itemToSave.yarns || linkedSheet.yarns || [],
              updatedAt: new Date().toISOString()
           });
        }
@@ -106,6 +111,18 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
 
   const handleDeleteFabric = (id) => {
     if (window.confirm("정말로 이 원단을 삭제하시겠습니까? (이 결정은 되돌릴 수 없습니다.)")) {
+      // [B2 수정] 삭제 전 연결된 설계서의 linkedFabricId를 해제 → 유령 참조 방지
+      const fabric = (savedFabrics || []).find(f => f.id === id);
+      if (fabric?.linkedSheetId && designSheets) {
+        const linkedSheet = designSheets.find(s => String(s.id) === String(fabric.linkedSheetId));
+        if (linkedSheet?.linkedFabricId && String(linkedSheet.linkedFabricId) === String(id)) {
+          saveDocToCloud('designSheets', {
+            ...linkedSheet,
+            linkedFabricId: null,
+            updatedAt: new Date().toISOString()
+          });
+        }
+      }
       deleteDocFromCloud('fabrics', id).then(() => {
         showToast("삭제되었습니다.", "success");
       });
