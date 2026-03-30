@@ -221,7 +221,8 @@ const App = () => {
     resetSheetForm, getStageIndex, advanceStage,
     autoAdvanceEztex, advanceToEztex,
     addOrderNumber, removeOrderNumber,
-    getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop
+    getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
+    registerFabricFromSheet
   } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet, devRequests);
 
   const devPrintRef = useRef(null);
