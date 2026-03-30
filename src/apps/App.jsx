@@ -711,7 +711,7 @@ const App = () => {
             restoreFromDrop={restoreFromDrop}
             resetSheetForm={resetSheetForm}
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
-            generateSelfDevOrderNo={generateSelfDevOrderNo}
+            
             setSheetInput={setSheetInput}
           />
         )}
