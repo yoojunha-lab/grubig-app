@@ -2,7 +2,7 @@ import { useState } from 'react';
 
 // GRUBIG ERP - 원사(Yarn) 도메인 로직 및 훅
 
-export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast) => {
+export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast, designSheets) => {
   const [editingYarnId, setEditingYarnId] = useState(null);
 
   const initialYarnInput = {
@@ -49,8 +49,12 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
     const isUsed = savedFabrics.some(fabric =>
       fabric.yarns.some(y => y.yarnId && String(y.yarnId).split('::')[0] === String(id) && y.ratio > 0)
     );
-    if (isUsed) {
-      alert("🚨 경고: 이 원사를 사용 중인 원단이 있습니다! 삭제 불가.");
+    // [기획오류 #11 수정] 설계서에서도 원사 사용 체크
+    const isUsedInSheet = (designSheets || []).some(sheet =>
+      (sheet.yarns || []).some(y => y.yarnId && String(y.yarnId).split('::')[0] === String(id) && y.ratio > 0)
+    );
+    if (isUsed || isUsedInSheet) {
+      alert("🚨 경고: 이 원사를 사용 중인 원단 또는 설계서가 있습니다! 삭제 불가.");
       return;
     }
     if (window.confirm("이 원사와 등록된 모든 공급처 정보가 삭제됩니다. 삭제하시겠습니까?")) {

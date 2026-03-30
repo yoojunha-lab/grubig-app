@@ -176,7 +176,7 @@ const App = () => {
     yarnInput, setYarnInput, editingYarnId,
     handleSaveYarn, handleEditYarn, handleDeleteYarn, resetYarnForm,
     handleAddSupplier, handleRemoveSupplier, handleSupplierChange, handleDeleteHistoryItem
-  } = useYarn(yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast);
+  } = useYarn(yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast, designSheets);
 
   const {
     quoteInput, setQuoteInput, handleQuoteSettingChange, createQuoteItem,
@@ -302,7 +302,8 @@ const App = () => {
           const getLoss = (field) => row[field] !== undefined ? Number(String(row[field]).replace(/%/g, '').trim()) : null;
 
           newFabrics.push({
-            id: Date.now() + idx, date: new Date().toLocaleDateString(),
+            // [기획오류 #10 수정] ID를 문자열(fab_)로 통일
+            id: `fab_${Date.now()}_${idx}`, date: new Date().toLocaleDateString(),
             article: String(row.Article || 'UNKNOWN').trim().toUpperCase(), itemName: String(row.ItemName || ''), remarks: String(row.Remarks || ''),
             widthFull: Number(row.WidthFull) || 58, widthCut: Number(row.WidthCut) || 56, gsm: Number(row.GSM) || 300, costGYd: row.CostGYd ? Number(row.CostGYd) : '',
             knittingFee1k: kFee1k, knittingFee3k: Number(row.KnittingFee3k) || 2000, knittingFee5k: Number(row.KnittingFee5k) || 2000, dyeingFee: Number(row.DyeingFee) || 8800,

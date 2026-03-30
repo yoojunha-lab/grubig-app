@@ -89,7 +89,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
   const handleQuoteBasePriceChange = (index, field, value) => {
     const newItems = [...quoteInput.items];
-    newItems[index][field] = Number(value);
+    // [기획오류 #13 수정] 음수 방어
+    newItems[index][field] = Math.max(0, Number(value));
     setQuoteInput({ ...quoteInput, items: newItems });
   };
   
