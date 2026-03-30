@@ -709,9 +709,9 @@ const App = () => {
             yarnLibrary={yarnLibrary}
             saveDocToCloud={saveDocToCloud}
             restoreFromDrop={restoreFromDrop}
+            dropDesignSheet={dropDesignSheet}
             resetSheetForm={resetSheetForm}
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
-            
             setSheetInput={setSheetInput}
           />
         )}

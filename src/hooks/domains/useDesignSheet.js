@@ -365,6 +365,9 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         const ci = itemToSave.costInput || {};
         saveDocToCloud('fabrics', {
           ...linkedFabric,
+          // [기획오류 #2 수정] article, itemName도 동기화
+          article: itemToSave.articleNo ?? linkedFabric.article,
+          itemName: itemToSave.fabricName ?? linkedFabric.itemName,
           widthFull: ci.widthFull ?? linkedFabric.widthFull,
           widthCut: ci.widthCut ?? linkedFabric.widthCut,
           gsm: ci.gsm ?? linkedFabric.gsm,
@@ -616,10 +619,18 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     const sheet = designSheets.find(s => s.id === sheetId);
     if (!sheet) return;
     if (!window.confirm('이 설계서를 복원하시겠습니까?\n(Drop 전 단계로 복원됩니다)')) return;
+    const now = new Date().toISOString();
+    // [기획오류 #3 수정] 복원 이력을 changeHistory에 기록
+    const restoreHistory = {
+      date: now,
+      fields: { status: 'dropped' },
+      reason: 'DROP 복원'
+    };
     saveDocToCloud('designSheets', {
       ...sheet,
       status: 'active',
-      updatedAt: new Date().toISOString()
+      changeHistory: [restoreHistory, ...(sheet.changeHistory || [])],
+      updatedAt: now
     });
     showToast('복원되었습니다.', 'success');
   };

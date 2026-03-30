@@ -24,6 +24,7 @@ export const DesignSheetListPage = ({
   yarnLibrary,
   saveDocToCloud,
   restoreFromDrop,
+  dropDesignSheet,
   resetSheetForm,
   setIsDesignSheetModalOpen,
   setSheetInput
@@ -142,12 +143,10 @@ export const DesignSheetListPage = ({
   };
   const getLinkedBuyer = (sheet) => (devRequests||[]).find(d=>d.id===sheet.devRequestId)?.buyerName || '';
 
+  // [기획오류 #1 수정] 보관함 DROP → dropDesignSheet 사용
+  // 의뢰 연결 해제(linkedDesignSheetId 정리)가 포함된 훅 함수를 사용
   const handleDrop = (sheetId) => {
-    const sheet = designSheets.find(s => s.id === sheetId);
-    if (!sheet) return;
-    if (window.confirm('이 설계서를 DROP 처리하시겠습니까?\n(보관함에 남아있습니다)')) {
-      saveDocToCloud?.('designSheets', { ...sheet, status: 'dropped', updatedAt: new Date().toISOString() });
-    }
+    if (dropDesignSheet) dropDesignSheet(sheetId);
   };
 
   // EZ-TEX O/D NO. 수정
