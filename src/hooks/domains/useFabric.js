@@ -68,7 +68,8 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
       return;
     }
 
-    const itemToSave = { id: editingFabricId || Date.now(), date: new Date().toLocaleDateString(), ...fabricInput };
+    // [기획오류 #6 수정] ID를 문자열(fab_)로 통일 — useDesignSheet의 registerFabricFromSheet와 동일한 포맷
+    const itemToSave = { id: editingFabricId || `fab_${Date.now()}`, date: new Date().toLocaleDateString(), ...fabricInput };
 
     // [B1 방어] _syncedFromSheet 플래그 제거 (저장 시 플래그가 남지 않도록)
     delete itemToSave._syncedFromSheet;
@@ -82,6 +83,9 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
        if (linkedSheet) {
           saveDocToCloud('designSheets', {
              ...linkedSheet,
+             // [기획오류 #7 수정] 원단→설계서 역방향 article/fabricName 동기화
+             articleNo: itemToSave.article ?? linkedSheet.articleNo,
+             fabricName: itemToSave.itemName ?? linkedSheet.fabricName,
              costInput: {
                 ...linkedSheet.costInput,
                 widthFull: itemToSave.widthFull ?? linkedSheet.costInput?.widthFull,

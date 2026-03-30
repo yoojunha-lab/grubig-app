@@ -95,10 +95,10 @@ export const DevStatusPage = ({
     });
   };
 
+  // [기획오류 #9 수정] 설계서 작성 시작 → 보관함 이동 + 모달 자동 열기
   const handleGoToSheet = (devReq) => {
     const data = createDesignSheetFromDev(devReq);
     initFromDevRequest(data);
-    // 설계서 보관함으로 이동 (설계서 진입은 보관함에서만)
     setActiveTab('designList');
   };
 
@@ -148,8 +148,8 @@ export const DevStatusPage = ({
              </select>
            )}
            {!isLocked && <button onClick={()=>openEditModal(d)} className="px-2 py-1 text-[10px] font-bold text-slate-600 hover:text-blue-600 border border-slate-200 rounded">의뢰 수정</button>}
-           {/* 삭제 버튼 추가 */}
-           {!isLocked && (d.status === 'pending' || d.status === 'rejected') && (
+           {/* [기획오류 #8 수정] analyzing 상태에서도 삭제 가능 */}
+           {!isLocked && (d.status === 'pending' || d.status === 'analyzing' || d.status === 'rejected') && (
              <button onClick={()=>handleDeleteDevRequest(d.id)} className="px-2 py-1 text-[10px] font-bold text-red-500 hover:text-red-700 bg-red-50 border border-red-200 rounded flex items-center gap-1">
                <Trash2 className="w-3 h-3" /> 삭제
              </button>
