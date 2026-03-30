@@ -11,9 +11,13 @@ export const MobileYarnCard = React.memo(({
   setYarnLibrary
 }) => {
   const defSup = y.suppliers?.find(s => s.isDefault) || y.suppliers?.[0] || {};
-  const convertedPrice = defSup.currency === 'USD' ? (defSup.price || 0) * (globalExchangeRate || 1450) : (defSup.price || 0);
-  const tariffAmt = convertedPrice * ((defSup.tariff || 0) / 100);
-  const freightAmt = defSup.freight ? Number(defSup.freight) : 0;
+  // Number()로 명시적 변환 — Firestore에서 문자열로 올 수 있음
+  const rawPrice = Number(defSup.price) || 0;
+  const rate = Number(globalExchangeRate) || 1450;
+  const convertedPrice = defSup.currency === 'USD' ? rawPrice * rate : rawPrice;
+  const tariffAmt = convertedPrice * (Number(defSup.tariff || 0) / 100);
+  const freightAmt = Number(defSup.freight) || 0;
+  // 관세는 내수(Dom)에만 포함, 수출(Export)에는 미포함
   const domPrice = Math.round(convertedPrice + tariffAmt + freightAmt);
 
   const getCategoryColor = (cat) => {

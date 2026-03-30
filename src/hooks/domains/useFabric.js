@@ -146,7 +146,7 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     if (!fabricData || !fabricData.yarns) return { avgYarnCostDomestic: 0, avgYarnCostExport: 0, effectiveGYd: 0, theoreticalGYd: 0, tier1k: getSafeTier(), tier3k: getSafeTier(), tier5k: getSafeTier() };
 
     let yarnCostDomestic = 0; let yarnCostExport = 0;
-    const fabricExchangeRate = overrideExchangeRate !== null ? Number(overrideExchangeRate) : (globalExchangeRate || 1450);
+    const fabricExchangeRate = overrideExchangeRate !== null ? Number(overrideExchangeRate) : (Number(globalExchangeRate) || 1450);
 
     (fabricData.yarns || []).forEach(slot => {
       // Optional Chaining 도입으로 방어적 코드 작성
@@ -160,6 +160,7 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
             let priceInKrw = sup.currency === 'USD' ? Number(sup.price || 0) * fabricExchangeRate : Number(sup.price || 0);
             const tariffAmt = priceInKrw * ((Number(sup.tariff) || 0) / 100);
             const freightAmt = Number(sup.freight) || 0;
+            // 관세는 내수(Domestic)에만 포함, 수출(Export)에는 미포함
             yarnCostExport += (priceInKrw + freightAmt) * ratio;
             yarnCostDomestic += (priceInKrw + tariffAmt + freightAmt) * ratio;
           }
