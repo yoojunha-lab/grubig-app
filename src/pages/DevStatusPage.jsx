@@ -14,7 +14,7 @@ export const DevStatusPage = ({
   handleEditDevRequest, handleDeleteDevRequest, resetDevForm,
   createDesignSheetFromDev, initFromDevRequest, updateDevStatus,
   handleEditSheet, handleDeleteSheet, advanceStage, advanceToEztex, autoAdvanceEztex, dropDesignSheet,
-  handleSaveSheet, setActiveTab, user, buyers, yarnLibrary, viewMode, devPrintRef,
+  setActiveTab, user, buyers, yarnLibrary, viewMode, devPrintRef,
   addMasterItem, generateDevOrderNo, setIsBuyerModalOpen
 }) => {
   const [showDevModal, setShowDevModal] = useState(false);

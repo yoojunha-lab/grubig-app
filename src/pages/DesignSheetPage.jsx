@@ -541,26 +541,26 @@ export const DesignSheetPage = ({
                   if (setSheetInput) {
                     setSheetInput(prev => ({
                       ...prev,
-                      linkedFabricId: Number(fabId),
+                      linkedFabricId: String(fabId),
                       articleNo: fab.article || '',
                       fabricName: fab.itemName || '',
                       yarns: fab.yarns || [],
                       costInput: {
                         ...(prev.costInput || {}),
-                        widthFull: fab.widthFull || 58,
-                        widthCut: fab.widthCut || 56,
-                        gsm: fab.gsm || 300,
-                        costGYd: fab.costGYd || '',
-                        knittingFee1k: fab.knittingFee1k || 3000,
-                        knittingFee3k: fab.knittingFee3k || 2000,
-                        knittingFee5k: fab.knittingFee5k || 2000,
-                        dyeingFee: fab.dyeingFee || 8800,
-                        extraFee1k: fab.extraFee1k || 900,
-                        extraFee3k: fab.extraFee3k || 700,
-                        extraFee5k: fab.extraFee5k || 500,
-                        losses: fab.losses || { tier1k:{knit:5,dye:10}, tier3k:{knit:3,dye:10}, tier5k:{knit:3,dye:9} },
-                        marginTier: fab.marginTier || 3,
-                        brandExtra: fab.brandExtra || { tier1k:1000, tier3k:700, tier5k:500 }
+                        widthFull: fab.widthFull ?? prev.costInput?.widthFull,
+                        widthCut: fab.widthCut ?? prev.costInput?.widthCut,
+                        gsm: fab.gsm ?? prev.costInput?.gsm,
+                        costGYd: fab.costGYd ?? prev.costInput?.costGYd,
+                        knittingFee1k: fab.knittingFee1k ?? prev.costInput?.knittingFee1k,
+                        knittingFee3k: fab.knittingFee3k ?? prev.costInput?.knittingFee3k,
+                        knittingFee5k: fab.knittingFee5k ?? prev.costInput?.knittingFee5k,
+                        dyeingFee: fab.dyeingFee ?? prev.costInput?.dyeingFee,
+                        extraFee1k: fab.extraFee1k ?? prev.costInput?.extraFee1k,
+                        extraFee3k: fab.extraFee3k ?? prev.costInput?.extraFee3k,
+                        extraFee5k: fab.extraFee5k ?? prev.costInput?.extraFee5k,
+                        losses: fab.losses ?? prev.costInput?.losses,
+                        marginTier: fab.marginTier ?? prev.costInput?.marginTier,
+                        brandExtra: fab.brandExtra ?? prev.costInput?.brandExtra
                       }
                     }));
                   }

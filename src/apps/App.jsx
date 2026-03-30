@@ -636,7 +636,6 @@ const App = () => {
             updateDevStatus={updateDevStatus}
             handleEditSheet={handleEditSheet}
             handleDeleteSheet={handleDeleteSheet}
-            handleSaveSheet={handleSaveSheet}
             advanceStage={advanceStage}
             advanceToEztex={advanceToEztex}
             autoAdvanceEztex={autoAdvanceEztex}
