@@ -154,8 +154,11 @@ export const DevStatusPage = ({
                <Trash2 className="w-3 h-3" /> 삭제
              </button>
            )}
+           <button onClick={()=>handlePrint(d, 'report')} className="px-2 py-1 text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 hover:bg-slate-200 rounded flex items-center gap-1 ml-auto">
+             <Printer className="w-3 h-3" /> 프린트
+           </button>
            {d.status === 'confirmed' && !getLinkedSheet(d) && (
-              <button onClick={()=>handleGoToSheet(d)} className="px-2 py-1 text-[10px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded shadow-sm ml-auto">설계서 작성 시작</button>
+              <button onClick={()=>handleGoToSheet(d)} className="px-2 py-1 text-[10px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded shadow-sm">설계서 작성 시작</button>
            )}
         </div>
       </div>
@@ -165,8 +168,9 @@ export const DevStatusPage = ({
 
 
   return (
-    <div className="space-y-6">
-      {/* 🚀 1. 헤더 영역 */}
+    <div>
+      <div className="space-y-6 print:hidden">
+        {/* 🚀 1. 헤더 영역 */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-extrabold text-slate-800 flex items-center gap-2">
@@ -422,6 +426,117 @@ export const DevStatusPage = ({
           </div>
         </div>
       )}
+      </div>
+
+      {/* 편직처 제출용 프린트 영역 (화면에선 숨김, 프린트 시에만 표시) */}
+      <div className="hidden print:block font-sans">
+        <div ref={devPrintRef} className="w-[210mm] h-[290mm] mx-auto bg-white text-slate-800 p-8 box-border relative font-sans">
+          {printTarget && (
+            <div className="w-full h-full border-2 border-slate-200 rounded-3xl p-8 flex flex-col shadow-sm">
+              {/* 1. Header */}
+              <div className="flex justify-between items-end border-b-2 border-slate-800 pb-4 mb-6">
+                <div>
+                  <h1 className="text-4xl font-black text-slate-900 tracking-tight">개발 의뢰서</h1>
+                  <p className="text-slate-400 text-xs mt-1.5 tracking-widest uppercase font-bold">Development Request Sheet</p>
+                </div>
+                <div className="text-right flex flex-col items-end gap-1.5">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Order Number / O.D</span>
+                  <span className="text-xl font-mono font-black text-indigo-700 bg-indigo-50 px-4 py-1.5 rounded-xl border border-indigo-100">{printTarget.devOrderNo || 'N/A'}</span>
+                </div>
+              </div>
+
+              {/* 2. Top Info Grid */}
+              <div className="grid grid-cols-5 gap-3 mb-6">
+                <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                  <p className="text-[10px] text-slate-400 font-bold mb-1">받은 날짜</p>
+                  <p className="font-bold text-slate-800 text-sm">{printTarget.requestDate || '-'}</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                  <p className="text-[10px] text-slate-400 font-bold mb-1">요청 업체</p>
+                  <p className="font-extrabold text-slate-900 text-sm whitespace-nowrap overflow-hidden text-ellipsis">{printTarget.buyerName || '-'}</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                  <p className="text-[10px] text-slate-400 font-bold mb-1">담당자</p>
+                  <p className="font-bold text-slate-800 text-sm">{printTarget.assignee || '-'}</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
+                  <p className="text-[10px] text-red-500 font-bold mb-1">요청 납기</p>
+                  <p className="font-bold text-red-600 text-sm">{printTarget.targetSpec?.analysisDeadline || printTarget.targetSpec?.deliveryDate || '-'}</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                  <p className="text-[10px] text-slate-400 font-bold mb-1">생산 납기</p>
+                  <p className="font-bold text-slate-800 text-sm">{printTarget.targetSpec?.sampleDeadline || '-'}</p>
+                </div>
+              </div>
+
+              {/* 3. Sample Attachment Area (Flex Grow) */}
+              <div className="flex-1 border-2 border-dashed border-slate-300 rounded-3xl flex flex-col items-center justify-center bg-slate-50/50 mb-6 relative overflow-hidden">
+                <div className="opacity-20"><FileText className="w-16 h-16 text-slate-400 mb-4" /></div>
+                <span className="font-black text-4xl tracking-widest text-slate-200">ATTACH SAMPLE</span>
+                <p className="text-slate-400 text-sm mt-3 font-medium">이곳에 스와치를 부착해주세요 (최소 9x9cm 권장)</p>
+                {printTarget.swatchNote && (
+                  <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-white px-6 py-3 rounded-2xl border border-slate-200 shadow-sm max-w-[80%]">
+                    <p className="text-sm font-bold text-slate-700 flex items-center gap-2">📌 <span>{printTarget.swatchNote}</span></p>
+                  </div>
+                )}
+              </div>
+
+              {/* 4. Specifications & Notes (Two Columns) */}
+              <div className="grid grid-cols-2 gap-6 mb-6">
+                {/* Left Column */}
+                <div className="space-y-3">
+                  <h3 className="font-extrabold text-slate-800 border-b-2 border-slate-800 pb-2 flex items-center gap-2 tracking-tight">
+                    <div className="w-2 h-2 rounded-full bg-indigo-500"></div>SPECIFICATION
+                  </h3>
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3 shadow-sm">
+                     <div className="flex justify-between items-start border-b border-slate-200 border-dashed pb-2">
+                       <span className="text-xs font-bold text-slate-500 w-1/3">혼용률/스펙</span>
+                       <span className="font-bold text-slate-800 text-right w-2/3 leading-snug">{printTarget.targetSpec?.composition || '-'}</span>
+                     </div>
+                     <div className="flex justify-between items-start border-b border-slate-200 border-dashed pb-2">
+                       <span className="text-xs font-bold text-slate-500 w-1/3">폭/중량</span>
+                       <span className="font-bold text-slate-800 text-right w-2/3 leading-snug">{printTarget.targetSpec?.widthWeight || '-'}</span>
+                     </div>
+                     <div className="flex justify-between items-start border-b border-slate-200 border-dashed pb-2">
+                       <span className="text-xs font-bold text-slate-500 w-1/3">단가</span>
+                       <span className="font-bold text-slate-800 text-right w-2/3 leading-snug">{printTarget.targetSpec?.targetPrice || '-'}</span>
+                     </div>
+                     <div className="flex justify-between items-start pb-1">
+                       <span className="text-xs font-bold text-slate-500 w-1/3">느낌/터치</span>
+                       <span className="font-bold text-slate-800 text-right w-2/3 leading-snug">{printTarget.targetSpec?.feeling || printTarget.targetSpec?.touch || '-'}</span>
+                     </div>
+                  </div>
+                </div>
+                
+                {/* Right Column */}
+                <div className="space-y-3">
+                  <h3 className="font-extrabold text-slate-800 border-b-2 border-slate-800 pb-2 flex items-center gap-2 tracking-tight">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500"></div>ITEM NOTES
+                  </h3>
+                  <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 flex-1 h-[146px] shadow-sm">
+                     <p className="text-[10px] font-extrabold text-emerald-800/60 mb-1.5 uppercase tracking-widest">Detail & Feature</p>
+                     <p className="font-semibold text-slate-700 text-sm whitespace-pre-wrap leading-relaxed">
+                        {printTarget.devItem ? `[ITEM] ${printTarget.devItem}\n` : ''}
+                        {printTarget.targetSpec?.customerNotes || '등록된 특이사항이 없습니다.'}
+                     </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 5. Footer Notes */}
+              <div className="border border-slate-200 rounded-2xl p-5 bg-white shadow-sm">
+                <h3 className="text-xs font-extrabold text-slate-800 mb-2.5 flex items-center gap-2">
+                   <div className="w-1.5 h-1.5 rounded-full bg-slate-400"></div> 영업자 추가 의뢰사항
+                </h3>
+                <p className="text-sm font-medium text-slate-600 whitespace-pre-wrap leading-relaxed min-h-[40px]">
+                  {printTarget.targetSpec?.otherRequests || '추가 요청사항 없음'}
+                </p>
+              </div>
+              
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

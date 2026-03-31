@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { X, Database, Upload, Factory, History, Plus, Save, Settings, Search, Filter, Edit2, Trash2, Truck, Check } from 'lucide-react';
 import { YarnLibraryRow } from '../components/yarn/YarnLibraryRow';
 import { MobileYarnCard } from '../components/yarn/MobileYarnCard';
-import { num } from '../utils/helpers';
+import { num, usd } from '../utils/helpers';
+import { saveBatchDocuments } from '../services/db';
 
 export const YarnLibraryPage = ({
   filteredYarns,
@@ -92,6 +93,7 @@ export const YarnLibraryPage = ({
     }
     
     if (window.confirm(`선택한 업체(${selectedBulkSuppliers.join(', ')})에 대하여 운반비를 ￦${num(freightValue)}(으)로 일괄 변경하시겠습니까?`)) {
+      const updatedYarns = [];
       const updatedLibrary = yarnLibrary.map(yarn => {
         let hasChanges = false;
         const newSuppliers = (yarn.suppliers || []).map(sup => {
@@ -101,11 +103,28 @@ export const YarnLibraryPage = ({
           }
           return sup;
         });
-        return hasChanges ? { ...yarn, suppliers: newSuppliers } : yarn;
+        
+        if (hasChanges) {
+          const newYarn = { ...yarn, suppliers: newSuppliers };
+          updatedYarns.push(newYarn);
+          return newYarn;
+        }
+        return yarn;
       });
-      setYarnLibrary(updatedLibrary);
-      setIsBulkFreightModalOpen(false);
-      window.alert('선택된 업체의 운반비 일괄 변경이 완료되었습니다.');
+
+      if (updatedYarns.length > 0) {
+        saveBatchDocuments('yarns', updatedYarns).then(() => {
+          setYarnLibrary(updatedLibrary);
+          setIsBulkFreightModalOpen(false);
+          window.alert('선택된 업체의 운반비 일괄 변경이 완료되었습니다.');
+        }).catch(err => {
+          console.error(err);
+          window.alert('변경 내용을 저장하는 중 오류가 발생했습니다.');
+        });
+      } else {
+        setIsBulkFreightModalOpen(false);
+        window.alert('변경할 항목이 없습니다.');
+      }
     }
   };
 
@@ -163,10 +182,10 @@ export const YarnLibraryPage = ({
               <th className="px-6 py-3 w-28">Category</th>
               <th className="px-6 py-3">Yarn Name</th>
               <th className="px-6 py-3">Suppliers</th>
-              <th className="px-6 py-3 text-right">Price(Exp)</th>
+              <th className="px-6 py-3 text-right">Price(Exp) (/kg)</th>
               <th className="px-6 py-3 text-right">Tariff</th>
-              <th className="px-6 py-3 text-right">Freight(￦)</th>
-              <th className="px-6 py-3 text-right text-blue-800">Price(Dom)</th>
+              <th className="px-6 py-3 text-right">Freight(￦) (/kg)</th>
+              <th className="px-6 py-3 text-right text-blue-800">Price(Dom) (/kg)</th>
               <th className="px-6 py-3">Remarks</th>
               <th className="px-6 py-3 text-center">Action</th>
             </tr>
@@ -276,7 +295,7 @@ export const YarnLibraryPage = ({
                           </select>
                         </div>
                         <div className="w-32 shrink-0">
-                          <label className="text-[10px] text-slate-500 font-bold mb-1 block">단가</label>
+                          <label className="text-[10px] text-slate-500 font-bold mb-1 block">단가 (/kg)</label>
                           <input type="number" value={sup.price} onChange={e => handleSupplierChange(sup.id, 'price', e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-right font-mono font-bold focus:border-blue-500 outline-none bg-slate-50 focus:bg-white" placeholder="0" />
                         </div>
                         <div className="w-20 shrink-0">
@@ -284,7 +303,7 @@ export const YarnLibraryPage = ({
                           <input type="number" value={sup.tariff} onChange={e => handleSupplierChange(sup.id, 'tariff', e.target.value)} className="w-full border border-blue-200 bg-blue-50 rounded-lg px-2 py-2 text-sm text-right text-blue-700 font-bold focus:border-blue-500 outline-none" />
                         </div>
                         <div className="w-28 shrink-0 flex flex-col">
-                          <label className="text-[10px] text-emerald-500 font-bold mb-1 block">운반비(￦)</label>
+                          <label className="text-[10px] text-emerald-500 font-bold mb-1 block">운반비(￦) (/kg)</label>
                           <input type="number" value={sup.freight} onChange={e => handleSupplierChange(sup.id, 'freight', e.target.value)} className="w-full border border-emerald-200 bg-emerald-50 rounded-lg px-2 py-2 text-sm text-right text-emerald-700 font-bold focus:border-emerald-500 outline-none" />
                         </div>
                         {yarnInput.suppliers.length > 1 && (
@@ -300,7 +319,7 @@ export const YarnLibraryPage = ({
                           <div className="flex flex-wrap gap-2">
                             {sup.history.map((h, hIdx) => (
                               <div key={hIdx} className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1 rounded-md text-[11px] font-mono text-slate-600 shadow-sm">
-                                <span>{h.date}</span><span className="text-slate-200">|</span><span className="font-bold">{sup.currency === 'USD' ? '$' : '￦'}{num(h.price)}</span>
+                                <span>{h.date}</span><span className="text-slate-200">|</span><span className="font-bold">{sup.currency === 'USD' ? '$' : '￦'}{sup.currency === 'USD' ? usd(h.price) : num(h.price)}</span>
                                 <button onClick={() => handleDeleteHistoryItem(sup.id, hIdx)} className="ml-1 text-slate-300 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
                               </div>
                             ))}
@@ -372,7 +391,7 @@ export const YarnLibraryPage = ({
               </div>
 
               <div>
-                <label className="text-sm font-bold text-slate-700 mb-2 block">일괄 적용할 운반비 (￦)</label>
+                <label className="text-sm font-bold text-slate-700 mb-2 block">일괄 적용할 운반비 (￦) / kg</label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">￦</span>
                   <input 

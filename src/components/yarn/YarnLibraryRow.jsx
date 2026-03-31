@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { History, Edit2, Trash2 } from 'lucide-react';
-import { num } from '../../utils/helpers';
+import { num, usd } from '../../utils/helpers';
 
 export const YarnLibraryRow = React.memo(({
   y,
@@ -51,7 +51,7 @@ export const YarnLibraryRow = React.memo(({
       </td>
       <td className="px-6 py-2.5 text-right font-mono relative group/price">
         <div className="flex items-center justify-end gap-2">
-          <span className="font-medium text-slate-700">{defSup.currency === 'USD' ? '$' : '￦'}{num(defSup.price)}</span>
+          <span className="font-medium text-slate-700">{defSup.currency === 'USD' ? '$' : '￦'}{defSup.currency === 'USD' ? usd(defSup.price) : num(defSup.price)}</span>
           {defSup.history && defSup.history.length > 0 && (
             <div className="relative">
               <History className="w-3.5 h-3.5 text-slate-400 cursor-help hover:text-blue-500" />
@@ -60,7 +60,7 @@ export const YarnLibraryRow = React.memo(({
                 {defSup.history.map((h, idx) => (
                   <div key={idx} className="flex justify-between py-1">
                     <span className="text-slate-400">{h.date}</span>
-                    <span className="font-mono text-emerald-400">￦{num(h.price)}</span>
+                    <span className="font-mono text-emerald-400">{defSup.currency === 'USD' ? '$' : '￦'}{defSup.currency === 'USD' ? usd(h.price) : num(h.price)}</span>
                   </div>
                 ))}
               </div>

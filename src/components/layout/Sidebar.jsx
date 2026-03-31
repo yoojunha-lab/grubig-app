@@ -4,7 +4,7 @@ import { Cloud, Menu, Layers, Home, Globe, Calculator, FileSpreadsheet, Box, Fil
 export const Sidebar = ({ isMobileMenuOpen, setIsMobileMenuOpen, activeTab, setActiveTab, viewMode, setViewMode, syncStatus, handleLogout, globalExchangeRate, setGlobalExchangeRate }) => {
   return (
     <>
-      <div className="md:hidden bg-slate-900/90 backdrop-blur-md text-white p-4 flex justify-between items-center z-50 sticky top-0 h-[60px] border-b border-slate-800/50 shadow-sm">
+      <div className="md:hidden bg-slate-900/90 backdrop-blur-md text-white p-4 flex justify-between items-center z-50 sticky top-0 h-[60px] border-b border-slate-800/50 shadow-sm print:hidden">
         <div className="font-extrabold flex items-center gap-2.5 tracking-tight"><Cloud className="w-5 h-5 text-blue-400 drop-shadow-md" /> GRUBIG ERP</div>
         <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors active:scale-95"><Menu className="w-5 h-5" /></button>
       </div>

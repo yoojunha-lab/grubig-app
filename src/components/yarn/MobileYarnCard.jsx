@@ -1,6 +1,6 @@
 import React from 'react';
 import { History, Edit2, Trash2, Info } from 'lucide-react';
-import { num } from '../../utils/helpers';
+import { num, usd } from '../../utils/helpers';
 
 export const MobileYarnCard = React.memo(({
   y,
@@ -68,9 +68,9 @@ export const MobileYarnCard = React.memo(({
 
           <div className="mb-2 border-b border-slate-200/60 pb-2">
             <div className="flex justify-between items-center mb-1">
-              <span className="text-[11px] font-bold text-slate-500">수입단가 (Price Exp.)</span>
+              <span className="text-[11px] font-bold text-slate-500">수입단가 (Price Exp. /kg)</span>
               <div className="flex items-center gap-1.5 font-mono text-sm font-bold text-slate-700">
-                {defSup.currency === 'USD' ? '$' : '￦'}{num(defSup.price)}
+                {defSup.currency === 'USD' ? '$' : '￦'}{defSup.currency === 'USD' ? usd(defSup.price) : num(defSup.price)}
                 {defSup.history && defSup.history.length > 0 && <History className="w-3.5 h-3.5 text-slate-400" />}
               </div>
             </div>
@@ -85,10 +85,10 @@ export const MobileYarnCard = React.memo(({
           <div className="flex justify-between items-end">
             <div className="flex flex-col gap-1 text-[11px] font-medium text-slate-500">
               <div className="flex justify-between w-24"><span className="text-slate-400">관세(Tariff)</span><span>{defSup.tariff || 0}%</span></div>
-              <div className="flex justify-between w-24"><span className="text-slate-400">부대(Freight)</span><span className="text-emerald-600">￦{num(freightAmt)}</span></div>
+              <div className="flex justify-between w-24"><span className="text-slate-400">부대(Freight/kg)</span><span className="text-emerald-600">￦{num(freightAmt)}</span></div>
             </div>
             <div className="text-right">
-              <div className="text-[10px] font-bold text-blue-500 mb-0.5">최종 내수전환 단가</div>
+              <div className="text-[10px] font-bold text-blue-500 mb-0.5">최종 내수전환 단가 (/kg)</div>
               <div className="font-mono font-extrabold text-[17px] text-blue-700 leading-none">￦{num(domPrice)}</div>
             </div>
           </div>
