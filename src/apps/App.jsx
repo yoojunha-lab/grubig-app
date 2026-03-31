@@ -89,7 +89,7 @@ const App = () => {
   const [fabricSearchTerm, setFabricSearchTerm] = useState('');
   const [yarnSearchTerm, setYarnSearchTerm] = useState('');
   const [quickViewQuote, setQuickViewQuote] = useState(null);
-  
+
   const [isDesignSheetModalOpen, setIsDesignSheetModalOpen] = useState(false);
 
   const printRef = useRef(null);
@@ -292,10 +292,10 @@ const App = () => {
               const found = yarnLibrary.find(y => String(y.name).toUpperCase() === yName);
               if (found) {
                 mappedYarns.push({ yarnId: found.id, ratio: yRatio });
-              } else { 
-                missingYarnNames.add(yName); 
+              } else {
+                missingYarnNames.add(yName);
                 // DB에 일단 가짜 yarn 이름 정보라도 쑤셔넣어서 나중에 '수정'할 때 매칭시킬 수 있게 배려
-                mappedYarns.push({ yarnId: `UNREGISTERED_${yName}`, ratio: yRatio, tempName: yName }); 
+                mappedYarns.push({ yarnId: `UNREGISTERED_${yName}`, ratio: yRatio, tempName: yName });
               }
             } else { mappedYarns.push({ yarnId: '', ratio: 0 }); }
           }
@@ -308,10 +308,10 @@ const App = () => {
             widthFull: Number(row.WidthFull) || 58, widthCut: Number(row.WidthCut) || 56, gsm: Number(row.GSM) || 300, costGYd: row.CostGYd ? Number(row.CostGYd) : '',
             knittingFee1k: kFee1k, knittingFee3k: Number(row.KnittingFee3k) || 2000, knittingFee5k: Number(row.KnittingFee5k) || 2000, dyeingFee: Number(row.DyeingFee) || 8800,
             extraFee1k: Number(row.ExtraFee1k) || 900, extraFee3k: Number(row.ExtraFee3k) || 700, extraFee5k: Number(row.ExtraFee5k) || 500,
-            losses: { 
-              tier1k: { knit: getLoss('KnitLoss1k') ?? 5, dye: getLoss('DyeLoss1k') ?? 10 }, 
-              tier3k: { knit: getLoss('KnitLoss3k') ?? 3, dye: getLoss('DyeLoss3k') ?? 10 }, 
-              tier5k: { knit: getLoss('KnitLoss5k') ?? 3, dye: getLoss('DyeLoss5k') ?? 9 } 
+            losses: {
+              tier1k: { knit: getLoss('KnitLoss1k') ?? 5, dye: getLoss('DyeLoss1k') ?? 10 },
+              tier3k: { knit: getLoss('KnitLoss3k') ?? 3, dye: getLoss('DyeLoss3k') ?? 10 },
+              tier5k: { knit: getLoss('KnitLoss5k') ?? 3, dye: getLoss('DyeLoss5k') ?? 9 }
             },
             marginTier: row.MarginTier !== undefined ? Number(row.MarginTier) : 3,
             brandExtra: {
@@ -324,13 +324,13 @@ const App = () => {
         });
 
         setSavedFabrics([...newFabrics, ...savedFabrics]); saveBatchToCloud('fabrics', newFabrics); setIsBulkModalOpen(false);
-        
+
         if (missingYarnNames.size > 0) {
           alert(`✅ 총 ${newFabrics.length}건이 성공적으로 등록되었습니다.\n\n⚠️ 주의: 다음 원사 정보가 아직 라이브러리에 없어서 임시 텍스트로 등록되었습니다.\n해당 원단들의 수율 단가(Cost/gYD) 계산이 부정확할 수 있으니,\n이후 원사 라이브러리에 아래 원사들을 추가하시거나 원단을 수정해주세요.\n\n[미등록 원사 목록]\n${[...missingYarnNames].join(', ')}`);
         } else {
           showToast(`${newFabrics.length}건이 완벽하게 등록되었습니다.`, 'success');
         }
-        
+
         if (fileInputRef.current) fileInputRef.current.value = '';
       } catch (err) { alert(`엑셀 업로드 중 오류가 발생했습니다: ${err.message}`); }
     };
@@ -433,9 +433,9 @@ const App = () => {
 
   const handleDeleteBuyer = async (buyerName) => {
     const isUsed = savedQuotes.some(q => String(q.buyerName).toUpperCase() === String(buyerName).toUpperCase());
-    if (isUsed) { if(!window.confirm("이미 이 바이어로 작성된 견적 히스토리가 있습니다. 그래도 목록에서 삭제하시겠습니까? (기존 히스토리는 유지됩니다)")) return; }
+    if (isUsed) { if (!window.confirm("이미 이 바이어로 작성된 견적 히스토리가 있습니다. 그래도 목록에서 삭제하시겠습니까? (기존 히스토리는 유지됩니다)")) return; }
     else if (!window.confirm(`'${buyerName}' 바이어를 목록에서 삭제하시겠습니까?`)) return;
-    
+
     const newBuyers = buyers.filter(b => b !== buyerName);
     await setDoc(doc(db, 'settings', 'general'), { buyers: newBuyers }, { merge: true });
     showToast('바이어가 삭제되었습니다.', 'success');
@@ -443,15 +443,24 @@ const App = () => {
 
   // OLD QUOTATION LOGICS MOVED TO HOOKS
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = (targetQuoteFromHistory = null) => {
+    // History 페이지 등에서 특정 견적서 출력 시 해당 견적서 데이터를 최우선으로 적용합니다.
+    if (targetQuoteFromHistory && targetQuoteFromHistory.id) {
+      setQuoteInput(targetQuoteFromHistory);
+    }
+    const targetQuote = (targetQuoteFromHistory && targetQuoteFromHistory.id) ? targetQuoteFromHistory : quoteInput;
+
     if (!isPdfReady) { showToast("PDF 로딩 중입니다.", 'error'); return; }
-    if (!quoteInput.items || quoteInput.items.length === 0) { showToast("내용이 없습니다.", 'error'); return; }
+    if (!targetQuote.items || targetQuote.items.length === 0) { showToast("내용이 없습니다.", 'error'); return; }
+
     setIsPdfGenerating(true); showToast("PDF 생성 중... (잠시만 기다려주세요)", 'info');
-    setTimeout(() => {                        
+
+    setTimeout(() => {
       if (printRef.current && window.html2pdf) {
         const opt = {
           margin: 0,
-          filename: `Quotation_${String(quoteInput.buyerName).replace(/[^a-zA-Z0-9\s-]/g, '')}_${quoteInput.date}.pdf`,
+          // 정규식에 가-힣을 추가하여 한국어 바이어 이름도 파일명에 정상 표기되도록 수정
+          filename: `Quotation_${String(targetQuote.buyerName).replace(/[^a-zA-Z0-9\s-가-힣]/g, '')}_${targetQuote.date}.pdf`,
           image: { type: 'jpeg', quality: 1 },
           html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
@@ -656,41 +665,41 @@ const App = () => {
         {/* TAB: 설계서 작성 (팝업 모달 형태) */}
         {isDesignSheetModalOpen && (
           <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4 md:p-8">
-             <div className="w-full max-w-5xl relative bg-transparent" onClick={e=>e.stopPropagation()}>
-               <DesignSheetPage
-                 sheetInput={sheetInput}
-                 editingSheetId={editingSheetId}
-                 handleSheetChange={handleSheetChange}
-                 handleSectionChange={handleSectionChange}
-                 handleSheetYarnChange={handleSheetYarnChange}
-                 handleCostInputChange={handleCostInputChange}
-                 handleCostNestedChange={handleCostNestedChange}
-                 handleActualDataChange={handleActualDataChange}
-                 handleSaveSheet={handleSaveSheet}
-                 handleDeleteSheet={handleDeleteSheet}
-                 resetSheetForm={resetSheetForm}
-                 advanceStage={advanceStage}
-                 getDesignCost={getDesignCost}
-                 yarnSelectOptions={yarnSelectOptions}
-                 user={user}
-                 viewMode={viewMode}
-                 setActiveTab={(tab) => { if(tab==='devStatus' || tab==='designList') setIsDesignSheetModalOpen(false); }}
-                 globalExchangeRate={globalExchangeRate}
-                 devRequests={devRequests}
-                 setSheetInput={setSheetInput}
-                 linkAndConfirm={linkAndConfirm}
-                 advanceToEztex={advanceToEztex}
-                 closeModal={() => setIsDesignSheetModalOpen(false)}
-                 designSheets={designSheets}
-                 knittingFactories={knittingFactories}
-                 dyeingFactories={dyeingFactories}
-                 machineTypes={machineTypes}
-                 structures={structures}
-                 addMasterItem={addMasterItem}
-                 savedFabrics={savedFabrics}
-                 registerFabricFromSheet={registerFabricFromSheet}
-               />
-             </div>
+            <div className="w-full max-w-5xl relative bg-transparent" onClick={e => e.stopPropagation()}>
+              <DesignSheetPage
+                sheetInput={sheetInput}
+                editingSheetId={editingSheetId}
+                handleSheetChange={handleSheetChange}
+                handleSectionChange={handleSectionChange}
+                handleSheetYarnChange={handleSheetYarnChange}
+                handleCostInputChange={handleCostInputChange}
+                handleCostNestedChange={handleCostNestedChange}
+                handleActualDataChange={handleActualDataChange}
+                handleSaveSheet={handleSaveSheet}
+                handleDeleteSheet={handleDeleteSheet}
+                resetSheetForm={resetSheetForm}
+                advanceStage={advanceStage}
+                getDesignCost={getDesignCost}
+                yarnSelectOptions={yarnSelectOptions}
+                user={user}
+                viewMode={viewMode}
+                setActiveTab={(tab) => { if (tab === 'devStatus' || tab === 'designList') setIsDesignSheetModalOpen(false); }}
+                globalExchangeRate={globalExchangeRate}
+                devRequests={devRequests}
+                setSheetInput={setSheetInput}
+                linkAndConfirm={linkAndConfirm}
+                advanceToEztex={advanceToEztex}
+                closeModal={() => setIsDesignSheetModalOpen(false)}
+                designSheets={designSheets}
+                knittingFactories={knittingFactories}
+                dyeingFactories={dyeingFactories}
+                machineTypes={machineTypes}
+                structures={structures}
+                addMasterItem={addMasterItem}
+                savedFabrics={savedFabrics}
+                registerFabricFromSheet={registerFabricFromSheet}
+              />
+            </div>
           </div>
         )}
 
