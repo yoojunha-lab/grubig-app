@@ -31,14 +31,19 @@ export const deleteDocument = async (collectionName, id) => {
 
 /**
  * 다수의 문서를 한 번에 저장합니다. (Batch Write)
+ * [Step 2] Firestore 500개 제한 방어: 450개 단위로 청크 분할 처리
  */
 export const saveBatchDocuments = async (collectionName, items) => {
   try {
-    const batch = writeBatch(db);
-    items.forEach(item => {
-      batch.set(doc(db, collectionName, String(item.id)), item);
-    });
-    await batch.commit();
+    const CHUNK_SIZE = 450;
+    for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+      const batch = writeBatch(db);
+      const chunk = items.slice(i, i + CHUNK_SIZE);
+      chunk.forEach(item => {
+        batch.set(doc(db, collectionName, String(item.id)), item);
+      });
+      await batch.commit();
+    }
     return true;
   } catch (error) {
     console.error(`Error batch saving to ${collectionName}:`, error);

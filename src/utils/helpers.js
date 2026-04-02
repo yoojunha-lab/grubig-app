@@ -27,8 +27,10 @@ export const calculateGYd = (gsm, widthFull) => Math.round(gsm * widthFull * 0.0
  * - USD: 소수점 2자리로 반올림
  * - KRW: 백 원 단위로 반올림
  */
-export const smartRound = (value, currency) => 
-  currency === 'USD' ? Number(value.toFixed(2)) : Math.round(value / 100) * 100;
+export const smartRound = (value, currency) => {
+  const safeVal = Number(value) || 0;
+  return currency === 'USD' ? Number(safeVal.toFixed(2)) : Math.round(safeVal / 100) * 100;
+};
 
 /**
  * 타겟 마진율(%)에 맞춰 원가에서 판매가를 산출(Gross Margin)합니다.

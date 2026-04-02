@@ -50,8 +50,10 @@ export const QuotationPage = ({
     if (draggedItemIndex !== null && dragOverItemIndex !== null && draggedItemIndex !== dragOverItemIndex) {
       // 순서 변경 적용 로직
       const newItems = [...(quoteInput.items || [])];
-      const draggedItem = newItems.splice(draggedItemIndex, 1)[0];
-      newItems.splice(dragOverItemIndex, 0, draggedItem);
+      const [draggedItem] = newItems.splice(draggedItemIndex, 1);
+      if (draggedItem) {
+        newItems.splice(dragOverItemIndex, 0, draggedItem);
+      }
       
       setQuoteInput({ ...quoteInput, items: newItems });
     }
@@ -64,7 +66,14 @@ export const QuotationPage = ({
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><FileText className="w-6 h-6 text-indigo-600" /> Quotation</h2>
         <div className="flex gap-2 w-full sm:w-auto">
-          <button onClick={() => handleSaveQuote((item) => setSavedQuotes([item, ...savedQuotes]))} className="flex-1 sm:flex-none bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800 flex items-center justify-center gap-2"><Save className="w-4 h-4" /> Save</button>
+          <button onClick={() => handleSaveQuote((item) => {
+            // 기존 id가 있으면 수정(덮어쓰기), 없으면 신규 추가
+            if (item.id && savedQuotes.some(q => q.id === item.id)) {
+              setSavedQuotes(savedQuotes.map(q => q.id === item.id ? item : q));
+            } else {
+              setSavedQuotes([item, ...savedQuotes]);
+            }
+          })} className="flex-1 sm:flex-none bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800 flex items-center justify-center gap-2"><Save className="w-4 h-4" /> Save</button>
           <button onClick={handleDownloadPDF} className="flex-1 sm:flex-none bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-2 shadow-lg shadow-indigo-200"><Download className="w-4 h-4" /> PDF</button>
         </div>
       </div>
@@ -132,7 +141,7 @@ export const QuotationPage = ({
               <tr><th className="p-3 w-8 text-center"></th><th className="p-3 w-10 text-center">No.</th><th className="p-3">Article</th><th className="p-3">Spec</th><th className="p-3 text-center">Cut</th><th className="p-3 text-center">Full</th><th className="p-3 text-right">GSM</th><th className="p-3 text-right">g/YD</th><th className="p-3 text-right text-orange-600 bg-orange-50/50">MCQ</th><th className="p-3 w-28 bg-slate-100 text-right">1,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-28 bg-indigo-50 text-indigo-900 text-right">3,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-28 bg-slate-100 text-right">5,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-10 text-center"></th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {quoteInput.items.map((item, idx) => (
+              {(quoteInput.items || []).map((item, idx) => (
                 <tr 
                   key={item.fabricId + idx} // 리스트 변경 감지를 위해 키 강화
                   draggable="true"
@@ -153,15 +162,15 @@ export const QuotationPage = ({
                   <td className="p-3 text-right text-orange-600 font-bold font-mono bg-orange-50/30 text-xs">{num(item.mcqYd || 300)}</td>
 
                   <td className="p-2 bg-slate-50">
-                    <input type="number" value={smartRound(getBasePrice(item, '1k') * extraMarkup, quoteInput.currency)} onChange={(e) => handleQuoteBasePriceChange(idx, 'basePrice1k', Number(e.target.value) / extraMarkup)} className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-right text-slate-600 focus:border-indigo-500 outline-none text-xs" />
+                    <input type="number" value={smartRound((getBasePrice(item, '1k') || 0) * extraMarkup, quoteInput.currency)} onChange={(e) => handleQuoteBasePriceChange(idx, 'basePrice1k', Number(e.target.value) / (extraMarkup || 1))} className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-right text-slate-600 focus:border-indigo-500 outline-none text-xs" />
                     {quoteInput.extraMargin > 0 && <div className="text-[9px] text-slate-400 text-right mt-0.5">Base: {formatQuotePrice(getBasePrice(item, '1k'))}</div>}
                   </td>
                   <td className="p-2 bg-indigo-50/30">
-                    <input type="number" value={smartRound(getBasePrice(item, '3k') * extraMarkup, quoteInput.currency)} onChange={(e) => handleQuoteBasePriceChange(idx, 'basePrice3k', Number(e.target.value) / extraMarkup)} className="w-full bg-white border border-indigo-200 rounded px-2 py-1 text-right font-bold text-indigo-700 focus:border-indigo-500 outline-none text-xs" />
+                    <input type="number" value={smartRound((getBasePrice(item, '3k') || 0) * extraMarkup, quoteInput.currency)} onChange={(e) => handleQuoteBasePriceChange(idx, 'basePrice3k', Number(e.target.value) / (extraMarkup || 1))} className="w-full bg-white border border-indigo-200 rounded px-2 py-1 text-right font-bold text-indigo-700 focus:border-indigo-500 outline-none text-xs" />
                     {quoteInput.extraMargin > 0 && <div className="text-[9px] text-indigo-400/70 text-right mt-0.5">Base: {formatQuotePrice(getBasePrice(item, '3k'))}</div>}
                   </td>
                   <td className="p-2 bg-slate-50">
-                    <input type="number" value={smartRound(getBasePrice(item, '5k') * extraMarkup, quoteInput.currency)} onChange={(e) => handleQuoteBasePriceChange(idx, 'basePrice5k', Number(e.target.value) / extraMarkup)} className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-right text-slate-600 focus:border-indigo-500 outline-none text-xs" />
+                    <input type="number" value={smartRound((getBasePrice(item, '5k') || 0) * extraMarkup, quoteInput.currency)} onChange={(e) => handleQuoteBasePriceChange(idx, 'basePrice5k', Number(e.target.value) / (extraMarkup || 1))} className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-right text-slate-600 focus:border-indigo-500 outline-none text-xs" />
                     {quoteInput.extraMargin > 0 && <div className="text-[9px] text-slate-400 text-right mt-0.5">Base: {formatQuotePrice(getBasePrice(item, '5k'))}</div>}
                   </td>
                   <td className="p-2 text-center"><button onClick={() => handleRemoveItemFromQuote(idx)} className="text-slate-300 hover:text-red-500 p-1"><X className="w-4 h-4" /></button></td>

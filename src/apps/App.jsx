@@ -445,22 +445,21 @@ const App = () => {
 
   const handleDownloadPDF = (targetQuoteFromHistory = null) => {
     // History 페이지 등에서 특정 견적서 출력 시 해당 견적서 데이터를 최우선으로 적용합니다.
-    if (targetQuoteFromHistory && targetQuoteFromHistory.id) {
-      setQuoteInput(targetQuoteFromHistory);
-    }
     const targetQuote = (targetQuoteFromHistory && targetQuoteFromHistory.id) ? targetQuoteFromHistory : quoteInput;
 
     if (!isPdfReady) { showToast("PDF 로딩 중입니다.", 'error'); return; }
     if (!targetQuote.items || targetQuote.items.length === 0) { showToast("내용이 없습니다.", 'error'); return; }
 
+    // PDFRenderer가 올바른 데이터로 렌더링되도록 항상 setQuoteInput 실행
+    setQuoteInput(targetQuote);
     setIsPdfGenerating(true); showToast("PDF 생성 중... (잠시만 기다려주세요)", 'info');
 
+    // React state 업데이트 + 렌더 사이클을 기다린 후 PDF 생성
     setTimeout(() => {
       if (printRef.current && window.html2pdf) {
         const opt = {
           margin: 0,
-          // 정규식에 가-힣을 추가하여 한국어 바이어 이름도 파일명에 정상 표기되도록 수정
-          filename: `Quotation_${String(targetQuote.buyerName).replace(/[^a-zA-Z0-9\s-가-힣]/g, '')}_${targetQuote.date}.pdf`,
+          filename: `Quotation_${String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9\s-가-힣]/g, '')}_${targetQuote.date || ''}.pdf`,
           image: { type: 'jpeg', quality: 1 },
           html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
@@ -470,8 +469,12 @@ const App = () => {
     }, 800);
   };
 
-  const formatQuotePrice = (price) => { return quoteInput.currency === 'USD' ? `$${usd(price)}` : `￦${num(price)}`; };
-  const getBasePrice = (item, key) => item[`basePrice${key}`] !== undefined ? item[`basePrice${key}`] : (item[`price${key}`] || 0);
+  // currency 인자를 받아 History Quick View에서도 올바른 통화 표시 (기본: quoteInput.currency)
+  const formatQuotePrice = (price, currency) => {
+    const cur = currency || quoteInput.currency;
+    return cur === 'USD' ? `$${usd(price)}` : `￦${num(price)}`;
+  };
+  const getBasePrice = (item, key) => (item[`basePrice${key}`] ?? item[`price${key}`]) ?? 0;
 
   const currentCalcFull = calculateCost(fabricInput);
   const uniqueSuppliers = ['All', ...new Set(yarnLibrary.flatMap(y => (y.suppliers || []).map(s => String(s.name).toUpperCase())).filter(Boolean))];

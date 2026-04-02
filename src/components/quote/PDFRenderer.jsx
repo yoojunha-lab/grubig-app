@@ -60,9 +60,9 @@ export const PDFRenderer = ({
                 <td className="py-3 text-right text-slate-500">{item.gsm}</td>
                 <td className="py-3 text-right text-slate-500 font-mono">{num(item.gYd)}</td>
                 <td className="py-3 text-right text-slate-900 font-mono font-bold">{num(item.mcqYd || 300)} YD</td>
-                <td className="py-3 text-right font-mono">{formatQuotePrice(smartRound(getBasePrice(item, '1k') * extraMarkup, quoteInput.currency))}</td>
-                <td className="py-3 text-right font-mono font-bold">{formatQuotePrice(smartRound(getBasePrice(item, '3k') * extraMarkup, quoteInput.currency))}</td>
-                <td className="py-3 text-right font-mono">{formatQuotePrice(smartRound(getBasePrice(item, '5k') * extraMarkup, quoteInput.currency))}</td>
+                <td className="py-3 text-right font-mono">{formatQuotePrice(smartRound((getBasePrice(item, '1k') || 0) * extraMarkup, quoteInput.currency))}</td>
+                <td className="py-3 text-right font-mono font-bold">{formatQuotePrice(smartRound((getBasePrice(item, '3k') || 0) * extraMarkup, quoteInput.currency))}</td>
+                <td className="py-3 text-right font-mono">{formatQuotePrice(smartRound((getBasePrice(item, '5k') || 0) * extraMarkup, quoteInput.currency))}</td>
               </tr>
             ))}
           </tbody>

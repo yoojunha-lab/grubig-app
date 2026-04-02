@@ -184,10 +184,13 @@ export const QuoteHistoryPage = ({
                 <tbody className="divide-y divide-slate-200">
                   {(quickViewQuote.items || []).map((item, idx) => {
                     const exMarkup = 1 + (Number(quickViewQuote.extraMargin) || 0) / 100;
-                    const fmtPrice = (val) => quickViewQuote.currency === 'USD' ? `$${usd(val)}` : `￦${num(val)}`;
-                    const p1k = item.basePrice1k ? smartRound(item.basePrice1k * exMarkup, quickViewQuote.currency) : item.price1k;
-                    const p3k = item.basePrice3k ? smartRound(item.basePrice3k * exMarkup, quickViewQuote.currency) : item.price3k;
-                    const p5k = item.basePrice5k ? smartRound(item.basePrice5k * exMarkup, quickViewQuote.currency) : item.price5k;
+                    const fmtPrice = (val) => {
+                      const safeVal = Number(val) || 0;
+                      return quickViewQuote.currency === 'USD' ? `$${usd(safeVal)}` : `￦${num(safeVal)}`;
+                    };
+                    const p1k = smartRound((item.basePrice1k ?? item.price1k ?? 0) * exMarkup, quickViewQuote.currency);
+                    const p3k = smartRound((item.basePrice3k ?? item.price3k ?? 0) * exMarkup, quickViewQuote.currency);
+                    const p5k = smartRound((item.basePrice5k ?? item.price5k ?? 0) * exMarkup, quickViewQuote.currency);
                     return (
                       <tr key={idx}>
                         <td className="py-3 font-bold text-slate-800 uppercase">{item.article}</td><td className="py-3 text-slate-600 truncate max-w-[120px]">{item.itemName}</td><td className="py-3 text-center text-slate-500">{item.widthCut}"</td><td className="py-3 text-center text-slate-500">{item.widthFull}"</td><td className="py-3 text-right text-slate-500">{item.gsm}</td><td className="py-3 text-right text-slate-500 font-mono">{num(item.gYd)}</td><td className="py-3 text-right text-slate-900 font-mono font-bold">{num(item.mcqYd || 300)} YD</td><td className="py-3 text-right font-mono">{fmtPrice(p1k)}</td><td className="py-3 text-right font-mono font-bold">{fmtPrice(p3k)}</td><td className="py-3 text-right font-mono">{fmtPrice(p5k)}</td>

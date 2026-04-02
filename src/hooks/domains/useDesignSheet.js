@@ -233,13 +233,16 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       updatedAt: new Date().toISOString()
     };
 
-    saveDocToCloud('designSheets', updatedSheet);
-    showToast(`'${DESIGN_STAGES[currentIdx + 1].label}' 단계로 진행되었습니다.`, 'success');
-
-    // 아이템화 완료 시 → 원단 자동 등록
+    // [Step 2] 아이템화 진입 시: registerFabricFromSheet가 원단 등록 + 설계서 stage 갱신을
+    // 한 번의 흐름으로 통합 처리 → advanceStage에서의 이중 Write(Race Condition) 방지
     if (nextStage === 'articled' && saveFabricFromSheet) {
       registerFabricFromSheet(updatedSheet);
+      showToast(`'${DESIGN_STAGES[currentIdx + 1].label}' 단계로 진행되었습니다.`, 'success');
+      return;
     }
+
+    saveDocToCloud('designSheets', updatedSheet);
+    showToast(`'${DESIGN_STAGES[currentIdx + 1].label}' 단계로 진행되었습니다.`, 'success');
   };
 
   // EZ-TEX O/D NO. 입력 시 자동으로 sampling으로 진행
@@ -363,7 +366,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       const linkedFabric = savedFabrics?.find(f => String(f.id) === String(itemToSave.linkedFabricId));
       if (linkedFabric) {
         const ci = itemToSave.costInput || {};
-        saveDocToCloud('fabrics', {
+        // [Step 3] DB 저장 전 객체 복사 후 임시 플래그 제거 → DB 스키마 오염 방지
+        const fabricToSync = {
           ...linkedFabric,
           // [기획오류 #2 수정] article, itemName도 동기화
           article: itemToSave.articleNo ?? linkedFabric.article,
@@ -382,9 +386,11 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
           losses: ci.losses ?? linkedFabric.losses,
           marginTier: ci.marginTier ?? linkedFabric.marginTier,
           brandExtra: ci.brandExtra ?? linkedFabric.brandExtra,
-          yarns: itemToSave.yarns || linkedFabric.yarns || [],
-          _syncedFromSheet: true // 무한 루프 방지 플래그
-        });
+          yarns: itemToSave.yarns || linkedFabric.yarns || []
+        };
+        // _syncedFromSheet는 내부 플래그이므로 DB에 저장하지 않음
+        delete fabricToSync._syncedFromSheet;
+        saveDocToCloud('fabrics', fabricToSync);
       }
     }
 
@@ -632,6 +638,22 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       changeHistory: [restoreHistory, ...(sheet.changeHistory || [])],
       updatedAt: now
     });
+
+    // [Step 1] 복원 시 의뢰↔설계서 1:1 매핑 복구
+    // DROP 시 해제되었던 linkedDesignSheetId를 다시 이 설계서 ID로 연결
+    if (sheet.devRequestId && devRequests) {
+      const linkedDev = devRequests.find(d => d.id === sheet.devRequestId);
+      // 의뢰가 존재하고, 아직 다른 설계서와 연결되어 있지 않을 때만 복구
+      if (linkedDev && !linkedDev.linkedDesignSheetId) {
+        saveDocToCloud('devRequests', {
+          ...linkedDev,
+          linkedDesignSheetId: sheetId,
+          status: 'confirmed',
+          updatedAt: now
+        });
+      }
+    }
+
     showToast('복원되었습니다.', 'success');
   };
 

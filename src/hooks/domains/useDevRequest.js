@@ -165,11 +165,25 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       }
     }
 
+    // [Step 4] confirmed로 전환 시: 기존에 이 의뢰를 바라보는 active 설계서가 있으면 자동 재연결
+    let restoredSheetId = devReq.linkedDesignSheetId || null;
+    if (newStatus === 'confirmed' && !restoredSheetId && designSheets) {
+      const matchingSheet = designSheets.find(
+        s => s.devRequestId === devReqId && s.status === 'active'
+      );
+      if (matchingSheet) {
+        restoredSheetId = matchingSheet.id;
+      }
+    }
+
     saveDocToCloud('devRequests', {
       ...devReq,
       status: newStatus,
       // confirmed → 다른 상태로 돌리면 linkedDesignSheetId도 해제
-      linkedDesignSheetId: devReq.status === 'confirmed' ? null : (devReq.linkedDesignSheetId || null),
+      // confirmed로 전환 시 active 설계서가 있으면 자동 복구
+      linkedDesignSheetId: devReq.status === 'confirmed' && newStatus !== 'confirmed'
+        ? null
+        : restoredSheetId,
       updatedAt: new Date().toISOString()
     });
     showToast(`상태가 변경되었습니다.`, 'success');

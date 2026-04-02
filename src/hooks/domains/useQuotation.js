@@ -24,8 +24,10 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
   const handleQuoteSettingChange = (field, value) => {
     setQuoteInput(prev => {
-      let next = { ...prev, [field]: value };
-      if (field === 'marketType') next.currency = value === 'export' ? 'USD' : 'KRW';
+      // extraMargin: 빈 문자열·NaN 방어 → 0으로 폴백
+      const safeValue = field === 'extraMargin' ? (Number(value) || 0) : value;
+      let next = { ...prev, [field]: safeValue };
+      if (field === 'marketType') next.currency = safeValue === 'export' ? 'USD' : 'KRW';
 
       if (['marketType', 'buyerType'].includes(field)) {
         next.items = next.items.map(item => {
@@ -40,24 +42,34 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
   const createQuoteItem = (fabric, currentExchangeRate, currentMarketType, currentBuyerType) => {
     const calc = calculateCost(fabric, currentExchangeRate);
+    // calculateCost 반환값이 null/undefined일 때 방어 (삭제된 원단 등)
+    if (!calc) {
+      return {
+        fabricId: fabric.id, article: fabric.article || 'N/A', itemName: fabric.itemName || '', widthCut: fabric.widthCut || 0, widthFull: fabric.widthFull || 0, gsm: fabric.gsm || 0,
+        gYd: 0, mcqYd: 300, basePrice1k: 0, basePrice3k: 0, basePrice5k: 0,
+      };
+    }
     const isBrand = currentBuyerType === 'brand';
-    const d1k = calc.tier1k[currentMarketType]; 
-    const d3k = calc.tier3k[currentMarketType]; 
-    const d5k = calc.tier5k[currentMarketType];
+    // tier 객체가 없을 수 있으므로 옵셔널 체이닝 + 빈 객체 폴백
+    const d1k = calc.tier1k?.[currentMarketType] ?? {}; 
+    const d3k = calc.tier3k?.[currentMarketType] ?? {}; 
+    const d5k = calc.tier5k?.[currentMarketType] ?? {};
 
     // MCQ는 실제 중량 베이스로 로스 10% 감안하여 계산
-    const weightWithLoss = calc.effectiveGYd * 1.1;
-    const rawMcqYd = 100000 / weightWithLoss;
+    const effectiveGYd = Number(calc.effectiveGYd) || 0;
+    const weightWithLoss = effectiveGYd * 1.1;
+    // effectiveGYd가 0이면 Infinity 방지 → MCQ 최소 300 보장
+    const rawMcqYd = weightWithLoss > 0 ? (100000 / weightWithLoss) : 0;
     const roundedMcq = Math.round(rawMcqYd / 100) * 100;
     const finalMcqYd = Math.max(300, roundedMcq);
 
     return {
       fabricId: fabric.id, article: fabric.article, itemName: fabric.itemName, widthCut: fabric.widthCut, widthFull: fabric.widthFull, gsm: fabric.gsm,
-      gYd: calc.theoreticalGYd, 
+      gYd: calc.theoreticalGYd ?? 0, 
       mcqYd: finalMcqYd,
-      basePrice1k: isBrand ? d1k.priceBrand : d1k.priceConverter,
-      basePrice3k: isBrand ? d3k.priceBrand : d3k.priceConverter,
-      basePrice5k: isBrand ? d5k.priceBrand : d5k.priceConverter,
+      basePrice1k: (isBrand ? d1k.priceBrand : d1k.priceConverter) ?? 0,
+      basePrice3k: (isBrand ? d3k.priceBrand : d3k.priceConverter) ?? 0,
+      basePrice5k: (isBrand ? d5k.priceBrand : d5k.priceConverter) ?? 0,
     };
   };
 
@@ -104,7 +116,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     if (!quoteInput.items || quoteInput.items.length === 0) { showToast("원단을 추가해주세요.", 'error'); return; }
     
     const authorName = user?.displayName || user?.email?.split('@')[0] || 'Unknown';
-    const itemToSave = { id: Date.now(), createdAt: new Date().toLocaleString(), authorName, ...quoteInput };
+    // 기존 id가 있으면 유지(수정 모드) → 중복 생성 방지, 없으면 새 ID 부여
+    const itemToSave = { id: quoteInput.id || Date.now(), createdAt: quoteInput.createdAt || new Date().toLocaleString(), authorName, ...quoteInput };
     
     if(savedQuotesCallback) savedQuotesCallback(itemToSave);
     saveDocToCloud('quotes', itemToSave); 
