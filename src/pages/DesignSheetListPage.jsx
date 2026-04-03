@@ -332,6 +332,12 @@ export const DesignSheetListPage = ({
                   <Edit2 className="w-3 h-3" /> 수정
                 </button>
               )}
+              {!isDropped && sheet.stage === 'draft' && typeof advanceStage === 'function' && (
+                <button onClick={() => advanceStage(sheet.id)}
+                  className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 rounded hover:bg-indigo-100">
+                  <Check className="w-3 h-3" /> 생산팀 이관하기 (EZ-TEX 대기)
+                </button>
+              )}
               {!isDropped && (
                 <button onClick={() => handleDrop(sheet.id)}
                   className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-orange-600 bg-orange-50 rounded hover:bg-orange-100">

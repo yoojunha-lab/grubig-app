@@ -1,5 +1,5 @@
 import React from 'react';
-import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets } from 'lucide-react';
+import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets, Check } from 'lucide-react';
 import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { num, calculateGYd } from '../utils/helpers';
@@ -128,8 +128,11 @@ export const DesignSheetPage = ({
             {editingSheetId && !isFullyLocked && (
               <button onClick={() => { handleDeleteSheet(editingSheetId); if(closeModal) closeModal(); else setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded shadow-sm transition-colors flex items-center gap-1"><Trash2 className="w-3.5 h-3.5"/> 삭제</button>
             )}
+            {editingSheetId && sheetInput?.stage === 'draft' && typeof advanceStage === 'function' && (
+              <button onClick={() => advanceStage(editingSheetId)} className="px-4 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded shadow-sm transition-colors flex items-center gap-1"><Check className="w-3.5 h-3.5"/> 생산팀 이관하기</button>
+            )}
             <button onClick={() => { resetSheetForm(); if(closeModal) closeModal(); else setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded shadow-sm transition-colors flex items-center gap-1"><X className="w-3.5 h-3.5"/> 닫기</button>
-            <button onClick={handleSaveAndGo} className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded shadow-md transition-colors flex items-center gap-1.5"><Save className="w-3.5 h-3.5"/> 명세서 저장</button>
+            <button onClick={handleSaveAndGo} className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded shadow-md transition-colors flex items-center gap-1.5"><Save className="w-3.5 h-3.5"/> 설계서 저장</button>
          </div>
       </div>
 
@@ -381,16 +384,16 @@ export const DesignSheetPage = ({
 
           {/* 2. 원가 항목 데이터 ROW 1 (편직비) */}
           <Th span={2} className="text-slate-700 justify-between pr-3">
-            <span>편직비(KNIT) / KG</span> <span className="opacity-60">₩</span>
+            <span>편직비 (￦/kg)</span>
           </Th>
           <Td span={2}><TInput type="number" name="knittingFee1k" value={sheetInput.costInput?.knittingFee1k??''} onChange={handleCostInputChange} placeholder="1K 편직비" className="text-right font-mono text-slate-700" /></Td>
           <Td span={2} className="bg-indigo-50/40 shadow-inner"><TInput type="number" name="knittingFee3k" value={sheetInput.costInput?.knittingFee3k??''} onChange={handleCostInputChange} placeholder="3K 편직비" className="text-right font-mono font-black text-indigo-800 bg-transparent" /></Td>
           <Td span={2}><TInput type="number" name="knittingFee5k" value={sheetInput.costInput?.knittingFee5k??''} onChange={handleCostInputChange} placeholder="5K 편직비" className="text-right font-mono text-slate-700" /></Td>
-          <Th span={2} className="bg-slate-100 justify-center text-slate-600 border-l border-l-slate-300 border-r-0">염가공비(DYE) / KG</Th>
+          <Th span={2} className="bg-slate-100 justify-center text-slate-600 border-l border-l-slate-300 border-r-0">염가공비 (￦/kg)</Th>
 
           {/* 3. 원가 항목 데이터 ROW 2 (편직 로스율) */}
           <Th span={2} className="text-amber-700 justify-between pr-3 bg-amber-50/50">
-            <span>편직 로스율(KNIT)</span> <span className="opacity-60">%</span>
+            <span>편직 Loss (%)</span>
           </Th>
           <Td span={2} className="bg-amber-50/30"><TInput type="number" value={sheetInput.costInput?.losses?.tier1k?.knit??''} onChange={e=>handleCostNestedChange('losses','tier1k','knit',e.target.value)} placeholder="%" className="text-center font-mono text-amber-700 bg-transparent" /></Td>
           <Td span={2} className="bg-indigo-50/40 shadow-inner"><TInput type="number" value={sheetInput.costInput?.losses?.tier3k?.knit??''} onChange={e=>handleCostNestedChange('losses','tier3k','knit',e.target.value)} placeholder="%" className="text-center font-mono font-black text-amber-700 bg-transparent" /></Td>
@@ -399,16 +402,16 @@ export const DesignSheetPage = ({
 
           {/* 4. 원가 항목 데이터 ROW 3 (염색 로스율) */}
           <Th span={2} className="text-blue-700 justify-between pr-3 bg-blue-50/50">
-            <span>염색 로스율(DYE)</span> <span className="opacity-60">%</span>
+            <span>염가공 Loss (%)</span>
           </Th>
           <Td span={2} className="bg-blue-50/30"><TInput type="number" value={sheetInput.costInput?.losses?.tier1k?.dye??''} onChange={e=>handleCostNestedChange('losses','tier1k','dye',e.target.value)} placeholder="%" className="text-center font-mono text-blue-700 bg-transparent" /></Td>
           <Td span={2} className="bg-indigo-50/40 shadow-inner"><TInput type="number" value={sheetInput.costInput?.losses?.tier3k?.dye??''} onChange={e=>handleCostNestedChange('losses','tier3k','dye',e.target.value)} placeholder="%" className="text-center font-mono font-black text-blue-700 bg-transparent" /></Td>
           <Td span={2} className="bg-blue-50/30"><TInput type="number" value={sheetInput.costInput?.losses?.tier5k?.dye??''} onChange={e=>handleCostNestedChange('losses','tier5k','dye',e.target.value)} placeholder="%" className="text-center font-mono text-blue-700 bg-transparent" /></Td>
-          <Th span={2} className="bg-slate-100 justify-center text-slate-600 border-l border-l-slate-300 border-r-0">타겟 마진 (Target Margin)</Th>
+          <Th span={2} className="bg-slate-100 justify-center text-slate-600 border-l border-l-slate-300 border-r-0">도매(Conv) 마진</Th>
 
           {/* 5. 원가 항목 데이터 ROW 4 (부대비) */}
           <Th span={2} className="text-slate-500 justify-between pr-3">
-            <span>부대비(EXTRA) / YD</span> <span className="opacity-60">₩</span>
+            <span>부대비용 (￦/YD)</span>
           </Th>
           <Td span={2}><TInput type="number" name="extraFee1k" value={sheetInput.costInput?.extraFee1k??''} onChange={handleCostInputChange} placeholder="1K 요금" className="text-right font-mono text-slate-500" /></Td>
           <Td span={2} className="bg-indigo-50/40 shadow-inner"><TInput type="number" name="extraFee3k" value={sheetInput.costInput?.extraFee3k??''} onChange={handleCostInputChange} placeholder="3K 요금" className="text-right font-mono font-black text-slate-600 bg-transparent" /></Td>
@@ -425,7 +428,7 @@ export const DesignSheetPage = ({
 
           {/* 6. 원가 항목 데이터 ROW 5 (직납로고비) */}
           <Th span={2} className="text-purple-700 justify-between pr-3 bg-purple-50/50 !border-b-0">
-            <span>직납로고비(BRAND) / YD</span> <span className="opacity-60">₩</span>
+            <span>Brand 직납 추가금 (￦/YD)</span>
           </Th>
           <Td span={2} className="bg-purple-50/30 !border-b-0"><TInput type="number" value={sheetInput.costInput?.brandExtra?.tier1k??''} onChange={e=>handleCostInputChange({target:{name:'brandExtra_tier1k',value:e.target.value}})} placeholder="1K 로고비" className="text-right font-mono text-purple-700 bg-transparent"/></Td>
           <Td span={2} className="bg-indigo-50/40 shadow-inner !border-b-0"><TInput type="number" value={sheetInput.costInput?.brandExtra?.tier3k??''} onChange={e=>handleCostInputChange({target:{name:'brandExtra_tier3k',value:e.target.value}})} placeholder="3K 로고비" className="text-right font-mono font-black text-purple-700 bg-transparent"/></Td>

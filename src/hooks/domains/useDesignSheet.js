@@ -358,8 +358,20 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     // changeReason은 임시 필드이므로 Firebase에 저장하지 않음
     delete itemToSave.changeReason;
 
+    // [Step 2] 샘플링 단계 자동 아이템화(원단 등록) 처리
+    let isAutoArticled = false;
+    // sampling 상태이고 Article 번호가 입력된 경우 자동으로 articled 로 전환
+    if (itemToSave.stage === 'sampling' && String(itemToSave.articleNo || '').trim()) {
+      itemToSave.stage = 'articled';
+      isAutoArticled = true;
+    }
+
     saveDocToCloud('designSheets', itemToSave);
 
+    // 자동 아이템화 확정 시 원단 등록 트리거
+    if (isAutoArticled && saveFabricFromSheet) {
+      registerFabricFromSheet(itemToSave);
+    }
     // [양방향 동기화] 연결된 원단이 있다면 해당 원단 DB도 같은 값으로 덮어씀
     // [B4 수정] ?? 연산자로 사용자가 의도한 0값을 보존
     if (itemToSave.linkedFabricId) {
@@ -556,18 +568,18 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       date: new Date().toLocaleDateString(),
       article: sheet.articleNo || '',
       itemName: sheet.fabricName || '',
-      // [B4 수정] ?? 연산자로 0값 보존
-      widthFull: ci.widthFull ?? 58,
-      widthCut: ci.widthCut ?? 56,
-      gsm: ci.gsm ?? 300,
-      costGYd: ci.costGYd ?? '',
-      knittingFee1k: ci.knittingFee1k ?? 3000,
-      knittingFee3k: ci.knittingFee3k ?? 2000,
-      knittingFee5k: ci.knittingFee5k ?? 2000,
-      dyeingFee: ci.dyeingFee ?? 8800,
-      extraFee1k: ci.extraFee1k ?? 900,
-      extraFee3k: ci.extraFee3k ?? 700,
-      extraFee5k: ci.extraFee5k ?? 500,
+      // [B4 방어 추가] 빈 문자열("")일 경우에도 기본값이 투입되도록 강제 캐스팅
+      widthFull: (ci.widthFull === '' || ci.widthFull == null) ? 58 : Number(ci.widthFull),
+      widthCut: (ci.widthCut === '' || ci.widthCut == null) ? 56 : Number(ci.widthCut),
+      gsm: (ci.gsm === '' || ci.gsm == null) ? 300 : Number(ci.gsm),
+      costGYd: (ci.costGYd === '' || ci.costGYd == null) ? '' : Number(ci.costGYd),
+      knittingFee1k: (ci.knittingFee1k === '' || ci.knittingFee1k == null) ? 3000 : Number(ci.knittingFee1k),
+      knittingFee3k: (ci.knittingFee3k === '' || ci.knittingFee3k == null) ? 2000 : Number(ci.knittingFee3k),
+      knittingFee5k: (ci.knittingFee5k === '' || ci.knittingFee5k == null) ? 2000 : Number(ci.knittingFee5k),
+      dyeingFee: (ci.dyeingFee === '' || ci.dyeingFee == null) ? 8800 : Number(ci.dyeingFee),
+      extraFee1k: (ci.extraFee1k === '' || ci.extraFee1k == null) ? 900 : Number(ci.extraFee1k),
+      extraFee3k: (ci.extraFee3k === '' || ci.extraFee3k == null) ? 700 : Number(ci.extraFee3k),
+      extraFee5k: (ci.extraFee5k === '' || ci.extraFee5k == null) ? 500 : Number(ci.extraFee5k),
       losses: ci.losses ?? { tier1k:{knit:5,dye:10}, tier3k:{knit:3,dye:10}, tier5k:{knit:3,dye:9} },
       marginTier: ci.marginTier ?? 3,
       brandExtra: ci.brandExtra ?? { tier1k:1000, tier3k:700, tier5k:500 },
@@ -600,12 +612,13 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
     if (!window.confirm('이 설계서를 DROP 처리하시겠습니까?\n(보관함으로 이동되며 현황에서 숨겨집니다)')) return;
 
-    // [A5 수정] DROP 시 연결된 의뢰의 linkedDesignSheetId도 해제 → 의뢰 잠김 방지
+    // [A5 수정] DROP 시 연결된 의뢰의 linkedDesignSheetId 해제 + 의뢰 상태를 Drop(rejected)으로 변경
     if (sheet.devRequestId && devRequests) {
       const linkedDev = devRequests.find(d => d.id === sheet.devRequestId);
       if (linkedDev?.linkedDesignSheetId === sheetId) {
         saveDocToCloud('devRequests', {
           ...linkedDev,
+          status: 'rejected',
           linkedDesignSheetId: null,
           updatedAt: new Date().toISOString()
         });
