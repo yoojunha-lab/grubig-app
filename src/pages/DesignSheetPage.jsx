@@ -430,7 +430,7 @@ export const DesignSheetPage = ({
 
           {/* 6. 원가 항목 데이터 ROW 5 (직납로고비) */}
           <Th span={2} className="text-purple-700 justify-center bg-purple-50/50 !border-b-0">
-            <span>Brand 직납 츄가금 (￦/YD)</span>
+            <span>Brand 직납 추가금 (￦/YD)</span>
           </Th>
           <Td span={2} className="bg-purple-50/30 !border-b-0"><TInput type="number" value={sheetInput.costInput?.brandExtra?.tier1k ?? ''} onChange={e => handleCostInputChange({ target: { name: 'brandExtra_tier1k', value: e.target.value } })} placeholder="1K 로고비" className="text-center font-mono text-purple-700 bg-transparent" /></Td>
           <Td span={2} className="bg-indigo-50/40 shadow-inner !border-b-0"><TInput type="number" value={sheetInput.costInput?.brandExtra?.tier3k ?? ''} onChange={e => handleCostInputChange({ target: { name: 'brandExtra_tier3k', value: e.target.value } })} placeholder="3K 로고비" className="text-center font-mono font-black text-purple-700 bg-transparent" /></Td>
@@ -451,25 +451,28 @@ export const DesignSheetPage = ({
             const fmt = v => viewMode === 'export' ? (v || 0).toFixed(2) : num(v || 0);
             const is3K = tier === 'tier3k';
             return (
-              <Td span={2} key={tier} className={`flex-1 flex flex-col items-center justify-center p-2 !border-b-0 ${is3K ? 'bg-indigo-900 shadow-inner border-indigo-900' : 'bg-white'}`}>
-                <span className={`text-[9px] font-bold ${is3K ? 'text-indigo-200' : 'text-slate-500'} tracking-widest uppercase mb-1.5`}>{['1,000 YDS', '3,000 YDS', '5,000 YDS'][i]} 원가 산출</span>
-                <div className="flex flex-col items-center gap-1 w-full relative">
+              <Td span={2} key={tier} className={`flex-1 flex flex-col items-center justify-center p-2.5 !border-b-0 ${is3K ? 'bg-indigo-900 shadow-inner border-indigo-900' : 'bg-white'}`}>
+                <span className={`text-[9px] font-bold ${is3K ? 'text-indigo-200' : 'text-slate-500'} tracking-widest uppercase mb-2`}>{['1,000 YDS', '3,000 YDS', '5,000 YDS'][i]} 원가 산출</span>
+                <div className="flex flex-col items-center gap-1.5 w-full relative">
+                  <div className="flex justify-between w-full px-2">
+                    <span className={`text-[9px] ${is3K ? 'text-indigo-300' : 'text-slate-400'}`}>순수(Cost)</span>
+                    <span className={`text-[10px] font-mono font-bold ${is3K ? 'text-indigo-200' : 'text-slate-500'}`}>{pre}{fmt(data?.totalCostYd)}</span>
+                  </div>
+                  <div className={`w-[90%] h-px ${is3K ? 'bg-indigo-800' : 'bg-slate-200'} my-0.5`}></div>
                   <div className="flex justify-between w-full px-2">
                     <span className={`text-[9px] ${is3K ? 'text-indigo-300' : 'text-slate-400'}`}>기본(일반)</span>
                     <span className={`text-[10px] font-mono font-bold ${is3K ? 'text-white' : 'text-slate-700'}`}>{pre}{fmt(data?.priceConverter)}</span>
                   </div>
                   <div className={`w-[90%] h-px ${is3K ? 'bg-indigo-800' : 'bg-slate-200'} my-0.5`}></div>
                   <div className="flex justify-between w-full px-2 items-center">
-                    <span className="text-[10px] text-yellow-500 font-black">직납(Brand)</span>
-                    <span className={`text-lg font-mono font-black ${is3K ? 'text-yellow-400 drop-shadow-md' : 'text-yellow-500'}`}>{pre}{fmt(data?.priceBrand)}</span>
+                    <span className={`text-[9px] ${is3K ? 'text-yellow-500 font-bold' : 'text-slate-600 font-bold'}`}>직납(Brand)</span>
+                    <span className={`text-[10px] font-mono font-bold ${is3K ? 'text-yellow-400' : 'text-slate-800'}`}>{pre}{fmt(data?.priceBrand)}</span>
                   </div>
                 </div>
               </Td>
             );
           })}
           <Td span={2} className="bg-slate-100 border-l border-l-slate-800 border-r-0 !border-b-0 flex flex-col items-center justify-center">
-            <span className="text-[9px] font-bold text-slate-400 mb-1">순수 원가(Cost) 참고</span>
-            <div className="text-[10px] font-mono font-bold text-slate-500">{viewMode === 'export' ? '$' : '₩'}{viewMode === 'export' ? (costData?.tier3k?.export?.totalCostYd || 0).toFixed(2) : num(costData?.tier3k?.domestic?.totalCostYd || 0)}</div>
           </Td>
         </div>
 
