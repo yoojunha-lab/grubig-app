@@ -24,6 +24,7 @@ import { useYarn } from '../hooks/domains/useYarn';
 import { useQuotation } from '../hooks/domains/useQuotation';
 import { useDevRequest } from '../hooks/domains/useDevRequest';
 import { useDesignSheet } from '../hooks/domains/useDesignSheet';
+import { useMainDetail } from '../hooks/domains/useMainDetail';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
 import { SearchableSelect } from '../components/common/SearchableSelect';
@@ -44,6 +45,7 @@ import { DevRequestPage } from '../pages/DevRequestPage';
 import { DesignSheetPage } from '../pages/DesignSheetPage';
 import { DesignSheetListPage } from '../pages/DesignSheetListPage';
 import { DevStatusPage } from '../pages/DevStatusPage';
+import { MainDetailPage } from '../pages/MainDetailPage';
 
 const App = () => {
   const [user, setUser] = useState(null);
@@ -65,6 +67,7 @@ const App = () => {
   const [buyers, setBuyers] = useState([]);
   const [devRequests, setDevRequests] = useState([]);
   const [designSheets, setDesignSheets] = useState([]);
+  const [mainDetails, setMainDetails] = useState([]);
 
   // 마스터 데이터 (settings/general에 배열로 저장)
   const [knittingFactories, setKnittingFactories] = useState([]);
@@ -140,7 +143,8 @@ const App = () => {
     const unsubQuotes = onSnapshot(collection(db, 'quotes'), (snapshot) => { setSavedQuotes(snapshot.docs.map(doc => doc.data())); setSyncStatus('saved'); });
     const unsubDevReqs = onSnapshot(collection(db, 'devRequests'), (snapshot) => setDevRequests(snapshot.docs.map(doc => doc.data())));
     const unsubDesignSheets = onSnapshot(collection(db, 'designSheets'), (snapshot) => setDesignSheets(snapshot.docs.map(doc => doc.data())));
-    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); };
+    const unsubMainDetails = onSnapshot(collection(db, 'mainDetails'), (snapshot) => setMainDetails(snapshot.docs.map(doc => doc.data())));
+    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); };
   }, [user]);
 
   const saveDocToCloud = async (colName, item) => { setSyncStatus('syncing'); try { await saveDocument(colName, item); setSyncStatus('saved'); } catch (e) { setSyncStatus('error'); showToast("저장 실패", "error"); } };
@@ -227,6 +231,13 @@ const App = () => {
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
     registerFabricFromSheet
   } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet, devRequests);
+
+  // ⚓️ 메인 디테일 훅
+  const {
+    detailInput, setDetailInput, editingDetailId, setEditingDetailId,
+    handleDetailChange, handleTestChange, addTest, removeTest,
+    handleSaveDetail, handleEditDetail, handleDeleteDetail, resetDetailForm
+  } = useMainDetail(mainDetails, saveDocToCloud, deleteDocFromCloud, showToast);
 
   const devPrintRef = useRef(null);
 
@@ -670,9 +681,10 @@ const App = () => {
 
         {/* TAB: 설계서 작성 (팝업 모달 형태) */}
         {isDesignSheetModalOpen && (
-          <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4 md:p-8">
-            <div className="w-full max-w-5xl relative bg-transparent" onClick={e => e.stopPropagation()}>
+          <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4 md:p-8 overflow-x-hidden">
+            <div className="w-full max-w-[1800px] relative bg-transparent mx-auto" onClick={e => e.stopPropagation()}>
               <DesignSheetPage
+                mainDetails={mainDetails}
                 sheetInput={sheetInput}
                 editingSheetId={editingSheetId}
                 handleSheetChange={handleSheetChange}
@@ -730,6 +742,18 @@ const App = () => {
             resetSheetForm={resetSheetForm}
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
             setSheetInput={setSheetInput}
+          />
+        )}
+
+        {activeTab === 'mainDetail' && (
+          <MainDetailPage
+            mainDetails={mainDetails}
+            detailInput={detailInput} setDetailInput={setDetailInput}
+            editingDetailId={editingDetailId} setEditingDetailId={setEditingDetailId}
+            handleDetailChange={handleDetailChange} handleTestChange={handleTestChange}
+            addTest={addTest} removeTest={removeTest}
+            handleSaveDetail={handleSaveDetail} handleEditDetail={handleEditDetail}
+            handleDeleteDetail={handleDeleteDetail} resetDetailForm={resetDetailForm}
           />
         )}
 

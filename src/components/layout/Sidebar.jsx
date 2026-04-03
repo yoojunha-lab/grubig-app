@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cloud, Menu, Layers, Home, Globe, Calculator, FileSpreadsheet, Box, FileText, Calendar, LogOut, DollarSign, Edit2, Activity, Archive } from 'lucide-react';
+import { Cloud, Menu, Layers, Home, Globe, Calculator, FileSpreadsheet, Box, FileText, Calendar, LogOut, DollarSign, Edit2, Activity, Archive, FileCheck } from 'lucide-react';
 
 export const Sidebar = ({ isMobileMenuOpen, setIsMobileMenuOpen, activeTab, setActiveTab, viewMode, setViewMode, syncStatus, handleLogout, globalExchangeRate, setGlobalExchangeRate }) => {
   return (
@@ -55,6 +55,7 @@ export const Sidebar = ({ isMobileMenuOpen, setIsMobileMenuOpen, activeTab, setA
           <div className="pt-6 mt-6 border-t border-slate-800/80">
             <p className="px-4 text-[10px] font-extrabold text-slate-500 mb-2.5 uppercase tracking-widest">Development</p>
             <div className="space-y-1.5">
+              <button onClick={() => { setActiveTab('mainDetail'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 text-sm font-medium ${activeTab === 'mainDetail' ? 'bg-gradient-to-r from-violet-600 to-purple-500 text-white shadow-lg shadow-violet-500/20 translate-x-1' : 'hover:bg-slate-800 hover:translate-x-1 text-slate-400'}`}><FileCheck className="w-4 h-4" /> <span>메인/QC 디테일 시트</span></button>
               <button onClick={() => { setActiveTab('devStatus'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 text-sm font-medium ${activeTab === 'devStatus' ? 'bg-gradient-to-r from-violet-600 to-purple-500 text-white shadow-lg shadow-violet-500/20 translate-x-1' : 'hover:bg-slate-800 hover:translate-x-1 text-slate-400'}`}><Activity className="w-4 h-4" /> <span>개발/설계 현황</span></button>
               <button onClick={() => { setActiveTab('designList'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 text-sm font-medium ${activeTab === 'designList' ? 'bg-gradient-to-r from-violet-600 to-purple-500 text-white shadow-lg shadow-violet-500/20 translate-x-1' : 'hover:bg-slate-800 hover:translate-x-1 text-slate-400'}`}><Archive className="w-4 h-4" /> <span>설계서 보관함</span></button>
             </div>

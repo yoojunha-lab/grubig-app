@@ -140,12 +140,10 @@ export const DevStatusPage = ({
         {/* 🚀 1. 헤더 영역 */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-extrabold text-slate-800 flex items-center gap-2">
-            <div className="bg-gradient-to-br from-indigo-500 to-blue-600 p-1.5 rounded-lg text-white shadow-lg shadow-indigo-200">
-              <Activity className="w-4 h-4"/>
-            </div>
-            생산 파이프라인 (대시보드)
-          </h2>
+          <h1 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+            <div className="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-200"><Activity className="w-6 h-6 text-white"/></div>
+            개발의뢰 현황
+          </h1>
           <p className="text-xs text-slate-500 mt-0.5">의뢰 접수부터 설계, 생산, 아이템화까지 하나의 흐름으로 관리합니다.</p>
         </div>
         <div className="flex gap-2">
@@ -214,10 +212,10 @@ export const DevStatusPage = ({
         if (activeSheets.length === 0) return null;
 
         const stageStyle = {
-          draft: { col: 'border-slate-400 bg-slate-50/30', badge: 'bg-slate-200 text-slate-800' },
-          eztex: { col: 'border-violet-400 bg-violet-50/30', badge: 'bg-violet-200 text-violet-800' },
-          sampling: { col: 'border-amber-400 bg-amber-50/30', badge: 'bg-amber-200 text-amber-800' },
-          articled: { col: 'border-emerald-400 bg-emerald-50/30', badge: 'bg-emerald-200 text-emerald-800' }
+          draft: { borderLine: 'border-slate-400', badgeInfo: 'bg-slate-200 text-slate-800' },
+          eztex: { borderLine: 'border-violet-300', badgeInfo: 'bg-violet-100 text-violet-700' },
+          sampling: { borderLine: 'border-amber-300', badgeInfo: 'bg-amber-100 text-amber-700' },
+          articled: { borderLine: 'border-emerald-300', badgeInfo: 'bg-emerald-100 text-emerald-700' }
         };
 
         return (
@@ -229,20 +227,19 @@ export const DevStatusPage = ({
               설계서 단계 현황
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2.5 items-start">
               {DESIGN_STAGES.map(stage => {
                 const items = sheetsByStage[stage.key] || [];
                 const style = stageStyle[stage.key];
                 return (
-                  <div key={stage.key} className={`bg-slate-50/50 rounded-xl p-4 border border-slate-200 shadow-sm flex flex-col max-h-[700px] border-t-4 ${style.col}`}>
+                  <div key={stage.key} className="bg-slate-100/50 rounded-xl p-2.5 border border-slate-200 min-h-[500px]">
                     {/* 칼럼 헤더 (상단 칸반과 동일한 구조) */}
-                    <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-200 border-dashed">
-                      <h3 className="text-sm font-extrabold text-slate-800 tracking-tight">{stage.label}</h3>
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${style.badge}`}>{items.length}</span>
-                    </div>
+                    <h3 className={`flex justify-between items-center text-[11px] font-extrabold text-slate-700 mb-2 border-b-2 ${style.borderLine} pb-1.5`}>
+                      {stage.label} <span className={`px-1.5 py-0.5 rounded-full text-[9px] ${style.badgeInfo}`}>{items.length}</span>
+                    </h3>
 
                     {/* 아이템 목록 */}
-                    <div className="flex flex-col gap-3 overflow-y-auto custom-scrollbar pr-1 pb-2">
+                    <div className="space-y-2 overflow-y-auto custom-scrollbar pr-1 pb-2">
                       {items.length === 0 ? (
                         <p className="text-sm text-slate-400 text-center py-8 font-medium">항목 없음</p>
                       ) : items.map(s => {
