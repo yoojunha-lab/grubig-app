@@ -30,6 +30,8 @@ import { SearchableSelect } from '../components/common/SearchableSelect';
 import { Toast } from '../components/common/Toast';
 import { Sidebar } from '../components/layout/Sidebar';
 import { LoginScreen } from '../components/layout/LoginScreen';
+import { MasterDataModal } from '../components/common/MasterDataModal';
+import { CategoryModal } from '../components/common/CategoryModal';
 
 // 📄 도메인 뷰 (페이지) 컴포넌트
 import { CalculatorPage } from '../pages/CalculatorPage';
@@ -85,6 +87,7 @@ const App = () => {
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isBuyerModalOpen, setIsBuyerModalOpen] = useState(false);
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  const [activeMasterModal, setActiveMasterModal] = useState(null);
 
   const [fabricSearchTerm, setFabricSearchTerm] = useState('');
   const [yarnSearchTerm, setYarnSearchTerm] = useState('');
@@ -647,7 +650,7 @@ const App = () => {
             createDesignSheetFromDev={createDesignSheetFromDev}
             initFromDevRequest={initFromDevRequest}
             updateDevStatus={updateDevStatus}
-            handleEditSheet={handleEditSheet}
+            handleEditSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
             handleDeleteSheet={handleDeleteSheet}
             advanceStage={advanceStage}
             advanceToEztex={advanceToEztex}
@@ -699,6 +702,7 @@ const App = () => {
                 machineTypes={machineTypes}
                 structures={structures}
                 addMasterItem={addMasterItem}
+                setActiveMasterModal={setActiveMasterModal}
                 savedFabrics={savedFabrics}
                 registerFabricFromSheet={registerFabricFromSheet}
               />
@@ -757,74 +761,48 @@ const App = () => {
         {isYarnBulkModalOpen && (<div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4"><div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 relative"><button onClick={() => setIsYarnBulkModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6" /></button><h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><FileSpreadsheet className="w-6 h-6 text-emerald-600" /> 원사 엑셀 일괄 등록</h3><div className="space-y-4"><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">1. 양식 다운로드</p><button onClick={handleDownloadYarnTemplate} className="w-full flex justify-center items-center gap-2 bg-white border border-slate-300 py-2 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><Download className="w-4 h-4" /> 원사 양식 다운로드 (.xlsx)</button></div><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">2. 파일 업로드</p><label className="w-full flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-white hover:bg-slate-50 transition-colors"><Upload className="w-8 h-8 text-slate-400 mb-2" /><span className="text-sm text-slate-500 font-medium">클릭하여 엑셀 파일 선택</span><input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleYarnFileUpload} ref={yarnFileInputRef} /></label></div></div></div></div>)}
 
         {/* Category Manager Modal */}
-        {isCategoryModalOpen && (
-          <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6 relative">
-              <button onClick={() => { setIsCategoryModalOpen(false); setEditingCategoryOld(null); setEditingCategoryNew(''); }} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6" /></button>
-              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Settings className="w-5 h-5 text-slate-500" /> 원사 카테고리 관리</h3>
-              <div className="bg-orange-50 text-orange-800 text-xs p-3 rounded-lg mb-4">
-                ⚠️ <b>주의:</b> 기존 카테고리 이름을 수정하면 해당 카테고리를 사용 중인 <b>모든 원사의 데이터가 일괄 변경</b>됩니다.
-              </div>
-              <div className="space-y-2 max-h-60 overflow-y-auto mb-4 p-2 border border-slate-100 rounded-lg bg-slate-50">
-                {categories.map(cat => (
-                  <div key={cat} className="flex justify-between items-center bg-white p-2 rounded shadow-sm border border-slate-200">
-                    {editingCategoryOld === cat ? (
-                      <div className="flex w-full gap-2">
-                        <input type="text" value={editingCategoryNew} onChange={e => setEditingCategoryNew(String(e.target.value).toUpperCase())} className="flex-1 border border-blue-300 rounded px-2 py-1 text-sm outline-none focus:ring-1 ring-blue-500 uppercase" autoFocus />
-                        <button onClick={() => handleSaveCategoryEdit(cat, editingCategoryNew)} className="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold shrink-0">저장</button>
-                        <button onClick={() => { setEditingCategoryOld(null); setEditingCategoryNew(''); }} className="bg-slate-200 text-slate-600 px-2 py-1 rounded text-xs shrink-0">취소</button>
-                      </div>
-                    ) : (
-                      <>
-                        <span className="font-bold text-sm text-slate-700 uppercase">{cat}</span>
-                        <div className="flex gap-1">
-                          <button onClick={() => { setEditingCategoryOld(cat); setEditingCategoryNew(cat); }} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"><Edit2 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleDeleteCategory(cat)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="border-t border-slate-200 pt-4">
-                <p className="text-xs font-bold text-slate-500 mb-2">새 카테고리 추가</p>
-                <div className="flex gap-2">
-                  <input type="text" value={editingCategoryOld === null ? editingCategoryNew : ''} onChange={e => { if (editingCategoryOld === null) setEditingCategoryNew(String(e.target.value).toUpperCase()); }} placeholder="새로운 카테고리 입력..." className="flex-1 border border-slate-300 rounded px-3 py-2 text-sm outline-none focus:ring-1 ring-emerald-500 uppercase" />
-                  <button onClick={() => handleSaveCategoryEdit(null, editingCategoryNew)} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-emerald-700 whitespace-nowrap">추가</button>
-                </div>
-              </div>
-            </div>
-          </div>
+        <CategoryModal
+          isOpen={isCategoryModalOpen}
+          onClose={() => setIsCategoryModalOpen(false)}
+          categories={categories}
+          editingCategoryOld={editingCategoryOld}
+          setEditingCategoryOld={setEditingCategoryOld}
+          editingCategoryNew={editingCategoryNew}
+          setEditingCategoryNew={setEditingCategoryNew}
+          handleSaveCategoryEdit={handleSaveCategoryEdit}
+          handleDeleteCategory={handleDeleteCategory}
+        />
+
+        {/* Master Data Manager Modal */}
+        {activeMasterModal && (
+          <MasterDataModal
+            isOpen={true}
+            onClose={() => setActiveMasterModal(null)}
+            title={activeMasterModal.title}
+            description={activeMasterModal.description}
+            icon={activeMasterModal.icon}
+            items={
+              activeMasterModal.key === 'knittingFactories' ? knittingFactories :
+              activeMasterModal.key === 'dyeingFactories' ? dyeingFactories :
+              activeMasterModal.key === 'machineTypes' ? machineTypes :
+              activeMasterModal.key === 'structures' ? structures : []
+            }
+            onAdd={(name) => addMasterItem(activeMasterModal.key, name)}
+            onDelete={(name) => removeMasterItem(activeMasterModal.key, name)}
+          />
         )}
 
-        {/* Buyer Manager Modal */}
-        {isBuyerModalOpen && (
-          <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6 relative">
-              <button onClick={() => { setIsBuyerModalOpen(false); setEditingBuyerNew(''); }} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6" /></button>
-              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Users className="w-5 h-5 text-slate-500" /> 바이어 사전 등록 관리</h3>
-              <div className="bg-indigo-50 text-indigo-800 text-xs p-3 rounded-lg mb-4">
-                ℹ️ 이곳에 바이어를 등록해 두면 견적서 작성 시 <b>오타 없이 정확하고 빠르게</b> 바이어를 선택할 수 있습니다.
-              </div>
-              <div className="space-y-2 max-h-60 overflow-y-auto mb-4 p-2 border border-slate-100 rounded-lg bg-slate-50">
-                {buyers.length === 0 && <p className="text-xs text-slate-400 text-center py-4">등록된 바이어가 없습니다.</p>}
-                {buyers.map((b, idx) => (
-                  <div key={idx} className="flex justify-between items-center bg-white p-2 rounded shadow-sm border border-slate-200">
-                    <span className="font-bold text-sm text-slate-700 uppercase">{b}</span>
-                    <button onClick={() => handleDeleteBuyer(b)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
-                  </div>
-                ))}
-              </div>
-              <div className="border-t border-slate-200 pt-4">
-                <p className="text-xs font-bold text-slate-500 mb-2">새 바이어 추가</p>
-                <div className="flex gap-2">
-                  <input type="text" value={editingBuyerNew} onChange={e => setEditingBuyerNew(String(e.target.value).toUpperCase())} placeholder="등록할 바이어 상호명..." className="flex-1 border border-slate-300 rounded px-3 py-2 text-sm outline-none focus:ring-1 ring-indigo-500 uppercase" onKeyDown={e => e.key === 'Enter' && handleSaveBuyer(editingBuyerNew)} />
-                  <button onClick={() => handleSaveBuyer(editingBuyerNew)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-indigo-700 whitespace-nowrap">추가</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Buyer Manager Modal (Reusing MasterDataModal) */}
+        <MasterDataModal
+          isOpen={isBuyerModalOpen}
+          onClose={() => { setIsBuyerModalOpen(false); setEditingBuyerNew(''); }}
+          title="바이어 사전 등록 관리"
+          description={<span>ℹ️ 이곳에 바이어를 등록해 두면 견적서 작성 시 <b>오타 없이 정확하고 빠르게</b> 바이어를 선택할 수 있습니다.</span>}
+          icon={Users}
+          items={buyers}
+          onAdd={handleSaveBuyer}
+          onDelete={handleDeleteBuyer}
+        />
 
         {/* PDF Document */}
         <PDFRenderer

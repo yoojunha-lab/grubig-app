@@ -3,6 +3,7 @@ import { Activity, Edit2, ChevronDown, ChevronUp, ArrowRight, FileText, Plus, X,
 import { DESIGN_STAGES, STAGE_COLORS } from '../constants/common';
 import { num } from '../utils/helpers';
 import { DesignStepper } from '../components/design/DesignStepper';
+import { DevReqSummaryCard } from '../components/dashboard/DevReqSummaryCard';
 
 /**
  * [생산 관리자 관점] 통합 개발 현황 대시보드
@@ -26,12 +27,13 @@ export const DevStatusPage = ({
   // EZ-TEX O/D NO. 인라인 입력용 ref 저장소
   const eztexInputRefs = useRef({});
 
-  const statusLabels = { pending: '대기중', analyzing: '분석 중', confirmed: '개발투입확정', rejected: '미진행' };
+  const statusLabels = { pending: '의뢰 접수', analyzing: '분석 중', hold: '대기중', confirmed: '개발투입확정', rejected: 'Drop(미진행)' };
   const statusCls = {
     pending: 'bg-amber-100 text-amber-700 border-amber-300',
     analyzing: 'bg-blue-100 text-blue-700 border-blue-300',
+    hold: 'bg-purple-100 text-purple-700 border-purple-300',
     confirmed: 'bg-emerald-100 text-emerald-700 border-emerald-300',
-    rejected: 'bg-red-100 text-red-700 border-red-300'
+    rejected: 'bg-slate-200 text-slate-700 border-slate-300'
   };
 
   const getDaysUntil = (d) => { if(!d) return null; const t=new Date(d),n=new Date(); t.setHours(0,0,0,0); n.setHours(0,0,0,0); return Math.ceil((t-n)/864e5); };
@@ -113,57 +115,22 @@ export const DevStatusPage = ({
   const stageInfo = (key) => { const s=DESIGN_STAGES.find(x=>x.key===key); const c=STAGE_COLORS[key]||STAGE_COLORS.draft; return {label:s?.label||'작성중',...c}; };
 
   // ==========================================
-  // [컴포넌트] 의뢰 요약 카드 (Dashboard 형)
-  // ==========================================
-  const DevReqSummaryCard = ({ d }) => {
-    const db = deadlineBadge(d.targetSpec?.analysisDeadline);
-    const isLocked = d.status === 'confirmed' && !!getLinkedSheet(d);
-    
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm hover:border-slate-300 transition-all p-3">
-        {/* 상단: 상태 및 오더번호 */}
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex gap-1.5 items-center">
-             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${statusCls[d.status]}`}>{statusLabels[d.status]}</span>
-             <span className="text-sm font-mono font-extrabold text-violet-600">{d.devOrderNo}</span>
-          </div>
-          {db && <span className={`text-[10px] rounded px-1.5 py-0.5 ${db.c}`}><Clock className="w-2.5 h-2.5 inline mr-0.5"/>{db.t}</span>}
-        </div>
-        
-        {/* 중앙: 바이어 및 내용 */}
-        <div className="mb-3">
-          <p className="text-sm font-bold text-slate-800">{d.buyerName}</p>
-          <div className="flex gap-2 text-xs text-slate-500 mt-1 flex-wrap">
-             {d.devItem && <span className="bg-slate-100 px-1.5 py-0.5 leading-none rounded">{d.devItem}</span>}
-             {d.targetSpec?.composition && <span>{d.targetSpec.composition.substring(0,25)}</span>}
-          </div>
-        </div>
-        
-        {/* 하단: 액션 버튼 */}
-        <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-100">
-           {!isLocked && (
-             <select value={d.status} onChange={e=>updateDevStatus(d.id,e.target.value)}
-               className="border border-slate-300 rounded px-1.5 py-1 text-[10px] font-bold outline-none bg-slate-50">
-               <option value="pending">대기중</option><option value="analyzing">분석 중</option><option value="confirmed">확정하기</option><option value="rejected">미진행</option>
-             </select>
-           )}
-           {!isLocked && <button onClick={()=>openEditModal(d)} className="px-2 py-1 text-[10px] font-bold text-slate-600 hover:text-blue-600 border border-slate-200 rounded">의뢰 수정</button>}
-           {/* [기획오류 #8 수정] analyzing 상태에서도 삭제 가능 */}
-           {!isLocked && (d.status === 'pending' || d.status === 'analyzing' || d.status === 'rejected') && (
-             <button onClick={()=>handleDeleteDevRequest(d.id)} className="px-2 py-1 text-[10px] font-bold text-red-500 hover:text-red-700 bg-red-50 border border-red-200 rounded flex items-center gap-1">
-               <Trash2 className="w-3 h-3" /> 삭제
-             </button>
-           )}
-           <button onClick={()=>handlePrint(d, 'report')} className="px-2 py-1 text-[10px] font-bold text-slate-600 bg-slate-100 border border-slate-200 hover:bg-slate-200 rounded flex items-center gap-1 ml-auto">
-             <Printer className="w-3 h-3" /> 프린트
-           </button>
-           {d.status === 'confirmed' && !getLinkedSheet(d) && (
-              <button onClick={()=>handleGoToSheet(d)} className="px-2 py-1 text-[10px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded shadow-sm">설계서 작성 시작</button>
-           )}
-        </div>
-      </div>
-    );
-  };
+
+  const renderCard = (d) => (
+    <DevReqSummaryCard
+      key={d.id}
+      d={d}
+      statusCls={statusCls}
+      statusLabels={statusLabels}
+      deadlineBadge={deadlineBadge}
+      getLinkedSheet={getLinkedSheet}
+      updateDevStatus={updateDevStatus}
+      openEditModal={openEditModal}
+      handleDeleteDevRequest={handleDeleteDevRequest}
+      handlePrint={handlePrint}
+      handleGoToSheet={handleGoToSheet}
+    />
+  );
 
 
 
@@ -189,44 +156,54 @@ export const DevStatusPage = ({
       </div>
 
       {/* 📊 2. 통합 파이프라인 요약 (Dashboard) 대신 칸반 보드 형태 제공 */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
-         {/* 대기중 */}
-         <div className="bg-slate-100/50 rounded-xl p-3 border border-slate-200 min-h-[500px]">
-            <h3 className="flex justify-between items-center text-sm font-extrabold text-slate-700 mb-3 border-b-2 border-amber-300 pb-2">
-               대기중 <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-xs">{filterSearch(devRequests.filter(d=>d.status==='pending')).length}</span>
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-2.5 items-start">
+         {/* 의뢰 접수 (pending) */}
+         <div className="bg-slate-100/50 rounded-xl p-2.5 border border-slate-200 min-h-[500px]">
+            <h3 className="flex justify-between items-center text-[11px] font-extrabold text-slate-700 mb-2 border-b-2 border-amber-300 pb-1.5">
+               의뢰 접수 <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full text-[9px]">{filterSearch(devRequests.filter(d=>d.status==='pending')).length}</span>
             </h3>
-            <div className="space-y-3">
-               {filterSearch(devRequests.filter(d=>d.status==='pending')).map(d => <DevReqSummaryCard key={d.id} d={d} />)}
+            <div className="space-y-2">
+               {filterSearch(devRequests.filter(d=>d.status==='pending')).map(d => renderCard(d))}
             </div>
          </div>
 
-         {/* 분석중 */}
-         <div className="bg-slate-100/50 rounded-xl p-3 border border-slate-200 min-h-[500px]">
-            <h3 className="flex justify-between items-center text-sm font-extrabold text-slate-700 mb-3 border-b-2 border-blue-300 pb-2">
-               분석 중 <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{filterSearch(devRequests.filter(d=>d.status==='analyzing')).length}</span>
+         {/* 분석중 (analyzing) */}
+         <div className="bg-slate-100/50 rounded-xl p-2.5 border border-slate-200 min-h-[500px]">
+            <h3 className="flex justify-between items-center text-[11px] font-extrabold text-slate-700 mb-2 border-b-2 border-blue-300 pb-1.5">
+               분석 중 <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full text-[9px]">{filterSearch(devRequests.filter(d=>d.status==='analyzing')).length}</span>
             </h3>
-            <div className="space-y-3">
-               {filterSearch(devRequests.filter(d=>d.status==='analyzing')).map(d => <DevReqSummaryCard key={d.id} d={d} />)}
+            <div className="space-y-2">
+               {filterSearch(devRequests.filter(d=>d.status==='analyzing')).map(d => renderCard(d))}
             </div>
          </div>
 
-         {/* 확정하기 */}
-         <div className="bg-slate-100/50 rounded-xl p-3 border border-slate-200 min-h-[500px]">
-            <h3 className="flex justify-between items-center text-sm font-extrabold text-slate-700 mb-3 border-b-2 border-emerald-300 pb-2">
-               개발투입확정 <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-xs">{filterSearch(devRequests.filter(d=>d.status==='confirmed')).length}</span>
+         {/* 대기중 (hold) */}
+         <div className="bg-slate-100/50 rounded-xl p-2.5 border border-slate-200 min-h-[500px]">
+            <h3 className="flex justify-between items-center text-[11px] font-extrabold text-slate-700 mb-2 border-b-2 border-purple-300 pb-1.5">
+               대기중 <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full text-[9px]">{filterSearch(devRequests.filter(d=>d.status==='hold')).length}</span>
             </h3>
-            <div className="space-y-3">
-               {filterSearch(devRequests.filter(d=>d.status==='confirmed')).map(d => <DevReqSummaryCard key={d.id} d={d} />)}
+            <div className="space-y-2">
+               {filterSearch(devRequests.filter(d=>d.status==='hold')).map(d => renderCard(d))}
             </div>
          </div>
 
-         {/* 미진행 */}
-         <div className="bg-slate-100/50 rounded-xl p-3 border border-slate-200 min-h-[500px] opacity-70">
-            <h3 className="flex justify-between items-center text-sm font-extrabold text-slate-700 mb-3 border-b-2 border-red-300 pb-2">
-               미진행 <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-xs">{filterSearch(devRequests.filter(d=>d.status==='rejected')).length}</span>
+         {/* 확정하기 (confirmed) */}
+         <div className="bg-slate-100/50 rounded-xl p-2.5 border border-slate-200 min-h-[500px]">
+            <h3 className="flex justify-between items-center text-[11px] font-extrabold text-slate-700 mb-2 border-b-2 border-emerald-300 pb-1.5">
+               개발투입확정 <span className="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full text-[9px]">{filterSearch(devRequests.filter(d=>d.status==='confirmed')).length}</span>
             </h3>
-            <div className="space-y-3">
-               {filterSearch(devRequests.filter(d=>d.status==='rejected')).map(d => <DevReqSummaryCard key={d.id} d={d} />)}
+            <div className="space-y-2">
+               {filterSearch(devRequests.filter(d=>d.status==='confirmed')).map(d => renderCard(d))}
+            </div>
+         </div>
+
+         {/* 미진행 (rejected) */}
+         <div className="bg-slate-100/50 rounded-xl p-2.5 border border-slate-200 min-h-[500px] opacity-70">
+            <h3 className="flex justify-between items-center text-[11px] font-extrabold text-slate-700 mb-2 border-b-2 border-slate-300 pb-1.5">
+               Drop (미진행) <span className="bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded-full text-[9px]">{filterSearch(devRequests.filter(d=>d.status==='rejected')).length}</span>
+            </h3>
+            <div className="space-y-2">
+               {filterSearch(devRequests.filter(d=>d.status==='rejected')).map(d => renderCard(d))}
             </div>
          </div>
       </div>

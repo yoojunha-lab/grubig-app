@@ -1,5 +1,5 @@
 import React from 'react';
-import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2 } from 'lucide-react';
+import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets } from 'lucide-react';
 import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { num, calculateGYd } from '../utils/helpers';
@@ -61,6 +61,7 @@ export const DesignSheetPage = ({
   machineTypes: machineTypesList,
   structures: structuresList,
   addMasterItem,
+  setActiveMasterModal,
   savedFabrics,
   registerFabricFromSheet
 }) => {
@@ -98,7 +99,8 @@ export const DesignSheetPage = ({
 
   const handleSaveAndGo = () => {
     const onLink = (devReqId, sheetId) => { if (linkAndConfirm) linkAndConfirm(devReqId, sheetId); };
-    handleSaveSheet(user, onLink);
+    const savedId = handleSaveSheet(user, onLink);
+    if (!savedId) return; // 저장 실패(유효성 검사 등) 시 모달 닫지 않음
     if (closeModal) closeModal();
     else if (setActiveTab) setActiveTab('devStatus');
   };
@@ -239,7 +241,7 @@ export const DesignSheetPage = ({
                 <option value="">-- 선택 --</option>
                 {(knittingFactories||[]).map(f => <option key={f} value={f}>{f}</option>)}
               </TSelect>
-              {!isFullyLocked && <button type="button" onClick={() => { const n = prompt('새 편직처를 등록하세요:'); if(n) addMasterItem?.('knittingFactories', n); }} className="shrink-0 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 bg-violet-50 border border-violet-200 rounded hover:bg-violet-100">+ 등록</button>}
+              {!isFullyLocked && <button type="button" onClick={() => setActiveMasterModal?.({ key: 'knittingFactories', title: '편직처 사전 등록 관리', description: '자주 거래하는 편직처를 등록해 두면 목록에서 간편하게 선택할 수 있습니다.', icon: Factory })} className="shrink-0 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 bg-violet-50 border border-violet-200 rounded hover:bg-violet-100">+ 등록</button>}
             </div>
           </Td>
           <Th span={2}>조직 (Structure)</Th>
@@ -248,7 +250,7 @@ export const DesignSheetPage = ({
                {(structuresList||[]).map(s => (
                  <button type="button" key={s} onClick={()=>!isFullyLocked&&handleSectionChange('knitting','structure',s)} className={`px-2 py-0.5 text-[10px] rounded border ${sheetInput.knitting?.structure === s ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{s}</button>
                ))}
-               {!isFullyLocked && <button type="button" onClick={() => { const n = prompt('새 조직을 등록하세요:'); if(n) addMasterItem?.('structures', n); }} className="px-2 py-0.5 text-[10px] rounded border border-dashed border-violet-300 text-violet-500 hover:bg-violet-50">+ 추가</button>}
+               {!isFullyLocked && <button type="button" onClick={() => setActiveMasterModal?.({ key: 'structures', title: '편직 조직 등록 관리', description: '자주 쓰이는 기본 조직 항목을 관리합니다. (예: 싱글, 쭈리, 양면 등)', icon: Layers })} className="px-2 py-0.5 text-[10px] rounded border border-dashed border-violet-300 text-violet-500 hover:bg-violet-50">+ 추가</button>}
                <TInput value={sheetInput.knitting?.structure||''} onChange={e=>handleSectionChange('knitting','structure',e.target.value)} readOnly={isFullyLocked} placeholder="기타 입력" className="w-[80px] border-b border-slate-300 ml-1 !py-0 !min-h-5" />
             </div>
           </Td>
@@ -259,7 +261,7 @@ export const DesignSheetPage = ({
                {(machineTypesList||[]).map(m => (
                  <button type="button" key={m} onClick={()=>!isFullyLocked&&handleSectionChange('knitting','machineType',m)} className={`px-2 py-0.5 text-[10px] rounded border ${sheetInput.knitting?.machineType === m ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{m}</button>
                ))}
-               {!isFullyLocked && <button type="button" onClick={() => { const n = prompt('새 기종을 등록하세요:'); if(n) addMasterItem?.('machineTypes', n); }} className="px-2 py-0.5 text-[10px] rounded border border-dashed border-violet-300 text-violet-500 hover:bg-violet-50">+ 추가</button>}
+               {!isFullyLocked && <button type="button" onClick={() => setActiveMasterModal?.({ key: 'machineTypes', title: '편직 기종 등록 관리', description: '자주 쓰는 편직 기종(게이지/타입 등)을 등록하세요.', icon: Cpu })} className="px-2 py-0.5 text-[10px] rounded border border-dashed border-violet-300 text-violet-500 hover:bg-violet-50">+ 추가</button>}
             </div>
           </Td>
           <Th span={2}>게이지 (Gauge)</Th>
@@ -331,7 +333,7 @@ export const DesignSheetPage = ({
                 <option value="">-- 선택 --</option>
                 {(dyeingFactories||[]).map(f => <option key={f} value={f}>{f}</option>)}
               </TSelect>
-              {!isFullyLocked && <button type="button" onClick={() => { const n = prompt('새 염가공처를 등록하세요:'); if(n) addMasterItem?.('dyeingFactories', n); }} className="shrink-0 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 bg-violet-50 border border-violet-200 rounded hover:bg-violet-100">+ 등록</button>}
+              {!isFullyLocked && <button type="button" onClick={() => setActiveMasterModal?.({ key: 'dyeingFactories', title: '염가공처 사전 등록 관리', description: '자주 거래하는 염색소 및 후가공 업체를 미리 등록해 관리할 수 있습니다.', icon: Droplets })} className="shrink-0 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 bg-violet-50 border border-violet-200 rounded hover:bg-violet-100">+ 등록</button>}
             </div>
           </Td>
           <Th span={1}>가공방법</Th>
