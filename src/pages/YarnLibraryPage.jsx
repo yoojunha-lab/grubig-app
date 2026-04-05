@@ -129,7 +129,7 @@ export const YarnLibraryPage = ({
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 w-full print:hidden">
+    <div className="max-w-[1500px] mx-auto space-y-6 w-full print:hidden">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-slate-800">원사 라이브러리 ({filteredYarns.length}개)</h2>
         <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto">

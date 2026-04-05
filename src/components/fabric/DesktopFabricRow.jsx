@@ -10,10 +10,11 @@ export const DesktopFabricRow = React.memo(({
   onToggleExpand,
   handleEditFabric,
   handleDeleteFabric,
-  setActiveTab,
   calculateCost,
   yarnLibrary,
-  designSheets
+  designSheets,
+  handleEditSheet,
+  setIsDesignSheetModalOpen
 }) => {
   // calculateCost를 f와 calculateCost 의존성으로만 재계산 (렌더 최적화)
   const c = useMemo(() => calculateCost(f), [f, calculateCost]);
@@ -43,16 +44,26 @@ export const DesktopFabricRow = React.memo(({
         </td>
         {/* 새 연동 설계서 컬럼 */}
         <td className="p-2 border-r border-slate-50 text-center align-middle">
-          {f.linkedSheetId ? (() => {
-            const sheet = (designSheets||[]).find(s => s.id === f.linkedSheetId);
+          {(() => {
+            const sheet = f.linkedSheetId 
+              ? (designSheets || []).find(s => String(s.id) === String(f.linkedSheetId))
+              : (designSheets || []).find(s => String(s.linkedFabricId) === String(f.id));
+              
             return sheet ? (
               <div className="flex flex-col items-center justify-center gap-0.5">
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded border border-blue-200 shadow-sm whitespace-nowrap">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleEditSheet(sheet);
+                    setIsDesignSheetModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded border border-indigo-200 shadow-sm whitespace-nowrap cursor-pointer transition-colors active:scale-95"
+                >
                   🔗 {sheet.devOrderNo || '연결됨'}
-                </span>
+                </button>
               </div>
             ) : <span className="text-slate-300 text-[10px]">-</span>;
-          })() : <span className="text-slate-300 text-[10px] font-bold">-</span>}
+          })()}
         </td>
         <td className="p-2 border-r border-slate-50 align-middle">
           <div className="flex flex-col gap-1 w-full text-[11px]">

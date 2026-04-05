@@ -97,8 +97,12 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
   };
 
   const handleSaveDetail = () => {
-    if (!detailInput.articleNo?.trim()) {
-      showToast('Article 번호를 필수로 입력해주세요.', 'error');
+    if (detailInput.type === 'main' && !detailInput.articleNo?.trim()) {
+      showToast('메인(Main) 시트는 Article 번호를 필수로 입력해야 합니다.', 'error');
+      return false;
+    }
+    if (detailInput.type === 'sample' && !detailInput.articleNo?.trim() && !detailInput.orderNo?.trim()) {
+      showToast('샘플(Sample) 시트는 Article 번호나 Order No 중 하나는 필수로 입력해야 합니다.', 'error');
       return false;
     }
     
@@ -130,6 +134,23 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
     }
   };
 
+  const handleQuickStatusChange = (detailId, testIndex, newStatus) => {
+    const detail = mainDetails?.find(d => d.id === detailId);
+    if (!detail || !detail.tests || !detail.tests[testIndex]) return;
+    
+    const updatedTests = [...detail.tests];
+    updatedTests[testIndex] = { ...updatedTests[testIndex], status: newStatus };
+    
+    const updatedDetail = {
+      ...detail,
+      tests: updatedTests,
+      updatedAt: new Date().toISOString()
+    };
+    
+    saveDocToCloud('mainDetails', updatedDetail);
+    showToast(`[${detail.articleNo || 'No Article'}] 판정이 변경되었습니다.`, 'success');
+  };
+
   return {
     detailInput,
     setDetailInput,
@@ -142,6 +163,7 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
     handleSaveDetail,
     handleEditDetail,
     handleDeleteDetail,
-    resetDetailForm
+    resetDetailForm,
+    handleQuickStatusChange
   };
 };

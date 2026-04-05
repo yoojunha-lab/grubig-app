@@ -381,6 +381,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         // [Step 3] DB 저장 전 객체 복사 후 임시 플래그 제거 → DB 스키마 오염 방지
         const fabricToSync = {
           ...linkedFabric,
+          linkedSheetId: itemToSave.id, // [Step 1] 원단 DB에 연동 설계서 ID 삽입 (양방향 참조 매듭)
           // [기획오류 #2 수정] article, itemName도 동기화
           article: itemToSave.articleNo ?? linkedFabric.article,
           itemName: itemToSave.fabricName ?? linkedFabric.itemName,

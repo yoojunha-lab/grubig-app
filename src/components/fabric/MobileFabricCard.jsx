@@ -12,7 +12,10 @@ export const MobileFabricCard = React.memo(({
   handleDeleteFabric,
   setActiveTab,
   calculateCost,
-  yarnLibrary
+  yarnLibrary,
+  designSheets,
+  handleEditSheet,
+  setIsDesignSheetModalOpen
 }) => {
   const c = useMemo(() => calculateCost(f), [f, calculateCost]);
   const sym = viewMode === 'domestic' ? '￦' : '$';
@@ -39,13 +42,23 @@ export const MobileFabricCard = React.memo(({
             <span className="bg-slate-200/50 px-1.5 py-0.5 rounded">{f.gsm}g</span>
           </div>
           {/* 모바일 뷰 연동 설계서 표시 */}
-          {f.linkedSheetId && (() => {
-            const sheet = (designSheets||[]).find(s => s.id === f.linkedSheetId);
+          {(() => {
+            const sheet = f.linkedSheetId 
+              ? (designSheets || []).find(s => String(s.id) === String(f.linkedSheetId))
+              : (designSheets || []).find(s => String(s.linkedFabricId) === String(f.id));
+              
             return sheet ? (
               <div className="mt-1.5">
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded border border-blue-200 shadow-sm">
-                  🔗 연동 설계서: {sheet.devOrderNo || 'S-26D...'}
-                </span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleEditSheet(sheet);
+                    setIsDesignSheetModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded border border-indigo-200 shadow-sm cursor-pointer transition-colors active:scale-95"
+                >
+                  🔗 연동 설계서: {sheet.devOrderNo || '조회'}
+                </button>
               </div>
             ) : null;
           })()}

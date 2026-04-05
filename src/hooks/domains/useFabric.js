@@ -190,7 +190,7 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
       const totalCostYdDomesticKRW = costYarnYdDomestic + costKnitYd + costDyeYd + extraFee;
       const totalCostYdExportKRW = costYarnYdExport + costKnitYd + costDyeYd + extraFee;
 
-      const marginPct = MARGIN_TIERS[fabricData.marginTier || 3] || 19;
+      const marginPct = MARGIN_TIERS[fabricData.marginTier ?? 3] ?? 19;
       const brandEx = Number(fabricData.brandExtra?.[tierKey] || 0);
 
       const domesticPriceConv = applyGrossMargin(totalCostYdDomesticKRW, marginPct);

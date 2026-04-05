@@ -17,7 +17,9 @@ export const FabricListPage = ({
   handleDeleteFabric,
   setActiveTab,
   yarnLibrary,
-  designSheets
+  designSheets,
+  handleEditSheet,
+  setIsDesignSheetModalOpen
 }) => {
   return (
     <div className="max-w-[1600px] mx-auto print:hidden w-full">
@@ -93,6 +95,8 @@ export const FabricListPage = ({
                 calculateCost={calculateCost}
                 yarnLibrary={yarnLibrary}
                 designSheets={designSheets}
+                handleEditSheet={handleEditSheet}
+                setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
               />
             ))}
             {filteredFabrics.length === 0 && (
@@ -124,6 +128,8 @@ export const FabricListPage = ({
             calculateCost={calculateCost}
             yarnLibrary={yarnLibrary}
             designSheets={designSheets}
+            handleEditSheet={handleEditSheet}
+            setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
           />
         ))}
         {filteredFabrics.length === 0 && (

@@ -58,6 +58,7 @@ export const DesignSheetPage = ({
   closeModal,
   designSheets,
   setSheetInput,
+  mainDetails,
   // 마스터 데이터 프롭스
   knittingFactories,
   dyeingFactories,
@@ -73,7 +74,7 @@ export const DesignSheetPage = ({
   const isSelfDesignSheet = !sheetInput.devRequestId;
   const isDevOrderLocked = true; // 현재 시스템에서 자체설계서는 빈칸 유지(Lock), 의뢰 연결건은 자동 부여 후 Lock
   const isEztexLocked = stageIdx >= 2;
-  const isFullyLocked = stageIdx >= 3;
+  const isFullyLocked = false; // stageIdx >= 3; -> 대표님 요청: 아이템화 완료 후에도 '설계 변경 사유'를 통해 수정 가능
   const isLinkedToFabric = !!sheetInput.linkedFabricId; // 원단 연동 시 공유 변수 Lock
 
   const linkedDevReq = sheetInput.devRequestId ? (devRequests || []).find(d => d.id === sheetInput.devRequestId) : null;
@@ -365,12 +366,12 @@ export const DesignSheetPage = ({
         </div>
 
         {/* --- 2 PAGE (원가 및 QC 연동) --- */}
-        <div className={`bg-white shadow-xl border border-slate-300 mx-auto w-full transition-colors flex flex-col pt-0 ${isFullyLocked ? 'bg-slate-50/50 grayscale-[20%]' : ''}`} style={{ minHeight: '297mm', padding: '10mm 15mm' }}>
+        <div className={`bg-white shadow-xl border border-slate-300 mx-auto w-full transition-colors flex flex-col border-t-[20px] border-t-slate-300 pb-6 ${isFullyLocked ? 'bg-slate-50/50 grayscale-[20%]' : ''}`} style={{ minHeight: '297mm', padding: '10mm 15mm' }}>
 
         {/* ------------------------------------------- */}
         {/* 5. 최종 실측 & 원가 계산 (하이라이트 구역) */}
         {/* ------------------------------------------- */}
-        <div className="mt-8 flex items-end justify-between mb-1.5">
+        <div className="mt-0 flex items-end justify-between mb-1.5">
           <h3 className="text-sm font-black text-slate-800 flex items-center gap-1.5"><span className="w-2 h-2 bg-indigo-600 block" /> 최종 스펙 및 원가 (Actual & Cost)</h3>
           <p className="text-[9px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200">※ 색칠된 칸이 최종 거래 스펙 및 가격의 기준이 됩니다.</p>
         </div>
@@ -570,7 +571,7 @@ export const DesignSheetPage = ({
                       linkedFabricId: String(fabId),
                       articleNo: fab.article || '',
                       fabricName: fab.itemName || '',
-                      yarns: fab.yarns || [],
+                      yarns: Array.from({ length: 4 }, (_, i) => fab.yarns?.[i] || { yarnId: '', ratio: 0 }),
                       costInput: {
                         ...(prev.costInput || {}),
                         widthFull: fab.widthFull ?? prev.costInput?.widthFull,
@@ -584,14 +585,12 @@ export const DesignSheetPage = ({
                         extraFee1k: fab.extraFee1k ?? prev.costInput?.extraFee1k,
                         extraFee3k: fab.extraFee3k ?? prev.costInput?.extraFee3k,
                         extraFee5k: fab.extraFee5k ?? prev.costInput?.extraFee5k,
-                        losses: fab.losses ?? prev.costInput?.losses,
-                        marginTier: fab.marginTier ?? prev.costInput?.marginTier,
-                        brandExtra: fab.brandExtra ?? prev.costInput?.brandExtra
+                        losses: fab.losses || { tier1k: { knit: 5, dye: 10 }, tier3k: { knit: 3, dye: 10 }, tier5k: { knit: 3, dye: 9 } },
+                        marginTier: fab.marginTier ?? 3,
+                        brandExtra: fab.brandExtra || { tier1k: 1000, tier3k: 700, tier5k: 500 }
                       }
                     }));
                   }
-
-                  setTimeout(() => alert('원단 스펙이 폼에 적용되었습니다.\n내용을 확인하신 후 반드시 우측 상단의 [설계서 저장] 버튼을 눌러야 완전히 연결됩니다.'), 300);
                 } else {
                   e.target.value = '';
                 }

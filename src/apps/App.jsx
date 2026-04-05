@@ -236,7 +236,8 @@ const App = () => {
   const {
     detailInput, setDetailInput, editingDetailId, setEditingDetailId,
     handleDetailChange, handleTestChange, addTest, removeTest,
-    handleSaveDetail, handleEditDetail, handleDeleteDetail, resetDetailForm
+    handleSaveDetail, handleEditDetail, handleDeleteDetail, resetDetailForm,
+    handleQuickStatusChange
   } = useMainDetail(mainDetails, saveDocToCloud, deleteDocFromCloud, showToast);
 
   const devPrintRef = useRef(null);
@@ -582,6 +583,8 @@ const App = () => {
             setActiveTab={setActiveTab}
             yarnLibrary={yarnLibrary}
             designSheets={designSheets}
+            handleEditSheet={handleEditSheet}
+            setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
           />
         )}
 
@@ -754,6 +757,7 @@ const App = () => {
             addTest={addTest} removeTest={removeTest}
             handleSaveDetail={handleSaveDetail} handleEditDetail={handleEditDetail}
             handleDeleteDetail={handleDeleteDetail} resetDetailForm={resetDetailForm}
+            handleQuickStatusChange={handleQuickStatusChange}
           />
         )}
 
