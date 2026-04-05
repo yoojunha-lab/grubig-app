@@ -1,7 +1,42 @@
 import React, { useState } from 'react';
-import { FileText, Save, Download, DollarSign, X, Plus, ClipboardPaste, GripVertical } from 'lucide-react';
+import { FileText, Save, Download, DollarSign, X, Plus, ClipboardPaste } from 'lucide-react';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { num, smartRound } from '../utils/helpers';
+// [Refactoring] 개별 단가 입력 셀 (입력 튕김 방지 및 로컬 상태 관리)
+const PriceInputCell = ({ item, tierKey, idx, quoteInput, extraMarkup, getBasePrice, handleQuoteBasePriceChange, formatQuotePrice, bgClass, textColorClass, borderClass }) => {
+  const [localVal, setLocalVal] = useState('');
+  const [isFocused, setIsFocused] = useState(false);
+  const baseVal = getBasePrice(item, tierKey) || 0;
+
+  React.useEffect(() => {
+    if (!isFocused) {
+      const raw = baseVal * extraMarkup;
+      const display = quoteInput.currency === 'USD' ? Number(raw.toFixed(2)) : Math.round(raw);
+      setLocalVal(display === 0 && !item.isManualOverride ? '' : display.toString());
+    }
+  }, [baseVal, extraMarkup, quoteInput.currency, isFocused, item.isManualOverride]);
+
+  const handleBlur = () => {
+    setIsFocused(false);
+    const num = Number(localVal) || 0;
+    handleQuoteBasePriceChange(idx, `basePrice${tierKey}`, num / (extraMarkup || 1));
+  };
+
+  return (
+    <td className={`p-2 relative ${bgClass}`}>
+      <input 
+        type="number" step="any"
+        value={localVal}
+        onFocus={() => setIsFocused(true)}
+        onBlur={handleBlur}
+        onChange={(e) => setLocalVal(e.target.value)}
+        className={`w-full bg-white border px-2 py-1 rounded text-right focus:border-indigo-500 outline-none text-xs transition-colors ${item.isManualOverride ? `bg-rose-50/10 text-rose-600 font-bold ${borderClass}` : `border-slate-200 ${textColorClass}`}`} 
+      />
+      {item.isManualOverride && <div className="text-[9px] text-rose-500 text-right mt-0.5 font-bold tracking-tighter">수동 변경됨</div>}
+      {!item.isManualOverride && quoteInput.extraMargin > 0 && <div className="text-[9px] text-slate-400 text-right mt-0.5">Base: {formatQuotePrice(baseVal)}</div>}
+    </td>
+  );
+};
 
 export const QuotationPage = ({
   quoteInput,
@@ -27,39 +62,7 @@ export const QuotationPage = ({
   buyers = [],
   setIsBuyerModalOpen
 }) => {
-  // 드래그 앤 드롭 상태 관리
-  const [draggedItemIndex, setDraggedItemIndex] = useState(null);
-  const [dragOverItemIndex, setDragOverItemIndex] = useState(null);
 
-  const handleDragStart = (e, index) => {
-    setDraggedItemIndex(index);
-    e.dataTransfer.effectAllowed = 'move';
-    // Firefox 오류 방지를 위해 임의의 데이터 셋팅
-    e.dataTransfer.setData('text/plain', index);
-  };
-
-  const handleDragEnter = (e, index) => {
-    e.preventDefault();
-    if (index !== draggedItemIndex) {
-      setDragOverItemIndex(index);
-    }
-  };
-
-  const handleDragEnd = (e) => {
-    e.preventDefault();
-    if (draggedItemIndex !== null && dragOverItemIndex !== null && draggedItemIndex !== dragOverItemIndex) {
-      // 순서 변경 적용 로직
-      const newItems = [...(quoteInput.items || [])];
-      const [draggedItem] = newItems.splice(draggedItemIndex, 1);
-      if (draggedItem) {
-        newItems.splice(dragOverItemIndex, 0, draggedItem);
-      }
-      
-      setQuoteInput({ ...quoteInput, items: newItems });
-    }
-    setDraggedItemIndex(null);
-    setDragOverItemIndex(null);
-  };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 w-full print:hidden">
@@ -138,22 +141,16 @@ export const QuotationPage = ({
         <div className="overflow-hidden rounded-xl border border-slate-200 overflow-x-auto">
           <table className="w-full text-sm text-left min-w-[900px]">
             <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
-              <tr><th className="p-3 w-8 text-center"></th><th className="p-3 w-10 text-center">No.</th><th className="p-3">Article</th><th className="p-3">Spec</th><th className="p-3 text-center">Cut</th><th className="p-3 text-center">Full</th><th className="p-3 text-right">GSM</th><th className="p-3 text-right">g/YD</th><th className="p-3 text-right text-orange-600 bg-orange-50/50">MCQ</th><th className="p-3 w-28 bg-slate-100 text-right">1,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-28 bg-indigo-50 text-indigo-900 text-right">3,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-28 bg-slate-100 text-right">5,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-10 text-center"></th></tr>
+              <tr><th className="p-3 w-10 text-center">No.</th><th className="p-3">Article</th><th className="p-3">Spec</th><th className="p-3 text-center">Cut</th><th className="p-3 text-center">Full</th><th className="p-3 text-right">GSM</th><th className="p-3 text-right">g/YD</th><th className="p-3 text-right text-orange-600 bg-orange-50/50">MCQ</th><th className="p-3 w-28 bg-slate-100 text-right">1,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-28 bg-indigo-50 text-indigo-900 text-right">3,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-28 bg-slate-100 text-right">5,000 YD ({quoteInput.currency === 'USD' ? '$' : '￦'})</th><th className="p-3 w-10 text-center"></th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {(quoteInput.items || []).map((item, idx) => (
                 <tr 
                   key={item.fabricId + idx} // 리스트 변경 감지를 위해 키 강화
-                  draggable="true"
-                  onDragStart={(e) => handleDragStart(e, idx)}
-                  onDragEnter={(e) => handleDragEnter(e, idx)}
-                  onDragEnd={handleDragEnd}
-                  onDragOver={(e) => e.preventDefault()}
-                  className={`group hover:bg-slate-50 transition-colors ${draggedItemIndex === idx ? 'opacity-30 bg-indigo-50' : ''} ${dragOverItemIndex === idx ? 'border-t-2 border-indigo-400 bg-indigo-50/30' : ''}`}
+                  className="group hover:bg-slate-50 transition-colors"
                 >
-                  <td className="p-1 px-2 text-center text-slate-300 hover:text-indigo-500 cursor-grab active:cursor-grabbing"><GripVertical className="w-4 h-4 mx-auto" /></td>
                   <td className="p-3 text-slate-400 font-mono text-center text-xs">{idx + 1}</td>
-                  <td className="p-3 font-bold text-slate-800 text-xs uppercase cursor-grab active:cursor-grabbing">{item.article}</td>
+                  <td className="p-3 font-bold text-slate-800 text-xs uppercase">{item.article}</td>
                   <td className="p-3 text-slate-600 text-xs">{item.itemName}</td>
                   <td className="p-3 text-slate-500 text-center text-xs">{item.widthCut}"</td>
                   <td className="p-3 text-slate-500 text-center text-xs">{item.widthFull}"</td>
@@ -161,25 +158,15 @@ export const QuotationPage = ({
                   <td className="p-3 text-right text-slate-500 font-mono text-xs">{num(item.gYd)}</td>
                   <td className="p-3 text-right text-orange-600 font-bold font-mono bg-orange-50/30 text-xs">{num(item.mcqYd || 300)}</td>
 
-                  <td className="p-2 bg-slate-50">
-                    <input type="number" value={smartRound((getBasePrice(item, '1k') || 0) * extraMarkup, quoteInput.currency)} onChange={(e) => handleQuoteBasePriceChange(idx, 'basePrice1k', Number(e.target.value) / (extraMarkup || 1))} className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-right text-slate-600 focus:border-indigo-500 outline-none text-xs" />
-                    {quoteInput.extraMargin > 0 && <div className="text-[9px] text-slate-400 text-right mt-0.5">Base: {formatQuotePrice(getBasePrice(item, '1k'))}</div>}
-                  </td>
-                  <td className="p-2 bg-indigo-50/30">
-                    <input type="number" value={smartRound((getBasePrice(item, '3k') || 0) * extraMarkup, quoteInput.currency)} onChange={(e) => handleQuoteBasePriceChange(idx, 'basePrice3k', Number(e.target.value) / (extraMarkup || 1))} className="w-full bg-white border border-indigo-200 rounded px-2 py-1 text-right font-bold text-indigo-700 focus:border-indigo-500 outline-none text-xs" />
-                    {quoteInput.extraMargin > 0 && <div className="text-[9px] text-indigo-400/70 text-right mt-0.5">Base: {formatQuotePrice(getBasePrice(item, '3k'))}</div>}
-                  </td>
-                  <td className="p-2 bg-slate-50">
-                    <input type="number" value={smartRound((getBasePrice(item, '5k') || 0) * extraMarkup, quoteInput.currency)} onChange={(e) => handleQuoteBasePriceChange(idx, 'basePrice5k', Number(e.target.value) / (extraMarkup || 1))} className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-right text-slate-600 focus:border-indigo-500 outline-none text-xs" />
-                    {quoteInput.extraMargin > 0 && <div className="text-[9px] text-slate-400 text-right mt-0.5">Base: {formatQuotePrice(getBasePrice(item, '5k'))}</div>}
-                  </td>
-                  <td className="p-2 text-center"><button onClick={() => handleRemoveItemFromQuote(idx)} className="text-slate-300 hover:text-red-500 p-1"><X className="w-4 h-4" /></button></td>
+                  <PriceInputCell item={item} tierKey="1k" idx={idx} quoteInput={quoteInput} extraMarkup={extraMarkup} getBasePrice={getBasePrice} handleQuoteBasePriceChange={handleQuoteBasePriceChange} formatQuotePrice={formatQuotePrice} bgClass="bg-slate-50" textColorClass="text-slate-600" borderClass="border-rose-200" />
+                  <PriceInputCell item={item} tierKey="3k" idx={idx} quoteInput={quoteInput} extraMarkup={extraMarkup} getBasePrice={getBasePrice} handleQuoteBasePriceChange={handleQuoteBasePriceChange} formatQuotePrice={formatQuotePrice} bgClass="bg-indigo-50/30" textColorClass="font-bold text-indigo-700" borderClass="border-rose-300" />
+                  <PriceInputCell item={item} tierKey="5k" idx={idx} quoteInput={quoteInput} extraMarkup={extraMarkup} getBasePrice={getBasePrice} handleQuoteBasePriceChange={handleQuoteBasePriceChange} formatQuotePrice={formatQuotePrice} bgClass="bg-slate-50" textColorClass="text-slate-600" borderClass="border-rose-200" />
+                  <td className="p-2 text-center"><button onClick={() => handleRemoveItemFromQuote(idx)} className="text-slate-300 hover:text-red-500 p-1 transition-colors"><X className="w-4 h-4" /></button></td>
                 </tr>
               ))}
 
               <tr>
-                <td className="p-2 text-center bg-slate-50 rounded-bl-xl border-t border-slate-200 pointer-events-none"></td>
-                <td className="p-2 text-center text-slate-300 bg-slate-50 border-t border-slate-200 pointer-events-none"><Plus className="w-4 h-4 mx-auto" /></td>
+                <td className="p-2 text-center text-slate-300 bg-slate-50 border-t border-slate-200 pointer-events-none rounded-bl-xl"><Plus className="w-4 h-4 mx-auto" /></td>
                 <td className="p-2 border-t border-slate-200 bg-slate-50" colSpan="2">
                   <input
                     type="text"
@@ -192,6 +179,12 @@ export const QuotationPage = ({
                         if (!art) return;
                         const fabric = savedFabrics.find(f => String(f.article).toUpperCase() === art);
                         if (fabric) {
+                          // [기획 요구사항 2] Enter 검색 시 중복 차단
+                          if ((quoteInput.items || []).some(i => String(i.article).toUpperCase() === art)) {
+                             showToast('이미 추가된 품목입니다. 기존 항목을 확인해 주세요.', 'error');
+                             e.target.value = '';
+                             return;
+                          }
                           setQuoteInput(prev => ({ ...prev, items: [...(prev.items || []), createQuoteItem(fabric, globalExchangeRate, prev.marketType, prev.buyerType)] }));
                           showToast('추가 완료', 'success'); e.target.value = '';
                         } else alert(`'${art}' 원단을 찾을 수 없습니다.`);

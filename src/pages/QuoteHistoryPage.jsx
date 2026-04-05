@@ -66,7 +66,9 @@ export const QuoteHistoryPage = ({
               <tr><th className="p-4 w-32">Date</th><th className="p-4">Buyer</th><th className="p-4 w-32">Type</th><th className="p-4 w-24 text-center">Items</th><th className="p-4 w-32">Author</th><th className="p-4 w-56 text-center">Action</th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredQuotesList.map(quote => {
+              {[...filteredQuotesList]
+                .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0) || b.id - a.id)
+                .map(quote => {
                 const isExpanded = expandedRowId === quote.id;
                 return (
                 <React.Fragment key={quote.id}>
@@ -96,7 +98,6 @@ export const QuoteHistoryPage = ({
                   <td className="p-4 text-slate-500 font-medium">{quote.authorName}</td>
                   <td className="p-4">
                     <div className="flex gap-1.5 justify-center">
-                      <button onClick={(e) => { e.stopPropagation(); setQuickViewQuote(quote); }} className="bg-blue-50 text-blue-600 px-2 py-1.5 rounded text-xs font-bold hover:bg-blue-100 transition-colors flex items-center gap-1" title="PDF 미리보기"><Eye className="w-3.5 h-3.5" /></button>
                       <button onClick={(e) => { e.stopPropagation(); handleDuplicateQuote(quote, () => setActiveTab('quotation')); }} className="bg-emerald-50 text-emerald-600 px-2 py-1.5 rounded text-xs font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1" title="이 견적서를 복사하여 새 견적서 작성하기"><Copy className="w-3.5 h-3.5" /> <span className="hidden sm:inline">복제</span></button>
                       <button onClick={(e) => { e.stopPropagation(); setQuoteInput(quote); setActiveTab('quotation'); }} className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-200 transition-colors">수정</button>
                       <button onClick={(e) => { e.stopPropagation(); handleDownloadPDF(quote); }} className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-100 transition-colors">PDF</button>
@@ -114,16 +115,33 @@ export const QuoteHistoryPage = ({
                           <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shrink-0">
                             <table className="w-full text-xs text-left">
                               <thead className="bg-slate-50 text-slate-500">
-                                <tr><th className="py-2 px-3 font-bold">Article</th><th className="py-2 px-3">Spec</th><th className="py-2 px-3 text-right">MCQ</th></tr>
+                                <tr>
+                                  <th className="py-2 px-3 font-bold">Article</th>
+                                  <th className="py-2 px-3">Spec</th>
+                                  <th className="py-2 px-3 text-right">MCQ</th>
+                                  <th className="py-2 px-3 text-right">1k 단가</th>
+                                  <th className="py-2 px-3 text-right font-bold text-blue-600">3k (Main)</th>
+                                  <th className="py-2 px-3 text-right">5k 단가</th>
+                                </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100">
-                                {(quote.items || []).map((item, idx) => (
-                                  <tr key={idx} className="hover:bg-slate-50">
-                                    <td className="py-2 px-3 font-bold text-slate-800 uppercase">{item.article}</td>
-                                    <td className="py-2 px-3 text-slate-600 truncate max-w-[150px]" title={item.itemName}>{item.itemName}</td>
-                                    <td className="py-2 px-3 text-right text-orange-600 font-bold">{num(item.mcqYd || 300)} YD</td>
-                                  </tr>
-                                ))}
+                                {(quote.items || []).map((item, idx) => {
+                                  // 방어 코드: 과거 저장된 모델 지원 (price1k vs basePrice1k)
+                                  const sym = quote.currency === 'USD' ? '$' : '￦';
+                                  const p1k = item.basePrice1k ?? item.price1k ?? 0;
+                                  const p3k = item.basePrice3k ?? item.price3k ?? 0;
+                                  const p5k = item.basePrice5k ?? item.price5k ?? 0;
+                                  return (
+                                    <tr key={idx} className="hover:bg-slate-50">
+                                      <td className="py-2 px-3 font-bold text-slate-800 uppercase">{item.article}</td>
+                                      <td className="py-2 px-3 text-slate-600 truncate max-w-[150px]" title={item.itemName}>{item.itemName}</td>
+                                      <td className="py-2 px-3 text-right text-orange-600 font-bold">{num(item.mcqYd || 300)} YD</td>
+                                      <td className="py-2 px-3 text-right text-slate-500 font-mono">{sym}{num(p1k)}</td>
+                                      <td className="py-2 px-3 text-right text-blue-700 font-bold font-mono">{sym}{num(p3k)}</td>
+                                      <td className="py-2 px-3 text-right text-slate-500 font-mono">{sym}{num(p5k)}</td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </table>
                           </div>
