@@ -10,6 +10,7 @@ export const DesktopFabricRow = React.memo(({
   onToggleExpand,
   handleEditFabric,
   handleDeleteFabric,
+  setActiveTab,
   calculateCost,
   yarnLibrary,
   designSheets,
