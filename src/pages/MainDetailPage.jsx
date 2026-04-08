@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { Plus, Save, X, Trash2, Edit2, FileCheck, CheckCircle2, XCircle } from 'lucide-react';
+import { Plus, Save, X, Trash2, Edit2, FileCheck, CheckCircle2, XCircle, Upload, ClipboardPaste, AlertTriangle } from 'lucide-react';
+import { SearchableSelect } from '../components/common/SearchableSelect';
 
 export const MainDetailPage = ({
   mainDetails,
+  savedFabrics,
   detailInput,
   setDetailInput,
   editingDetailId,
@@ -15,12 +17,34 @@ export const MainDetailPage = ({
   handleEditDetail,
   handleDeleteDetail,
   resetDetailForm,
-  handleQuickStatusChange
+  handleQuickStatusChange,
+  handleBulkPaste
 }) => {
   const [activeTypeTab, setActiveTypeTab] = useState('main'); // 'main' | 'sample'
   const [searchTerm, setSearchTerm] = useState('');
   const [formTab, setFormTab] = useState('greige');
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // === 엑셀 복붙 그리드 모달 전용 State ===
+  const GRID_COLS = [
+    'orderNo','articleNo','colorInfo','lotNo',
+    'greigeWidthFull','greigeGsm','greigeLoopLength',
+    't1_finWidth','t1_finGsm','t1_shrinkW','t1_shrinkL','t1_torque','t1_gsm',
+    't2_rework','t2_finWidth','t2_finGsm','t2_shrinkW','t2_shrinkL','t2_torque','t2_gsm'
+  ];
+  const GRID_HEADERS = [
+    'Order No','Article No','Color','LOT',
+    '생지폭(")','생지중량','루프장',
+    '1차전폭','1차GSM','1차폭축','1차장축','1차토킹','1차수축GSM',
+    '2차재가공','2차전폭','2차GSM','2차폭축','2차장축','2차토킹','2차수축GSM'
+  ];
+  const emptyRow = () => GRID_COLS.reduce((acc, col) => ({ ...acc, [col]: '' }), {});
+  const initialGrid = () => Array.from({ length: 12 }, emptyRow);
+
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [gridRows, setGridRows] = useState(initialGrid);
+  const [bulkResult, setBulkResult] = useState(null);
+  const [bulkType, setBulkType] = useState('main'); // 'main' | 'sample'
 
   const handleSaveModal = () => {
     if (handleSaveDetail()) {
@@ -33,6 +57,63 @@ export const MainDetailPage = ({
     setIsModalOpen(true);
   }; // 'greige' | 'finished'
 
+  // === 그리드 셀 값 변경 ===
+  const handleGridCellChange = (rowIdx, colKey, value) => {
+    setGridRows(prev => {
+      const next = [...prev];
+      next[rowIdx] = { ...next[rowIdx], [colKey]: value };
+      return next;
+    });
+  };
+
+  // === 그리드에 엑셀 붙여넣기 (onPaste) ===
+  const handleGridPaste = (e, startRowIdx, startColIdx) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData('text');
+    if (!text.trim()) return;
+
+    const pastedRows = text.split('\n').map(r => r.split('\t').map(c => c.trim()));
+
+    setGridRows(prev => {
+      const next = [...prev];
+      const neededRows = startRowIdx + pastedRows.length;
+      while (next.length < neededRows) next.push(emptyRow());
+
+      pastedRows.forEach((pRow, ri) => {
+        pRow.forEach((val, ci) => {
+          const targetColIdx = startColIdx + ci;
+          if (targetColIdx < GRID_COLS.length) {
+            const targetRowIdx = startRowIdx + ri;
+            next[targetRowIdx] = { ...next[targetRowIdx], [GRID_COLS[targetColIdx]]: val };
+          }
+        });
+      });
+      return next;
+    });
+  };
+
+  // === +10행 추가 ===
+  const addGridRows = () => {
+    setGridRows(prev => [...prev, ...Array.from({ length: 10 }, emptyRow)]);
+  };
+
+  // === 그리드 → 탭 구분 텍스트 변환 → handleBulkPaste 호출 (type 전달) ===
+  const executeBulkUpload = () => {
+    const filledRows = gridRows.filter(row => GRID_COLS.some(col => row[col]?.trim()));
+    if (filledRows.length === 0) return;
+    const rawText = filledRows.map(row => GRID_COLS.map(col => row[col] || '').join('\t')).join('\n');
+    const result = handleBulkPaste(rawText, bulkType);
+    setBulkResult(result);
+    if (result.added > 0) setGridRows(initialGrid());
+  };
+
+  const closeBulkModal = () => {
+    setIsBulkModalOpen(false);
+    setGridRows(initialGrid());
+    setBulkResult(null);
+    setBulkType('main');
+  };
+
   // 필터링 적용
   const filteredDetails = (mainDetails || []).filter(d => 
     d.type === activeTypeTab &&
@@ -41,6 +122,8 @@ export const MainDetailPage = ({
       (d.orderNo || '').toLowerCase().includes(searchTerm.toLowerCase())
     )
   );
+
+  const filledRowCount = gridRows.filter(row => GRID_COLS.some(col => row[col]?.trim())).length;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20">
@@ -52,20 +135,149 @@ export const MainDetailPage = ({
           </h2>
           <p className="text-xs text-slate-500 mt-1">생산 건별 실측 데이터 및 수축률 테스트 내역을 시점별로 분리 관리합니다.</p>
         </div>
-        <button 
-          onClick={() => { resetDetailForm(); setIsModalOpen(true); }}
-          className="bg-fuchsia-600 hover:bg-fuchsia-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md shadow-fuchsia-600/20 flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" /> 새 시트 작성
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={() => setIsBulkModalOpen(true)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md shadow-emerald-600/20 flex items-center gap-2"
+          >
+            <ClipboardPaste className="w-4 h-4" /> 엑셀 복붙
+          </button>
+          <button 
+            onClick={() => { resetDetailForm(); setIsModalOpen(true); }}
+            className="bg-fuchsia-600 hover:bg-fuchsia-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md shadow-fuchsia-600/20 flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" /> 새 시트 작성
+          </button>
+        </div>
       </div>
+
+      {/* 엑셀 복붙 그리드 모달 */}
+      {isBulkModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4" onClick={closeBulkModal}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[95vw] xl:max-w-6xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            {/* 모달 헤더 */}
+            <div className="flex justify-between items-center px-6 py-3 border-b border-slate-200 bg-emerald-50">
+              <div className="flex items-center gap-3">
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <Upload className="w-5 h-5 text-emerald-600" />
+                  일괄 입력
+                </h3>
+                {/* 메인/샘플 토글 */}
+                <div className="flex bg-slate-200 p-0.5 rounded-lg text-[11px] font-bold">
+                  <button onClick={() => setBulkType('main')} className={`px-3 py-1 rounded-md transition-all ${bulkType === 'main' ? 'bg-white text-fuchsia-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Main</button>
+                  <button onClick={() => setBulkType('sample')} className={`px-3 py-1 rounded-md transition-all ${bulkType === 'sample' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Sample</button>
+                </div>
+                {filledRowCount > 0 && (
+                  <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2.5 py-0.5 rounded-full">{filledRowCount}건</span>
+                )}
+                {bulkType === 'sample' && (
+                  <span className="text-[10px] text-blue-500 font-bold">* 샘플은 Article 없어도 OK</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={addGridRows} className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors">
+                  + 10행 추가
+                </button>
+                <button onClick={closeBulkModal} className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-full transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+
+            {/* 그리드 테이블 */}
+            <div className="flex-1 overflow-auto">
+              <table className="w-full text-xs border-collapse min-w-[1400px]">
+                <thead className="bg-slate-100 sticky top-0 z-10">
+                  <tr>
+                    <th className="border border-slate-200 px-2 py-2 text-center text-slate-400 w-10 font-bold">#</th>
+                    {GRID_HEADERS.map((h, i) => {
+                      const isRequired = i === 0 || (i === 1 && bulkType === 'main');
+                      // 영역별 색상: 0~3 식별, 4~6 생지, 7~12 1차(emerald), 13~19 2차(amber)
+                      let bgClass = 'text-slate-600';
+                      if (i <= 3 && isRequired) bgClass = 'text-red-600 bg-red-50/50';
+                      else if (i >= 4 && i <= 6) bgClass = 'text-indigo-600 bg-indigo-50/40';
+                      else if (i >= 7 && i <= 12) bgClass = 'text-emerald-600 bg-emerald-50/40';
+                      else if (i >= 13) bgClass = 'text-amber-700 bg-amber-50/40';
+                      return (
+                        <th key={i} className={`border border-slate-200 px-1.5 py-2 text-center font-bold whitespace-nowrap text-[10px] ${bgClass}`}>
+                          {h} {isRequired && <span className="text-red-400 text-[9px]">*</span>}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {gridRows.map((row, rowIdx) => {
+                    const hasData = GRID_COLS.some(col => row[col]?.trim());
+                    return (
+                      <tr key={rowIdx} className={`${hasData ? 'bg-emerald-50/30' : 'bg-white'} hover:bg-blue-50/30 transition-colors`}>
+                        <td className="border border-slate-200 px-2 py-1 text-center text-slate-400 font-mono font-bold text-[10px] bg-slate-50">
+                          {rowIdx + 1}
+                        </td>
+                        {GRID_COLS.map((col, colIdx) => (
+                          <td key={col} className="border border-slate-200 p-0">
+                            <input
+                              type="text"
+                              value={row[col] || ''}
+                              onChange={e => handleGridCellChange(rowIdx, col, e.target.value)}
+                              onPaste={e => handleGridPaste(e, rowIdx, colIdx)}
+                              className={`w-full px-2 py-1.5 text-xs outline-none border-none bg-transparent focus:bg-blue-50 transition-colors ${col === 'articleNo' ? 'uppercase font-bold' : ''}`}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 푸터 */}
+            <div className="px-6 py-3 border-t border-slate-200 bg-slate-50">
+              {bulkResult && (
+                <div className={`mb-3 border rounded-xl p-3 ${bulkResult.added > 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                  <div className="flex items-center gap-4 text-xs">
+                    <span className="font-bold flex items-center gap-1">
+                      {bulkResult.added > 0 ? <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> <span className="text-emerald-700">완료</span></> : <><AlertTriangle className="w-3.5 h-3.5 text-red-600" /> <span className="text-red-700">실패</span></>}
+                    </span>
+                    <span className="text-emerald-600 font-bold">성공 {bulkResult.added}</span>
+                    <span className="text-amber-600 font-bold">중복 {bulkResult.duplicated}</span>
+                    <span className="text-red-600 font-bold">오류 {bulkResult.skipped}</span>
+                    {bulkResult.errors.length > 0 && (
+                      <details className="ml-auto">
+                        <summary className="text-[10px] text-slate-500 font-bold cursor-pointer hover:text-slate-700">상세 로그</summary>
+                        <div className="absolute right-6 mt-1 max-h-32 overflow-y-auto bg-white border border-slate-200 rounded-lg p-2 shadow-lg z-20 w-80">
+                          {bulkResult.errors.map((err, i) => <p key={i} className="text-[10px] text-slate-500 font-mono">{err}</p>)}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                </div>
+              )}
+              <div className="flex justify-between items-center">
+                <p className="text-[10px] text-slate-400">💡 엑셀에서 복사 → 첫 번째 칸 클릭 → Ctrl+V 하면 자동으로 칸이 채워집니다.</p>
+                <div className="flex gap-3">
+                  <button onClick={closeBulkModal} className="px-5 py-2 rounded-xl font-bold text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 transition-colors text-sm">닫기</button>
+                  <button
+                    onClick={executeBulkUpload}
+                    disabled={filledRowCount === 0}
+                    className={`px-6 py-2 rounded-xl font-bold text-white flex items-center gap-2 transition-all active:scale-95 shadow-md text-sm ${filledRowCount > 0 ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20' : 'bg-slate-300 cursor-not-allowed shadow-none'}`}
+                  >
+                    <Upload className="w-4 h-4" /> 일괄 업로드
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="gap-6">
         
         {/* 새창(모달) 폼 */}
         {isModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white p-5 rounded-2xl shadow-xl border border-slate-200 relative w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4" onClick={() => { resetDetailForm(); setIsModalOpen(false); }}>
+          <div className="bg-white p-5 rounded-2xl shadow-xl border border-slate-200 relative w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <button onClick={() => { resetDetailForm(); setIsModalOpen(false); }} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600">
               <X className="w-6 h-6" />
             </button>
@@ -90,7 +302,14 @@ export const MainDetailPage = ({
               </div>
               <div className="col-span-1">
                 <label className="block text-xs font-bold text-slate-500 mb-1">Article No {detailInput.type === 'main' && '*'}</label>
-                <input type="text" name="articleNo" value={detailInput.articleNo || ''} onChange={handleDetailChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm uppercase focus:ring-2 ring-fuchsia-200 outline-none" placeholder="Ex. WO-24001" />
+                <SearchableSelect
+                  value={detailInput.articleNo || ''}
+                  options={(savedFabrics || []).map(f => ({ article: f.article, id: f.article }))}
+                  onChange={(val) => setDetailInput(prev => ({ ...prev, articleNo: val?.toUpperCase?.() || val || '' }))}
+                  placeholder="원단 검색 또는 직접 입력..."
+                  labelKey="article"
+                  valueKey="id"
+                />
               </div>
               <div className="col-span-1">
                 <label className="block text-xs font-bold text-slate-500 mb-1">Order No</label>
@@ -136,32 +355,41 @@ export const MainDetailPage = ({
 
                 {formTab === 'finished' && (
                   <div className="animate-in fade-in duration-200">
-                    <p className="text-[10px] font-extrabold text-emerald-600 mb-3 uppercase tracking-wider">✨ 가공지 물리 실측치</p>
-                    <div className="grid grid-cols-2 gap-3 mb-4">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">전폭 (")</label>
-                        <input type="text" name="finWidthFull" value={detailInput.finWidthFull || ''} onChange={handleDetailChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 ring-emerald-200 outline-none" placeholder="Ex. 58" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">중량 (GSM)</label>
-                        <input type="text" name="finGsm" value={detailInput.finGsm || ''} onChange={handleDetailChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 ring-emerald-200 outline-none" placeholder="Ex. 300" />
-                      </div>
-                    </div>
-
                     <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50">
                       <div className="flex justify-between items-center mb-3">
-                        <p className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1">🔬 수축 TEST 로깅</p>
+                        <p className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1">🔬 가공지 실측 & 수축 TEST 로깅</p>
                         <button type="button" onClick={addTest} className="text-[10px] bg-slate-200 hover:bg-slate-300 text-slate-600 px-2 py-1 rounded font-bold transition-colors"> + Retest 추가</button>
                       </div>
                       
                       <div className="space-y-3">
                         {(detailInput.tests || []).map((test, index) => (
                           <div key={test.id || index} className="border border-slate-300 rounded-lg bg-white overflow-hidden shadow-sm">
-                            <div className="bg-slate-100 px-2 py-1.5 text-[10px] font-bold text-slate-600 flex justify-between items-center border-b border-slate-200">
-                              <span>{index === 0 ? '✔ 1차 TEST (최초)' : `✔ ${index + 1}차 TEST (재검)`}</span>
+                            <div className={`px-2 py-1.5 text-[10px] font-bold flex justify-between items-center border-b ${index === 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                              <span>{index === 0 ? '✔ 1차 TEST (최초)' : `✔ ${index + 1}차 TEST (재가공)`}</span>
                               {index > 0 && <button type="button" onClick={() => removeTest(index)} className="text-red-500 hover:text-red-700"><X className="w-3 h-3" /></button>}
                             </div>
                             <div className="p-3 space-y-3">
+                               {/* 2차 이상: 재가공방법 */}
+                               {index > 0 && (
+                                 <div>
+                                   <label className="block text-[9px] text-amber-600 mb-0.5 font-bold">재가공 방법 (Rework Method)</label>
+                                   <input type="text" value={test.reworkMethod || ''} onChange={e=>handleTestChange(index, 'reworkMethod', e.target.value)} className="w-full bg-amber-50/30 border border-amber-200 rounded px-2 py-1.5 text-[11px] text-amber-700 placeholder-amber-300 outline-none focus:border-amber-400" placeholder="예: 텐타 180도 약하게" />
+                                 </div>
+                               )}
+
+                               {/* 가공지 물리 실측치 */}
+                               <div className="grid grid-cols-2 gap-2">
+                                 <div>
+                                   <label className="block text-[9px] text-emerald-500 mb-0.5 font-bold">가공 전폭 (")</label>
+                                   <input type="text" value={test.finWidthFull || ''} onChange={e=>handleTestChange(index, 'finWidthFull', e.target.value)} className="w-full border border-slate-200 rounded px-2 py-1.5 text-xs text-center outline-none focus:border-emerald-400 focus:bg-emerald-50" placeholder="58" />
+                                 </div>
+                                 <div>
+                                   <label className="block text-[9px] text-emerald-500 mb-0.5 font-bold">가공 중량 (GSM)</label>
+                                   <input type="text" value={test.finGsm || ''} onChange={e=>handleTestChange(index, 'finGsm', e.target.value)} className="w-full border border-slate-200 rounded px-2 py-1.5 text-xs text-center outline-none focus:border-emerald-400 focus:bg-emerald-50" placeholder="300" />
+                                 </div>
+                               </div>
+
+                               {/* 수축 TEST 결과 */}
                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                                  <div>
                                    <label className="block text-[9px] text-slate-400 mb-0.5 font-bold">폭축 (W %)</label>
@@ -176,23 +404,17 @@ export const MainDetailPage = ({
                                    <input type="text" value={test.torque || ''} onChange={e=>handleTestChange(index, 'torque', e.target.value)} className="w-full border border-slate-200 rounded px-2 py-1.5 text-xs text-center outline-none focus:border-amber-400 focus:bg-amber-50" placeholder="2" />
                                  </div>
                                  <div>
-                                   <label className="block text-[9px] text-slate-400 mb-0.5 font-bold">중량 (GSM)</label>
+                                   <label className="block text-[9px] text-slate-400 mb-0.5 font-bold">수축 GSM</label>
                                    <input type="text" value={test.gsm || ''} onChange={e=>handleTestChange(index, 'gsm', e.target.value)} className="w-full border border-slate-200 rounded px-2 py-1.5 text-xs text-center outline-none focus:border-blue-400 focus:bg-blue-50" placeholder="310" />
                                  </div>
                                </div>
-                               <div className="pt-2 border-t border-slate-100 flex gap-2">
+                               <div className="pt-2 border-t border-slate-100">
                                  <div className="w-1/3">
                                    <label className="block text-[9px] text-slate-400 mb-0.5 font-bold">결과 판정</label>
                                    <select value={test.status || ''} onChange={e=>handleTestChange(index, 'status', e.target.value)} className={`w-full border border-slate-200 rounded px-2 py-1.5 text-xs outline-none focus:border-emerald-400 text-center font-bold ${test.status==='Pass'?'text-emerald-600 bg-emerald-50 border-emerald-300':test.status==='Fail'?'text-red-600 bg-red-50 border-red-300':''}`}>
                                      <option value="">-미판정-</option><option value="Pass">Pass</option><option value="Fail">Fail</option>
                                    </select>
                                  </div>
-                                 {test.status === 'Fail' && (
-                                   <div className="w-2/3">
-                                     <label className="block text-[9px] text-slate-400 mb-0.5 font-bold text-red-500">재가공 방식 (Rework)</label>
-                                     <input type="text" value={test.reworkMethod || ''} onChange={e=>handleTestChange(index, 'reworkMethod', e.target.value)} className="w-full bg-red-50/30 border border-red-200 rounded px-2 py-1.5 text-[11px] text-red-700 placeholder-red-300 outline-none focus:border-red-400" placeholder="예: 텐타 180도 약하게" />
-                                   </div>
-                                 )}
                                </div>
                             </div>
                           </div>
@@ -245,7 +467,7 @@ export const MainDetailPage = ({
                   
                   {/* 생지 */}
                   <th className="p-1 text-[10px] text-indigo-500 font-normal text-center w-12 border-r border-slate-200 uppercase">폭(")</th>
-                  <th className="p-1 text-[10px] text-indigo-500 font- normal text-center w-14 border-r border-slate-200 uppercase">중량(YD)</th>
+                  <th className="p-1 text-[10px] text-indigo-500 font-normal text-center w-14 border-r border-slate-200 uppercase">중량(G/YD)</th>
                   <th className="p-1 text-[10px] text-indigo-500 font-normal text-center w-14 border-r border-slate-200 uppercase">루프장</th>
                   
                   {/* 가공지 */}
@@ -315,8 +537,8 @@ export const MainDetailPage = ({
                       <td className="p-2 border-r border-slate-200 text-center font-mono text-xs text-indigo-700">{d.greigeGsm||'-'}</td>
                       <td className="p-2 border-r border-slate-200 text-center font-mono text-xs text-indigo-700 font-bold">{d.greigeLoopLength||'-'}</td>
                       
-                      <td className="p-2 border-r border-slate-200 text-center font-mono text-xs text-emerald-700 font-bold bg-emerald-50/30">{d.finWidthFull||'-'}</td>
-                      <td className="p-2 border-r border-slate-200 text-center font-mono text-xs text-emerald-700 font-bold bg-emerald-50/30">{d.finGsm||'-'}</td>
+                      <td className="p-2 border-r border-slate-200 text-center font-mono text-xs text-emerald-700 font-bold bg-emerald-50/30">{d.tests?.[0]?.finWidthFull || d.finWidthFull || '-'}</td>
+                      <td className="p-2 border-r border-slate-200 text-center font-mono text-xs text-emerald-700 font-bold bg-emerald-50/30">{d.tests?.[0]?.finGsm || d.finGsm || '-'}</td>
                       
                       <td className="p-2 border-r border-slate-200 text-center font-mono text-xs text-red-500">{latestTest?.shrinkWidth||'-'}</td>
                       <td className="p-2 border-r border-slate-200 text-center font-mono text-xs text-red-500">{latestTest?.shrinkLength||'-'}</td>

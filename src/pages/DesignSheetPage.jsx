@@ -659,7 +659,7 @@ export const DesignSheetPage = ({
             </h3>
             
             <div className="flex flex-col gap-2">
-              {(mainDetails || []).filter(d => d.article === sheetInput.articleNo).map(d => {
+              {(mainDetails || []).filter(d => d.articleNo === sheetInput.articleNo).map(d => {
                 const latestTest = d.tests?.length ? d.tests[d.tests.length - 1] : null;
                 const isPass = latestTest?.status === 'Pass';
                 const isFail = latestTest?.status === 'Fail';

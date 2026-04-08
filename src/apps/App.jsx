@@ -243,7 +243,7 @@ const App = () => {
     detailInput, setDetailInput, editingDetailId, setEditingDetailId,
     handleDetailChange, handleTestChange, addTest, removeTest,
     handleSaveDetail, handleEditDetail, handleDeleteDetail, resetDetailForm,
-    handleQuickStatusChange
+    handleQuickStatusChange, handleBulkPaste
   } = useMainDetail(mainDetails, saveDocToCloud, deleteDocFromCloud, showToast);
 
   // ⚓️ 가설계서(레시피) 전용 훅 — 기존 useDesignSheet와 완전 독립
@@ -801,6 +801,7 @@ const App = () => {
         {activeTab === 'mainDetail' && (
           <MainDetailPage
             mainDetails={mainDetails}
+            savedFabrics={savedFabrics}
             detailInput={detailInput} setDetailInput={setDetailInput}
             editingDetailId={editingDetailId} setEditingDetailId={setEditingDetailId}
             handleDetailChange={handleDetailChange} handleTestChange={handleTestChange}
@@ -808,6 +809,7 @@ const App = () => {
             handleSaveDetail={handleSaveDetail} handleEditDetail={handleEditDetail}
             handleDeleteDetail={handleDeleteDetail} resetDetailForm={resetDetailForm}
             handleQuickStatusChange={handleQuickStatusChange}
+            handleBulkPaste={handleBulkPaste}
           />
         )}
 
