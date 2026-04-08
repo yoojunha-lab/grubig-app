@@ -447,8 +447,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     setEditingSheetId(sheet.id);
   };
 
-  // 삭제
-  const handleDeleteSheet = (id) => {
+  const handleDeleteSheet = async (id) => {
     const sheet = designSheets.find(s => s.id === id);
 
     // [방어] 아이템화 완료 설계서는 삭제 차단 — 확정된 생산 데이터 보호
@@ -462,21 +461,24 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       ? '⚠️ 샘플 진행 중인 설계서입니다!\n정말로 영구 삭제하시겠습니까? (복구 불가)'
       : '정말로 이 설계서를 삭제하시겠습니까? (삭제된 설계서는 복구할 수 없습니다.)';
 
-    if (window.confirm(msg)) {
-      // [A4 수정] 삭제 전 연결된 의뢰의 linkedDesignSheetId를 해제 → 의뢰 영구잠김 방지
-      if (sheet?.devRequestId && devRequests) {
-        const linkedDev = devRequests.find(d => d.id === sheet.devRequestId);
-        if (linkedDev?.linkedDesignSheetId === id) {
-          saveDocToCloud('devRequests', {
-            ...linkedDev,
-            linkedDesignSheetId: null,
-            updatedAt: new Date().toISOString()
-          });
-        }
+    if (!window.confirm(msg)) return;
+
+    // [A4 수정] 삭제 전 연결된 의뢰의 linkedDesignSheetId를 해제 → 의뢰 영구잠김 방지
+    if (sheet?.devRequestId && devRequests) {
+      const linkedDev = devRequests.find(d => d.id === sheet.devRequestId);
+      if (linkedDev?.linkedDesignSheetId === id) {
+        saveDocToCloud('devRequests', {
+          ...linkedDev,
+          linkedDesignSheetId: null,
+          updatedAt: new Date().toISOString()
+        });
       }
-      deleteDocFromCloud('designSheets', id).then(() => {
-        showToast('설계서가 삭제되었습니다.', 'success');
-      });
+    }
+    try {
+      await deleteDocFromCloud('designSheets', id);
+      showToast('설계서가 삭제되었습니다.', 'success');
+    } catch {
+      // deleteDocFromCloud 내부에서 이미 에러 토스트 처리됨
     }
   };
 

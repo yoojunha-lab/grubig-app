@@ -179,10 +179,14 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     showToast("견적 관리: 품목 코드(가나다) 순으로 자동 정렬되어 저장되었습니다.", 'success');
   };
 
-  const handleDeleteQuote = (id, syncQuoteCallback) => {
-    if (window.confirm("이 견적 히스토리를 정말 삭제하시겠습니까?")) {
-      if(syncQuoteCallback) syncQuoteCallback(id);
-      deleteDocFromCloud('quotes', id);
+  const handleDeleteQuote = async (id, syncQuoteCallback) => {
+    if (!window.confirm("이 견적 히스토리를 정말 삭제하시겠습니까?")) return;
+    if(syncQuoteCallback) syncQuoteCallback(id);
+    try {
+      await deleteDocFromCloud('quotes', id);
+      showToast('견적 히스토리가 삭제되었습니다.', 'success');
+    } catch {
+      // deleteDocFromCloud 내부에서 이미 에러 토스트 처리됨
     }
   };
 

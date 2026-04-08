@@ -21,7 +21,6 @@ export const DevStatusPage = ({
   const [showDevModal, setShowDevModal] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showRejected, setShowRejected] = useState(false);
   const [printTarget, setPrintTarget] = useState(null);
   const [printType, setPrintType] = useState('report');
   // EZ-TEX O/D NO. 인라인 입력용 ref 저장소

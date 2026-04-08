@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cloud, Menu, Layers, Home, Globe, Calculator, FileSpreadsheet, Box, FileText, Calendar, LogOut, DollarSign, Edit2, Activity, Archive, FileCheck } from 'lucide-react';
+import { Cloud, Menu, Layers, Home, Globe, Calculator, FileSpreadsheet, Box, FileText, Calendar, LogOut, DollarSign, Edit2, Activity, Archive, FileCheck, FlaskConical } from 'lucide-react';
 
 export const Sidebar = ({ isMobileMenuOpen, setIsMobileMenuOpen, activeTab, setActiveTab, viewMode, setViewMode, syncStatus, handleLogout, globalExchangeRate, setGlobalExchangeRate }) => {
   return (
@@ -58,6 +58,7 @@ export const Sidebar = ({ isMobileMenuOpen, setIsMobileMenuOpen, activeTab, setA
               <button onClick={() => { setActiveTab('mainDetail'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 text-sm font-medium ${activeTab === 'mainDetail' ? 'bg-gradient-to-r from-violet-600 to-purple-500 text-white shadow-lg shadow-violet-500/20 translate-x-1' : 'hover:bg-slate-800 hover:translate-x-1 text-slate-400'}`}><FileCheck className="w-4 h-4" /> <span>메인/QC 디테일 시트</span></button>
               <button onClick={() => { setActiveTab('devStatus'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 text-sm font-medium ${activeTab === 'devStatus' ? 'bg-gradient-to-r from-violet-600 to-purple-500 text-white shadow-lg shadow-violet-500/20 translate-x-1' : 'hover:bg-slate-800 hover:translate-x-1 text-slate-400'}`}><Activity className="w-4 h-4" /> <span>개발/설계 현황</span></button>
               <button onClick={() => { setActiveTab('designList'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 text-sm font-medium ${activeTab === 'designList' ? 'bg-gradient-to-r from-violet-600 to-purple-500 text-white shadow-lg shadow-violet-500/20 translate-x-1' : 'hover:bg-slate-800 hover:translate-x-1 text-slate-400'}`}><Archive className="w-4 h-4" /> <span>설계서 보관함</span></button>
+              <button onClick={() => { setActiveTab('tempDesign'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 text-sm font-medium ${activeTab === 'tempDesign' ? 'bg-gradient-to-r from-amber-600 to-orange-500 text-white shadow-lg shadow-amber-500/20 translate-x-1' : 'hover:bg-slate-800 hover:translate-x-1 text-slate-400'}`}><FlaskConical className="w-4 h-4" /> <span>가설계서 (레시피)</span></button>
             </div>
           </div>
         </nav>

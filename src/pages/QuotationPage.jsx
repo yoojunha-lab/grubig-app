@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { FileText, Save, Download, DollarSign, X, Plus, ClipboardPaste } from 'lucide-react';
 import { SearchableSelect } from '../components/common/SearchableSelect';
-import { num, smartRound } from '../utils/helpers';
+import { num } from '../utils/helpers';
 // [Refactoring] 개별 단가 입력 셀 (입력 튕김 방지 및 로컬 상태 관리)
 const PriceInputCell = ({ item, tierKey, idx, quoteInput, extraMarkup, getBasePrice, handleQuoteBasePriceChange, formatQuotePrice, bgClass, textColorClass, borderClass }) => {
   const [localVal, setLocalVal] = useState('');
@@ -18,8 +18,8 @@ const PriceInputCell = ({ item, tierKey, idx, quoteInput, extraMarkup, getBasePr
 
   const handleBlur = () => {
     setIsFocused(false);
-    const num = Number(localVal) || 0;
-    handleQuoteBasePriceChange(idx, `basePrice${tierKey}`, num / (extraMarkup || 1));
+    const numVal = Number(localVal) || 0;
+    handleQuoteBasePriceChange(idx, `basePrice${tierKey}`, numVal / (extraMarkup || 1));
   };
 
   return (

@@ -126,11 +126,14 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
     setEditingDetailId(id);
   };
 
-  const handleDeleteDetail = (id) => {
-    if (window.confirm('정말 이 시트를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) {
-      deleteDocFromCloud('mainDetails', id);
+  const handleDeleteDetail = async (id) => {
+    if (!window.confirm('정말 이 시트를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) return;
+    try {
+      await deleteDocFromCloud('mainDetails', id);
       if (editingDetailId === id) resetDetailForm();
       showToast('삭제되었습니다.', 'success');
+    } catch {
+      // deleteDocFromCloud 내부에서 이미 에러 토스트 처리됨
     }
   };
 

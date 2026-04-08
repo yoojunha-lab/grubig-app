@@ -115,7 +115,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     setEditingDevId(devReq.id);
   };
 
-  const handleDeleteDevRequest = (id) => {
+  const handleDeleteDevRequest = async (id) => {
     const devReq = (devRequests || []).find(d => d.id === id);
 
     // [방어] 설계서가 연결된 의뢰는 삭제 차단 — 고아 설계서 발생 방지
@@ -124,10 +124,12 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       return;
     }
 
-    if (window.confirm('정말로 이 개발 의뢰를 삭제하시겠습니까?')) {
-      deleteDocFromCloud('devRequests', id).then(() => {
-        showToast('삭제되었습니다.', 'success');
-      });
+    if (!window.confirm('정말로 이 개발 의뢰를 삭제하시겠습니까?')) return;
+    try {
+      await deleteDocFromCloud('devRequests', id);
+      showToast('삭제되었습니다.', 'success');
+    } catch {
+      // deleteDocFromCloud 내부에서 이미 에러 토스트 처리됨
     }
   };
 

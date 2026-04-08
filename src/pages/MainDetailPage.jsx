@@ -123,7 +123,7 @@ export const MainDetailPage = ({
                         <input type="text" name="greigeWidthFull" value={detailInput.greigeWidthFull || ''} onChange={handleDetailChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 ring-indigo-200 outline-none" placeholder="Ex. 60" />
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">중량 (YD)</label>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">중량 (G/YD)</label>
                         <input type="text" name="greigeGsm" value={detailInput.greigeGsm || ''} onChange={handleDetailChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 ring-indigo-200 outline-none" placeholder="Ex. 320" />
                       </div>
                       <div>
@@ -158,7 +158,7 @@ export const MainDetailPage = ({
                         {(detailInput.tests || []).map((test, index) => (
                           <div key={test.id || index} className="border border-slate-300 rounded-lg bg-white overflow-hidden shadow-sm">
                             <div className="bg-slate-100 px-2 py-1.5 text-[10px] font-bold text-slate-600 flex justify-between items-center border-b border-slate-200">
-                              <span>{index === 0 ? '✔ 1st TEST (최초)' : `✔ ${index + 1}nd TEST (재검)`}</span>
+                              <span>{index === 0 ? '✔ 1차 TEST (최초)' : `✔ ${index + 1}차 TEST (재검)`}</span>
                               {index > 0 && <button type="button" onClick={() => removeTest(index)} className="text-red-500 hover:text-red-700"><X className="w-3 h-3" /></button>}
                             </div>
                             <div className="p-3 space-y-3">

@@ -170,8 +170,9 @@ export const QuoteHistoryPage = ({
 
       {/* Quick View */}
       {quickViewQuote && (
-        <div className="fixed inset-0 bg-black/60 z-[10000] p-4 md:p-12 overflow-y-auto flex justify-center items-start backdrop-blur-sm">
-          <div className="bg-white w-full max-w-[210mm] min-h-[297mm] p-6 md:p-12 relative rounded-xl shadow-2xl my-auto">
+        <div className="fixed inset-0 bg-black/60 z-[10000] p-4 md:p-12 overflow-y-auto flex justify-center items-start backdrop-blur-sm"
+          onClick={() => setQuickViewQuote(null)}>
+          <div className="bg-white w-full max-w-[210mm] min-h-[297mm] p-6 md:p-12 relative rounded-xl shadow-2xl my-auto" onClick={e => e.stopPropagation()}>
             <button onClick={() => setQuickViewQuote(null)} className="absolute right-4 md:right-6 top-4 md:top-6 text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-full p-2 transition-colors"><X className="w-6 h-6" /></button>
 
             <div className="flex justify-center mb-6">

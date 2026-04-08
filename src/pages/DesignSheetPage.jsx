@@ -1,5 +1,5 @@
 import React from 'react';
-import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle } from 'lucide-react';
+import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download } from 'lucide-react';
 import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { num, calculateGYd } from '../utils/helpers';
@@ -67,7 +67,13 @@ export const DesignSheetPage = ({
   addMasterItem,
   setActiveMasterModal,
   savedFabrics,
-  registerFabricFromSheet
+  registerFabricFromSheet,
+  // === 가설계서(Temp) 관련 props (모두 optional) ===
+  isTempMode = false,           // true이면 가설계서 작성 모드
+  tempBuyerName = '',           // 가설계서 모드 전용 바이어명
+  onTempBuyerChange,            // 바이어명 변경 콜백
+  onLoadTempSheet,              // 가설계서 → 정식 설계서 불러오기 콜백
+  tempDesignSheets = []         // 저장된 가설계서 목록 (불러오기 모달용)
 }) => {
   const STAGE_ORDER = ['draft', 'eztex', 'sampling', 'articled'];
   const stageIdx = STAGE_ORDER.indexOf(sheetInput.stage || 'draft');
@@ -76,6 +82,9 @@ export const DesignSheetPage = ({
   const isEztexLocked = stageIdx >= 2;
   const isFullyLocked = false; // stageIdx >= 3; -> 대표님 요청: 아이템화 완료 후에도 '설계 변경 사유'를 통해 수정 가능
   const isLinkedToFabric = !!sheetInput.linkedFabricId; // 원단 연동 시 공유 변수 Lock
+
+  // 가설계서 불러오기 모달 상태
+  const [isTempLoadModalOpen, setIsTempLoadModalOpen] = React.useState(false);
 
   const linkedDevReq = sheetInput.devRequestId ? (devRequests || []).find(d => d.id === sheetInput.devRequestId) : null;
   const feeders = sheetInput.knitting?.feeders || [{ symbol: '', loopLength: '', yarnSlot: '' }];
@@ -102,6 +111,13 @@ export const DesignSheetPage = ({
   const theoreticalGYd = calculateGYd(Number(sheetInput.costInput?.gsm || 0), Number(sheetInput.costInput?.widthFull || 0));
 
   const handleSaveAndGo = () => {
+    // [REF-2] 가설계서 모드에서는 의뢰 연결(onLink) 불필요
+    if (isTempMode) {
+      const savedId = handleSaveSheet(user);
+      if (!savedId) return;
+      if (closeModal) closeModal();
+      return;
+    }
     const onLink = (devReqId, sheetId) => { if (linkAndConfirm) linkAndConfirm(devReqId, sheetId); };
     const savedId = handleSaveSheet(user, onLink);
     if (!savedId) return; // 저장 실패(유효성 검사 등) 시 모달 닫지 않음
@@ -120,23 +136,34 @@ export const DesignSheetPage = ({
     <div className="max-w-[1700px] xl:w-[98vw] mx-auto pb-20 px-4">
 
       {/* 액션 플로팅 버튼 (수정 완료용) */}
-      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-3 mb-6 flex justify-between items-center shadow-sm">
+      <div className={`sticky top-0 z-40 backdrop-blur-md border-b px-4 py-3 mb-6 flex justify-between items-center shadow-sm ${isTempMode ? 'bg-amber-50/80 border-amber-200' : 'bg-white/80 border-slate-200'}`}>
         <div className="flex items-center gap-3">
-          <FileText className="w-5 h-5 text-indigo-600" />
+          {isTempMode ? <FlaskConical className="w-5 h-5 text-amber-600" /> : <FileText className="w-5 h-5 text-indigo-600" />}
           <div>
-            <h1 className="text-lg font-extrabold text-slate-800 leading-tight">원단 설계서 (Circular knit fabric)</h1>
-            <p className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">{editingSheetId ? '문서 수정 중' : '새 문서 작성'}</p>
+            <h1 className="text-lg font-extrabold text-slate-800 leading-tight">{isTempMode ? '가설계서 (레시피)' : '원단 설계서 (Circular knit fabric)'}</h1>
+            <p className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">{isTempMode ? (editingSheetId ? '레시피 수정 중' : '새 레시피 작성') : (editingSheetId ? '문서 수정 중' : '새 문서 작성')}</p>
           </div>
         </div>
         <div className="flex gap-2">
-          {editingSheetId && !isFullyLocked && (
+          {/* 정식 모드: 가설계서 불러오기 버튼 */}
+          {!isTempMode && (tempDesignSheets || []).length > 0 && (
+            <button onClick={() => setIsTempLoadModalOpen(true)} className="px-4 py-2 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-300 hover:bg-amber-100 rounded shadow-sm transition-colors flex items-center gap-1.5">
+              <Download className="w-3.5 h-3.5" /> 가설계서 불러오기
+            </button>
+          )}
+          {editingSheetId && !isFullyLocked && !isTempMode && (
             <button onClick={() => { handleDeleteSheet(editingSheetId); if (closeModal) closeModal(); else setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded shadow-sm transition-colors flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> 삭제</button>
           )}
-          {editingSheetId && sheetInput?.stage === 'draft' && typeof advanceStage === 'function' && (
+          {editingSheetId && !isTempMode && sheetInput?.stage === 'draft' && typeof advanceStage === 'function' && (
             <button onClick={() => advanceStage(editingSheetId)} className="px-4 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded shadow-sm transition-colors flex items-center gap-1"><Check className="w-3.5 h-3.5" /> 생산팀 이관하기</button>
           )}
-          <button onClick={() => { resetSheetForm(); if (closeModal) closeModal(); else setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded shadow-sm transition-colors flex items-center gap-1"><X className="w-3.5 h-3.5" /> 닫기</button>
-          <button onClick={handleSaveAndGo} className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded shadow-md transition-colors flex items-center gap-1.5"><Save className="w-3.5 h-3.5" /> 설계서 저장</button>
+          {/* 가설계서 모드: 삭제 버튼 */}
+          {isTempMode && editingSheetId && (
+            <button onClick={() => { handleDeleteSheet(editingSheetId); if (closeModal) closeModal(); }} className="px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded shadow-sm transition-colors flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> 삭제</button>
+          )}
+          {/* [REF-3] 닫기 버튼 — 가설계서 모드에서는 closeModal만, 정식에서는 devStatus로 fallback */}
+          <button onClick={() => { resetSheetForm(); if (closeModal) closeModal(); else if (!isTempMode && setActiveTab) setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded shadow-sm transition-colors flex items-center gap-1"><X className="w-3.5 h-3.5" /> 닫기</button>
+          <button onClick={handleSaveAndGo} className={`px-5 py-2 text-xs font-bold text-white rounded shadow-md transition-colors flex items-center gap-1.5 ${isTempMode ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}><Save className="w-3.5 h-3.5" /> {isTempMode ? '가설계서 저장' : '설계서 저장'}</button>
         </div>
       </div>
 
@@ -152,10 +179,12 @@ export const DesignSheetPage = ({
           <p className="text-xs font-mono text-slate-500 mt-1 uppercase tracking-widest">Fabric Design & Production Specification</p>
         </div>
 
-        {/* 진행 상태 바 */}
+        {/* 진행 상태 바 (가설계서 모드에서는 숨김) */}
+        {!isTempMode && (
         <div className="mb-6 -mx-2">
           <DesignStepper currentStage={sheetInput.stage || 'draft'} />
         </div>
+        )}
 
         {isFullyLocked && (
           <div className="mb-4 bg-red-50 border border-red-200 px-4 py-2 flex items-center gap-2 rounded">
@@ -176,19 +205,31 @@ export const DesignSheetPage = ({
         {/* ------------------------------------------- */}
         {/* 1. 기본 식별 정보 Grid */}
         {/* ------------------------------------------- */}
-        <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 문서 식별 정보</h3>
+        <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-slate-800 block" /> {isTempMode ? '가설계서 정보' : '문서 식별 정보'}</h3>
         <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 grid grid-cols-4 md:grid-cols-8 mb-6">
-          <Th span={1}>개발번호 {isDevOrderLocked && <Lock className="inline w-2.5 h-2.5 ml-1" />}</Th>
-          <Td span={1}><TInput name="devOrderNo" value={sheetInput.devOrderNo || ''} onChange={handleSheetChange} readOnly={isDevOrderLocked} placeholder={isSelfDesignSheet ? '자체 설계서 (할당안됨)' : '자동 발번'} className={`font-mono font-extrabold ${isSelfDesignSheet ? 'text-slate-400 bg-slate-100' : 'text-blue-700 bg-slate-50'}`} /></Td>
-          <Th span={1}>EZ-TEX NO {isEztexLocked && <Lock className="inline w-2.5 h-2.5 ml-1" />}</Th>
-          <Td span={1}><TInput name="eztexOrderNo" value={sheetInput.eztexOrderNo || ''} onChange={handleSheetChange} readOnly={isEztexLocked || isFullyLocked} placeholder="품번" className={`font-mono font-extrabold text-violet-700 ${isEztexLocked ? 'bg-slate-50' : ''}`} /></Td>
-          <Th span={1}>Article No. {(isFullyLocked || isLinkedToFabric) && <Lock className="inline w-2.5 h-2.5 ml-1" />}</Th>
-          <Td span={1}><TInput name="articleNo" value={sheetInput.articleNo || ''} onChange={handleSheetChange} readOnly={isFullyLocked || isLinkedToFabric} placeholder="아티클" className={`font-mono font-extrabold text-emerald-700 ${(isFullyLocked || isLinkedToFabric) ? 'bg-slate-50' : ''}`} /></Td>
-          <Th span={1} className="text-red-700 bg-red-50/50">샘플 납기</Th>
-          <Td span={1}><TInput type="date" name="deadline" value={sheetInput.deadline || ''} onChange={handleSheetChange} readOnly={isFullyLocked} className="font-mono font-bold text-red-600" /></Td>
+          {/* 가설계서 모드: 개발번호·EZ-TEX·Article·납기 숨기고 바이어명 표시 */}
+          {isTempMode ? (
+            <>
+              <Th span={1} className="bg-amber-50 text-amber-800">바이어명</Th>
+              <Td span={3}><TInput name="buyerName" value={tempBuyerName || ''} onChange={e => onTempBuyerChange?.(e.target.value)} placeholder="바이어 상호명 입력" className="text-sm font-extrabold text-amber-800" /></Td>
+              <Th span={1}>원단명 (Name)</Th>
+              <Td span={3}><TInput name="fabricName" value={sheetInput.fabricName || ''} onChange={handleSheetChange} placeholder="원단명 (예: Wool Interlock)" className="text-sm font-extrabold text-slate-900 border-b-2 focus:border-amber-400" /></Td>
+            </>
+          ) : (
+            <>
+              <Th span={1}>개발번호 {isDevOrderLocked && <Lock className="inline w-2.5 h-2.5 ml-1" />}</Th>
+              <Td span={1}><TInput name="devOrderNo" value={sheetInput.devOrderNo || ''} onChange={handleSheetChange} readOnly={isDevOrderLocked} placeholder={isSelfDesignSheet ? '자체 설계서 (할당안됨)' : '자동 발번'} className={`font-mono font-extrabold ${isSelfDesignSheet ? 'text-slate-400 bg-slate-100' : 'text-blue-700 bg-slate-50'}`} /></Td>
+              <Th span={1}>EZ-TEX NO {isEztexLocked && <Lock className="inline w-2.5 h-2.5 ml-1" />}</Th>
+              <Td span={1}><TInput name="eztexOrderNo" value={sheetInput.eztexOrderNo || ''} onChange={handleSheetChange} readOnly={isEztexLocked || isFullyLocked} placeholder="품번" className={`font-mono font-extrabold text-violet-700 ${isEztexLocked ? 'bg-slate-50' : ''}`} /></Td>
+              <Th span={1}>Article No. {(isFullyLocked || isLinkedToFabric) && <Lock className="inline w-2.5 h-2.5 ml-1" />}</Th>
+              <Td span={1}><TInput name="articleNo" value={sheetInput.articleNo || ''} onChange={handleSheetChange} readOnly={isFullyLocked || isLinkedToFabric} placeholder="아티클" className={`font-mono font-extrabold text-emerald-700 ${(isFullyLocked || isLinkedToFabric) ? 'bg-slate-50' : ''}`} /></Td>
+              <Th span={1} className="text-red-700 bg-red-50/50">샘플 납기</Th>
+              <Td span={1}><TInput type="date" name="deadline" value={sheetInput.deadline || ''} onChange={handleSheetChange} readOnly={isFullyLocked} className="font-mono font-bold text-red-600" /></Td>
 
-          <Th span={1}>원단명 (Name)</Th>
-          <Td span={7}><TInput name="fabricName" value={sheetInput.fabricName || ''} onChange={handleSheetChange} readOnly={isFullyLocked} placeholder="직관적인 원단명 (예: Wool Interlock)" className="text-sm font-extrabold text-slate-900 border-b-2 focus:border-blue-400" /></Td>
+              <Th span={1}>원단명 (Name)</Th>
+              <Td span={7}><TInput name="fabricName" value={sheetInput.fabricName || ''} onChange={handleSheetChange} readOnly={isFullyLocked} placeholder="직관적인 원단명 (예: Wool Interlock)" className="text-sm font-extrabold text-slate-900 border-b-2 focus:border-blue-400" /></Td>
+            </>
+          )}
 
           <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black">내폭 (")</Th>
           <Td span={1} className="bg-indigo-50"><TInput type="number" name="widthCut" value={sheetInput.costInput?.widthCut ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder="56" className="text-center font-mono font-black text-indigo-800 text-sm" /></Td>
@@ -478,16 +519,16 @@ export const DesignSheetPage = ({
         </div>
 
 
-        {/* 메모 및 서명 영역 */}
-        {editingSheetId && (
+        {/* 메모 및 서명 영역 — [BUG-2] 가설계서 모드에서는 이력 관리 불필요하므로 숨김 */}
+        {editingSheetId && !isTempMode && (
           <div className="mt-8 border-2 border-amber-300 bg-amber-50 p-4 relative mb-6">
             <h4 className="absolute -top-2 left-4 bg-amber-50 px-2 text-[10px] font-extrabold text-amber-700 tracking-wider">※ 설계 변경 사유</h4>
             <textarea value={sheetInput.changeReason || ''} onChange={e => handleSheetChange({ target: { name: 'changeReason', value: e.target.value } })} placeholder="수정 사유를 기재해 주세요 (이력 보관 시 필요)" className="w-full bg-transparent border-none outline-none text-xs text-amber-900 placeholder-amber-400/50 resize-none h-10 mt-1" />
           </div>
         )}
 
-        {/* 변경 이력 아코디언 컴포넌트 */}
-        {sheetInput.changeHistory && sheetInput.changeHistory.length > 0 && (
+        {/* 변경 이력 아코디언 — [PLAN-1] 가설계서 모드에서는 방어적 숨김 */}
+        {!isTempMode && sheetInput.changeHistory && sheetInput.changeHistory.length > 0 && (
           <details className="mb-6 group bg-slate-50 border border-slate-200 rounded-lg overflow-hidden cursor-pointer shadow-sm">
             <summary className="p-3 text-xs font-bold text-slate-600 flex items-center justify-between hover:bg-slate-100 transition-colors list-none">
               <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-slate-400" /> 과거 변경 이력 열람 (총 {sheetInput.changeHistory.length}건)</span>
@@ -521,7 +562,8 @@ export const DesignSheetPage = ({
           </details>
         )}
 
-        {/* 원단 리스트 연동 섹션 */}
+        {/* 원단 리스트 연동 섹션 (가설계서 모드에서는 숨김 — 가설계서는 원단 연결 불필요) */}
+        {!isTempMode && (
         <div className="mb-6 p-4 bg-blue-50/50 rounded-lg border border-blue-200">
           <h3 className="text-xs font-extrabold text-blue-800 mb-2 flex items-center gap-1.5">
             <LinkIcon className="w-3.5 h-3.5" /> 원단 리스트 연동
@@ -603,11 +645,12 @@ export const DesignSheetPage = ({
             </div>
           )}
         </div>
+        )}
 
         {/* ------------------------------------------- */}
-        {/* MAIN DETAIL 연동 섹션 (QC 연동) */}
+        {/* MAIN DETAIL 연동 섹션 (QC 연동 — 가설계서 모드에서는 숨김) */}
         {/* ------------------------------------------- */}
-        {sheetInput.articleNo && (
+        {!isTempMode && sheetInput.articleNo && (
           <div className="mt-6 border-[2px] border-slate-800 p-3 bg-white rounded-none">
             <h3 className="text-xs font-bold text-slate-800 mb-3 flex items-center gap-1.5">
               <FileCheck className="w-4 h-4 text-emerald-600" />
@@ -618,8 +661,8 @@ export const DesignSheetPage = ({
             <div className="flex flex-col gap-2">
               {(mainDetails || []).filter(d => d.article === sheetInput.articleNo).map(d => {
                 const latestTest = d.tests?.length ? d.tests[d.tests.length - 1] : null;
-                const isPass = latestTest?.status === 'PASS';
-                const isFail = latestTest?.status === 'FAIL';
+                const isPass = latestTest?.status === 'Pass';
+                const isFail = latestTest?.status === 'Fail';
 
                 return (
                   <div key={d.id} className="flex bg-slate-50/50 items-center p-2 border border-slate-400 shadow-sm gap-3 shrink-0">
@@ -627,7 +670,7 @@ export const DesignSheetPage = ({
                     
                     <div className="w-[120px] shrink-0">
                        <span className="text-[9px] bg-slate-200 text-slate-800 px-1.5 py-0.5 rounded-none font-bold">{d.orderNo}</span>
-                       <div className="text-xs font-black text-slate-800 mt-1 truncate">{d.color || '-'}</div>
+                       <div className="text-xs font-black text-slate-800 mt-1 truncate">{d.colorInfo || '-'}</div>
                        <div className="text-[9px] font-mono text-slate-500">LOT: {d.lotNo || '-'}</div>
                     </div>
 
@@ -671,6 +714,52 @@ export const DesignSheetPage = ({
 
       {/* Grid 컨테이너 닫기 */}
       </div>
+
+      {/* === 가설계서 불러오기 모달 (정식 모드 전용) === */}
+      {!isTempMode && isTempLoadModalOpen && (
+        <div className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setIsTempLoadModalOpen(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 relative max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setIsTempLoadModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600">
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-lg font-extrabold text-slate-800 mb-1 flex items-center gap-2">
+              <FlaskConical className="w-5 h-5 text-amber-600" /> 가설계서 불러오기
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">레시피를 선택하면 현재 설계서 폼에 스펙 데이터가 복사됩니다.</p>
+
+            {(tempDesignSheets || []).length === 0 ? (
+              <div className="py-8 text-center text-sm text-slate-400">저장된 가설계서가 없습니다.</div>
+            ) : (
+              <div className="space-y-2">
+                {(tempDesignSheets || []).sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||'')).map(ts => (
+                  <button key={ts.id} onClick={() => {
+                    if (onLoadTempSheet) {
+                      const loaded = onLoadTempSheet(ts, setSheetInput);
+                      if (loaded !== false) setIsTempLoadModalOpen(false);
+                    }
+                  }} className="w-full text-left p-3 border border-slate-200 rounded-xl hover:border-amber-400 hover:bg-amber-50/50 transition-colors group">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-sm font-extrabold text-slate-800 group-hover:text-amber-800">{ts.fabricName || '(이름없음)'}</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5">
+                          {ts.buyerName ? `바이어: ${ts.buyerName}` : ''}
+                          {ts.buyerName && ts.createdAt ? ' · ' : ''}
+                          {ts.createdAt ? new Date(ts.createdAt).toLocaleDateString('ko-KR') : ''}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs font-mono font-bold text-indigo-700">
+                          {ts.costInput?.gsm || '-'}g / {ts.costInput?.widthCut || '-'}" / {ts.costInput?.widthFull || '-'}"
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
     </div>
   );

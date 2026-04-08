@@ -25,6 +25,7 @@ import { useQuotation } from '../hooks/domains/useQuotation';
 import { useDevRequest } from '../hooks/domains/useDevRequest';
 import { useDesignSheet } from '../hooks/domains/useDesignSheet';
 import { useMainDetail } from '../hooks/domains/useMainDetail';
+import { useTempDesignSheet } from '../hooks/domains/useTempDesignSheet';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
 import { SearchableSelect } from '../components/common/SearchableSelect';
@@ -46,6 +47,7 @@ import { DesignSheetPage } from '../pages/DesignSheetPage';
 import { DesignSheetListPage } from '../pages/DesignSheetListPage';
 import { DevStatusPage } from '../pages/DevStatusPage';
 import { MainDetailPage } from '../pages/MainDetailPage';
+import { TempDesignSheetListPage } from '../pages/TempDesignSheetListPage';
 
 const App = () => {
   const [user, setUser] = useState(null);
@@ -68,6 +70,7 @@ const App = () => {
   const [devRequests, setDevRequests] = useState([]);
   const [designSheets, setDesignSheets] = useState([]);
   const [mainDetails, setMainDetails] = useState([]);
+  const [tempDesignSheets, setTempDesignSheets] = useState([]);
 
   // 마스터 데이터 (settings/general에 배열로 저장)
   const [knittingFactories, setKnittingFactories] = useState([]);
@@ -97,6 +100,7 @@ const App = () => {
   const [quickViewQuote, setQuickViewQuote] = useState(null);
 
   const [isDesignSheetModalOpen, setIsDesignSheetModalOpen] = useState(false);
+  const [isTempDesignSheetModalOpen, setIsTempDesignSheetModalOpen] = useState(false);
 
   const printRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -144,7 +148,9 @@ const App = () => {
     const unsubDevReqs = onSnapshot(collection(db, 'devRequests'), (snapshot) => setDevRequests(snapshot.docs.map(doc => doc.data())));
     const unsubDesignSheets = onSnapshot(collection(db, 'designSheets'), (snapshot) => setDesignSheets(snapshot.docs.map(doc => doc.data())));
     const unsubMainDetails = onSnapshot(collection(db, 'mainDetails'), (snapshot) => setMainDetails(snapshot.docs.map(doc => doc.data())));
-    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); };
+    // 가설계서(레시피) 컬렉션 구독 — 기존 designSheets와 완전 분리
+    const unsubTempDesignSheets = onSnapshot(collection(db, 'tempDesignSheets'), (snapshot) => setTempDesignSheets(snapshot.docs.map(doc => doc.data())));
+    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); };
   }, [user]);
 
   const saveDocToCloud = async (colName, item) => { setSyncStatus('syncing'); try { await saveDocument(colName, item); setSyncStatus('saved'); } catch (e) { setSyncStatus('error'); showToast("저장 실패", "error"); } };
@@ -239,6 +245,15 @@ const App = () => {
     handleSaveDetail, handleEditDetail, handleDeleteDetail, resetDetailForm,
     handleQuickStatusChange
   } = useMainDetail(mainDetails, saveDocToCloud, deleteDocFromCloud, showToast);
+
+  // ⚓️ 가설계서(레시피) 전용 훅 — 기존 useDesignSheet와 완전 독립
+  const {
+    tempInput, setTempInput, editingTempId,
+    handleTempChange, handleTempSectionChange,
+    handleTempYarnChange, handleTempCostInputChange, handleTempCostNestedChange,
+    handleSaveTemp, handleEditTemp, handleDeleteTemp,
+    resetTempForm, getTempDesignCost, loadTempToSheet
+  } = useTempDesignSheet(tempDesignSheets, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost);
 
   const devPrintRef = useRef(null);
 
@@ -720,6 +735,8 @@ const App = () => {
                 setActiveMasterModal={setActiveMasterModal}
                 savedFabrics={savedFabrics}
                 registerFabricFromSheet={registerFabricFromSheet}
+                tempDesignSheets={tempDesignSheets}
+                onLoadTempSheet={loadTempToSheet}
               />
             </div>
           </div>
@@ -745,6 +762,39 @@ const App = () => {
             resetSheetForm={resetSheetForm}
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
             setSheetInput={setSheetInput}
+          />
+        )}
+
+        {/* TAB: 가설계서(레시피) 관리 */}
+        {activeTab === 'tempDesign' && (
+          <TempDesignSheetListPage
+            tempDesignSheets={tempDesignSheets}
+            tempInput={tempInput}
+            setTempInput={setTempInput}
+            editingTempId={editingTempId}
+            handleTempChange={handleTempChange}
+            handleTempSectionChange={handleTempSectionChange}
+            handleTempYarnChange={handleTempYarnChange}
+            handleTempCostInputChange={handleTempCostInputChange}
+            handleTempCostNestedChange={handleTempCostNestedChange}
+            handleSaveTemp={handleSaveTemp}
+            handleEditTemp={handleEditTemp}
+            handleDeleteTemp={handleDeleteTemp}
+            resetTempForm={resetTempForm}
+            getTempDesignCost={getTempDesignCost}
+            yarnSelectOptions={yarnSelectOptions}
+            user={user}
+            viewMode={viewMode}
+            globalExchangeRate={globalExchangeRate}
+            knittingFactories={knittingFactories}
+            dyeingFactories={dyeingFactories}
+            machineTypes={machineTypes}
+            structures={structures}
+            addMasterItem={addMasterItem}
+            setActiveMasterModal={setActiveMasterModal}
+            isTempModalOpen={isTempDesignSheetModalOpen}
+            setIsTempModalOpen={setIsTempDesignSheetModalOpen}
+            DesignSheetPage={DesignSheetPage}
           />
         )}
 

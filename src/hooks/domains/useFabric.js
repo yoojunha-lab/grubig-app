@@ -113,23 +113,25 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     if (setActiveTab) setActiveTab('list');
   };
 
-  const handleDeleteFabric = (id) => {
-    if (window.confirm("정말로 이 원단을 삭제하시겠습니까? (이 결정은 되돌릴 수 없습니다.)")) {
-      // [B2 수정] 삭제 전 연결된 설계서의 linkedFabricId를 해제 → 유령 참조 방지
-      const fabric = (savedFabrics || []).find(f => f.id === id);
-      if (fabric?.linkedSheetId && designSheets) {
-        const linkedSheet = designSheets.find(s => String(s.id) === String(fabric.linkedSheetId));
-        if (linkedSheet?.linkedFabricId && String(linkedSheet.linkedFabricId) === String(id)) {
-          saveDocToCloud('designSheets', {
-            ...linkedSheet,
-            linkedFabricId: null,
-            updatedAt: new Date().toISOString()
-          });
-        }
+  const handleDeleteFabric = async (id) => {
+    if (!window.confirm("정말로 이 원단을 삭제하시겠습니까? (이 결정은 되돌릴 수 없습니다.)")) return;
+    // [B2 수정] 삭제 전 연결된 설계서의 linkedFabricId를 해제 → 유령 참조 방지
+    const fabric = (savedFabrics || []).find(f => f.id === id);
+    if (fabric?.linkedSheetId && designSheets) {
+      const linkedSheet = designSheets.find(s => String(s.id) === String(fabric.linkedSheetId));
+      if (linkedSheet?.linkedFabricId && String(linkedSheet.linkedFabricId) === String(id)) {
+        saveDocToCloud('designSheets', {
+          ...linkedSheet,
+          linkedFabricId: null,
+          updatedAt: new Date().toISOString()
+        });
       }
-      deleteDocFromCloud('fabrics', id).then(() => {
-        showToast("삭제되었습니다.", "success");
-      });
+    }
+    try {
+      await deleteDocFromCloud('fabrics', id);
+      showToast("삭제되었습니다.", "success");
+    } catch {
+      // deleteDocFromCloud 내부에서 이미 에러 토스트 처리됨
     }
   };
 

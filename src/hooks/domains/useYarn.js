@@ -79,7 +79,7 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
     showToast('원사가 저장되었습니다.', 'success');
   };
 
-  const handleDeleteYarn = (id, syncYarnLibraryStateCallback) => {
+  const handleDeleteYarn = async (id, syncYarnLibraryStateCallback) => {
     // [방어] savedFabrics/fabric.yarns가 null/undefined일 때 크래시 방지
     const isUsed = (savedFabrics || []).some(fabric =>
       (fabric.yarns || []).some(y => y.yarnId && String(y.yarnId).split('::')[0] === String(id) && y.ratio > 0)
@@ -92,10 +92,13 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
       alert("🚨 경고: 이 원사를 사용 중인 원단 또는 설계서가 있습니다! 삭제 불가.");
       return;
     }
-    if (window.confirm("이 원사와 등록된 모든 공급처 정보가 삭제됩니다. 삭제하시겠습니까?")) {
-      if (syncYarnLibraryStateCallback) syncYarnLibraryStateCallback(id);
-      deleteDocFromCloud('yarns', id);
+    if (!window.confirm("이 원사와 등록된 모든 공급처 정보가 삭제됩니다. 삭제하시겠습니까?")) return;
+    if (syncYarnLibraryStateCallback) syncYarnLibraryStateCallback(id);
+    try {
+      await deleteDocFromCloud('yarns', id);
       showToast('삭제 완료', 'success');
+    } catch {
+      // deleteDocFromCloud 내부에서 이미 에러 토스트 처리됨
     }
   };
 
