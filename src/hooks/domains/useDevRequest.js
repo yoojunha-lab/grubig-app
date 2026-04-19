@@ -119,8 +119,13 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     const devReq = (devRequests || []).find(d => d.id === id);
 
     // [방어] 설계서가 연결된 의뢰는 삭제 차단 — 고아 설계서 발생 방지
-    if (devReq?.linkedDesignSheetId) {
-      showToast('설계서가 연결된 의뢰는 삭제할 수 없습니다. 연결된 설계서를 먼저 정리해주세요.', 'error');
+    // [기획 #2 수정] dev.linkedDesignSheetId뿐 아니라 sheet.devRequestId 쪽도 검사
+    //   → 롤백 후 soft-unlink 상태(dev쪽은 null이지만 sheet쪽은 id 유지)에서도 차단
+    const hasActiveLinkedSheet = (designSheets || []).some(
+      s => s.devRequestId === id && s.status !== 'dropped'
+    );
+    if (devReq?.linkedDesignSheetId || hasActiveLinkedSheet) {
+      showToast('연결된 설계서가 있는 의뢰는 삭제할 수 없습니다. 설계서를 먼저 DROP/정리해주세요.', 'error');
       return;
     }
 
@@ -150,22 +155,15 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
 
     // [방어] confirmed → 다른 상태로 되돌릴 때, 연결된 설계서가 있으면 경고
     if (devReq.status === 'confirmed' && devReq.linkedDesignSheetId) {
-      if (!window.confirm('⚠️ 이 의뢰에는 연결된 설계서가 있습니다.\n상태를 변경하면 설계서 연결이 해제됩니다.\n\n정말 계속하시겠습니까?')) {
+      if (!window.confirm('⚠️ 이 의뢰에는 연결된 설계서가 있습니다.\n상태를 변경하면 의뢰 쪽 연결이 해제됩니다.\n(설계서는 유지되며, 의뢰를 다시 "개발투입확정"으로 돌리면 자동 복구됩니다.)\n\n정말 계속하시겠습니까?')) {
         return;
       }
     }
 
-    // [A3 수정] confirmed → 다른 상태로 롤백 시, 연결된 설계서의 devRequestId도 해제하여 고아 방지
-    if (devReq.status === 'confirmed' && devReq.linkedDesignSheetId && designSheets) {
-      const linkedSheet = designSheets.find(s => s.id === devReq.linkedDesignSheetId);
-      if (linkedSheet) {
-        saveDocToCloud('designSheets', {
-          ...linkedSheet,
-          devRequestId: null,
-          updatedAt: new Date().toISOString()
-        });
-      }
-    }
+    // [기획 #1 수정] 이전에는 롤백 시 sheet.devRequestId도 null로 밀었으나,
+    // 그러면 아래의 자동 재연결 로직(sheet.devRequestId === devReqId 검색)이 작동 불가.
+    // 이제는 sheet.devRequestId는 유지하고 dev 쪽 linkedDesignSheetId만 해제 →
+    // 재확정 시 양방향 참조가 자동 복구된다. (soft-unlink)
 
     // [Step 4] confirmed로 전환 시: 기존에 이 의뢰를 바라보는 active 설계서가 있으면 자동 재연결
     let restoredSheetId = devReq.linkedDesignSheetId || null;

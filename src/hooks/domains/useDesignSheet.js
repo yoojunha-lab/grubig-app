@@ -306,6 +306,18 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     const isNew = !editingSheetId;
     const existing = isNew ? null : designSheets.find(s => s.id === editingSheetId);
 
+    // [기획 #3 수정] 동일 의뢰에 대해 이미 active 설계서가 존재하는데 새로 저장하는 경우 차단
+    //   → 멀티탭 / 재연동 시 devRequestId 중복으로 양방향 참조가 꼬이는 현상 방지
+    if (isNew && finalInput.devRequestId) {
+      const duplicate = (designSheets || []).find(
+        s => s.devRequestId === finalInput.devRequestId && s.status !== 'dropped'
+      );
+      if (duplicate) {
+        showToast('이 의뢰에는 이미 진행 중인 설계서가 존재합니다. 해당 설계서를 수정하거나 DROP 후 다시 시도하세요.', 'error');
+        return;
+      }
+    }
+
     const itemToSave = {
       ...finalInput,
       id: editingSheetId || `ds_${Date.now()}`,
@@ -657,14 +669,15 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
     // [Step 1] 복원 시 의뢰↔설계서 1:1 매핑 복구
     // DROP 시 해제되었던 linkedDesignSheetId를 다시 이 설계서 ID로 연결
+    // [기획 #4 수정] dev 상태는 rejected일 때만 confirmed로 복구 →
+    //   DROP 후 사용자가 수동으로 바꾼 상태(pending/analyzing 등)를 덮어쓰지 않음
     if (sheet.devRequestId && devRequests) {
       const linkedDev = devRequests.find(d => d.id === sheet.devRequestId);
-      // 의뢰가 존재하고, 아직 다른 설계서와 연결되어 있지 않을 때만 복구
       if (linkedDev && !linkedDev.linkedDesignSheetId) {
         saveDocToCloud('devRequests', {
           ...linkedDev,
           linkedDesignSheetId: sheetId,
-          status: 'confirmed',
+          status: linkedDev.status === 'rejected' ? 'confirmed' : linkedDev.status,
           updatedAt: now
         });
       }

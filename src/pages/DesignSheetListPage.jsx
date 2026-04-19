@@ -68,7 +68,8 @@ export const DesignSheetListPage = ({
   const gauges = ['All', ...new Set((designSheets||[]).map(s=>s.knitting?.gauge).filter(Boolean))];
   
   // 데이터 분류
-  const getLinkedSheet = (devReqId) => designSheets?.find(s => s.devRequestId === devReqId);
+  // [기획 #3 수정] dropped 설계서는 제외 → 의뢰를 DROP 후 재확정할 때 "확정 오더 연동"에 다시 표시되도록
+  const getLinkedSheet = (devReqId) => designSheets?.find(s => s.devRequestId === devReqId && s.status !== 'dropped');
   const waitingDevReqs = useMemo(() => 
     (devRequests || []).filter(d => d.status === 'confirmed' && !getLinkedSheet(d.id))
       .sort((a,b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')),
@@ -149,10 +150,10 @@ export const DesignSheetListPage = ({
             </button>
             {showRegisterMenu && (
               <div className="absolute right-0 top-full mt-1 w-64 bg-white rounded-xl border border-slate-200 shadow-xl z-30">
-                {(devRequests||[]).filter(d => d.status === 'confirmed' && !designSheets?.find(s => s.devRequestId === d.id)).length > 0 && (
+                {(devRequests||[]).filter(d => d.status === 'confirmed' && !getLinkedSheet(d.id)).length > 0 && (
                   <div className="border-b border-slate-100">
                     <p className="text-[10px] font-bold text-slate-400 px-3 pt-2 pb-1">확정 오더 연동 (설계 대기)</p>
-                    {(devRequests||[]).filter(d => d.status === 'confirmed' && !designSheets?.find(s => s.devRequestId === d.id)).map(req => (
+                    {(devRequests||[]).filter(d => d.status === 'confirmed' && !getLinkedSheet(d.id)).map(req => (
                       <button key={req.id} onClick={() => {
                         if(initFromDevRequest) initFromDevRequest({ devOrderNo: req.devOrderNo, devRequestId: req.id, sampleDeadline: req.targetSpec?.sampleDeadline || '' });
                         setIsDesignSheetModalOpen(true);
