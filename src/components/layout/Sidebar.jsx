@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cloud, Menu, Layers, Home, Globe, Calculator, FileSpreadsheet, Box, FileText, Calendar, LogOut, DollarSign, Edit2, Activity, Archive, FileCheck, FlaskConical } from 'lucide-react';
+import { Cloud, Menu, Layers, Home, Globe, Calculator, FileSpreadsheet, Box, FileText, Calendar, LogOut, DollarSign, Edit2, Activity, Archive, FileCheck, FlaskConical, ClipboardEdit, PackageCheck } from 'lucide-react';
 
 export const Sidebar = ({ isMobileMenuOpen, setIsMobileMenuOpen, activeTab, setActiveTab, viewMode, setViewMode, syncStatus, handleLogout, globalExchangeRate, setGlobalExchangeRate }) => {
   return (
@@ -59,6 +59,15 @@ export const Sidebar = ({ isMobileMenuOpen, setIsMobileMenuOpen, activeTab, setA
               <button onClick={() => { setActiveTab('devStatus'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 text-sm font-medium ${activeTab === 'devStatus' ? 'bg-gradient-to-r from-violet-600 to-purple-500 text-white shadow-lg shadow-violet-500/20 translate-x-1' : 'hover:bg-slate-800 hover:translate-x-1 text-slate-400'}`}><Activity className="w-4 h-4" /> <span>개발/설계 현황</span></button>
               <button onClick={() => { setActiveTab('designList'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 text-sm font-medium ${activeTab === 'designList' ? 'bg-gradient-to-r from-violet-600 to-purple-500 text-white shadow-lg shadow-violet-500/20 translate-x-1' : 'hover:bg-slate-800 hover:translate-x-1 text-slate-400'}`}><Archive className="w-4 h-4" /> <span>설계서 보관함</span></button>
               <button onClick={() => { setActiveTab('tempDesign'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 text-sm font-medium ${activeTab === 'tempDesign' ? 'bg-gradient-to-r from-amber-600 to-orange-500 text-white shadow-lg shadow-amber-500/20 translate-x-1' : 'hover:bg-slate-800 hover:translate-x-1 text-slate-400'}`}><FlaskConical className="w-4 h-4" /> <span>가설계서 (레시피)</span></button>
+            </div>
+          </div>
+
+          {/* Production — 생산 오더 스케줄 관리 */}
+          <div className="pt-6 mt-6 border-t border-slate-800/80">
+            <p className="px-4 text-[10px] font-extrabold text-slate-500 mb-2.5 uppercase tracking-widest">Production</p>
+            <div className="space-y-1.5">
+              <button onClick={() => { setActiveTab('orderWizard'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 text-sm font-medium ${activeTab === 'orderWizard' ? 'bg-gradient-to-r from-teal-600 to-cyan-500 text-white shadow-lg shadow-teal-500/20 translate-x-1' : 'hover:bg-slate-800 hover:translate-x-1 text-slate-400'}`}><ClipboardEdit className="w-4 h-4" /> <span>오더 등록</span></button>
+              <button onClick={() => { setActiveTab('orderList'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 text-sm font-medium ${activeTab === 'orderList' ? 'bg-gradient-to-r from-teal-600 to-cyan-500 text-white shadow-lg shadow-teal-500/20 translate-x-1' : 'hover:bg-slate-800 hover:translate-x-1 text-slate-400'}`}><PackageCheck className="w-4 h-4" /> <span>오더 목록</span></button>
             </div>
           </div>
         </nav>

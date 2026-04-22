@@ -26,6 +26,7 @@ import { useDevRequest } from '../hooks/domains/useDevRequest';
 import { useDesignSheet } from '../hooks/domains/useDesignSheet';
 import { useMainDetail } from '../hooks/domains/useMainDetail';
 import { useTempDesignSheet } from '../hooks/domains/useTempDesignSheet';
+import { useOrder } from '../hooks/domains/useOrder';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
 import { SearchableSelect } from '../components/common/SearchableSelect';
@@ -48,6 +49,9 @@ import { DesignSheetListPage } from '../pages/DesignSheetListPage';
 import { DevStatusPage } from '../pages/DevStatusPage';
 import { MainDetailPage } from '../pages/MainDetailPage';
 import { TempDesignSheetListPage } from '../pages/TempDesignSheetListPage';
+import { OrderWizardPage } from '../pages/OrderWizardPage';
+import { OrderListPage } from '../pages/OrderListPage';
+import { OrderDetailModal } from '../components/order/OrderDetailModal';
 
 const App = () => {
   const [user, setUser] = useState(null);
@@ -71,6 +75,8 @@ const App = () => {
   const [designSheets, setDesignSheets] = useState([]);
   const [mainDetails, setMainDetails] = useState([]);
   const [tempDesignSheets, setTempDesignSheets] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [productionAssignees, setProductionAssignees] = useState({ yarnAssignee: null, knittingAssignee: null, othersAssignee: null });
 
   // 마스터 데이터 (settings/general에 배열로 저장)
   const [knittingFactories, setKnittingFactories] = useState([]);
@@ -132,6 +138,8 @@ const App = () => {
         setDyeingFactories(d.dyeingFactories || []);
         setMachineTypes(d.machineTypes || []);
         setStructures(d.structures || []);
+        // 생산 담당자 3명 (원사/편직/그외)
+        setProductionAssignees(d.productionAssignees || { yarnAssignee: null, knittingAssignee: null, othersAssignee: null });
       } else {
         setDoc(doc(db, 'settings', 'general'), { yarnCategories: DEFAULT_YARN_CATEGORIES, buyers: [], knittingFactories: [], dyeingFactories: [], machineTypes: [], structures: [] }, { merge: true });
       }
@@ -150,7 +158,9 @@ const App = () => {
     const unsubMainDetails = onSnapshot(collection(db, 'mainDetails'), (snapshot) => setMainDetails(snapshot.docs.map(doc => doc.data())));
     // 가설계서(레시피) 컬렉션 구독 — 기존 designSheets와 완전 분리
     const unsubTempDesignSheets = onSnapshot(collection(db, 'tempDesignSheets'), (snapshot) => setTempDesignSheets(snapshot.docs.map(doc => doc.data())));
-    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); };
+    // 생산 오더 컬렉션 구독
+    const unsubOrders = onSnapshot(collection(db, 'orders'), (snapshot) => setOrders(snapshot.docs.map(doc => doc.data())));
+    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); };
   }, [user]);
 
   const saveDocToCloud = async (colName, item) => { setSyncStatus('syncing'); try { await saveDocument(colName, item); setSyncStatus('saved'); } catch (e) { setSyncStatus('error'); showToast("저장 실패", "error"); } };
@@ -254,6 +264,33 @@ const App = () => {
     handleSaveTemp, handleEditTemp, handleDeleteTemp,
     resetTempForm, getTempDesignCost, loadTempToSheet
   } = useTempDesignSheet(tempDesignSheets, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost);
+
+  // ⚓️ 생산 오더(스케줄) 훅
+  const {
+    orderInput, setOrderInput,
+    editingOrderId,
+    wizardStep, setWizardStep,
+    selectedOrderId, setSelectedOrderId,
+    handleOrderChange, handleTypeOrMethodChange, handleUseKnitterStockYarn,
+    addColor, removeColor, updateColor,
+    toggleProcess, updateProcessField,
+    addBatch, removeBatch, updateBatchField, updateBatchColors,
+    addYarnOrder, removeYarnOrder, updateYarnOrder,
+    addDelivery, removeDelivery, updateDelivery,
+    handleSaveOrder, handleDeleteOrder,
+    resetOrderForm,
+    applyFabricTemplate,
+  } = useOrder(orders, saveDocToCloud, deleteDocFromCloud, showToast, productionAssignees);
+
+  // 원단 선택 시 yarnLibrary도 같이 참조해서 사종명 매칭
+  const handleApplyFabricToOrder = (fabricId) => {
+    const fabric = (savedFabrics || []).find(f => f.id === fabricId);
+    if (!fabric) {
+      showToast('선택한 원단을 찾을 수 없습니다.', 'error');
+      return;
+    }
+    applyFabricTemplate(fabric, yarnLibrary);
+  };
 
   const devPrintRef = useRef(null);
 
@@ -836,7 +873,54 @@ const App = () => {
             setSavedQuotes={setSavedQuotes}
             handleDuplicateQuote={handleDuplicateQuote}
           />
-        )}        {/* 모달 3종 (엑셀 업로드 2 + 카테고리 관리) */}
+        )}
+
+        {/* TAB: 오더 등록 (1페이지 구조) */}
+        {activeTab === 'orderWizard' && (
+          <OrderWizardPage
+            orderInput={orderInput}
+            setOrderInput={setOrderInput}
+            handleOrderChange={handleOrderChange}
+            handleTypeOrMethodChange={handleTypeOrMethodChange}
+            handleUseKnitterStockYarn={handleUseKnitterStockYarn}
+            addColor={addColor} removeColor={removeColor} updateColor={updateColor}
+            toggleProcess={toggleProcess} updateProcessField={updateProcessField}
+            addBatch={addBatch} removeBatch={removeBatch} updateBatchField={updateBatchField} updateBatchColors={updateBatchColors}
+            addYarnOrder={addYarnOrder} removeYarnOrder={removeYarnOrder} updateYarnOrder={updateYarnOrder}
+            addDelivery={addDelivery} removeDelivery={removeDelivery} updateDelivery={updateDelivery}
+            handleSaveOrder={handleSaveOrder}
+            resetOrderForm={resetOrderForm}
+            buyers={buyers}
+            yarnLibrary={yarnLibrary}
+            savedFabrics={savedFabrics}
+            productionAssignees={productionAssignees}
+            setIsBuyerModalOpen={setIsBuyerModalOpen}
+            user={user}
+            setActiveTab={setActiveTab}
+            onApplyFabric={handleApplyFabricToOrder}
+          />
+        )}
+
+        {/* TAB: 오더 목록 */}
+        {activeTab === 'orderList' && (
+          <OrderListPage
+            orders={orders}
+            onView={(order) => setSelectedOrderId(order.id)}
+            onDelete={handleDeleteOrder}
+            setActiveTab={setActiveTab}
+          />
+        )}
+
+        {/* 오더 상세 모달 */}
+        {selectedOrderId && (
+          <OrderDetailModal
+            order={orders.find(o => o.id === selectedOrderId)}
+            onClose={() => setSelectedOrderId(null)}
+            yarnLibrary={yarnLibrary}
+          />
+        )}
+
+        {/* 모달 3종 (엑셀 업로드 2 + 카테고리 관리) */}
         {isBulkModalOpen && (<div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4"><div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 relative"><button onClick={() => setIsBulkModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6" /></button><h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><FileSpreadsheet className="w-6 h-6 text-emerald-600" /> 원단 엑셀 일괄 등록</h3><div className="space-y-4"><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">1. 양식 다운로드 (원사정보 포함됨)</p><button onClick={handleDownloadTemplate} className="w-full flex justify-center items-center gap-2 bg-white border border-slate-300 py-2 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><Download className="w-4 h-4" /> 양식 다운로드 (.xlsx)</button></div><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">2. 파일 업로드</p><label className="w-full flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-white hover:bg-slate-50 transition-colors"><Upload className="w-8 h-8 text-slate-400 mb-2" /><span className="text-sm text-slate-500 font-medium">클릭하여 엑셀 파일 선택</span><input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleFileUpload} ref={fileInputRef} /></label></div></div></div></div>)}
         {isYarnBulkModalOpen && (<div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4"><div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 relative"><button onClick={() => setIsYarnBulkModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6" /></button><h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><FileSpreadsheet className="w-6 h-6 text-emerald-600" /> 원사 엑셀 일괄 등록</h3><div className="space-y-4"><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">1. 양식 다운로드</p><button onClick={handleDownloadYarnTemplate} className="w-full flex justify-center items-center gap-2 bg-white border border-slate-300 py-2 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><Download className="w-4 h-4" /> 원사 양식 다운로드 (.xlsx)</button></div><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">2. 파일 업로드</p><label className="w-full flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-white hover:bg-slate-50 transition-colors"><Upload className="w-8 h-8 text-slate-400 mb-2" /><span className="text-sm text-slate-500 font-medium">클릭하여 엑셀 파일 선택</span><input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleYarnFileUpload} ref={yarnFileInputRef} /></label></div></div></div></div>)}
 
