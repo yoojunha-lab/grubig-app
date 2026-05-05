@@ -23,6 +23,16 @@ export const usd = (v) => Number(v || 0).toLocaleString(undefined, { minimumFrac
 export const calculateGYd = (gsm, widthFull) => Math.round(gsm * widthFull * 0.02322576);
 
 /**
+ * 숫자를 [min, max] 범위로 clamp. NaN/null/undefined는 0으로 처리.
+ * - 음수/100% 초과 입력 차단 등 입력 검증에 사용
+ */
+export const clampNum = (value, min = 0, max = Infinity) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return min;
+  return Math.min(Math.max(n, min), max);
+};
+
+/**
  * 가격을 통화에 맞추어 스마트하게 반올림 처리합니다.
  * - USD: 소수점 2자리로 반올림
  * - KRW: 백 원 단위로 반올림

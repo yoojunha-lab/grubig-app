@@ -9,10 +9,20 @@
 
 | 단계 | 상태 | 커밋 |
 |-----|------|-----|
-| **1단계**: 데이터 모델 + 오더 등록 + 목록/상세 | ✅ **완료** | `9929b3b — feat: 원단 생산 오더 스케줄 관리 모듈 1단계 구현` |
-| 2단계: 간트 차트 + 알람 + 확인 게이트 | ⏳ 대기 | - |
-| 3단계: 대시보드 + 칸반 + Risk Scanner | ⏳ 대기 | - |
-| 4단계: 감사 로그 + 리포트 | ⏳ 대기 | - |
+| **1단계**: 데이터 모델 + 오더 등록 + 목록/상세 | ✅ **완료** | `9929b3b` |
+| **1단계 후속 v1**: UX 단순화(2섹션) + 원단 연동 | ✅ **완료** | (미커밋) |
+| **1단계 후속 v2**: 시작점 모델 도입 + 폼 대폭 단순화 | ✅ **완료** | - |
+| **1단계 후속 v3**: 사종별 편직처 + 시작일+일수→종료일 자동 + ART/일일편직량 정리 | ✅ **완료** | - |
+| **2단계 1차 (2-A)**: 오더 상세에서 상태/일정 수정 + 차수 추가/삭제 + 자동 날짜 | ✅ **완료** | - |
+| **v4: 담당자 시스템 전체 폐기** (2-E 작업도 취소) | ✅ **완료** | - |
+| **2단계 2차 (2-F)**: 오더 전체 편집 (등록 마법사 재사용) | ✅ **완료** | - |
+| **v5~v7: 차수 편집 UX 진화** (모달→펼침→엑셀 스타일 표) | ✅ **완료** | - |
+| **2단계 3차 (2-B)**: 간트 차트 1차 버전 | ✅ **완료** | - |
+| **3단계**: 대시보드 + 칸반 + Risk Scanner (1차) | ✅ **완료** | - |
+| **4단계**: 감사 로그 + 리포트 (1차) | ✅ **완료** | (이번 작업) |
+
+> **🎉 Phase 1 운영 가능 상태 도달** — 등록/편집/시각화/모니터링 모두 1차 완성. 이제 사용해보면서 세부 다듬기.
+> 알람/확인게이트는 개발하지 않기로 결정 (대표님 지시).
 
 ---
 
@@ -120,6 +130,184 @@ src/components/order/
 - 오더 편집 기능
 - 담당자 마스터 관리 UI (Firestore 콘솔 수동 입력)
 - 특별 휴일 경고 / 공휴일 캘린더
+
+---
+
+## 1단계 후속 v2 — 시작점 도입 + 폼 단순화 (완료)
+
+### 변경 결정 사항
+
+| 항목 | 변경 내용 |
+|-----|----------|
+| 데이터 모델 | `dyeingMethod` 폐기, `startStage`(yarn/knitting/finished_fabric) 추가, `quantityYd`/`quantityKg`/`articleNo`/`gsm`/`widthFull` 신규 |
+| 공정 enum | L/D 제거, 후가공 추가 (총 7종, 모두 직렬) |
+| 오더번호 | 자동채번 폐기 → **사용자 수동 입력** (자체번호) |
+| 차수 | 공정 활성화 시 **1차 자동 생성** (수량=총수량, 종료일=공정 dueDate) |
+| 공정별 일정 | 공정 dueDate 1개만 등록, 차수 plannedEndDate와 자동 동기화 |
+| 새창 모달 | OrderTypeModal(6조합), ProcessSelectionModal(7종 체크) |
+| 단위 | YD 주, KG 자동 환산 (gsm × widthFull × 0.02322576 / 1000) |
+| 시작점 잠금 | `START_STAGE_DEACTIVATIONS` 기준 이전 공정 자동 비활성 + 잠김 |
+
+### 변경/추가 파일
+- 수정: `constants/production.js`, `utils/orderCalculations.js`, `hooks/domains/useOrder.js`,
+  `components/order/wizard/Step1BasicInfo.jsx`, `components/order/wizard/ProcessPlanSection.jsx`,
+  `pages/OrderWizardPage.jsx`, `pages/OrderListPage.jsx`,
+  `components/order/DesktopOrderRow.jsx`, `components/order/MobileOrderCard.jsx`,
+  `components/order/OrderDetailModal.jsx`, `apps/App.jsx`
+- 신규: `components/order/modals/OrderTypeModal.jsx`, `components/order/modals/ProcessSelectionModal.jsx`
+- 삭제: 1단계 후속 v1에서 이미 Step3-6 삭제됨
+
+### 폐기된 로직
+- 선염/후염(`dyeingMethod`) — 시작점 모델로 대체
+- 자동 오더번호 채번(O-YYM###) — 사용자 수동 입력으로 변경
+- L/D 공정 — `PROCESS_TYPES`에서 제거
+- 공정별 차수/발주 상세 입력 (등록 폼) — 등록 후 상세 페이지에서 보강 예정
+
+---
+
+## 1단계 후속 v3 — 사종별 편직처 + 일정 자동 계산 (완료)
+
+### 변경 결정 사항
+
+| 항목 | 변경 내용 |
+|-----|----------|
+| ART 직접 입력 | **제거** — 원단 라이브러리에서만 선택 가능 |
+| `defaultDailyKnittingCapacity` | **폐기** (UI 필드 + 데이터 모델 모두) |
+| `useKnitterStockYarn` (오더 전역) | **폐기** → `yarnOrder.useKnitterStock` (사종별 토글) |
+| 공정 일정 입력 | `dueDate` 폐기 → `startDate` + `durationDays` (종료일 자동 계산) |
+| 시작일 자동 채움 | `startDate` 비우면 이전 활성 공정 `effectiveEnd`로 자동 |
+| 종료일 표시 | `effectiveEnd` 자동, 읽기 전용 |
+| 알람/확인게이트 | **개발 안 함** (대표님 결정) |
+
+### 새 유틸 함수 (`utils/orderCalculations.js`)
+- `enrichProcessesWithEffectiveDates(order)`: 활성 공정에 `effectiveStart`/`effectiveEnd` 추가 (sequenceOrder 순)
+- `calcEstimatedDueDate(order)`: 마지막 활성 공정의 `effectiveEnd`
+- `analyzeProcessOverruns(order)`: 사용자가 `startDate` 직접 입력 시 시퀀스 위반 + 마지막 공정 `effectiveEnd` > `finalDueDate` 검출
+
+### 새 핸들러 (`hooks/domains/useOrder.js`)
+- `updateProcessSchedule(processType, field, value)`: field='startDate' | 'durationDays'
+- `toggleYarnOrderKnitterStock(yoId, value)`: 사종별 편직처 보유 원사 토글
+- `setAllYarnOrdersKnitterStock(value)`: "전체 편직처/전체 발주" 단축 액션
+
+### UI 변경 핵심
+- **Step1BasicInfo**: ART 직접 입력 input 삭제, 일일 편직량 필드 삭제
+- **ProcessPlanSection**:
+  - 공정 카드에 (시작일, 소요일수) 입력란 + 종료일 자동 표시
+  - 시작일 비우면 placeholder + 회색 톤으로 "이전 공정 종료일 자동" 안내
+  - 원사 카드 안에 사종별 yarnOrder 리스트 (각각 편직처 체크박스)
+  - 편직처 체크 시 발주 관리(공급처/입고차수) 숨김
+  - "전체 편직처 사용" / "전체 발주로 전환" 단축 버튼
+- **ProcessSelectionModal**: useKnitterStockYarn prop 폐기 (원사 공정 잠금 로직 삭제)
+- **OrderDetailModal**: 공정 헤더에 "시작일 ~ 종료일 (N일)" 표시 (effectiveDates 기반)
+
+---
+
+## 2단계 1차 (2-A) — 오더 상세에서 상태/일정 수정 (완료)
+
+### 결정 사항
+| 항목 | 결정 |
+|-----|-----|
+| 위치 | 기존 `OrderDetailModal` 확장 (별도 페이지 X) |
+| 차수 추가/삭제 | 가능 |
+| 상태 '완료' → actualEndDate | 오늘 날짜 자동 + 수정 가능 |
+
+### 구현 (OrderDetailModal.jsx 대폭 재작성)
+
+**state 관리**
+- `draft`: 선택된 오더의 deep clone (편집 작업 영역)
+- `editing`: 편집 모드 토글
+- `dirty`: 변경사항 존재 여부 (저장 안 한 채 닫기 시 confirm 표시)
+
+**편집 모드 진입/종료**
+- 헤더 [편집] → 모든 필드 inline input/select 활성화
+- [저장]: `saveDocToCloud('orders', {...draft, updatedAt: now})` + Toast + 읽기 모드 복귀
+- [취소]: dirty면 confirm, draft 복원 + 읽기 모드 복귀
+- 모달 외부 클릭/X 버튼: dirty면 confirm
+
+**자동 날짜 로직** (PROGRESS_STATUSES / COMPLETE_STATUSES 정의)
+- batch.status를 진행중 상태로 → actualStartDate 비어있으면 today
+- batch.status를 완료 상태로 → actualEndDate 비어있으면 today
+- delivery.status를 '입고완료'로 → actualArrivalDate 비어있으면 today
+- 이미 값 있으면 보존 (수동 수정 우선)
+
+**편집 가능 항목**
+- 오더: status / finalDueDate / notes
+- 공정: startDate / durationDays (종료일 자동)
+- 차수: batchLabel / quantity / status / planned/expected/actualEndDate / colors / notes
+- 차수 추가/삭제 (각 공정 카드 안에서)
+- 원사 발주: useKnitterStock 토글 / supplier / deliveries 추가·삭제·수량·도착일·status
+
+### 추가/수정 파일
+- `src/components/order/OrderDetailModal.jsx` (대폭 재작성, 약 700 LOC)
+- `src/apps/App.jsx` (saveDocToCloud, showToast prop 전달)
+
+### 다음 라운드 (선택지)
+- **2-F** 오더 전체 편집 (등록 마법사 재사용 + "재계획" 액션)
+- **2-B** 간트 차트 뷰
+
+---
+
+## v4 — 담당자 시스템 전체 폐기 (완료)
+
+### 결정 배경
+대표님 결정: **"담당자 지정해서 관리하는 거 없애자"**
+- 알람 시스템도 폐기됐고, 외주처(편직소·염색소) 자체가 외부 업체라 내부 담당자 라우팅이 큰 의미 없음
+- 데이터/UI 모두 단순화
+
+### 폐기된 항목
+- `Order.assignees` 필드 (원사/편직/그외 3명 스냅샷)
+- `Process.assigneeRole` 필드 (yarn/knitting/others)
+- `settings/general.productionAssignees` (마스터 데이터)
+- `ASSIGNEE_ROLES` 상수
+- 모든 UI에서 "담당: ..." 라벨/카드 제거
+- 2-E (담당자 마스터 관리 UI) 작업 자체 취소
+
+### 변경 파일
+- `src/constants/production.js` — ASSIGNEE_ROLES 제거, PROCESS_TYPES에서 assigneeRole 제거
+- `src/hooks/domains/useOrder.js` — getInitialOrderInput에서 assignees 제거, makeInitialProcess에서 assigneeRole 제거, useOrder 시그니처에서 productionAssignees 제거, handleSaveOrder에서 assignees 스냅샷 로직 제거
+- `src/components/order/wizard/ProcessPlanSection.jsx` — 공정 카드 "담당: ..." 라벨 제거
+- `src/components/order/modals/ProcessSelectionModal.jsx` — 공정 카드 "담당: ..." 표시 제거
+- `src/components/order/OrderDetailModal.jsx` — 담당자 카드 제거 (3단 → 2단), 공정 헤더 "담당 ..." 제거
+- `src/apps/App.jsx` — productionAssignees state/구독/prop 제거
+
+### 호환성
+기존에 등록된 오더 문서의 `assignees`/`assigneeRole` 필드는 그대로 남아있지만 UI에서 참조 안 함. 별도 마이그레이션 불필요.
+
+---
+
+## 2단계 2차 (2-F) — 오더 전체 편집 (완료)
+
+### 결정 사항
+| 항목 | 결정 |
+|-----|-----|
+| 진입 위치 | OrderDetailModal 헤더에 `[전체 편집]` 버튼 (빠른 편집과 별도) |
+| 편집 화면 | 등록 마법사 (`OrderWizardPage`) **재사용** — 별도 폼 안 만듦 |
+| orderNumber | **수정 불가** (Firestore 문서 ID 일관성 유지) |
+| 기존 actual 진행 데이터 | **보존** (deep clone, batches/yarnOrders의 actual* 필드 유지) |
+| 편집 모드 시각 표시 | 헤더 amber 톤 + "수정 중: O-001" 배지 + [수정 저장] / [편집 취소] 버튼 |
+
+### 동작 흐름
+1. 오더 목록 → 행 클릭 → 상세 모달
+2. 모달 헤더 [전체 편집] 클릭 → `handleEditOrder(order)` → orderInput에 deep clone 로드, editingOrderId 설정 → 모달 닫힘 → activeTab='orderWizard'
+3. 마법사 화면이 amber 톤으로 변경, "수정 중" 배지 표시
+4. 거래처/시작점/공정/차수/일정 등 자유 편집
+5. orderNumber만 readonly (slate 배경)
+6. [수정 저장] 클릭 → `handleSaveOrder`가 `isNew=false`로 분기 → 기존 createdAt/createdBy 보존, updatedAt만 갱신
+7. 저장 성공 → resetOrderForm + activeTab='orderList'
+
+### 변경 파일 (4개)
+- `src/hooks/domains/useOrder.js` — `handleEditOrder(order)` 실제 구현 (toast 대신 deep clone)
+- `src/components/order/OrderDetailModal.jsx` — 헤더에 [전체 편집] 버튼 추가, [빠른 편집]과 분리
+- `src/pages/OrderWizardPage.jsx` — `editingOrderId` prop 받아 헤더/버튼 라벨 변경 (amber 톤)
+- `src/components/order/wizard/Step1BasicInfo.jsx` — 수정 모드일 때 orderNumber readonly
+- `src/apps/App.jsx` — `handleEditOrderToWizard` 헬퍼 (모달 닫고 마법사로 이동), prop 전달
+
+### 두 편집 모드의 차이
+| | 빠른 편집 (모달 내) | 전체 편집 (마법사) |
+|--|------|------|
+| 위치 | 상세 모달 안 | 마법사 페이지로 이동 |
+| 편집 가능 항목 | 상태/일정/차수/원사 발주 | **모든 것** (거래처/시작점/공정 활성화/ART 등 포함) |
+| 사용 시점 | 일상 운영 (상태 기록, 차수 추가) | 구조적 변경 (오더 메타 변경, 공정 추가 등) |
 
 ---
 

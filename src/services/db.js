@@ -52,23 +52,33 @@ export const saveBatchDocuments = async (collectionName, items) => {
 };
 
 /**
- * 원사 카테고리 일괄 업데이트 (Batch Update) 
+ * 원사 카테고리 일괄 업데이트 (Batch Update)
  * - 카테고리명 변경 시, 연관된 모든 원사 문서의 카테고리 필드를 수정합니다.
+ * - 청크별 try/catch로 부분 실패 처리: 실패한 yarn id 목록을 반환해 호출자에서 부분 실패 안내 가능
+ *
+ * @returns {Promise<{ success: number, failed: string[], totalAttempted: number }>}
  */
 export const updateYarnCategoryBatch = async (yarnsToUpdate, newCategoryName) => {
-  try {
-    // Firestore 한 번의 배치 작업은 최대 500개까지만 허용되므로 450개씩 청크 처리
-    for (let i = 0; i < yarnsToUpdate.length; i += 450) {
+  const total = yarnsToUpdate.length;
+  let successCount = 0;
+  const failedIds = [];
+
+  // Firestore 배치 한 번 최대 500개 → 안전 마진 450개씩 청크
+  for (let i = 0; i < total; i += 450) {
+    const chunk = yarnsToUpdate.slice(i, i + 450);
+    try {
       const batch = writeBatch(db);
-      const chunk = yarnsToUpdate.slice(i, i + 450);
       chunk.forEach(y => {
         batch.update(doc(db, 'yarns', String(y.id)), { category: newCategoryName });
       });
       await batch.commit();
+      successCount += chunk.length;
+    } catch (error) {
+      console.error(`Error in chunk starting at index ${i}:`, error);
+      // 이 청크 내 모든 yarn id를 실패 목록에 추가 (어느 게 실패했는지 정확히는 모르지만 청크 단위로 실패 처리)
+      chunk.forEach(y => failedIds.push(String(y.id)));
     }
-    return true;
-  } catch (error) {
-    console.error(`Error batch updating categories:`, error);
-    throw error;
   }
+
+  return { success: successCount, failed: failedIds, totalAttempted: total };
 };

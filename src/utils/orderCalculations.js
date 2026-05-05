@@ -1,7 +1,7 @@
 // GRUBIG ERP - 오더 납기 계산 및 상태 유틸리티
 // 순수 함수 모음 (외부 I/O 없음)
 
-import { DUE_HEALTH_COLORS } from '../constants/production';
+import { DUE_HEALTH_COLORS, KG_CONVERSION_COEFFICIENT, PROCESS_TYPES, normalizeDeliveryStatus, normalizeBatchStatus } from '../constants/production';
 
 // ============================================================
 // 1. 날짜 헬퍼 (달력 기준, Working Day 사용 안 함)
@@ -113,43 +113,101 @@ export const calcProcessDuration = (process) => {
 };
 
 // ============================================================
-// 4. 예상납기 자동 계산 (기획서 3.4)
+// 4. 공정별 effective 시작일/종료일 계산 (v3 신규)
 // ------------------------------------------------------------
-// 방식: 활성 공정(주경로)의 소요일 단순 합산. 시작일 = 주경로 공정의 최초 planned start
-// L/D(isParallelTrack)는 주경로에서 제외
+// startDate가 비어있으면 이전 활성 공정의 effectiveEnd 사용 (체인)
+// endDate = effectiveStart + durationDays
+// 반환: 활성 공정에 effectiveStart/effectiveEnd 추가한 배열 (sequenceOrder 순)
+// ============================================================
+export const enrichProcessesWithEffectiveDates = (order) => {
+  if (!order) return [];
+  const sorted = (order.processes || [])
+    .filter(p => p.isActive)
+    .sort((a, b) => (a.sequenceOrder || 0) - (b.sequenceOrder || 0));
+
+  let prevEnd = '';
+  return sorted.map(p => {
+    const effectiveStart = p.startDate || prevEnd || '';
+    const dur = Number(p.durationDays) || 0;
+    const effectiveEnd = effectiveStart && dur >= 0 ? addDaysYmd(effectiveStart, dur) : '';
+    prevEnd = effectiveEnd;
+    return { ...p, effectiveStart, effectiveEnd };
+  });
+};
+
+// ============================================================
+// 4-1. 예상납기 = 마지막 활성 공정의 effectiveEnd
 // ============================================================
 export const calcEstimatedDueDate = (order) => {
-  if (!order) return '';
-  const activeProcesses = (order.processes || []).filter(p => p.isActive);
-  if (activeProcesses.length === 0) return '';
+  const enriched = enrichProcessesWithEffectiveDates(order);
+  if (enriched.length === 0) return '';
+  const last = enriched[enriched.length - 1];
+  return last.effectiveEnd || '';
+};
 
-  // 주경로 공정만 (L/D 같은 병렬 트랙 제외)
-  const mainPath = activeProcesses.filter(p => !p.isParallelTrack);
-  if (mainPath.length === 0) return '';
+// ============================================================
+// 4-2. 공정별 납기 초과 분석 (v2 신규)
+// ------------------------------------------------------------
+// 각 활성 공정에 대해 분석:
+// - 다음 활성 공정의 dueDate보다 늦으면 시퀀스 위반 (선행 공정이 후행보다 늦음)
+// - 마지막 공정이면 최종 납기와 비교
+// 반환: [{processType, label, days, type: 'sequence'|'final'}]
+// ============================================================
+export const analyzeProcessOverruns = (order) => {
+  if (!order) return [];
 
-  // 시작일 추정: 주경로 공정의 모든 차수/입고의 plannedStartDate 중 최소
-  const startDates = [];
-  mainPath.forEach(p => {
-    if (p.processType === 'yarn') {
-      (p.yarnOrders || []).forEach(yo => {
-        (yo.deliveries || []).forEach(dv => {
-          if (dv.plannedArrivalDate) startDates.push(dv.plannedArrivalDate);
-        });
-      });
-    } else {
-      (p.batches || []).forEach(b => {
-        if (b.plannedStartDate) startDates.push(b.plannedStartDate);
+  const enriched = enrichProcessesWithEffectiveDates(order).filter(p => p.effectiveEnd);
+  if (enriched.length === 0) return [];
+
+  const overruns = [];
+  const labelMap = Object.fromEntries(PROCESS_TYPES.map(p => [p.key, p.label]));
+
+  // 마지막 공정 effectiveEnd > finalDueDate면 마지막 공정에 초과 표시
+  if (order.finalDueDate) {
+    const last = enriched[enriched.length - 1];
+    const delta = diffDaysYmd(order.finalDueDate, last.effectiveEnd);
+    if (delta > 0) {
+      overruns.push({
+        processType: last.processType,
+        label: labelMap[last.processType] || last.processType,
+        days: delta,
+        type: 'final',
+        message: `${labelMap[last.processType]} 종료일이 최종납기보다 ${delta}일 초과`,
       });
     }
-  });
+  }
 
-  if (startDates.length === 0) return '';
-  startDates.sort();
-  const start = startDates[0];
+  // 사용자가 startDate를 직접 입력한 경우, 이전 공정 effectiveEnd > 현재 effectiveStart면 시퀀스 위반
+  for (let i = 1; i < enriched.length; i++) {
+    const prev = enriched[i - 1];
+    const cur = enriched[i];
+    if (cur.startDate && prev.effectiveEnd && cur.effectiveStart < prev.effectiveEnd) {
+      const overlap = diffDaysYmd(cur.effectiveStart, prev.effectiveEnd);
+      overruns.push({
+        processType: cur.processType,
+        label: labelMap[cur.processType] || cur.processType,
+        days: overlap,
+        type: 'sequence',
+        message: `${labelMap[cur.processType]} 시작일(${cur.effectiveStart})이 ${labelMap[prev.processType]} 종료일(${prev.effectiveEnd})보다 ${overlap}일 빠름`,
+      });
+    }
+  }
 
-  // 총 소요일 = 주경로 공정 소요일 합산
-  const totalDays = mainPath.reduce((sum, p) => sum + calcProcessDuration(p), 0);
-  return addDaysYmd(start, totalDays);
+  return overruns;
+};
+
+// ============================================================
+// 4-3. YD → KG 자동 환산 (v2 신규)
+// ------------------------------------------------------------
+// kg = (yd × gsm × widthFull × 0.02322576) / 1000
+// gsm 또는 widthFull이 없으면 0 반환
+// ============================================================
+export const calcKgFromYd = (yd, gsm, widthFull) => {
+  const _yd = Number(yd) || 0;
+  const _gsm = Number(gsm) || 0;
+  const _w = Number(widthFull) || 0;
+  if (_yd <= 0 || _gsm <= 0 || _w <= 0) return 0;
+  return Math.round((_yd * _gsm * _w * KG_CONVERSION_COEFFICIENT) / 1000 * 100) / 100;
 };
 
 // ============================================================
@@ -163,9 +221,11 @@ export const calcOrderProgress = (order) => {
     if (!p.isActive) return;
     if (p.processType === 'yarn') {
       (p.yarnOrders || []).forEach(yo => {
+        if (yo.useKnitterStock) return;  // 편직처 보유 — 발주 없음, 카운트 제외
         (yo.deliveries || []).forEach(dv => {
           total += 1;
-          if (dv.status === '입고완료') done += 1;
+          // 4상태 통일 + legacy 한글 호환
+          if (normalizeDeliveryStatus(dv.status) === 'done') done += 1;
         });
       });
     } else {
@@ -261,4 +321,79 @@ export const checkSequenceConflicts = (order) => {
     }
   }
   return conflicts;
+};
+
+// ============================================================
+// 진행중 항목 추출 — 차수 + 원사 입고차수 통합
+//   각 항목 형태:
+//     { kind: 'batch', processType, sequenceOrder, batch, endDate, overdue }
+//     { kind: 'delivery', processType:'yarn', sequenceOrder, yarnOrder, delivery, endDate, overdue }
+//   진행중 = batch.status==='in_progress' OR delivery 정규화 status==='in_progress'
+//   sequenceOrder → (batch.batchNumber 또는 delivery.deliveryNumber) 오름차순
+// ============================================================
+export const getInProgressItems = (order) => {
+  if (!order) return [];
+  const today = todayYmd();
+  const result = [];
+
+  (order.processes || [])
+    .filter(p => p.isActive)
+    .forEach(p => {
+      if (p.processType === 'yarn') {
+        (p.yarnOrders || []).forEach(yo => {
+          if (yo.useKnitterStock) return;
+          (yo.deliveries || []).forEach(dv => {
+            const sKey = normalizeDeliveryStatus(dv.status);
+            if (sKey !== 'in_progress') return;
+            const endDate = dv.actualArrivalDate || dv.expectedArrivalDate || dv.plannedArrivalDate || '';
+            result.push({
+              kind: 'delivery',
+              processType: 'yarn',
+              sequenceOrder: p.sequenceOrder || 0,
+              yarnOrder: yo,
+              delivery: dv,
+              endDate,
+              overdue: !!(dv.plannedArrivalDate && dv.plannedArrivalDate < today),
+              orderNumber: dv.deliveryNumber || 0,
+            });
+          });
+        });
+      } else {
+        (p.batches || []).forEach(b => {
+          if (normalizeBatchStatus(b.status) !== 'in_progress') return;
+          const endDate = b.actualEndDate || b.expectedEndDate || b.plannedEndDate || '';
+          result.push({
+            kind: 'batch',
+            processType: p.processType,
+            sequenceOrder: p.sequenceOrder || 0,
+            batch: b,
+            endDate,
+            overdue: !!(b.plannedEndDate && b.plannedEndDate < today),
+            orderNumber: b.batchNumber || 0,
+          });
+        });
+      }
+    });
+
+  return result.sort((a, b) => {
+    if (a.sequenceOrder !== b.sequenceOrder) return a.sequenceOrder - b.sequenceOrder;
+    return (a.orderNumber || 0) - (b.orderNumber || 0);
+  });
+};
+
+// ============================================================
+// 납기 초과 판정 헬퍼
+// ============================================================
+// 차수: plannedEndDate < today && status !== 'done' (legacy 한글 호환)
+export const isBatchOverdue = (batch) => {
+  if (!batch || !batch.plannedEndDate) return false;
+  if (normalizeBatchStatus(batch.status) === 'done') return false;
+  return batch.plannedEndDate < todayYmd();
+};
+
+// 원사 입고차수: plannedArrivalDate < today && (정규화 status) !== 'done'
+export const isYarnDeliveryOverdue = (delivery) => {
+  if (!delivery || !delivery.plannedArrivalDate) return false;
+  if (normalizeDeliveryStatus(delivery.status) === 'done') return false;
+  return delivery.plannedArrivalDate < todayYmd();
 };

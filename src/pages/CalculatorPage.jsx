@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, RotateCcw, Info, Plus, Save, Factory, Users } from 'lucide-react';
+import { X, RotateCcw, Info, Plus, Save, Factory, Users, AlertTriangle } from 'lucide-react';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { num } from '../utils/helpers';
 import { MARGIN_TIERS } from '../constants/common';
@@ -67,6 +67,24 @@ export const CalculatorPage = ({
           </button>
         </div>
       </div>
+
+      {/* 누락 원사 경고 — 라이브러리에서 삭제된 사종 참조 시 (silent failure 방지) */}
+      {(currentCalcFull?.missingYarnIds || []).length > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 flex items-start gap-2">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-bold text-amber-800">
+              ⚠️ 라이브러리에 없는 원사 {currentCalcFull.missingYarnIds.length}건 — 비율은 입력됐지만 원가 계산에서 제외됨
+            </div>
+            <div className="text-[11px] text-amber-700 mt-1 font-mono break-all">
+              미등록 ID: {currentCalcFull.missingYarnIds.join(', ')}
+            </div>
+            <div className="text-[11px] text-amber-700 mt-1">
+              해당 슬롯에서 원사를 다시 선택하거나, 원사 라이브러리에서 등록 후 매핑하세요.
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <div className="xl:col-span-7 space-y-6">

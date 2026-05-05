@@ -89,10 +89,12 @@ export const QuotationPage = ({
               <label className="block text-xs font-bold text-slate-500">Buyer Name</label>
               <button onClick={() => setIsBuyerModalOpen(true)} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-bold bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors">+ 바이어 관리</button>
             </div>
-            <select value={quoteInput.buyerName} onChange={(e) => setQuoteInput({ ...quoteInput, buyerName: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 uppercase cursor-pointer text-sm font-bold text-slate-700 outline-none focus:ring-1 ring-indigo-400">
-              <option value="" disabled>등록된 바이어 선택</option>
-              {buyers.map(b => <option key={b} value={b}>{b}</option>)}
-            </select>
+            <SearchableSelect
+              value={quoteInput.buyerName || ''}
+              options={(buyers || []).map(b => ({ id: b, name: b }))}
+              onChange={(v) => setQuoteInput({ ...quoteInput, buyerName: v })}
+              placeholder="등록된 바이어 선택..."
+            />
           </div>
           <div className="lg:col-span-2">
             <label className="block text-xs font-bold text-slate-500 mb-1">Attention (담당자)</label>

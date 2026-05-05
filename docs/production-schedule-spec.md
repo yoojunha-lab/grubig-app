@@ -568,6 +568,29 @@ for batch in active_batches:
 > - 아이템/원단 = `fabrics` 컬렉션 (오더 등록 시 "원단 불러오기"로 yarns[] 비율 자동 적용)
 > - 담당자 = `settings/general.productionAssignees` (원사/편직/그외 3명 — 신규 추가됨)
 
+> **v2 변경 (1단계 후속 v2 라운드)**:
+> - **선염/후염(`dyeingMethod`) 폐기** — 시작점(`startStage`: yarn/knitting/finished_fabric) 모델로 대체
+> - **L/D 공정 제거**, 후가공 추가 → 총 7종
+> - **오더번호 자동채번 폐기** → 사용자 수동 입력 (거래처별 자체번호)
+> - **수량 단위 YD 통일**, KG 자동 환산 (fabric.gsm × widthFull × 0.02322576 / 1000)
+> - **공정 등록은 납기일 1개**만, 차수는 자동 1차 생성. 세부 차수는 등록 후 상세에서 보강
+> - **시작점 → 이전 공정 자동 잠금**: 편직 시작 → 원사/사가공 비활성, 가공지 시작 → 원사/사가공/편직 비활성
+
+> **v3 변경 (1단계 후속 v3 라운드)**:
+> - **ART 직접 입력 폐기** — 원단 라이브러리에서만 선택 가능 (`articleNo` = `fabric.article` 자동)
+> - **`defaultDailyKnittingCapacity` 폐기** (UI/모델 모두)
+> - **`useKnitterStockYarn` 오더 전역 필드 폐기** → `yarnOrder.useKnitterStock` (사종별 토글)
+>   - 한 오더에 여러 사종이 사용될 때 어떤 사종은 편직처 보유 원사, 어떤 사종은 발주 진행 가능
+> - **공정 일정 모델 변경**: `dueDate` 폐기 → `startDate` + `durationDays` (종료일 자동 계산)
+>   - `startDate` 비우면 이전 활성 공정의 `effectiveEnd`로 자동 채움 (체인)
+>   - 종료일은 항상 자동 (사용자가 직접 수정 못 함)
+> - **알람 시스템 미개발 결정** — D-day 알람, 응답 게이트, 확인 게이트는 본 ERP에서 개발하지 않기로 함
+
+> **v4 변경 (담당자 시스템 폐기)**:
+> - **담당자(assignees, assigneeRole) 전체 폐기** — `Order.assignees`, `Process.assigneeRole`, `settings/general.productionAssignees`, `ASSIGNEE_ROLES` 모두 제거
+> - 외주 업체(편직소·염색소) 자체가 외부이고 알람 시스템도 폐기되어 내부 담당자 라우팅 의미 없음
+> - 기획서의 "원사/편직/그외 3명 담당자 롤", "Daily Briefing 담당자별 알림" 등 담당자 기반 기능은 본 ERP에서 구현 안 함
+
 ---
 
 ## 6. 구현 우선순위

@@ -4,6 +4,7 @@ import { DESIGN_STAGES, STAGE_COLORS } from '../constants/common';
 import { num } from '../utils/helpers';
 import { DesignStepper } from '../components/design/DesignStepper';
 import { DevReqSummaryCard } from '../components/dashboard/DevReqSummaryCard';
+import { SearchableSelect } from '../components/common/SearchableSelect';
 
 /**
  * [생산 관리자 관점] 통합 개발 현황 대시보드
@@ -326,11 +327,12 @@ export const DevStatusPage = ({
                       + 바이어 관리
                     </button>
                   </div>
-                  <select name="buyerName" value={devInput.buyerName} onChange={handleDevChange}
-                    className="w-full border border-red-300 rounded-lg px-2 py-2 text-xs font-bold focus:ring-2 ring-red-200 outline-none uppercase bg-red-50/30">
-                    <option value="">-- 선택 --</option>
-                    {(buyers||[]).map(b=><option key={b} value={b}>{b}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={devInput.buyerName || ''}
+                    options={(buyers || []).map(b => ({ id: b, name: b }))}
+                    onChange={(v) => handleDevChange({ target: { name: 'buyerName', value: v } })}
+                    placeholder="-- 바이어 선택 --"
+                  />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 mb-0.5">담당자</label>

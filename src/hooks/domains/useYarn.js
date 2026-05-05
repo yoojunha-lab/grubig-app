@@ -1,9 +1,12 @@
 import { useState } from 'react';
+import { clampNum } from '../../utils/helpers';
 
 // GRUBIG ERP - 원사(Yarn) 도메인 로직 및 훅
 
 export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast, designSheets) => {
   const [editingYarnId, setEditingYarnId] = useState(null);
+  // Y4: 빠른 더블클릭 삭제 race 방지 — 진행 중 yarn id 추적
+  const [deletingYarnId, setDeletingYarnId] = useState(null);
 
   const initialYarnInput = {
     category: '소모', name: '', remarks: '',
@@ -80,6 +83,9 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
   };
 
   const handleDeleteYarn = async (id, syncYarnLibraryStateCallback) => {
+    // Y4: 같은 yarn 삭제가 이미 진행 중이면 무시 (빠른 더블클릭 race 방지)
+    if (deletingYarnId === id) return;
+
     // [방어] savedFabrics/fabric.yarns가 null/undefined일 때 크래시 방지
     const isUsed = (savedFabrics || []).some(fabric =>
       (fabric.yarns || []).some(y => y.yarnId && String(y.yarnId).split('::')[0] === String(id) && y.ratio > 0)
@@ -93,12 +99,16 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
       return;
     }
     if (!window.confirm("이 원사와 등록된 모든 공급처 정보가 삭제됩니다. 삭제하시겠습니까?")) return;
+
+    setDeletingYarnId(id);
     if (syncYarnLibraryStateCallback) syncYarnLibraryStateCallback(id);
     try {
       await deleteDocFromCloud('yarns', id);
       showToast('삭제 완료', 'success');
-    } catch {
-      // deleteDocFromCloud 내부에서 이미 에러 토스트 처리됨
+    } catch (e) {
+      showToast(`삭제 실패: ${e?.message || '네트워크 오류'}`, 'error');
+    } finally {
+      setDeletingYarnId(null);
     }
   };
 
@@ -118,20 +128,31 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
   };
 
   const handleSupplierChange = (supId, field, value) => {
-    setYarnInput(prev => ({
-      ...prev, suppliers: (prev.suppliers || []).map(s => {
-        if (field === 'isDefault' && value === true) return { ...s, isDefault: s.id === supId };
-        if (s.id === supId) {
-          // [방어] 숫자 필드는 NaN 방지
-          const numFields = ['price', 'tariff', 'freight'];
-          const safeValue = field === 'name' ? String(value).toUpperCase()
-            : numFields.includes(field) ? (Number(value) || 0)
-            : value;
-          return { ...s, [field]: safeValue };
+    setYarnInput(prev => {
+      // Y3: 이름 변경 시 같은 yarn 안에서 중복 검사
+      if (field === 'name') {
+        const newName = String(value).toUpperCase();
+        const dup = (prev.suppliers || []).some(s => s.id !== supId && String(s.name).toUpperCase() === newName && newName.trim() !== '');
+        if (dup) {
+          showToast(`이미 존재하는 공급처명입니다: ${newName}`, 'error');
+          return prev; // 변경 거부 (입력 자체 차단)
         }
-        return s;
-      })
-    }));
+      }
+      return {
+        ...prev, suppliers: (prev.suppliers || []).map(s => {
+          if (field === 'isDefault' && value === true) return { ...s, isDefault: s.id === supId };
+          if (s.id === supId) {
+            // Y2: 음수 차단 (price/tariff/freight) — clampNum으로 0 이상으로 강제
+            const numFields = ['price', 'tariff', 'freight'];
+            const safeValue = field === 'name' ? String(value).toUpperCase()
+              : numFields.includes(field) ? clampNum(value, 0, Infinity)
+              : value;
+            return { ...s, [field]: safeValue };
+          }
+          return s;
+        })
+      };
+    });
   };
 
   const handleDeleteHistoryItem = (supId, hIdx) => {

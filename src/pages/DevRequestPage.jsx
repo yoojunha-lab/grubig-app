@@ -1,5 +1,6 @@
 import React from 'react';
 import { Plus, Edit2, Trash2, Check, X, Printer, Search, ChevronDown, ChevronUp, ArrowRight, FileText } from 'lucide-react';
+import { SearchableSelect } from '../components/common/SearchableSelect';
 
 /**
  * 바이어 R&D 개발 의뢰 관리 페이지
@@ -22,6 +23,7 @@ export const DevRequestPage = ({
   setActiveTab,
   user,
   buyers,
+  setIsBuyerModalOpen,
   devPrintRef
 }) => {
   const [searchTerm, setSearchTerm] = React.useState('');
@@ -83,12 +85,20 @@ export const DevRequestPage = ({
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1">바이어명 *</label>
-            <select name="buyerName" value={devInput.buyerName} onChange={handleDevChange}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm font-bold focus:ring-2 ring-violet-200 outline-none transition-all uppercase">
-              <option value="">-- 바이어 선택 --</option>
-              {(buyers || []).map(b => <option key={b} value={b}>{b}</option>)}
-            </select>
+            <div className="flex justify-between items-center mb-1">
+              <label className="block text-xs font-bold text-slate-500">바이어명 *</label>
+              {setIsBuyerModalOpen && (
+                <button type="button" onClick={() => setIsBuyerModalOpen(true)} className="text-[10px] text-violet-500 hover:text-violet-700 font-bold bg-violet-50 hover:bg-violet-100 px-2 py-0.5 rounded transition-colors whitespace-nowrap">
+                  + 바이어 관리
+                </button>
+              )}
+            </div>
+            <SearchableSelect
+              value={devInput.buyerName || ''}
+              options={(buyers || []).map(b => ({ id: b, name: b }))}
+              onChange={(v) => handleDevChange({ target: { name: 'buyerName', value: v } })}
+              placeholder="-- 바이어 선택 --"
+            />
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-500 mb-1">의뢰 일자</label>

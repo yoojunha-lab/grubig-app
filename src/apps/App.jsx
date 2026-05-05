@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 // 🔥 Firebase 모듈 (서비스 레이어 연동)
-import { onSnapshot, collection, doc, setDoc } from "firebase/firestore";
+import { onSnapshot, collection, doc, setDoc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { onAuthStateChanged, signOut, signInWithPopup } from "firebase/auth";
 import { db, auth, googleProvider } from '../services/firebase';
 import { saveDocument, deleteDocument, saveBatchDocuments, updateYarnCategoryBatch } from '../services/db';
@@ -27,6 +27,8 @@ import { useDesignSheet } from '../hooks/domains/useDesignSheet';
 import { useMainDetail } from '../hooks/domains/useMainDetail';
 import { useTempDesignSheet } from '../hooks/domains/useTempDesignSheet';
 import { useOrder } from '../hooks/domains/useOrder';
+import { makeChangeLogEntry, appendChangeLog, summarizeBatchDiff } from '../utils/auditLog';
+import { PROCESS_TYPES } from '../constants/production';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
 import { SearchableSelect } from '../components/common/SearchableSelect';
@@ -51,6 +53,8 @@ import { MainDetailPage } from '../pages/MainDetailPage';
 import { TempDesignSheetListPage } from '../pages/TempDesignSheetListPage';
 import { OrderWizardPage } from '../pages/OrderWizardPage';
 import { OrderListPage } from '../pages/OrderListPage';
+import { DashboardPage } from '../pages/DashboardPage';
+import { ReportPage } from '../pages/ReportPage';
 import { OrderDetailModal } from '../components/order/OrderDetailModal';
 
 const App = () => {
@@ -76,7 +80,6 @@ const App = () => {
   const [mainDetails, setMainDetails] = useState([]);
   const [tempDesignSheets, setTempDesignSheets] = useState([]);
   const [orders, setOrders] = useState([]);
-  const [productionAssignees, setProductionAssignees] = useState({ yarnAssignee: null, knittingAssignee: null, othersAssignee: null });
 
   // 마스터 데이터 (settings/general에 배열로 저장)
   const [knittingFactories, setKnittingFactories] = useState([]);
@@ -132,16 +135,16 @@ const App = () => {
       if (docSnap.exists()) {
         const d = docSnap.data();
         if (d.yarnCategories) setCategories(d.yarnCategories);
-        if (d.buyers) setBuyers(d.buyers);
-        // 마스터 데이터 4종 로딩
-        setKnittingFactories(d.knittingFactories || []);
-        setDyeingFactories(d.dyeingFactories || []);
-        setMachineTypes(d.machineTypes || []);
-        setStructures(d.structures || []);
-        // 생산 담당자 3명 (원사/편직/그외)
-        setProductionAssignees(d.productionAssignees || { yarnAssignee: null, knittingAssignee: null, othersAssignee: null });
+        // 모든 마스터 배열은 명시적으로 세팅 (필드 누락 시 [] 폴백 — 이전엔 누락이면 setBuyers 미호출)
+        setBuyers(Array.isArray(d.buyers) ? d.buyers : []);
+        setKnittingFactories(Array.isArray(d.knittingFactories) ? d.knittingFactories : []);
+        setDyeingFactories(Array.isArray(d.dyeingFactories) ? d.dyeingFactories : []);
+        setMachineTypes(Array.isArray(d.machineTypes) ? d.machineTypes : []);
+        setStructures(Array.isArray(d.structures) ? d.structures : []);
       } else {
-        setDoc(doc(db, 'settings', 'general'), { yarnCategories: DEFAULT_YARN_CATEGORIES, buyers: [], knittingFactories: [], dyeingFactories: [], machineTypes: [], structures: [] }, { merge: true });
+        // 문서가 없을 때만 yarnCategories만 시드 — 마스터 배열은 비워둠 (실제 추가될 때 자동 생성됨)
+        // 빈 배열로 시드하면 만약 콘솔 등에서 doc 재삭제 후 이 코드가 다시 돌면 데이터 영구 손실 위험
+        setDoc(doc(db, 'settings', 'general'), { yarnCategories: DEFAULT_YARN_CATEGORIES }, { merge: true });
       }
     });
     const unsubYarns = onSnapshot(collection(db, 'yarns'), (snapshot) => {
@@ -165,27 +168,46 @@ const App = () => {
 
   const saveDocToCloud = async (colName, item) => { setSyncStatus('syncing'); try { await saveDocument(colName, item); setSyncStatus('saved'); } catch (e) { setSyncStatus('error'); showToast("저장 실패", "error"); } };
   const deleteDocFromCloud = async (colName, id) => { setSyncStatus('syncing'); try { await deleteDocument(colName, id); setSyncStatus('saved'); } catch (e) { setSyncStatus('error'); showToast("삭제 실패", "error"); } };
-  const saveBatchToCloud = async (colName, items) => { setSyncStatus('syncing'); try { await saveBatchDocuments(colName, items); setSyncStatus('saved'); } catch (e) { setSyncStatus('error'); showToast("일괄 저장 실패", "error"); } };
+  // 일괄 저장: 성공 true / 실패 false 반환 (호출자가 후처리 분기 가능)
+  const saveBatchToCloud = async (colName, items) => {
+    setSyncStatus('syncing');
+    try {
+      await saveBatchDocuments(colName, items);
+      setSyncStatus('saved');
+      return true;
+    } catch (e) {
+      setSyncStatus('error');
+      showToast(`일괄 저장 실패: ${e.message || '네트워크 오류'}`, 'error');
+      return false;
+    }
+  };
 
   const showToast = (message, type = 'success') => { setNotification({ show: true, message, type }); setTimeout(() => setNotification(prev => ({ ...prev, show: false })), 3000); };
 
   // 마스터 데이터 등록/삭제 공용 함수 (settings/general 문서의 배열 필드)
+  // arrayUnion/arrayRemove 원자 연산 사용 — 로컬 state에 의존하지 않아 race/오버라이트 안전
   const addMasterItem = async (field, name) => {
     const trimmed = String(name).trim();
     if (!trimmed) { showToast('이름을 입력해주세요.', 'error'); return false; }
-    // 현재 값 참조 (buyers, knittingFactories 등)
     const currentMap = { buyers, knittingFactories, dyeingFactories, machineTypes, structures };
     const current = currentMap[field] || [];
     if (current.includes(trimmed)) { showToast('이미 등록된 항목입니다.', 'error'); return false; }
-    await setDoc(doc(db, 'settings', 'general'), { [field]: [...current, trimmed] }, { merge: true });
-    showToast(`'${trimmed}' 등록 완료`, 'success');
-    return true;
+    try {
+      await setDoc(doc(db, 'settings', 'general'), { [field]: arrayUnion(trimmed) }, { merge: true });
+      showToast(`'${trimmed}' 등록 완료`, 'success');
+      return true;
+    } catch (e) {
+      showToast(`등록 실패: ${e.message}`, 'error');
+      return false;
+    }
   };
   const removeMasterItem = async (field, name) => {
-    const currentMap = { buyers, knittingFactories, dyeingFactories, machineTypes, structures };
-    const current = currentMap[field] || [];
-    await setDoc(doc(db, 'settings', 'general'), { [field]: current.filter(i => i !== name) }, { merge: true });
-    showToast(`'${name}' 삭제됨`, 'success');
+    try {
+      await setDoc(doc(db, 'settings', 'general'), { [field]: arrayRemove(name) }, { merge: true });
+      showToast(`'${name}' 삭제됨`, 'success');
+    } catch (e) {
+      showToast(`삭제 실패: ${e.message}`, 'error');
+    }
   };
 
   // ⚓️ 커스텀 도메인 훅 사용
@@ -193,7 +215,7 @@ const App = () => {
     fabricInput, setFabricInput, editingFabricId, expandedFabricId, setExpandedFabricId,
     handleFabricChange, handleNestedChange, handleYarnSlotChange,
     handleSaveFabric, handleEditFabric, handleDeleteFabric, resetFabricForm, calculateCost, getMergedYarnName
-  } = useFabric(yarnLibrary, savedFabrics, designSheets, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate);
+  } = useFabric(yarnLibrary, savedFabrics, designSheets, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate, savedQuotes);
 
   const {
     yarnInput, setYarnInput, editingYarnId,
@@ -265,22 +287,301 @@ const App = () => {
     resetTempForm, getTempDesignCost, loadTempToSheet
   } = useTempDesignSheet(tempDesignSheets, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost);
 
-  // ⚓️ 생산 오더(스케줄) 훅
+  // ⚓️ 생산 오더(스케줄) 훅 — v3
   const {
     orderInput, setOrderInput,
     editingOrderId,
-    wizardStep, setWizardStep,
     selectedOrderId, setSelectedOrderId,
-    handleOrderChange, handleTypeOrMethodChange, handleUseKnitterStockYarn,
+    handleOrderChange, setOrderType,
     addColor, removeColor, updateColor,
-    toggleProcess, updateProcessField,
+    toggleProcess, updateProcessField, updateProcessSchedule,
     addBatch, removeBatch, updateBatchField, updateBatchColors,
     addYarnOrder, removeYarnOrder, updateYarnOrder,
+    toggleYarnOrderKnitterStock, setAllYarnOrdersKnitterStock,
     addDelivery, removeDelivery, updateDelivery,
-    handleSaveOrder, handleDeleteOrder,
+    handleSaveOrder, handleEditOrder, handleDeleteOrder,
     resetOrderForm,
-    applyFabricTemplate,
-  } = useOrder(orders, saveDocToCloud, deleteDocFromCloud, showToast, productionAssignees);
+    applyFabricTemplate, detachFabric,
+  } = useOrder(orders, saveDocToCloud, deleteDocFromCloud, showToast);
+
+  // 오더 상세 모달 열 때 특정 차수에 포커스 (펼침/스크롤/하이라이트)
+  const [orderModalFocus, setOrderModalFocus] = useState(null); // { processType, batchId } | null
+  const openOrderDetail = (orderId, processType = null, batchId = null) => {
+    setSelectedOrderId(orderId);
+    setOrderModalFocus(processType && batchId ? { processType, batchId } : null);
+  };
+  const closeOrderDetail = () => {
+    setSelectedOrderId(null);
+    setOrderModalFocus(null);
+  };
+
+  // 오더 상세 → [전체 편집] 클릭 시 마법사로 이동
+  const handleEditOrderToWizard = (order) => {
+    handleEditOrder(order);
+    closeOrderDetail();
+    setActiveTab('orderWizard');
+  };
+
+  // 상세 모달의 공정 아코디언에서 [+ 차수 추가]
+  // 새 차수를 Firestore에 즉시 저장 (인라인 편집은 OrderDetailModal에서 처리)
+  // 추가된 차수의 ID 반환 → 호출 측에서 자동 펼침
+  const handleAddBatchToOrder = async (orderId, processType) => {
+    const order = (orders || []).find(o => o.id === orderId);
+    if (!order) return null;
+    const proc = (order.processes || []).find(p => p.processType === processType);
+    if (!proc) return null;
+
+    const nextNum = (proc.batches || []).length + 1;
+    // batchLabel은 폐기됨 — 표시용은 batchNumber로 자동 "N차"
+    const newBatch = {
+      id: `batch_${processType}_${Date.now()}_${nextNum}`,
+      batchNumber: nextNum,
+      batchType: 'sequential',
+      quantity: 0,
+      colors: [],
+      plannedStartDate: '',
+      plannedEndDate: '',
+      actualEndDate: '',
+      status: 'pending',
+      reworkEvents: [],
+      delayReason: '',
+      notes: '',
+    };
+
+    const procLabel = PROCESS_TYPES.find(p => p.key === processType)?.label || processType;
+    let updatedOrder = {
+      ...order,
+      processes: (order.processes || []).map(p =>
+        p.processType === processType
+          ? { ...p, batches: [...(p.batches || []), newBatch] }
+          : p
+      ),
+      updatedAt: new Date().toISOString(),
+    };
+    const newLabel = `${newBatch.batchNumber}차`;
+    // 감사 로그 기록
+    updatedOrder = appendChangeLog(
+      updatedOrder,
+      makeChangeLogEntry(user?.email, 'batch_create', `${procLabel} ${newLabel} 차수 추가`)
+    );
+
+    await saveDocToCloud('orders', updatedOrder);
+    showToast(`${newLabel} 추가됨`, 'success');
+    return newBatch.id;
+  };
+
+  // 상세 모달의 차수 row에서 [🗑] 삭제
+  const handleDeleteBatchFromOrder = async (orderId, processType, batchId) => {
+    const order = (orders || []).find(o => o.id === orderId);
+    if (!order) return;
+    const proc = (order.processes || []).find(p => p.processType === processType);
+    const batch = (proc?.batches || []).find(b => b.id === batchId);
+    if (!batch) return;
+    const bLabel = batch.batchLabel || `${batch.batchNumber || ''}차`;
+    if (!window.confirm(`${bLabel} 차수를 삭제하시겠어요?\n메모/일정 등 입력한 내용도 함께 사라집니다.`)) return;
+
+    const procLabel = PROCESS_TYPES.find(p => p.key === processType)?.label || processType;
+    let updatedOrder = {
+      ...order,
+      processes: (order.processes || []).map(p => {
+        if (p.processType !== processType) return p;
+        return { ...p, batches: (p.batches || []).filter(b => b.id !== batchId) };
+      }),
+      updatedAt: new Date().toISOString(),
+    };
+    updatedOrder = appendChangeLog(
+      updatedOrder,
+      makeChangeLogEntry(user?.email, 'batch_delete', `${procLabel} ${bLabel} 차수 삭제`)
+    );
+
+    await saveDocToCloud('orders', updatedOrder);
+    showToast(`${bLabel} 삭제됨`, 'success');
+  };
+
+  // 인라인 편집한 차수 1건만 patch (전체 order 저장)
+  const handleSaveBatch = async (orderId, processType, batchId, draftBatch) => {
+    const order = (orders || []).find(o => o.id === orderId);
+    if (!order) return;
+
+    // 변경 diff 추출 (감사 로그용)
+    const oldBatch = (order.processes || [])
+      .find(p => p.processType === processType)?.batches
+      ?.find(b => b.id === batchId);
+    const procLabel = PROCESS_TYPES.find(p => p.key === processType)?.label || processType;
+    const diffResult = summarizeBatchDiff(oldBatch, draftBatch, procLabel);
+
+    let updatedOrder = {
+      ...order,
+      processes: (order.processes || []).map(p => {
+        if (p.processType !== processType) return p;
+        return {
+          ...p,
+          batches: (p.batches || []).map(b =>
+            b.id === batchId ? { ...draftBatch } : b
+          ),
+        };
+      }),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // 변경이 있을 때만 changeLog 기록 (이전과 동일하면 스킵)
+    if (diffResult) {
+      updatedOrder = appendChangeLog(
+        updatedOrder,
+        makeChangeLogEntry(user?.email, 'batch_update', diffResult.summary, diffResult.diff)
+      );
+    }
+
+    await saveDocToCloud('orders', updatedOrder);
+    showToast(`${draftBatch.batchLabel || `${draftBatch.batchNumber || ''}차` || '차수'} 저장됨`, 'success');
+  };
+
+  // ============================================================
+  // 원사 공정 인라인 편집 핸들러
+  // (사종 자체 추가/삭제는 ART(원단) 선택 시에만 일어남 — 여기선 토글/필드/입고차수만)
+  // ============================================================
+
+  // yarnOrder 1건의 필드를 patch (총수량/공급처 등)
+  const handleSaveYarnOrder = async (orderId, yoId, draftYO) => {
+    const order = (orders || []).find(o => o.id === orderId);
+    if (!order) return;
+    let updatedOrder = {
+      ...order,
+      processes: (order.processes || []).map(p => {
+        if (p.processType !== 'yarn') return p;
+        return {
+          ...p,
+          yarnOrders: (p.yarnOrders || []).map(yo => yo.id === yoId ? { ...draftYO } : yo),
+        };
+      }),
+      updatedAt: new Date().toISOString(),
+    };
+    updatedOrder = appendChangeLog(
+      updatedOrder,
+      makeChangeLogEntry(user?.email, 'batch_update', `원사 발주 ${draftYO.yarnTypeName || ''} 수정`)
+    );
+    await saveDocToCloud('orders', updatedOrder);
+  };
+
+  // 편직처 보유 원사 토글 (체크 시 deliveries/supplier 무력화 — UI에서만 숨김, 데이터는 보존)
+  const handleToggleYarnKnitterStock = async (orderId, yoId, value) => {
+    const order = (orders || []).find(o => o.id === orderId);
+    if (!order) return;
+    let updatedOrder = {
+      ...order,
+      processes: (order.processes || []).map(p => {
+        if (p.processType !== 'yarn') return p;
+        return {
+          ...p,
+          yarnOrders: (p.yarnOrders || []).map(yo =>
+            yo.id === yoId ? { ...yo, useKnitterStock: !!value } : yo
+          ),
+        };
+      }),
+      updatedAt: new Date().toISOString(),
+    };
+    updatedOrder = appendChangeLog(
+      updatedOrder,
+      makeChangeLogEntry(user?.email, 'batch_update', `원사 ${value ? '편직처 보유 사용' : '발주 진행'} 전환`)
+    );
+    await saveDocToCloud('orders', updatedOrder);
+  };
+
+  // 입고 차수 추가
+  const handleAddYarnDelivery = async (orderId, yoId) => {
+    const order = (orders || []).find(o => o.id === orderId);
+    if (!order) return;
+    const yo = (order.processes || []).find(p => p.processType === 'yarn')
+      ?.yarnOrders?.find(y => y.id === yoId);
+    if (!yo) return;
+    const nextNum = (yo.deliveries || []).length + 1;
+    const newDelivery = {
+      id: `dv_${yoId}_${Date.now()}_${nextNum}`,
+      deliveryNumber: nextNum,
+      quantity: 0,
+      plannedArrivalDate: '',
+      expectedArrivalDate: '',
+      actualArrivalDate: '',
+      status: '발주대기',
+    };
+    let updatedOrder = {
+      ...order,
+      processes: (order.processes || []).map(p => {
+        if (p.processType !== 'yarn') return p;
+        return {
+          ...p,
+          yarnOrders: (p.yarnOrders || []).map(y =>
+            y.id === yoId ? { ...y, deliveries: [...(y.deliveries || []), newDelivery] } : y
+          ),
+        };
+      }),
+      updatedAt: new Date().toISOString(),
+    };
+    updatedOrder = appendChangeLog(
+      updatedOrder,
+      makeChangeLogEntry(user?.email, 'batch_create', `원사 ${yo.yarnTypeName || ''} ${nextNum}차 입고 추가`)
+    );
+    await saveDocToCloud('orders', updatedOrder);
+    showToast(`${nextNum}차 입고 추가됨`, 'success');
+  };
+
+  // 입고 차수 삭제
+  const handleDeleteYarnDelivery = async (orderId, yoId, dvId) => {
+    const order = (orders || []).find(o => o.id === orderId);
+    if (!order) return;
+    const yo = (order.processes || []).find(p => p.processType === 'yarn')
+      ?.yarnOrders?.find(y => y.id === yoId);
+    const dv = (yo?.deliveries || []).find(d => d.id === dvId);
+    if (!dv) return;
+    if (!window.confirm(`${dv.deliveryNumber}차 입고를 삭제하시겠어요?`)) return;
+    let updatedOrder = {
+      ...order,
+      processes: (order.processes || []).map(p => {
+        if (p.processType !== 'yarn') return p;
+        return {
+          ...p,
+          yarnOrders: (p.yarnOrders || []).map(y =>
+            y.id === yoId ? { ...y, deliveries: (y.deliveries || []).filter(d => d.id !== dvId) } : y
+          ),
+        };
+      }),
+      updatedAt: new Date().toISOString(),
+    };
+    updatedOrder = appendChangeLog(
+      updatedOrder,
+      makeChangeLogEntry(user?.email, 'batch_delete', `원사 ${yo?.yarnTypeName || ''} ${dv.deliveryNumber}차 입고 삭제`)
+    );
+    await saveDocToCloud('orders', updatedOrder);
+    showToast(`${dv.deliveryNumber}차 입고 삭제됨`, 'success');
+  };
+
+  // 입고 차수 1건 patch (수량/날짜/상태)
+  const handleSaveYarnDelivery = async (orderId, yoId, dvId, draftDv) => {
+    const order = (orders || []).find(o => o.id === orderId);
+    if (!order) return;
+    let updatedOrder = {
+      ...order,
+      processes: (order.processes || []).map(p => {
+        if (p.processType !== 'yarn') return p;
+        return {
+          ...p,
+          yarnOrders: (p.yarnOrders || []).map(y => {
+            if (y.id !== yoId) return y;
+            return {
+              ...y,
+              deliveries: (y.deliveries || []).map(d => d.id === dvId ? { ...draftDv } : d),
+            };
+          }),
+        };
+      }),
+      updatedAt: new Date().toISOString(),
+    };
+    updatedOrder = appendChangeLog(
+      updatedOrder,
+      makeChangeLogEntry(user?.email, 'batch_update', `원사 입고 ${draftDv.deliveryNumber || ''}차 수정`)
+    );
+    await saveDocToCloud('orders', updatedOrder);
+  };
 
   // 원단 선택 시 yarnLibrary도 같이 참조해서 사종명 매칭
   const handleApplyFabricToOrder = (fabricId) => {
@@ -341,7 +642,7 @@ const App = () => {
   const handleFileUpload = (e) => {
     if (!isXlsxReady || !e.target.files[0]) return;
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
         const ws = window.XLSX.read(evt.target.result, { type: 'binary' }).Sheets[window.XLSX.read(evt.target.result, { type: 'binary' }).SheetNames[0]];
         const data = window.XLSX.utils.sheet_to_json(ws, { header: 0 });
@@ -390,7 +691,14 @@ const App = () => {
           });
         });
 
-        setSavedFabrics([...newFabrics, ...savedFabrics]); saveBatchToCloud('fabrics', newFabrics); setIsBulkModalOpen(false);
+        // 저장 성공 여부 확인 후 UI 후처리 (await 누락으로 거짓 성공 방지)
+        const ok = await saveBatchToCloud('fabrics', newFabrics);
+        if (!ok) {
+          // 실패: 모달 유지 + 로컬 state 롤백 (낙관적 업데이트 방지)
+          return;
+        }
+        setSavedFabrics([...newFabrics, ...savedFabrics]);
+        setIsBulkModalOpen(false);
 
         if (missingYarnNames.size > 0) {
           alert(`✅ 총 ${newFabrics.length}건이 성공적으로 등록되었습니다.\n\n⚠️ 주의: 다음 원사 정보가 아직 라이브러리에 없어서 임시 텍스트로 등록되었습니다.\n해당 원단들의 수율 단가(Cost/gYD) 계산이 부정확할 수 있으니,\n이후 원사 라이브러리에 아래 원사들을 추가하시거나 원단을 수정해주세요.\n\n[미등록 원사 목록]\n${[...missingYarnNames].join(', ')}`);
@@ -415,7 +723,7 @@ const App = () => {
   const handleYarnFileUpload = (e) => {
     if (!isXlsxReady || !e.target.files[0]) return;
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
         const ws = window.XLSX.read(evt.target.result, { type: 'binary' }).Sheets[window.XLSX.read(evt.target.result, { type: 'binary' }).SheetNames[0]];
         const data = window.XLSX.utils.sheet_to_json(ws, { header: 0 });
@@ -437,7 +745,12 @@ const App = () => {
         });
 
         const newYarns = Object.values(groupedYarns);
-        setYarnLibrary([...newYarns, ...yarnLibrary]); saveBatchToCloud('yarns', newYarns); setIsYarnBulkModalOpen(false); showToast(`${newYarns.length}건의 원사가 등록되었습니다.`, 'success');
+        // 저장 성공 여부 확인 후 UI 후처리
+        const ok = await saveBatchToCloud('yarns', newYarns);
+        if (!ok) return;
+        setYarnLibrary([...newYarns, ...yarnLibrary]);
+        setIsYarnBulkModalOpen(false);
+        showToast(`${newYarns.length}건의 원사가 등록되었습니다.`, 'success');
         if (yarnFileInputRef.current) yarnFileInputRef.current.value = '';
       } catch (err) { alert(`엑셀 업로드 중 오류가 발생했습니다: ${err.message}`); }
     };
@@ -460,7 +773,16 @@ const App = () => {
         updatedCats = updatedCats.map(c => String(c).toUpperCase() === upperOld ? upperNew : c);
         const yarnsToUpdate = yarnLibrary.filter(y => String(y.category).toUpperCase() === upperOld);
 
-        await updateYarnCategoryBatch(yarnsToUpdate, upperNew);
+        // Y1: 부분 실패 처리 — 청크 단위 결과 수신 후 사용자에게 명확히 안내
+        const result = await updateYarnCategoryBatch(yarnsToUpdate, upperNew);
+        if (result.failed.length > 0) {
+          alert(
+            `⚠️ 카테고리 일괄 변경 중 ${result.failed.length}/${result.totalAttempted}건 실패\n\n` +
+            `성공: ${result.success}건\n실패: ${result.failed.length}건\n\n` +
+            `실패한 원사 ID 일부:\n${result.failed.slice(0, 5).join(', ')}${result.failed.length > 5 ? ` 외 ${result.failed.length - 5}건` : ''}\n\n` +
+            `네트워크 상태 확인 후 다시 시도해주세요. 카테고리 자체는 저장됩니다.`
+          );
+        }
       } else {
         if (!updatedCats.map(c => String(c).toUpperCase()).includes(upperNew)) updatedCats.push(upperNew);
       }
@@ -489,8 +811,8 @@ const App = () => {
     if (buyers.includes(safeNewName)) { alert("이미 등록된 바이어입니다."); return; }
     try {
       setSyncStatus('syncing');
-      const updatedBuyers = [...buyers, safeNewName].sort();
-      await setDoc(doc(db, 'settings', 'general'), { buyers: updatedBuyers }, { merge: true });
+      // arrayUnion: 서버에서 원자적으로 추가 — 로컬 state 무관, 다른 기기 동시 추가도 안전
+      await setDoc(doc(db, 'settings', 'general'), { buyers: arrayUnion(safeNewName) }, { merge: true });
       setEditingBuyerNew('');
       setSyncStatus('saved'); showToast('새로운 바이어가 추가되었습니다.', 'success');
     } catch (e) {
@@ -503,8 +825,8 @@ const App = () => {
     if (isUsed) { if (!window.confirm("이미 이 바이어로 작성된 견적 히스토리가 있습니다. 그래도 목록에서 삭제하시겠습니까? (기존 히스토리는 유지됩니다)")) return; }
     else if (!window.confirm(`'${buyerName}' 바이어를 목록에서 삭제하시겠습니까?`)) return;
 
-    const newBuyers = buyers.filter(b => b !== buyerName);
-    await setDoc(doc(db, 'settings', 'general'), { buyers: newBuyers }, { merge: true });
+    // arrayRemove: 서버에서 해당 항목만 원자적으로 제거 (다른 항목 보호)
+    await setDoc(doc(db, 'settings', 'general'), { buyers: arrayRemove(buyerName) }, { merge: true });
     showToast('바이어가 삭제되었습니다.', 'success');
   };
 
@@ -525,11 +847,12 @@ const App = () => {
     setTimeout(() => {
       if (printRef.current && window.html2pdf) {
         const opt = {
-          margin: 0,
+          margin: [12, 10, 12, 10],
           filename: `Quotation_${String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9\s-가-힣]/g, '')}_${targetQuote.date || ''}.pdf`,
           image: { type: 'jpeg', quality: 1 },
-          html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+          html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0, windowWidth: 900 },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.avoid-break'] }
         };
         window.html2pdf().set(opt).from(printRef.current).save().then(() => { setIsPdfGenerating(false); showToast("PDF 다운로드 완료.", 'success'); });
       } else { setIsPdfGenerating(false); }
@@ -580,10 +903,10 @@ const App = () => {
   if (!user) return <LoginScreen handleLogin={handleLogin} />;
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col md:flex-row print:bg-white relative">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col print:bg-white relative">
       <Toast notification={notification} setNotification={setNotification} />
 
-      {/* ✅ 좌측 글로벌 네비게이션 (Sidebar 컴포넌트로 분리) */}
+      {/* ✅ 상단 가로 네비게이션 (TopNav, Sidebar.jsx에 정의) */}
       <Sidebar
         isMobileMenuOpen={isMobileMenuOpen}
         setIsMobileMenuOpen={setIsMobileMenuOpen}
@@ -597,7 +920,7 @@ const App = () => {
         setGlobalExchangeRate={setGlobalExchangeRate}
       />
 
-      <div className="flex-1 p-4 md:p-8 overflow-y-auto max-h-[calc(100vh-60px)] md:max-h-screen print:p-0 print:overflow-visible relative w-full overflow-x-hidden">
+      <div className="flex-1 p-4 md:p-8 print:p-0 print:overflow-visible relative w-full overflow-x-hidden">
 
         {/* TAB 1: CALCULATOR */}
         {activeTab === 'calculator' && (
@@ -875,48 +1198,77 @@ const App = () => {
           />
         )}
 
-        {/* TAB: 오더 등록 (1페이지 구조) */}
+        {/* TAB: 오더 등록 (1페이지 구조 v3) */}
         {activeTab === 'orderWizard' && (
           <OrderWizardPage
             orderInput={orderInput}
             setOrderInput={setOrderInput}
+            editingOrderId={editingOrderId}
             handleOrderChange={handleOrderChange}
-            handleTypeOrMethodChange={handleTypeOrMethodChange}
-            handleUseKnitterStockYarn={handleUseKnitterStockYarn}
+            setOrderType={setOrderType}
             addColor={addColor} removeColor={removeColor} updateColor={updateColor}
-            toggleProcess={toggleProcess} updateProcessField={updateProcessField}
+            toggleProcess={toggleProcess} updateProcessField={updateProcessField} updateProcessSchedule={updateProcessSchedule}
             addBatch={addBatch} removeBatch={removeBatch} updateBatchField={updateBatchField} updateBatchColors={updateBatchColors}
             addYarnOrder={addYarnOrder} removeYarnOrder={removeYarnOrder} updateYarnOrder={updateYarnOrder}
+            toggleYarnOrderKnitterStock={toggleYarnOrderKnitterStock}
+            setAllYarnOrdersKnitterStock={setAllYarnOrdersKnitterStock}
             addDelivery={addDelivery} removeDelivery={removeDelivery} updateDelivery={updateDelivery}
             handleSaveOrder={handleSaveOrder}
             resetOrderForm={resetOrderForm}
             buyers={buyers}
             yarnLibrary={yarnLibrary}
             savedFabrics={savedFabrics}
-            productionAssignees={productionAssignees}
             setIsBuyerModalOpen={setIsBuyerModalOpen}
             user={user}
             setActiveTab={setActiveTab}
             onApplyFabric={handleApplyFabricToOrder}
+            onDetachFabric={detachFabric}
           />
         )}
 
-        {/* TAB: 오더 목록 */}
-        {activeTab === 'orderList' && (
+        {/* TAB: 오더 관리 (목록 + 칸반 + 간트 통합) */}
+        {(activeTab === 'orderList' || activeTab === 'orderGantt' || activeTab === 'orderKanban') && (
           <OrderListPage
             orders={orders}
-            onView={(order) => setSelectedOrderId(order.id)}
+            onView={(order) => openOrderDetail(order.id)}
             onDelete={handleDeleteOrder}
+            onOpenOrderDetail={openOrderDetail}
+            onSaveBatch={handleSaveBatch}
+            onSaveYarnDelivery={handleSaveYarnDelivery}
             setActiveTab={setActiveTab}
           />
         )}
 
-        {/* 오더 상세 모달 */}
+        {/* TAB: 대시보드 */}
+        {activeTab === 'dashboard' && (
+          <DashboardPage
+            orders={orders}
+            onOpenOrderDetail={openOrderDetail}
+            setActiveTab={setActiveTab}
+          />
+        )}
+
+        {/* TAB: 리포트 */}
+        {activeTab === 'orderReport' && (
+          <ReportPage orders={orders} />
+        )}
+
+        {/* 오더 상세 모달 (대시보드 + 인라인 차수 편집) */}
         {selectedOrderId && (
           <OrderDetailModal
             order={orders.find(o => o.id === selectedOrderId)}
-            onClose={() => setSelectedOrderId(null)}
+            onClose={closeOrderDetail}
             yarnLibrary={yarnLibrary}
+            onEditOrder={handleEditOrderToWizard}
+            onAddBatch={(processType) => handleAddBatchToOrder(selectedOrderId, processType)}
+            onDeleteBatch={(processType, batchId) => handleDeleteBatchFromOrder(selectedOrderId, processType, batchId)}
+            onSaveBatch={(processType, batchId, draftBatch) => handleSaveBatch(selectedOrderId, processType, batchId, draftBatch)}
+            onSaveYarnOrder={(yoId, draftYO) => handleSaveYarnOrder(selectedOrderId, yoId, draftYO)}
+            onToggleYarnKnitterStock={(yoId, value) => handleToggleYarnKnitterStock(selectedOrderId, yoId, value)}
+            onAddYarnDelivery={(yoId) => handleAddYarnDelivery(selectedOrderId, yoId)}
+            onDeleteYarnDelivery={(yoId, dvId) => handleDeleteYarnDelivery(selectedOrderId, yoId, dvId)}
+            onSaveYarnDelivery={(yoId, dvId, draftDv) => handleSaveYarnDelivery(selectedOrderId, yoId, dvId, draftDv)}
+            focusBatch={orderModalFocus}
           />
         )}
 
