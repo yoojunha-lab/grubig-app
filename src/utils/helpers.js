@@ -78,3 +78,43 @@ export const getLastDayOfQuoteMonth = (dateString) => {
     .toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
     .toUpperCase();
 };
+
+// ----------------------------------------------------------------------
+// 견적서 가격 표시 공통 헬퍼 (R1)
+// 견적 아이템의 신규/레거시 필드 호환 + extraMargin 가산 + 통화 포맷을
+// 단일 진실원에서 처리하여 Quotation/History/PDF 4곳에서 일관된 가격 표시.
+// ----------------------------------------------------------------------
+
+/**
+ * 견적 아이템에서 tier별 base price를 안전하게 추출.
+ * 신규 필드(basePrice1k/3k/5k) 우선, 레거시 필드(price1k/3k/5k) 폴백.
+ * @param {Object} item - 견적 아이템 객체
+ * @param {string} tier - '1k' | '3k' | '5k'
+ */
+export const getBasePrice = (item, tier) => {
+  const newKey = `basePrice${tier}`;
+  const oldKey = `price${tier}`;
+  return Number(item?.[newKey] ?? item?.[oldKey] ?? 0);
+};
+
+/**
+ * extraMargin(%) 가산 + 통화별 스마트 반올림된 견적 가격 계산.
+ * @param {Object} item - 견적 아이템
+ * @param {string} tier - '1k' | '3k' | '5k'
+ * @param {number} extraMarginPct - 추가 마진(%) (예: 5 = +5%)
+ * @param {string} currency - 'USD' | 'KRW'
+ */
+export const calcQuotePrice = (item, tier, extraMarginPct, currency) => {
+  const base = getBasePrice(item, tier);
+  const extraMarkup = 1 + (Number(extraMarginPct) || 0) / 100;
+  return smartRound(base * extraMarkup, currency);
+};
+
+/**
+ * 견적 가격을 통화별 표기(￦/$)로 포맷팅.
+ * @param {number} price
+ * @param {string} currency - 'USD' | 'KRW'
+ */
+export const formatQuotePrice = (price, currency) => {
+  return currency === 'USD' ? `$${usd(price)}` : `￦${num(price)}`;
+};

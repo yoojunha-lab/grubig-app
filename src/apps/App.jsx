@@ -15,7 +15,6 @@ import { saveDocument, deleteDocument, saveBatchDocuments, updateYarnCategoryBat
 
 // ⚙️ 공통 상수 & 유틸리티 연동
 import { ALLOWED_DOMAIN, DEFAULT_YARN_CATEGORIES, MARGIN_TIERS } from '../constants/common';
-import { num, usd, smartRound, applyGrossMargin, getLastDayOfQuoteMonth } from '../utils/helpers';
 import { useXLSX, useHTML2PDF } from '../hooks/useExternalScripts';
 
 // ⚓️ 도메인 로직 훅 연동
@@ -226,7 +225,7 @@ const App = () => {
     quoteInput, setQuoteInput, handleQuoteSettingChange, createQuoteItem,
     handleAddFabricToQuote, handleGridPaste, handleQuoteBasePriceChange,
     handleRemoveItemFromQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
-  } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate);
+  } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, setGlobalExchangeRate);
 
   // ⚓️ 설계서 시스템 훅
   const {
@@ -849,7 +848,9 @@ const App = () => {
           margin: [12, 10, 12, 10],
           filename: `Quotation_${String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9\s-가-힣]/g, '')}_${targetQuote.date || ''}.pdf`,
           image: { type: 'jpeg', quality: 1 },
-          html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0, windowWidth: 900 },
+          // [PDF 좌측 잘림 수정] width(캡처 결과 폭) + windowWidth(viewport 시뮬레이션)
+          // 둘 다 A4 폭(210mm ≈ 794px)에 명시 → element fixed 위치와 무관하게 정확한 영역 캡처
+          html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0, width: 794, windowWidth: 794 },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
           pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.avoid-break'] }
         };
@@ -858,12 +859,8 @@ const App = () => {
     }, 800);
   };
 
-  // currency 인자를 받아 History Quick View에서도 올바른 통화 표시 (기본: quoteInput.currency)
-  const formatQuotePrice = (price, currency) => {
-    const cur = currency || quoteInput.currency;
-    return cur === 'USD' ? `$${usd(price)}` : `￦${num(price)}`;
-  };
-  const getBasePrice = (item, key) => (item[`basePrice${key}`] ?? item[`price${key}`]) ?? 0;
+  // [R1] formatQuotePrice / getBasePrice 정의는 helpers.js로 이전됨.
+  //   각 자식 컴포넌트(PDFRenderer/QuotationPage/QuoteHistoryPage)가 직접 import해서 사용
 
   const currentCalcFull = calculateCost(fabricInput);
   const uniqueSuppliers = ['All', ...new Set(yarnLibrary.flatMap(y => (y.suppliers || []).map(s => String(s.name).toUpperCase())).filter(Boolean))];
@@ -896,7 +893,7 @@ const App = () => {
     return { id: y.id, name: `${y.name} [${defSup.name || '기본'}]`, price: defSup.price, currency: defSup.currency };
   });
 
-  const extraMarkup = 1 + (Number(quoteInput.extraMargin) || 0) / 100;
+  // [R1] extraMarkup 계산은 helpers의 calcQuotePrice 안으로 이전됨 (각 자식 컴포넌트가 quoteInput.extraMargin을 직접 참조)
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white font-bold animate-pulse">GRUBIG 시스템 접속 중...</div>;
   if (!user) return <LoginScreen handleLogin={handleLogin} />;
@@ -1008,10 +1005,7 @@ const App = () => {
             setSelectedFabricIdForQuote={setSelectedFabricIdForQuote}
             savedFabrics={savedFabrics}
             handleAddFabricToQuote={handleAddFabricToQuote}
-            getBasePrice={getBasePrice}
-            extraMarkup={extraMarkup}
             handleQuoteBasePriceChange={handleQuoteBasePriceChange}
-            formatQuotePrice={formatQuotePrice}
             handleRemoveItemFromQuote={handleRemoveItemFromQuote}
             createQuoteItem={createQuoteItem}
             showToast={showToast}
@@ -1332,9 +1326,6 @@ const App = () => {
           isPdfGenerating={isPdfGenerating}
           printRef={printRef}
           quoteInput={quoteInput}
-          formatQuotePrice={formatQuotePrice}
-          getBasePrice={getBasePrice}
-          extraMarkup={extraMarkup}
         />
       </div>
     </div>

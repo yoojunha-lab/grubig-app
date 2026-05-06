@@ -3,24 +3,36 @@ import { calculateMcqYd } from '../../utils/helpers';
 
 // GRUBIG ERP - 견적서(Quotation) 도메인 로직 및 훅
 
-export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate) => {
+export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, setGlobalExchangeRate) => {
   const [quoteInput, setQuoteInput] = useState({
     buyerName: '', attention: '', buyerType: 'converter', marketType: 'domestic', currency: 'KRW', date: new Date().toISOString().split('T')[0], extraMargin: 0, remarks: '', items: []
   });
 
-  // 글로벌 환율 변동 감지 및 재계산 
+  // 글로벌 환율 변동 감지 및 재계산
+  // [D2] 환율 변경 시 confirm "취소" → 환율값 자체를 이전 값으로 롤백 (UI/상태 일치)
   const isMountedRef = useRef(false);
+  const prevExchangeRateRef = useRef(globalExchangeRate);
   useEffect(() => {
     if (!isMountedRef.current) {
       isMountedRef.current = true;
+      prevExchangeRateRef.current = globalExchangeRate;
       return;
     }
-    
+
+    // 롤백으로 인한 재트리거 차단 (이미 같은 값이면 skip)
+    if (prevExchangeRateRef.current === globalExchangeRate) return;
+
     if (quoteInput.items && quoteInput.items.length > 0 && quoteInput.marketType) {
       const hasManualOverride = quoteInput.items.some(item => item.isManualOverride);
       if (hasManualOverride) {
         const confirmReset = window.confirm("수동으로 변경된 단가가 있습니다. 환율을 변동하면 수정한 단가가 원본으로 초기화됩니다. 계속하시겠습니까?");
-        if (!confirmReset) return;
+        if (!confirmReset) {
+          // [D2] 사용자 취소 시 환율을 이전 값으로 롤백 → UI/계산 일관성 유지
+          if (typeof setGlobalExchangeRate === 'function') {
+            setGlobalExchangeRate(prevExchangeRateRef.current);
+          }
+          return;
+        }
       }
 
       setQuoteInput(prev => ({
@@ -33,6 +45,9 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
         })
       }));
     }
+
+    // 정상 적용 시 새 환율을 prev 로 기록
+    prevExchangeRateRef.current = globalExchangeRate;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalExchangeRate]);
   const handleQuoteSettingChange = (field, value) => {
@@ -198,12 +213,14 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   };
 
   const handleDuplicateQuote = (quoteToCopy, navigateCallback) => {
-    // ID와 Date를 갱신하여 복제본 생성
+    // [U2] ID와 Date를 갱신하여 복제본 생성. 이미 "(Copy)"로 끝나면 추가하지 않아 누적 방지
+    const rawName = String(quoteToCopy.buyerName || '');
+    const buyerName = / \(Copy\)$/.test(rawName) ? rawName : `${rawName} (Copy)`;
     const duplicatedQuote = {
       ...quoteToCopy,
       id: Date.now(),
       date: new Date().toISOString().split('T')[0],
-      buyerName: quoteToCopy.buyerName + ' (Copy)'
+      buyerName
     };
     setQuoteInput(duplicatedQuote);
     if(navigateCallback) navigateCallback();

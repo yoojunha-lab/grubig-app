@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Calendar, Search, X, Eye, Trash2, AlertCircle, Copy, ChevronDown, ChevronRight, CheckCircle2, FileText } from 'lucide-react';
-import { num, usd, smartRound, getLastDayOfQuoteMonth } from '../utils/helpers';
+import { num, getLastDayOfQuoteMonth, calcQuotePrice, formatQuotePrice, getBasePrice } from '../utils/helpers';
 
 export const QuoteHistoryPage = ({
   quoteBuyerFilter,
@@ -126,19 +126,17 @@ export const QuoteHistoryPage = ({
                               </thead>
                               <tbody className="divide-y divide-slate-100">
                                 {(quote.items || []).map((item, idx) => {
-                                  // 방어 코드: 과거 저장된 모델 지원 (price1k vs basePrice1k)
-                                  const sym = quote.currency === 'USD' ? '$' : '￦';
-                                  const p1k = item.basePrice1k ?? item.price1k ?? 0;
-                                  const p3k = item.basePrice3k ?? item.price3k ?? 0;
-                                  const p5k = item.basePrice5k ?? item.price5k ?? 0;
+                                  // [R1] base price 조회는 헬퍼로 일원화 (legacy/신규 필드 양쪽 호환)
+                                  // 아코디언 미리보기는 base price만 노출 (extraMargin 미적용 의도 유지)
+                                  const cur = quote.currency;
                                   return (
                                     <tr key={idx} className="hover:bg-slate-50">
                                       <td className="py-2 px-3 font-bold text-slate-800 uppercase">{item.article}</td>
                                       <td className="py-2 px-3 text-slate-600 truncate max-w-[150px]" title={item.itemName}>{item.itemName}</td>
                                       <td className="py-2 px-3 text-right text-orange-600 font-bold">{num(item.mcqYd || 300)} YD</td>
-                                      <td className="py-2 px-3 text-right text-slate-500 font-mono">{sym}{num(p1k)}</td>
-                                      <td className="py-2 px-3 text-right text-blue-700 font-bold font-mono">{sym}{num(p3k)}</td>
-                                      <td className="py-2 px-3 text-right text-slate-500 font-mono">{sym}{num(p5k)}</td>
+                                      <td className="py-2 px-3 text-right text-slate-500 font-mono">{formatQuotePrice(getBasePrice(item, '1k'), cur)}</td>
+                                      <td className="py-2 px-3 text-right text-blue-700 font-bold font-mono">{formatQuotePrice(getBasePrice(item, '3k'), cur)}</td>
+                                      <td className="py-2 px-3 text-right text-slate-500 font-mono">{formatQuotePrice(getBasePrice(item, '5k'), cur)}</td>
                                     </tr>
                                   );
                                 })}
@@ -202,17 +200,12 @@ export const QuoteHistoryPage = ({
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {(quickViewQuote.items || []).map((item, idx) => {
-                    const exMarkup = 1 + (Number(quickViewQuote.extraMargin) || 0) / 100;
-                    const fmtPrice = (val) => {
-                      const safeVal = Number(val) || 0;
-                      return quickViewQuote.currency === 'USD' ? `$${usd(safeVal)}` : `￦${num(safeVal)}`;
-                    };
-                    const p1k = smartRound((item.basePrice1k ?? item.price1k ?? 0) * exMarkup, quickViewQuote.currency);
-                    const p3k = smartRound((item.basePrice3k ?? item.price3k ?? 0) * exMarkup, quickViewQuote.currency);
-                    const p5k = smartRound((item.basePrice5k ?? item.price5k ?? 0) * exMarkup, quickViewQuote.currency);
+                    // [R1] 헬퍼로 일원화 — extraMargin 가산 + 통화별 반올림/포맷 모두 처리
+                    const extra = Number(quickViewQuote.extraMargin) || 0;
+                    const cur = quickViewQuote.currency;
                     return (
                       <tr key={idx}>
-                        <td className="py-3 font-bold text-slate-800 uppercase">{item.article}</td><td className="py-3 text-slate-600 truncate max-w-[120px]">{item.itemName}</td><td className="py-3 text-center text-slate-500">{item.widthCut}"</td><td className="py-3 text-center text-slate-500">{item.widthFull}"</td><td className="py-3 text-right text-slate-500">{item.gsm}</td><td className="py-3 text-right text-slate-500 font-mono">{num(item.gYd)}</td><td className="py-3 text-right text-slate-900 font-mono font-bold">{num(item.mcqYd || 300)} YD</td><td className="py-3 text-right font-mono">{fmtPrice(p1k)}</td><td className="py-3 text-right font-mono font-bold">{fmtPrice(p3k)}</td><td className="py-3 text-right font-mono">{fmtPrice(p5k)}</td>
+                        <td className="py-3 font-bold text-slate-800 uppercase">{item.article}</td><td className="py-3 text-slate-600 truncate max-w-[120px]">{item.itemName}</td><td className="py-3 text-center text-slate-500">{item.widthCut}"</td><td className="py-3 text-center text-slate-500">{item.widthFull}"</td><td className="py-3 text-right text-slate-500">{item.gsm}</td><td className="py-3 text-right text-slate-500 font-mono">{num(item.gYd)}</td><td className="py-3 text-right text-slate-900 font-mono font-bold">{num(item.mcqYd || 300)} YD</td><td className="py-3 text-right font-mono">{formatQuotePrice(calcQuotePrice(item, '1k', extra, cur), cur)}</td><td className="py-3 text-right font-mono font-bold">{formatQuotePrice(calcQuotePrice(item, '3k', extra, cur), cur)}</td><td className="py-3 text-right font-mono">{formatQuotePrice(calcQuotePrice(item, '5k', extra, cur), cur)}</td>
                       </tr>
                     )
                   })}

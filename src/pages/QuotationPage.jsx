@@ -1,20 +1,24 @@
 import React, { useState } from 'react';
 import { FileText, Save, Download, DollarSign, X, Plus, ClipboardPaste } from 'lucide-react';
 import { SearchableSelect } from '../components/common/SearchableSelect';
-import { num } from '../utils/helpers';
+import { num, getBasePrice, formatQuotePrice } from '../utils/helpers';
+
 // [Refactoring] 개별 단가 입력 셀 (입력 튕김 방지 및 로컬 상태 관리)
-const PriceInputCell = ({ item, tierKey, idx, quoteInput, extraMarkup, getBasePrice, handleQuoteBasePriceChange, formatQuotePrice, bgClass, textColorClass, borderClass }) => {
+// [R1] 가격 헬퍼는 helpers.js에서 직접 import — props chain 제거
+const PriceInputCell = ({ item, tierKey, idx, quoteInput, handleQuoteBasePriceChange, bgClass, textColorClass, borderClass }) => {
   const [localVal, setLocalVal] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const baseVal = getBasePrice(item, tierKey) || 0;
+  const extraMarkup = 1 + (Number(quoteInput.extraMargin) || 0) / 100;
+  const currency = quoteInput.currency;
 
   React.useEffect(() => {
     if (!isFocused) {
       const raw = baseVal * extraMarkup;
-      const display = quoteInput.currency === 'USD' ? Number(raw.toFixed(2)) : Math.round(raw);
+      const display = currency === 'USD' ? Number(raw.toFixed(2)) : Math.round(raw);
       setLocalVal(display === 0 && !item.isManualOverride ? '' : display.toString());
     }
-  }, [baseVal, extraMarkup, quoteInput.currency, isFocused, item.isManualOverride]);
+  }, [baseVal, extraMarkup, currency, isFocused, item.isManualOverride]);
 
   const handleBlur = () => {
     setIsFocused(false);
@@ -24,16 +28,16 @@ const PriceInputCell = ({ item, tierKey, idx, quoteInput, extraMarkup, getBasePr
 
   return (
     <td className={`p-2 relative ${bgClass}`}>
-      <input 
+      <input
         type="number" step="any"
         value={localVal}
         onFocus={() => setIsFocused(true)}
         onBlur={handleBlur}
         onChange={(e) => setLocalVal(e.target.value)}
-        className={`w-full bg-white border px-2 py-1 rounded text-right focus:border-indigo-500 outline-none text-xs transition-colors ${item.isManualOverride ? `bg-rose-50/10 text-rose-600 font-bold ${borderClass}` : `border-slate-200 ${textColorClass}`}`} 
+        className={`w-full bg-white border px-2 py-1 rounded text-right focus:border-indigo-500 outline-none text-xs transition-colors ${item.isManualOverride ? `bg-rose-50/10 text-rose-600 font-bold ${borderClass}` : `border-slate-200 ${textColorClass}`}`}
       />
       {item.isManualOverride && <div className="text-[9px] text-rose-500 text-right mt-0.5 font-bold tracking-tighter">수동 변경됨</div>}
-      {!item.isManualOverride && quoteInput.extraMargin > 0 && <div className="text-[9px] text-slate-400 text-right mt-0.5">Base: {formatQuotePrice(baseVal)}</div>}
+      {!item.isManualOverride && quoteInput.extraMargin > 0 && <div className="text-[9px] text-slate-400 text-right mt-0.5">Base: {formatQuotePrice(baseVal, currency)}</div>}
     </td>
   );
 };
@@ -50,10 +54,7 @@ export const QuotationPage = ({
   setSelectedFabricIdForQuote,
   savedFabrics,
   handleAddFabricToQuote,
-  getBasePrice,
-  extraMarkup,
   handleQuoteBasePriceChange,
-  formatQuotePrice,
   handleRemoveItemFromQuote,
   createQuoteItem,
   showToast,
@@ -160,9 +161,9 @@ export const QuotationPage = ({
                   <td className="p-3 text-right text-slate-500 font-mono text-xs">{num(item.gYd)}</td>
                   <td className="p-3 text-right text-orange-600 font-bold font-mono bg-orange-50/30 text-xs">{num(item.mcqYd || 300)}</td>
 
-                  <PriceInputCell item={item} tierKey="1k" idx={idx} quoteInput={quoteInput} extraMarkup={extraMarkup} getBasePrice={getBasePrice} handleQuoteBasePriceChange={handleQuoteBasePriceChange} formatQuotePrice={formatQuotePrice} bgClass="bg-slate-50" textColorClass="text-slate-600" borderClass="border-rose-200" />
-                  <PriceInputCell item={item} tierKey="3k" idx={idx} quoteInput={quoteInput} extraMarkup={extraMarkup} getBasePrice={getBasePrice} handleQuoteBasePriceChange={handleQuoteBasePriceChange} formatQuotePrice={formatQuotePrice} bgClass="bg-indigo-50/30" textColorClass="font-bold text-indigo-700" borderClass="border-rose-300" />
-                  <PriceInputCell item={item} tierKey="5k" idx={idx} quoteInput={quoteInput} extraMarkup={extraMarkup} getBasePrice={getBasePrice} handleQuoteBasePriceChange={handleQuoteBasePriceChange} formatQuotePrice={formatQuotePrice} bgClass="bg-slate-50" textColorClass="text-slate-600" borderClass="border-rose-200" />
+                  <PriceInputCell item={item} tierKey="1k" idx={idx} quoteInput={quoteInput} handleQuoteBasePriceChange={handleQuoteBasePriceChange} bgClass="bg-slate-50" textColorClass="text-slate-600" borderClass="border-rose-200" />
+                  <PriceInputCell item={item} tierKey="3k" idx={idx} quoteInput={quoteInput} handleQuoteBasePriceChange={handleQuoteBasePriceChange} bgClass="bg-indigo-50/30" textColorClass="font-bold text-indigo-700" borderClass="border-rose-300" />
+                  <PriceInputCell item={item} tierKey="5k" idx={idx} quoteInput={quoteInput} handleQuoteBasePriceChange={handleQuoteBasePriceChange} bgClass="bg-slate-50" textColorClass="text-slate-600" borderClass="border-rose-200" />
                   <td className="p-2 text-center"><button onClick={() => handleRemoveItemFromQuote(idx)} className="text-slate-300 hover:text-red-500 p-1 transition-colors"><X className="w-4 h-4" /></button></td>
                 </tr>
               ))}

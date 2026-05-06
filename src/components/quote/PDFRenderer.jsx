@@ -1,5 +1,6 @@
 import React from 'react';
-import { num, smartRound, getLastDayOfQuoteMonth } from '../../utils/helpers';
+import { createPortal } from 'react-dom';
+import { num, getLastDayOfQuoteMonth, calcQuotePrice, formatQuotePrice } from '../../utils/helpers';
 
 // A4 한 장 기준 담을 수 있는 행 수 (패딩/마진 감안 경험치)
 const SINGLE_PAGE_MAX = 13;     // 로고+인사+품목+하단약관을 한 장에 다 담는 최대 품목수
@@ -67,17 +68,21 @@ const TableHeader = () => (
 export const PDFRenderer = ({
   isPdfGenerating,
   printRef,
-  quoteInput,
-  formatQuotePrice,
-  getBasePrice,
-  extraMarkup
+  quoteInput
 }) => {
+  // [R1] 분산 가격 로직을 helpers의 calcQuotePrice/formatQuotePrice로 일원화
+  // extraMarkup·basePrice·반올림·통화포맷이 모두 헬퍼 안에서 처리됨
   const pages = splitPages(quoteInput.items || []);
   const totalPages = pages.length;
+  const extraMarginPct = Number(quoteInput.extraMargin || 0);
+  const currency = quoteInput.currency;
 
-  return (
-    <div className={`fixed top-0 left-0 z-[9998] w-[210mm] bg-white ${isPdfGenerating ? 'block' : 'hidden'}`}>
-      <div ref={printRef} className="w-[210mm] bg-white">
+  // [PDF 좌측 잘림 수정] #root 에 max-width:1280px + padding:2rem + text-align:center 가 있어
+  // 자손인 PDFRenderer가 fixed 여도 box/inline-content 영향을 받아 캡처 좌측이 어긋났음.
+  // React Portal 로 document.body 직속에 마운트하여 #root 영향을 완전히 차단한다.
+  return createPortal(
+    <div className={`fixed top-0 left-0 z-[9998] w-[210mm] bg-white ${isPdfGenerating ? 'block' : 'hidden'}`} style={{ textAlign: 'left' }}>
+      <div ref={printRef} className="w-[210mm] bg-white" style={{ textAlign: 'left' }}>
         {pages.map((page, pageIdx) => (
           <div
             key={pageIdx}
@@ -121,7 +126,20 @@ export const PDFRenderer = ({
               </div>
             )}
 
-            <table className="w-full text-[11px] text-left border-collapse">
+            <table className="w-full text-[11px] text-left border-collapse" style={{ tableLayout: 'fixed' }}>
+              {/* [D1] colgroup 명시 - Article·Spec 잘림 방지 + 가격 컬럼 일관 폭 */}
+              <colgroup>
+                <col style={{ width: '13%' }} />{/* Article */}
+                <col style={{ width: '17%' }} />{/* Spec (item name) */}
+                <col style={{ width: '6%' }} /> {/* Cut */}
+                <col style={{ width: '6%' }} /> {/* Full */}
+                <col style={{ width: '7%' }} /> {/* GSM */}
+                <col style={{ width: '8%' }} /> {/* g/YD */}
+                <col style={{ width: '11%' }} />{/* MCQ */}
+                <col style={{ width: '10%' }} />{/* 1,000 YD */}
+                <col style={{ width: '11%' }} />{/* 3,000 YD */}
+                <col style={{ width: '11%' }} />{/* 5,000 YD */}
+              </colgroup>
               <TableHeader />
               <tbody className="divide-y divide-slate-200">
                 {page.items.map((item, idx) => (
@@ -133,9 +151,9 @@ export const PDFRenderer = ({
                     <td className="py-3 text-right text-slate-500">{item.gsm}</td>
                     <td className="py-3 text-right text-slate-500 font-mono">{num(item.gYd)}</td>
                     <td className="py-3 text-right text-slate-900 font-mono font-bold">{num(item.mcqYd || 300)} YD</td>
-                    <td className="py-3 text-right font-mono">{formatQuotePrice(smartRound((getBasePrice(item, '1k') || 0) * extraMarkup, quoteInput.currency))}</td>
-                    <td className="py-3 text-right font-mono font-bold">{formatQuotePrice(smartRound((getBasePrice(item, '3k') || 0) * extraMarkup, quoteInput.currency))}</td>
-                    <td className="py-3 text-right font-mono">{formatQuotePrice(smartRound((getBasePrice(item, '5k') || 0) * extraMarkup, quoteInput.currency))}</td>
+                    <td className="py-3 text-right font-mono">{formatQuotePrice(calcQuotePrice(item, '1k', extraMarginPct, currency), currency)}</td>
+                    <td className="py-3 text-right font-mono font-bold">{formatQuotePrice(calcQuotePrice(item, '3k', extraMarginPct, currency), currency)}</td>
+                    <td className="py-3 text-right font-mono">{formatQuotePrice(calcQuotePrice(item, '5k', extraMarginPct, currency), currency)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -155,6 +173,7 @@ export const PDFRenderer = ({
           </div>
         ))}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
