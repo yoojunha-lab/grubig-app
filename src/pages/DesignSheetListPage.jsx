@@ -1,8 +1,9 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Search, Plus, Archive, ChevronDown, FileText, Check } from 'lucide-react';
+import React, { useState, useMemo, useRef } from 'react';
+import { Search, Plus, Archive, FileText, Check, Clock, Edit2, ArrowRight, XCircle } from 'lucide-react';
 import { MobileSheetCard } from '../components/design-sheet/MobileSheetCard';
 import { DesktopSheetRow } from '../components/design-sheet/DesktopSheetRow';
 import { DropSheetModal } from '../components/design-sheet/DropSheetModal';
+import { PendingProgressBar } from '../components/design-sheet/PendingProgressBar';
 import { STAGE_COLORS } from '../constants/common';
 
 export const DesignSheetListPage = ({
@@ -11,7 +12,9 @@ export const DesignSheetListPage = ({
   handleEditSheet,
   handleDeleteSheet,
   initFromDevRequest,
+  createDesignSheetFromDev,
   advanceStage,
+  autoAdvanceEztex,
   getDesignCost,
   setActiveTab,
   user,
@@ -22,31 +25,31 @@ export const DesignSheetListPage = ({
   dropDesignSheet,
   resetSheetForm,
   setIsDesignSheetModalOpen,
-  setSheetInput
+  setSheetInput,
+  updateDevStatus
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [showRegisterMenu, setShowRegisterMenu] = useState(false);
-  
+
   // 필터
   const [knitFactoryFilter, setKnitFactoryFilter] = useState('All');
   const [machineTypeFilter, setMachineTypeFilter] = useState('All');
   const [gaugeFilter, setGaugeFilter] = useState('All');
-  
+
   const [expandedId, setExpandedId] = useState(null);
   const [isDropModalOpen, setIsDropModalOpen] = useState(false);
-  const registerMenuRef = useRef(null);
 
-  // 외부 클릭 시 드롭다운 닫기
-  useEffect(() => {
-    if (!showRegisterMenu) return;
-    const handleClick = (e) => {
-      if (registerMenuRef.current && !registerMenuRef.current.contains(e.target)) {
-        setShowRegisterMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [showRegisterMenu]);
+  // 대기중 목록의 eztex 단계 행에서 사용할 EZ-TEX O/D NO. 인라인 입력 ref
+  const eztexInputRefs = useRef({});
+
+  const handleEztexSubmit = (sheetId) => {
+    if (!autoAdvanceEztex) return;
+    const val = eztexInputRefs.current[sheetId]?.value?.trim();
+    if (!val) {
+      alert('EZ-TEX O/D NO.를 입력해주세요.');
+      return;
+    }
+    autoAdvanceEztex(sheetId, val);
+  };
 
   // 필터 로직
   const filterSheet = (s) => {
@@ -68,12 +71,8 @@ export const DesignSheetListPage = ({
   const gauges = ['All', ...new Set((designSheets||[]).map(s=>s.knitting?.gauge).filter(Boolean))];
   
   // 데이터 분류
-  // [기획 #3 수정] dropped 설계서는 제외 → 의뢰를 DROP 후 재확정할 때 "확정 오더 연동"에 다시 표시되도록
+  // [기획 #3 수정] dropped 설계서는 제외 → 의뢰를 DROP 후 재확정할 때 "대기중 목록"에 다시 표시되도록
   const getLinkedSheet = (devReqId) => designSheets?.find(s => s.devRequestId === devReqId && s.status !== 'dropped');
-  const waitingDevReqs = useMemo(() => 
-    (devRequests || []).filter(d => d.status === 'confirmed' && !getLinkedSheet(d.id))
-      .sort((a,b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')),
-  [devRequests, designSheets]);
 
   const itemizedSheets = useMemo(() =>
     (designSheets || []).filter(s => s.stage === 'articled' && s.status !== 'dropped' && !s.isArchived && filterSheet(s))
@@ -85,10 +84,79 @@ export const DesignSheetListPage = ({
       .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')),
   [designSheets]); // DROP 창에는 필터 미적용, 자체 검색 이용
 
-  const inProgressSheets = useMemo(() =>
-    (designSheets || []).filter(s => s.stage !== 'articled' && s.status !== 'dropped' && !s.isArchived && filterSheet(s))
-      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')),
-  [designSheets, searchTerm, knitFactoryFilter, machineTypeFilter, gaugeFilter]);
+  // ▼ 통합 "대기중 목록" - 아이템화 직전까지의 모든 건 (의뢰 + 진행중 설계서)
+  // - 의뢰: hold 상태 또는 confirmed && 설계서 미연결(안전망)
+  // - 설계서: stage !== 'articled' && status !== 'dropped'
+  const pendingItems = useMemo(() => {
+    const fromDevReqs = (devRequests || [])
+      .filter(d => {
+        const noSheet = !getLinkedSheet(d.id);
+        if (!noSheet) return false;
+        return d.status === 'hold' || d.status === 'confirmed';
+      })
+      .filter(d => {
+        if (!searchTerm.trim()) return true;
+        const q = searchTerm.toLowerCase();
+        return String(d.devOrderNo || '').toLowerCase().includes(q)
+          || String(d.buyerName || '').toLowerCase().includes(q)
+          || String(d.devItem || '').toLowerCase().includes(q);
+      })
+      .map(d => ({
+        kind: 'devRequest',
+        id: d.id,
+        // hold/confirmed 둘 다 통합바에서는 단계 3 "대기중" 위치
+        stageKey: 'hold',
+        devOrderNo: d.devOrderNo || '-',
+        buyerName: d.buyerName || '-',
+        fabricName: d.devItem || d.targetSpec?.composition || '품목명 미입력',
+        updatedAt: d.updatedAt || d.createdAt,
+        raw: d
+      }));
+
+    const fromSheets = (designSheets || [])
+      .filter(s => s.stage !== 'articled' && s.status !== 'dropped' && !s.isArchived && filterSheet(s))
+      .map(s => {
+        const dev = (devRequests || []).find(d => d.id === s.devRequestId);
+        const isSelfDev = !s.devRequestId || !dev;
+        return {
+          kind: 'designSheet',
+          id: s.id,
+          stageKey: s.stage,
+          devOrderNo: s.devOrderNo || '-',
+          buyerName: isSelfDev ? '자체개발' : (dev?.buyerName || '-'),
+          isSelfDev,
+          fabricName: s.fabricName || '원단명 미입력',
+          eztexOrderNo: s.eztexOrderNo || '',
+          updatedAt: s.updatedAt || s.createdAt,
+          raw: s
+        };
+      });
+
+    return [...fromDevReqs, ...fromSheets]
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  }, [devRequests, designSheets, searchTerm, knitFactoryFilter, machineTypeFilter, gaugeFilter]);
+
+  // 행 단위 액션 핸들러
+  // [R2] useDevRequest의 createDesignSheetFromDev 헬퍼를 단일 진실원으로 사용
+  const handleStartDesignFromDev = (devReq) => {
+    if (!createDesignSheetFromDev || !initFromDevRequest) return;
+    initFromDevRequest(createDesignSheetFromDev(devReq));
+    setIsDesignSheetModalOpen(true);
+  };
+
+  const handleDropDevRequest = (devReq) => {
+    if (!updateDevStatus) return;
+    if (window.confirm(`개발 의뢰 ${devReq.devOrderNo}를 Drop(미진행) 처리할까요?\n나중에 상태를 다시 변경할 수 있습니다.`)) {
+      updateDevStatus(devReq.id, 'rejected');
+    }
+  };
+
+  // 경과일 계산 (updatedAt 기준)
+  const daysSince = (iso) => {
+    if (!iso) return null;
+    const t = new Date(iso); const n = new Date();
+    return Math.floor((n - t) / 86400000);
+  };
 
   // 유틸 함수
   const getYarnName = (yarnId) => {
@@ -141,87 +209,222 @@ export const DesignSheetListPage = ({
             <span className="bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-[10px] ml-1">{droppedSheets.length}</span>
           </button>
           
-          {/* 신규 등록 드롭다운 */}
-          <div className="relative" ref={registerMenuRef}>
-            <button onClick={() => setShowRegisterMenu(!showRegisterMenu)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg shadow-md hover:bg-blue-700 transition-colors">
-              <Plus className="w-3.5 h-3.5" /> 새 설계서 등록
-              <ChevronDown className="w-3 h-3" />
-            </button>
-            {showRegisterMenu && (
-              <div className="absolute right-0 top-full mt-1 w-64 bg-white rounded-xl border border-slate-200 shadow-xl z-30">
-                {(devRequests||[]).filter(d => d.status === 'confirmed' && !getLinkedSheet(d.id)).length > 0 && (
-                  <div className="border-b border-slate-100">
-                    <p className="text-[10px] font-bold text-slate-400 px-3 pt-2 pb-1">확정 오더 연동 (설계 대기)</p>
-                    {(devRequests||[]).filter(d => d.status === 'confirmed' && !getLinkedSheet(d.id)).map(req => (
-                      <button key={req.id} onClick={() => {
-                        if(initFromDevRequest) initFromDevRequest({ devOrderNo: req.devOrderNo, devRequestId: req.id, sampleDeadline: req.targetSpec?.sampleDeadline || '' });
-                        setIsDesignSheetModalOpen(true);
-                        setShowRegisterMenu(false);
-                      }} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 flex items-center gap-2 transition-colors">
-                        <span className="font-mono font-bold text-violet-600">{req.devOrderNo}</span>
-                        <span className="text-slate-500 truncate">{req.buyerName}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <button onClick={() => {
-                  if(resetSheetForm) resetSheetForm();
-                  setIsDesignSheetModalOpen(true);
-                  setShowRegisterMenu(false);
-                }} className="w-full text-left px-3 py-3 text-xs font-bold text-indigo-600 hover:bg-indigo-50 flex items-center gap-2 rounded-b-xl">
-                  자체 설계서 (오더 없이 직접 작성)
-                </button>
-              </div>
-            )}
-          </div>
+          {/* 자체 설계서 등록 (의뢰 연동은 "대기중 목록"의 [설계 시작] 버튼으로) */}
+          <button
+            onClick={() => {
+              if (resetSheetForm) resetSheetForm();
+              setIsDesignSheetModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg shadow-md hover:bg-blue-700 transition-colors"
+            title="의뢰 없이 자체 설계서를 작성합니다"
+          >
+            <Plus className="w-3.5 h-3.5" /> 자체 설계서 등록
+          </button>
         </div>
       </div>
       
-      {/* === 대기중인 확정 의뢰 === */}
-      {waitingDevReqs.length > 0 && (
-        <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200 shadow-sm mb-4">
-           <h3 className="text-xs font-extrabold text-emerald-800 flex items-center gap-2 mb-3">
-             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-             결재 완료된 신규 개발건 <span className="bg-emerald-100 px-1.5 py-0.5 rounded-full text-emerald-700">{waitingDevReqs.length}건</span>
-           </h3>
-           <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar snap-x">
-             {waitingDevReqs.map(req => (
-               <div key={req.id} className="min-w-[280px] snap-start shrink-0 bg-white p-3 rounded-lg border border-emerald-100 shadow-sm hover:border-emerald-300 transition-colors flex flex-col justify-between">
-                 <div>
-                   <span className="text-[10px] font-mono font-bold text-slate-800 bg-slate-100 px-1.5 rounded mr-1">{req.devOrderNo}</span>
-                   <p className="text-sm font-bold text-blue-900 mt-1 truncate">{req.devItem || '아이템명 미입력'}</p>
-                   <p className="text-[10px] text-slate-500 mt-0.5">{req.buyerName}</p>
-                 </div>
-                 <button onClick={() => {
-                   if(initFromDevRequest) initFromDevRequest({ devOrderNo: req.devOrderNo, devRequestId: req.id, sampleDeadline: req.targetSpec?.sampleDeadline || '' });
-                   setIsDesignSheetModalOpen(true);
-                 }} className="mt-3 w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded flex items-center justify-center gap-1">
-                   <Plus className="w-3 h-3" /> 설계 시작
-                 </button>
-               </div>
-             ))}
-           </div>
-        </div>
-      )}
-
-      {/* 2. 구역 A: 진행 중인 설계서 (가로 스크롤 소형 카드) */}
-      {inProgressSheets.length > 0 && (
-        <div className="mb-8">
-          <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2 mb-3">
-             <FileText className="w-4 h-4 text-blue-500"/> 
-             진행 중인 설계서 
-             <span className="text-[11px] font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{inProgressSheets.length}건</span>
+      {/* === 대기중 목록 (의뢰 + 진행중 설계서 통합) === */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="bg-gradient-to-r from-purple-50 to-indigo-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+          <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+            <Clock className="w-4 h-4 text-purple-600"/>
+            대기중 목록
+            <span className="text-[11px] font-normal text-slate-600 bg-white border border-slate-200 px-2 py-0.5 rounded-full">{pendingItems.length}건</span>
           </h3>
-          <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar snap-x">
-            {inProgressSheets.map(sheet => (
-              <div key={sheet.id} className="snap-start shrink-0 w-[300px] h-full">
-                <MobileSheetCard {...getCardProps(sheet)} />
-              </div>
-            ))}
-          </div>
+          <span className="text-[10px] text-slate-500 hidden md:inline">아이템화 전 모든 의뢰·설계서를 한 곳에서 관리</span>
         </div>
-      )}
+
+        {pendingItems.length === 0 ? (
+          <div className="text-center py-10 text-slate-400">
+            <Clock className="w-10 h-10 mx-auto mb-2 opacity-30"/>
+            <p className="text-xs font-bold">대기중인 항목이 없습니다.</p>
+          </div>
+        ) : (
+          <>
+            {/* 데스크톱 테이블 */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[900px]">
+                <thead>
+                  <tr className="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
+                    <th className="p-3 w-[70px]">유형</th>
+                    <th className="p-3 w-[120px]">O/D No.</th>
+                    <th className="p-3 w-[140px]">바이어</th>
+                    <th className="p-3">품목명</th>
+                    <th className="p-3 w-[200px]">현재 단계</th>
+                    <th className="p-3 w-[70px] text-right">경과</th>
+                    <th className="p-3 w-[300px] text-right">관리</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingItems.map(item => {
+                    const days = daysSince(item.updatedAt);
+                    const isDev = item.kind === 'devRequest';
+                    return (
+                      <tr key={`${item.kind}-${item.id}`} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                        <td className="p-3">
+                          {isDev ? (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-purple-50 text-purple-700 border-purple-200">의뢰</span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200">설계서</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-xs font-mono font-extrabold text-violet-700">{item.devOrderNo}</td>
+                        <td className="p-3 text-xs font-bold text-slate-700 truncate">
+                          {item.isSelfDev ? (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-500 border-slate-200">자체개발</span>
+                          ) : item.buyerName}
+                        </td>
+                        <td className="p-3 text-sm font-bold text-slate-800 truncate">{item.fabricName}</td>
+                        <td className="p-3"><PendingProgressBar stageKey={item.stageKey} /></td>
+                        <td className="p-3 text-xs text-slate-500 text-right">{days != null ? `${days}일` : '-'}</td>
+                        <td className="p-3">
+                          <div className="flex gap-1 justify-end">
+                            {isDev ? (
+                              <>
+                                <button
+                                  onClick={() => handleStartDesignFromDev(item.raw)}
+                                  className="flex items-center gap-1 px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded shadow-sm"
+                                  title="설계서 작성을 시작합니다"
+                                >
+                                  <ArrowRight className="w-3 h-3"/> 설계 시작
+                                </button>
+                                <button
+                                  onClick={() => handleDropDevRequest(item.raw)}
+                                  className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 hover:bg-red-100 text-[10px] font-bold rounded border border-red-200"
+                                  title="의뢰 Drop"
+                                >
+                                  <XCircle className="w-3 h-3"/> Drop
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                {item.stageKey === 'eztex' && (
+                                  <>
+                                    <input
+                                      ref={el => { eztexInputRefs.current[item.id] = el; }}
+                                      type="text"
+                                      placeholder="EZ-TEX O/D"
+                                      defaultValue={item.eztexOrderNo}
+                                      onKeyDown={e => { if (e.key === 'Enter') handleEztexSubmit(item.id); }}
+                                      className="w-[110px] border border-violet-200 bg-violet-50/40 rounded px-2 py-1 text-[10px] font-mono focus:bg-white focus:ring-2 ring-violet-200 outline-none placeholder:text-slate-300"
+                                    />
+                                    <button
+                                      onClick={() => handleEztexSubmit(item.id)}
+                                      className="flex items-center gap-1 px-2 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[10px] font-bold rounded shadow-sm"
+                                      title="EZ-TEX O/D 등록 → 샘플 진행 단계"
+                                    >
+                                      등록
+                                    </button>
+                                  </>
+                                )}
+                                <button
+                                  onClick={() => handleEditSheet(item.raw)}
+                                  className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10px] font-bold rounded border border-blue-200"
+                                  title="설계서 수정"
+                                >
+                                  <Edit2 className="w-3 h-3"/> 수정
+                                </button>
+                                <button
+                                  onClick={() => handleDrop(item.id)}
+                                  className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 hover:bg-red-100 text-[10px] font-bold rounded border border-red-200"
+                                  title="설계서 Drop"
+                                >
+                                  <XCircle className="w-3 h-3"/> Drop
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 모바일 카드 리스트 */}
+            <div className="block md:hidden p-3 space-y-2 bg-slate-50">
+              {pendingItems.map(item => {
+                const days = daysSince(item.updatedAt);
+                const isDev = item.kind === 'devRequest';
+                return (
+                  <div key={`${item.kind}-${item.id}`} className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
+                    <div className="flex items-center justify-between mb-1.5">
+                      {isDev ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-purple-50 text-purple-700 border-purple-200">의뢰</span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200">설계서</span>
+                      )}
+                      <span className="text-[10px] text-slate-400">{days != null ? `${days}일 경과` : ''}</span>
+                    </div>
+                    <p className="text-xs font-mono font-extrabold text-violet-700 mb-0.5">{item.devOrderNo}</p>
+                    <p className="text-sm font-bold text-slate-800 mb-0.5">{item.fabricName}</p>
+                    <p className="text-[11px] text-slate-500 mb-2">
+                      {item.isSelfDev ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-500 border-slate-200">자체개발</span>
+                      ) : item.buyerName}
+                    </p>
+                    <div className="mb-2">
+                      <PendingProgressBar stageKey={item.stageKey} />
+                    </div>
+                    {!isDev && item.stageKey === 'eztex' && (
+                      <div className="flex gap-1.5 mb-2">
+                        <input
+                          ref={el => { eztexInputRefs.current[item.id] = el; }}
+                          type="text"
+                          placeholder="EZ-TEX O/D NO."
+                          defaultValue={item.eztexOrderNo}
+                          onKeyDown={e => { if (e.key === 'Enter') handleEztexSubmit(item.id); }}
+                          className="flex-1 w-0 border border-violet-200 bg-violet-50/40 rounded px-2 py-1.5 text-xs font-mono focus:bg-white focus:ring-2 ring-violet-200 outline-none placeholder:text-slate-300"
+                        />
+                        <button
+                          onClick={() => handleEztexSubmit(item.id)}
+                          className="flex items-center justify-center gap-1 px-3 py-1.5 bg-violet-600 text-white text-[11px] font-bold rounded"
+                        >
+                          등록
+                        </button>
+                      </div>
+                    )}
+                    <div className="flex gap-1.5">
+                      {isDev ? (
+                        <>
+                          <button
+                            onClick={() => handleStartDesignFromDev(item.raw)}
+                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-indigo-600 text-white text-[11px] font-bold rounded"
+                          >
+                            <ArrowRight className="w-3 h-3"/> 설계 시작
+                          </button>
+                          <button
+                            onClick={() => handleDropDevRequest(item.raw)}
+                            className="flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 text-[11px] font-bold rounded border border-red-200"
+                          >
+                            <XCircle className="w-3 h-3"/> Drop
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handleEditSheet(item.raw)}
+                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-blue-50 text-blue-600 text-[11px] font-bold rounded border border-blue-200"
+                          >
+                            <Edit2 className="w-3 h-3"/> 수정
+                          </button>
+                          <button
+                            onClick={() => handleDrop(item.id)}
+                            className="flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 text-[11px] font-bold rounded border border-red-200"
+                          >
+                            <XCircle className="w-3 h-3"/> Drop
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
 
       {/* 3. 검색 & 공통 필터 영역 */}
       <div className="bg-white p-3 rounded-t-xl border border-b-0 border-slate-200">

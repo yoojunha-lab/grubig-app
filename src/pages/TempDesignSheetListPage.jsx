@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Plus, Edit2, Trash2, FlaskConical, Calendar, User, FileText, X, Save } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, FlaskConical, Calendar, User, FileText, X, Save, ArrowRight } from 'lucide-react';
 import { num } from '../utils/helpers';
 
 /**
@@ -37,7 +37,12 @@ export const TempDesignSheetListPage = ({
   isTempModalOpen,
   setIsTempModalOpen,
   // DesignSheetPage 컴포넌트 자체
-  DesignSheetPage
+  DesignSheetPage,
+  // [C2] 가설계서 → 정식 설계서 진입점에 필요한 props
+  resetSheetForm,
+  setIsDesignSheetModalOpen,
+  setSheetInput,
+  loadTempToSheet
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -60,6 +65,17 @@ export const TempDesignSheetListPage = ({
     try {
       return new Date(isoStr).toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' });
     } catch { return '-'; }
+  };
+
+  // [C2] 가설계서 → 정식 설계서로 보내기
+  // 1) 사용자 확인 → 2) 정식 설계서 폼 초기화 → 3) 모달 오픈 → 4) 가설계서 스펙 자동 채움
+  const handleSendToFullSheet = (tempSheet) => {
+    if (!resetSheetForm || !setIsDesignSheetModalOpen || !setSheetInput || !loadTempToSheet) return;
+    if (!window.confirm(`"${tempSheet.fabricName || '가설계서'}"의 스펙을 정식 설계서로 가져와서 작성하시겠습니까?`)) return;
+    resetSheetForm();
+    setIsDesignSheetModalOpen(true);
+    // 모달이 열린 직후 입력값 채우기 (확인은 이미 받았으므로 skipConfirm)
+    setTimeout(() => loadTempToSheet(tempSheet, setSheetInput, { skipConfirm: true }), 0);
   };
 
   return (
@@ -123,7 +139,7 @@ export const TempDesignSheetListPage = ({
                   <th className="p-3 w-[130px]">바이어명</th>
                   <th className="p-3 w-[100px] text-center">GSM / 폭</th>
                   <th className="p-3 w-[120px] text-right">3K 도매가 (미리보기)</th>
-                  <th className="p-3 w-[80px] text-right">관리</th>
+                  <th className="p-3 w-[180px] text-right">관리</th>
                 </tr>
               </thead>
               <tbody>
@@ -167,6 +183,11 @@ export const TempDesignSheetListPage = ({
                       </td>
                       <td className="p-3 text-right">
                         <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => handleSendToFullSheet(sheet)}
+                            className="flex items-center gap-1 px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded shadow-sm"
+                            title="이 가설계서의 스펙으로 정식 설계서를 작성합니다">
+                            <ArrowRight className="w-3 h-3" /> 정식
+                          </button>
                           <button onClick={() => { handleEditTemp(sheet); setIsTempModalOpen(true); }}
                             className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="수정">
                             <Edit2 className="w-3.5 h-3.5" />
@@ -202,6 +223,11 @@ export const TempDesignSheetListPage = ({
                       </div>
                     </div>
                     <div className="flex gap-1">
+                      <button onClick={() => handleSendToFullSheet(sheet)}
+                        className="flex items-center gap-1 px-2 py-1.5 bg-indigo-600 text-white text-[10px] font-bold rounded shadow-sm"
+                        title="정식 설계서로 보내기">
+                        <ArrowRight className="w-3 h-3" /> 정식
+                      </button>
                       <button onClick={() => { handleEditTemp(sheet); setIsTempModalOpen(true); }}
                         className="p-1.5 text-blue-600 bg-blue-50 rounded-lg"><Edit2 className="w-3.5 h-3.5" /></button>
                       <button onClick={() => handleDeleteTemp(sheet.id)}

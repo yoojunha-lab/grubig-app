@@ -627,13 +627,13 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
     if (!window.confirm('이 설계서를 DROP 처리하시겠습니까?\n(보관함으로 이동되며 현황에서 숨겨집니다)')) return;
 
-    // [A5 수정] DROP 시 연결된 의뢰의 linkedDesignSheetId 해제 + 의뢰 상태를 Drop(rejected)으로 변경
+    // [B3] DROP 시 연결된 의뢰의 linkedDesignSheetId만 해제 (status는 보존)
+    // → 의뢰는 confirmed 상태 그대로 유지되어 다른 설계서로 재시도 가능
     if (sheet.devRequestId && devRequests) {
       const linkedDev = devRequests.find(d => d.id === sheet.devRequestId);
       if (linkedDev?.linkedDesignSheetId === sheetId) {
         saveDocToCloud('devRequests', {
           ...linkedDev,
-          status: 'rejected',
           linkedDesignSheetId: null,
           updatedAt: new Date().toISOString()
         });

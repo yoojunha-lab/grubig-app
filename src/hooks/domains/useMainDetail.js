@@ -100,7 +100,9 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
     });
   };
 
-  const handleSaveDetail = () => {
+  // [BULK-A] options.keepIdentity: 저장 후 폼을 완전 초기화하지 않고
+  //   Order/Article/Type만 유지 → 같은 시트에 컬러만 다른 건을 연속 등록
+  const handleSaveDetail = (options = {}) => {
     if (detailInput.type === 'main' && !detailInput.articleNo?.trim()) {
       showToast('메인(Main) 시트는 Article 번호를 필수로 입력해야 합니다.', 'error');
       return false;
@@ -109,7 +111,7 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
       showToast('샘플(Sample) 시트는 Article 번호나 Order No 중 하나는 필수로 입력해야 합니다.', 'error');
       return false;
     }
-    
+
     const idToSave = editingDetailId || `md_${Date.now()}`;
     // 최상위 finWidthFull/finGsm은 1차 test에서 동기화 (하위 호환 + 리스트 테이블용)
     const firstTest = detailInput.tests?.[0];
@@ -121,10 +123,25 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
       createdAt: detailInput.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
-    
+
     saveDocToCloud('mainDetails', dataToSave);
     showToast(editingDetailId ? '메인 디테일 시트 수정 완료' : '메인 디테일 시트 등록 완료', 'success');
-    resetDetailForm();
+
+    if (options.keepIdentity && !editingDetailId) {
+      // 신규 등록일 때만 동작: Order/Article/Type만 유지, 나머지 초기화
+      setDetailInput(prev => {
+        const fresh = getInitialMainDetailInput();
+        return {
+          ...fresh,
+          orderNo: prev.orderNo || '',
+          articleNo: prev.articleNo || '',
+          type: prev.type || 'main'
+        };
+      });
+      setEditingDetailId(null);
+    } else {
+      resetDetailForm();
+    }
     return true;
   };
 
@@ -196,9 +213,10 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
     let duplicated = 0;
     const errors = [];
 
-    // 기존 DB 데이터로 중복 맵 생성 (orderNo + lotNo → 고유키)
+    // 기존 DB 데이터로 중복 맵 생성 (orderNo + articleNo + colorInfo + lotNo → 고유키)
+    // [D1 수정] colorInfo 포함 — 같은 order/article/lot의 컬러만 다른 행을 정상 등록 가능하도록
     const existingKeys = new Set(
-      (mainDetails || []).map(d => `${(d.orderNo || '').toUpperCase()}__${(d.articleNo || '').toUpperCase()}__${(d.lotNo || '').toUpperCase()}`)
+      (mainDetails || []).map(d => `${(d.orderNo || '').toUpperCase()}__${(d.articleNo || '').toUpperCase()}__${(d.colorInfo || '').toUpperCase()}__${(d.lotNo || '').toUpperCase()}`)
     );
     const batchKeys = new Set();
 
@@ -225,18 +243,20 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
         return;
       }
 
+      const colorInfo = cols[2] || '';
       const lotNo = cols[3] || '';
-      // 중복 키에 articleNo 포함 — 샘플에서 OrderNo 없이 Article+LOT만 있을 때 오탐 방지
-      const dupKey = `${orderNo.toUpperCase()}__${articleNo.toUpperCase()}__${lotNo.toUpperCase()}`;
+      // [D1 수정] 중복 키에 colorInfo 포함 — 같은 order+article+lot 의 컬러만 다른 행도 별개로 인식
+      const dupKey = `${orderNo.toUpperCase()}__${articleNo.toUpperCase()}__${colorInfo.toUpperCase()}__${lotNo.toUpperCase()}`;
+      const labelForError = `${orderNo} / ${articleNo}${colorInfo ? ` / ${colorInfo}` : ''}${lotNo ? ` / LOT: ${lotNo}` : ''}`;
 
       if (existingKeys.has(dupKey)) {
         duplicated++;
-        errors.push(`${rowIdx + 1}행: [${orderNo} / LOT: ${lotNo || '없음'}] — DB에 이미 존재`);
+        errors.push(`${rowIdx + 1}행: [${labelForError}] — DB에 이미 존재`);
         return;
       }
       if (batchKeys.has(dupKey)) {
         duplicated++;
-        errors.push(`${rowIdx + 1}행: [${orderNo} / LOT: ${lotNo || '없음'}] — 복붙 내 중복`);
+        errors.push(`${rowIdx + 1}행: [${labelForError}] — 복붙 내 중복`);
         return;
       }
       batchKeys.add(dupKey);
@@ -276,7 +296,7 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
         id: `md_${Date.now()}_${rowIdx}`,
         orderNo,
         articleNo: articleNo.toUpperCase(),
-        colorInfo: cols[2] || '',
+        colorInfo,
         lotNo,
         type: bulkType,
         greigeWidthFull: cols[4] || '',

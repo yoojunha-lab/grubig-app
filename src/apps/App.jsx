@@ -45,7 +45,6 @@ import { YarnLibraryPage } from '../pages/YarnLibraryPage';
 import { QuotationPage } from '../pages/QuotationPage';
 import { QuoteHistoryPage } from '../pages/QuoteHistoryPage';
 import { PDFRenderer } from '../components/quote/PDFRenderer';
-import { DevRequestPage } from '../pages/DevRequestPage';
 import { DesignSheetPage } from '../pages/DesignSheetPage';
 import { DesignSheetListPage } from '../pages/DesignSheetListPage';
 import { DevStatusPage } from '../pages/DevStatusPage';
@@ -1054,6 +1053,7 @@ const App = () => {
             addMasterItem={addMasterItem}
             generateDevOrderNo={generateDevOrderNo}
             setIsBuyerModalOpen={setIsBuyerModalOpen}
+            setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
           />
         )}
 
@@ -1110,7 +1110,9 @@ const App = () => {
             handleEditSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
             handleDeleteSheet={handleDeleteSheet}
             initFromDevRequest={initFromDevRequest}
+            createDesignSheetFromDev={createDesignSheetFromDev}
             advanceStage={advanceStage}
+            autoAdvanceEztex={autoAdvanceEztex}
             getDesignCost={getDesignCost}
             setActiveTab={setActiveTab}
             user={user}
@@ -1122,6 +1124,7 @@ const App = () => {
             resetSheetForm={resetSheetForm}
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
             setSheetInput={setSheetInput}
+            updateDevStatus={updateDevStatus}
           />
         )}
 
@@ -1155,6 +1158,10 @@ const App = () => {
             isTempModalOpen={isTempDesignSheetModalOpen}
             setIsTempModalOpen={setIsTempDesignSheetModalOpen}
             DesignSheetPage={DesignSheetPage}
+            resetSheetForm={resetSheetForm}
+            setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
+            setSheetInput={setSheetInput}
+            loadTempToSheet={loadTempToSheet}
           />
         )}
 

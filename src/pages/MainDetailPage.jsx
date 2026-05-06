@@ -46,10 +46,32 @@ export const MainDetailPage = ({
   const [bulkResult, setBulkResult] = useState(null);
   const [bulkType, setBulkType] = useState('main'); // 'main' | 'sample'
 
+  // [BULK-A] 저장 후 같은 Order/Article로 한 번 더 작성할지 여부
+  const [keepIdentityNext, setKeepIdentityNext] = useState(false);
+
   const handleSaveModal = () => {
-    if (handleSaveDetail()) {
+    const ok = handleSaveDetail({ keepIdentity: keepIdentityNext });
+    if (!ok) return;
+    if (!keepIdentityNext || editingDetailId) {
+      // 체크 해제 상태이거나, 수정 모드면 모달 닫기
       setIsModalOpen(false);
     }
+    // keepIdentityNext가 true면 모달은 열린 채로 유지 → Order/Article만 남기고 컬러/QC만 빠르게 입력
+  };
+
+  // [BULK-B] 엑셀 복붙 그리드: 위 행의 Order/Article을 현재 행에 복제 (Color/Lot/QC는 비움)
+  const duplicateFromAbove = (rowIdx) => {
+    if (rowIdx <= 0) return;
+    setGridRows(prev => {
+      const above = prev[rowIdx - 1];
+      const next = [...prev];
+      next[rowIdx] = {
+        ...emptyRow(),
+        orderNo: above.orderNo || '',
+        articleNo: above.articleNo || ''
+      };
+      return next;
+    });
   };
 
   const handleEditModal = (id) => {
@@ -114,14 +136,26 @@ export const MainDetailPage = ({
     setBulkType('main');
   };
 
-  // 필터링 적용
-  const filteredDetails = (mainDetails || []).filter(d => 
-    d.type === activeTypeTab &&
-    (
-      (d.articleNo || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (d.orderNo || '').toLowerCase().includes(searchTerm.toLowerCase())
-    )
-  );
+  // 필터링 + 자동 정렬
+  // [UI-C] 검색 범위 확장: orderNo / articleNo / colorInfo / lotNo
+  // [UI-A] 자동 정렬: Order → Article → Color → LOT (같은 시트 묶음을 보기 쉽게)
+  const filteredDetails = (mainDetails || [])
+    .filter(d => {
+      if (d.type !== activeTypeTab) return false;
+      if (!searchTerm.trim()) return true;
+      const q = searchTerm.toLowerCase();
+      return (
+        (d.articleNo || '').toLowerCase().includes(q) ||
+        (d.orderNo || '').toLowerCase().includes(q) ||
+        (d.colorInfo || '').toLowerCase().includes(q) ||
+        (d.lotNo || '').toLowerCase().includes(q)
+      );
+    })
+    .sort((a, b) => {
+      const ka = `${a.orderNo || ''}__${a.articleNo || ''}__${a.colorInfo || ''}__${a.lotNo || ''}`;
+      const kb = `${b.orderNo || ''}__${b.articleNo || ''}__${b.colorInfo || ''}__${b.lotNo || ''}`;
+      return ka.localeCompare(kb);
+    });
 
   const filledRowCount = gridRows.filter(row => GRID_COLS.some(col => row[col]?.trim())).length;
 
@@ -186,10 +220,11 @@ export const MainDetailPage = ({
 
             {/* 그리드 테이블 */}
             <div className="flex-1 overflow-auto">
-              <table className="w-full text-xs border-collapse min-w-[1400px]">
+              <table className="w-full text-xs border-collapse min-w-[1430px]">
                 <thead className="bg-slate-100 sticky top-0 z-10">
                   <tr>
                     <th className="border border-slate-200 px-2 py-2 text-center text-slate-400 w-10 font-bold">#</th>
+                    <th className="border border-slate-200 px-1 py-2 text-center text-slate-400 w-8 font-bold" title="위 행의 Order/Article 복제 (Color/Lot 비움)">↓</th>
                     {GRID_HEADERS.map((h, i) => {
                       const isRequired = i === 0 || (i === 1 && bulkType === 'main');
                       // 영역별 색상: 0~3 식별, 4~6 생지, 7~12 1차(emerald), 13~19 2차(amber)
@@ -209,10 +244,26 @@ export const MainDetailPage = ({
                 <tbody>
                   {gridRows.map((row, rowIdx) => {
                     const hasData = GRID_COLS.some(col => row[col]?.trim());
+                    const aboveHasIdentity = rowIdx > 0 && (gridRows[rowIdx - 1].orderNo?.trim() || gridRows[rowIdx - 1].articleNo?.trim());
                     return (
                       <tr key={rowIdx} className={`${hasData ? 'bg-emerald-50/30' : 'bg-white'} hover:bg-blue-50/30 transition-colors`}>
                         <td className="border border-slate-200 px-2 py-1 text-center text-slate-400 font-mono font-bold text-[10px] bg-slate-50">
                           {rowIdx + 1}
+                        </td>
+                        {/* [BULK-B] 위 행 Order/Article 복제 버튼 */}
+                        <td className="border border-slate-200 p-0 text-center bg-slate-50">
+                          {aboveHasIdentity ? (
+                            <button
+                              type="button"
+                              onClick={() => duplicateFromAbove(rowIdx)}
+                              className="w-full h-full px-1 py-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors text-[11px] font-bold"
+                              title="바로 위 행의 Order/Article 복제 (Color/Lot 비움)"
+                            >
+                              ↓
+                            </button>
+                          ) : (
+                            <span className="text-slate-200 text-[10px]">·</span>
+                          )}
                         </td>
                         {GRID_COLS.map((col, colIdx) => (
                           <td key={col} className="border border-slate-200 p-0">
@@ -426,10 +477,25 @@ export const MainDetailPage = ({
               </div>
             </div>
             
+            {/* [BULK-A] 같은 Order/Article로 한 번 더 작성 옵션 (신규 등록 모드에서만 노출) */}
+            {!editingDetailId && (
+              <label className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg cursor-pointer hover:bg-amber-100 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={keepIdentityNext}
+                  onChange={e => setKeepIdentityNext(e.target.checked)}
+                  className="w-4 h-4 accent-fuchsia-600"
+                />
+                <span className="text-xs font-bold text-amber-800">
+                  💡 저장 후 같은 <span className="text-fuchsia-700">Order / Article</span>로 한 번 더 작성 (컬러만 다른 시트 연속 등록)
+                </span>
+              </label>
+            )}
+
             {/* 저장 버튼 */}
             <div className="pt-2">
                <button onClick={handleSaveModal} className="w-full bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-fuchsia-600/30 active:scale-95 transition-all flex items-center justify-center gap-2">
-                 <Save className="w-4 h-4" /> {editingDetailId ? '시트 내용 전체 저장' : '디테일 시트 등록하기'}
+                 <Save className="w-4 h-4" /> {editingDetailId ? '시트 내용 전체 저장' : (keepIdentityNext ? '저장하고 한 번 더 작성' : '디테일 시트 등록하기')}
                </button>
             </div>
 
@@ -447,7 +513,7 @@ export const MainDetailPage = ({
               <button onClick={() => setActiveTypeTab('sample')} className={`px-4 py-2 text-sm font-bold rounded-md transition-all ${activeTypeTab === 'sample' ? 'bg-white text-fuchsia-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Sample (샘플)</button>
             </div>
             <div className="w-64">
-              <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Article 또는 Order 검색..." className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm focus:ring-2 ring-fuchsia-100 outline-none" />
+              <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Article / Order / Color / LOT 검색..." className="w-full border border-slate-200 bg-slate-50 rounded-lg px-3 py-2 text-sm focus:ring-2 ring-fuchsia-100 outline-none" />
             </div>
           </div>
 
@@ -499,37 +565,34 @@ export const MainDetailPage = ({
                         </div>
                       </td>
                       <td className="p-2 border-r border-slate-200">
-                        <div className="flex flex-wrap items-center mt-0.5 font-mono text-[11px] leading-tight">
-                          {[
-                            <span key="date" className="text-slate-500 font-medium whitespace-nowrap">
-                              {d.createdAt ? `${String(new Date(d.createdAt).getFullYear()).slice(-2)}/${String(new Date(d.createdAt).getMonth() + 1).padStart(2, '0')}/${String(new Date(d.createdAt).getDate()).padStart(2, '0')}` : '-'}
-                            </span>,
-                            d.orderNo && (
-                              <span key="order" className="text-emerald-700 font-extrabold whitespace-nowrap">
-                                <span className="text-[9px] text-emerald-600/70 font-normal mr-1">ORDER:</span>{d.orderNo}
+                        {/* [UI-A] 2줄 분리: 1줄=날짜 / 2줄=Order·Article·Color(칩)·LOT */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {d.createdAt ? `${String(new Date(d.createdAt).getFullYear()).slice(-2)}/${String(new Date(d.createdAt).getMonth() + 1).padStart(2, '0')}/${String(new Date(d.createdAt).getDate()).padStart(2, '0')}` : '-'}
+                          </span>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] leading-tight">
+                            {d.orderNo && (
+                              <span className="text-emerald-700 font-extrabold whitespace-nowrap">
+                                <span className="text-[9px] text-emerald-600/70 font-normal mr-1">ORDER</span>{d.orderNo}
                               </span>
-                            ),
-                            d.articleNo && (
-                              <span key="article" className="text-fuchsia-700 font-extrabold whitespace-nowrap">
-                                <span className="text-[9px] text-fuchsia-600/70 font-normal mr-1">ART:</span>{d.articleNo}
+                            )}
+                            {d.articleNo && (
+                              <span className="text-fuchsia-700 font-extrabold whitespace-nowrap">
+                                <span className="text-[9px] text-fuchsia-600/70 font-normal mr-1">ART</span>{d.articleNo}
                               </span>
-                            ),
-                            d.colorInfo && (
-                              <span key="color" className="text-slate-700 font-bold whitespace-nowrap">
-                                <span className="text-[9px] text-slate-400 font-normal mr-1">COLOR:</span>{d.colorInfo}
+                            )}
+                            {/* [UI-B] Color 칩 시각화 */}
+                            {d.colorInfo && (
+                              <span className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-700 border-slate-300 whitespace-nowrap">
+                                {d.colorInfo}
                               </span>
-                            ),
-                            d.lotNo && (
-                              <span key="lot" className="text-slate-700 font-bold whitespace-nowrap">
-                                <span className="text-[9px] text-slate-400 font-normal mr-1">LOT:</span>{d.lotNo}
+                            )}
+                            {d.lotNo && (
+                              <span className="text-slate-500 font-bold whitespace-nowrap">
+                                <span className="text-[9px] text-slate-400 font-normal mr-1">LOT</span>{d.lotNo}
                               </span>
-                            )
-                          ].filter(Boolean).map((item, index, arr) => (
-                            <React.Fragment key={item.key}>
-                              {item}
-                              {index < arr.length - 1 && <span className="text-slate-300 mx-2 font-light">|</span>}
-                            </React.Fragment>
-                          ))}
+                            )}
+                          </div>
                         </div>
                       </td>
                       

@@ -235,11 +235,14 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
   // --- 가설계서 → 정식 설계서로 불러오기 유틸 ---
   // 이 함수는 정식 설계서의 setSheetInput에 스펙(레시피)만 덮어씌움
   // 관리번호(devOrderNo, articleNo 등)는 절대 건드리지 않음
-  const loadTempToSheet = (tempSheet, setSheetInput) => {
+  // [C2] options.skipConfirm: 호출 측에서 이미 확인을 받은 경우 내부 confirm을 건너뜀
+  const loadTempToSheet = (tempSheet, setSheetInput, options = {}) => {
     if (!tempSheet || !setSheetInput) return;
 
-    if (!window.confirm('가설계서의 스펙 데이터를 현재 설계서에 불러옵니다.\n기존 입력된 스펙 데이터가 덮어씌워집니다. 계속하시겠습니까?')) {
-      return false;
+    if (!options.skipConfirm) {
+      if (!window.confirm('가설계서의 스펙 데이터를 현재 설계서에 불러옵니다.\n기존 입력된 스펙 데이터가 덮어씌워집니다. 계속하시겠습니까?')) {
+        return false;
+      }
     }
 
     setSheetInput(prev => {

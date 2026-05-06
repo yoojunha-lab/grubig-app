@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { Activity, Edit2, ChevronDown, ChevronUp, ArrowRight, FileText, Plus, X, Check, Trash2, Search, Printer, Clock, AlertTriangle, Link, XCircle, ChevronRight, CheckCircle2 } from 'lucide-react';
-import { DESIGN_STAGES, STAGE_COLORS } from '../constants/common';
+import { DESIGN_STAGES, STAGE_COLORS, DEV_REQUEST_STATUS_LABELS, DEV_REQUEST_STATUS_BADGE_CLS } from '../constants/common';
 import { num } from '../utils/helpers';
 import { DesignStepper } from '../components/design/DesignStepper';
 import { DevReqSummaryCard } from '../components/dashboard/DevReqSummaryCard';
+import { DevRequestFormModal } from '../components/dashboard/DevRequestFormModal';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 
 /**
@@ -17,7 +18,8 @@ export const DevStatusPage = ({
   createDesignSheetFromDev, initFromDevRequest, updateDevStatus,
   handleEditSheet, handleDeleteSheet, advanceStage, advanceToEztex, autoAdvanceEztex, dropDesignSheet,
   setActiveTab, user, buyers, yarnLibrary, viewMode, devPrintRef,
-  addMasterItem, generateDevOrderNo, setIsBuyerModalOpen
+  addMasterItem, generateDevOrderNo, setIsBuyerModalOpen,
+  setIsDesignSheetModalOpen
 }) => {
   const [showDevModal, setShowDevModal] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
@@ -27,14 +29,8 @@ export const DevStatusPage = ({
   // EZ-TEX O/D NO. 인라인 입력용 ref 저장소
   const eztexInputRefs = useRef({});
 
-  const statusLabels = { pending: '의뢰 접수', analyzing: '분석 중', hold: '대기중', confirmed: '개발투입확정', rejected: 'Drop(미진행)' };
-  const statusCls = {
-    pending: 'bg-amber-100 text-amber-700 border-amber-300',
-    analyzing: 'bg-blue-100 text-blue-700 border-blue-300',
-    hold: 'bg-purple-100 text-purple-700 border-purple-300',
-    confirmed: 'bg-emerald-100 text-emerald-700 border-emerald-300',
-    rejected: 'bg-slate-200 text-slate-700 border-slate-300'
-  };
+  const statusLabels = DEV_REQUEST_STATUS_LABELS;
+  const statusCls = DEV_REQUEST_STATUS_BADGE_CLS;
 
   const getDaysUntil = (d) => { if(!d) return null; const t=new Date(d),n=new Date(); t.setHours(0,0,0,0); n.setHours(0,0,0,0); return Math.ceil((t-n)/864e5); };
   
@@ -97,11 +93,17 @@ export const DevStatusPage = ({
     });
   };
 
-  // [기획오류 #9 수정] 설계서 작성 시작 → 보관함 이동 + 모달 자동 열기
+  // 설계서 작성 시작 → 의뢰 정보로 설계서 모달을 그 자리에서 바로 오픈
+  // (가로카드를 통한 진입점이 사라졌으므로 카드의 "설계서 작성" 버튼이 모달을 직접 연다)
   const handleGoToSheet = (devReq) => {
     const data = createDesignSheetFromDev(devReq);
     initFromDevRequest(data);
-    setActiveTab('designList');
+    if (setIsDesignSheetModalOpen) {
+      setIsDesignSheetModalOpen(true);
+    } else {
+      // fallback: 모달 prop이 없으면 보관함 탭으로 이동
+      setActiveTab('designList');
+    }
   };
 
   const openNewModal = () => { resetDevForm(); setShowDevModal(true); };
@@ -111,7 +113,15 @@ export const DevStatusPage = ({
     if (handleSaveDevRequest(user)) setShowDevModal(false);
   };
 
-  const handlePrint = (devReq, type) => { setPrintTarget(devReq); setPrintType(type); setTimeout(()=>window.print(), 300); };
+  // 의뢰접수(pending) 상태에서 Print 시 자동으로 분석중(analyzing)으로 전환
+  const handlePrint = (devReq, type) => {
+    if (devReq.status === 'pending' && updateDevStatus) {
+      updateDevStatus(devReq.id, 'analyzing');
+    }
+    setPrintTarget(devReq);
+    setPrintType(type);
+    setTimeout(()=>window.print(), 300);
+  };
   const stageInfo = (key) => { const s=DESIGN_STAGES.find(x=>x.key===key); const c=STAGE_COLORS[key]||STAGE_COLORS.draft; return {label:s?.label||'작성중',...c}; };
 
   // ==========================================
@@ -298,109 +308,19 @@ export const DevStatusPage = ({
       })()}
 
 
-      {/* 모달 등 팝업 (코드 생략 없이 원본유지) */}
-      {showDevModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={()=>setShowDevModal(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
-            <div className="sticky top-0 bg-white border-b border-slate-200 p-4 rounded-t-2xl flex items-center justify-between z-10">
-              <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
-                {editingDevId?<Edit2 className="w-4 h-4 text-blue-500"/>:<Plus className="w-4 h-4 text-emerald-500"/>}
-                {editingDevId?'개발 의뢰 수정':'새 개발 의뢰 등록'}
-              </h3>
-              <button onClick={()=>setShowDevModal(false)} className="p-1.5 hover:bg-slate-100 rounded-lg"><X className="w-5 h-5 text-slate-400"/></button>
-            </div>
-            <div className="p-4 space-y-3">
-              {/* 개발번호 입력란 (새 의뢰일 때만 표시) */}
-              {!editingDevId && (
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 mb-0.5">개발번호 <span className="text-slate-400">(비워두면 자동 발번)</span></label>
-                  <input type="text" name="devOrderNo" value={devInput.devOrderNo||''} onChange={handleDevChange}
-                    placeholder={generateDevOrderNo ? generateDevOrderNo() : 'F-26D001'}
-                    className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs font-mono font-bold focus:ring-2 ring-violet-200 outline-none placeholder:text-slate-300"/>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="flex justify-between items-center mb-0.5">
-                    <label className="block text-[10px] font-bold text-red-500">바이어명 *</label>
-                    <button type="button" onClick={() => setIsBuyerModalOpen(true)} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-bold bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors whitespace-nowrap">
-                      + 바이어 관리
-                    </button>
-                  </div>
-                  <SearchableSelect
-                    value={devInput.buyerName || ''}
-                    options={(buyers || []).map(b => ({ id: b, name: b }))}
-                    onChange={(v) => handleDevChange({ target: { name: 'buyerName', value: v } })}
-                    placeholder="-- 바이어 선택 --"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 mb-0.5">담당자</label>
-                  <input type="text" name="assignee" value={devInput.assignee||''} onChange={handleDevChange}
-                    placeholder="영업 담당자" className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs focus:ring-2 ring-violet-200 outline-none"/>
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-[10px] font-bold text-slate-500 mb-0.5">개발 아이템 <span className="text-slate-400">(어떤 것을 개발하는지)</span></label>
-                  <input type="text" name="devItem" value={devInput.devItem||''} onChange={handleDevChange}
-                    placeholder="예: 니트 저지, 울혼방 트윌 등" className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs focus:ring-2 ring-violet-200 outline-none"/>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 mb-0.5">의뢰 일자</label>
-                  <input type="date" name="requestDate" value={devInput.requestDate} onChange={handleDevChange}
-                    className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs focus:ring-2 ring-violet-200 outline-none"/>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-red-500 mb-0.5">분석 납기 * 📅</label>
-                  <input type="date" value={devInput.targetSpec?.analysisDeadline||''}
-                    onChange={e=>handleSpecChange('analysisDeadline',e.target.value)}
-                    className="w-full border border-red-300 rounded-lg px-2 py-2 text-xs focus:ring-2 ring-red-200 outline-none bg-red-50/30"/>
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-[10px] font-bold text-slate-500 mb-0.5">샘플 생산 납기 📅 <span className="text-slate-400">(개발투입확정 시 필수)</span></label>
-                  <input type="date" value={devInput.targetSpec?.sampleDeadline||''}
-                    onChange={e=>handleSpecChange('sampleDeadline',e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs focus:ring-2 ring-violet-200 outline-none"/>
-                </div>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 mb-0.5">타겟 단가</label>
-                <input type="text" placeholder="예: $3.50/yd" value={devInput.targetSpec?.targetPrice||''}
-                  onChange={e=>handleSpecChange('targetPrice',e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs focus:ring-2 ring-violet-200 outline-none"/>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 mb-0.5">혼용률 / 스펙</label>
-                <input type="text" placeholder="울 80% 나일론 20%" value={devInput.targetSpec?.composition||''}
-                  onChange={e=>handleSpecChange('composition',e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs focus:ring-2 ring-violet-200 outline-none"/>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 mb-0.5">원하는 느낌</label>
-                <input type="text" placeholder="부드럽고 드레이프감" value={devInput.targetSpec?.feeling||''}
-                  onChange={e=>handleSpecChange('feeling',e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs focus:ring-2 ring-violet-200 outline-none"/>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 mb-0.5">기타 요청</label>
-                <textarea placeholder="추가 요청..." value={devInput.targetSpec?.otherRequests||''}
-                  onChange={e=>handleSpecChange('otherRequests',e.target.value)} rows={2}
-                  className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs focus:ring-2 ring-violet-200 outline-none resize-none"/>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 mb-0.5">스와치 메모</label>
-                <input type="text" placeholder="스와치 관련" name="swatchNote" value={devInput.swatchNote||''} onChange={handleDevChange}
-                  className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs focus:ring-2 ring-violet-200 outline-none"/>
-              </div>
-            </div>
-            <div className="sticky bottom-0 bg-white border-t border-slate-200 p-3 rounded-b-2xl flex gap-2 justify-end">
-              <button onClick={()=>setShowDevModal(false)} className="px-3 py-2 text-xs font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200">취소</button>
-              <button onClick={handleModalSave} className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-violet-600 to-purple-600 text-white text-xs font-bold rounded-lg shadow-md hover:shadow-lg active:scale-95">
-                <Check className="w-3.5 h-3.5"/> {editingDevId?'수정 저장':'의뢰 등록'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* [R4] 의뢰 등록/수정 모달 — 분리된 컴포넌트 호출 */}
+      <DevRequestFormModal
+        isOpen={showDevModal}
+        onClose={() => setShowDevModal(false)}
+        editingDevId={editingDevId}
+        devInput={devInput}
+        handleDevChange={handleDevChange}
+        handleSpecChange={handleSpecChange}
+        onSave={handleModalSave}
+        buyers={buyers}
+        setIsBuyerModalOpen={setIsBuyerModalOpen}
+        generateDevOrderNo={generateDevOrderNo}
+      />
       </div>
 
       {/* 편직처 제출용 프린트 영역 (화면에선 숨김, 프린트 시에만 표시) */}
