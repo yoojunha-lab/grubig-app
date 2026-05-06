@@ -23,6 +23,25 @@ export const usd = (v) => Number(v || 0).toLocaleString(undefined, { minimumFrac
 export const calculateGYd = (gsm, widthFull) => Math.round(gsm * widthFull * 0.02322576);
 
 /**
+ * MCQ(Minimum Color Quantity)를 100kg(=100,000g) 기준 야드(YD)로 계산합니다.
+ * 공식: 100,000g ÷ (G/YD × (1 + 염색 LOSS%))
+ * 결과는 100단위 올림(Math.ceil) 처리하여 실무 단위(100yd 묶음)에 맞춥니다.
+ *
+ * @param {number} gYd - 야드당 중량 (g/yd)
+ * @param {number} dyeLossPct - 염색 LOSS 백분율 (예: 10 = 10%)
+ * @returns {number} 100단위 올림된 MCQ 야드 (계산 불가 시 0)
+ */
+export const calculateMcqYd = (gYd, dyeLossPct) => {
+  const g = Number(gYd) || 0;
+  if (g <= 0) return 0;
+  const lossRatio = 1 + ((Number(dyeLossPct) || 0) / 100);
+  const denom = g * lossRatio;
+  if (denom <= 0) return 0;
+  const rawYd = 100000 / denom;
+  return Math.ceil(rawYd / 100) * 100;
+};
+
+/**
  * 숫자를 [min, max] 범위로 clamp. NaN/null/undefined는 0으로 처리.
  * - 음수/100% 초과 입력 차단 등 입력 검증에 사용
  */

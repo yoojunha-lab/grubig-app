@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { calculateMcqYd } from '../../utils/helpers';
 
 // GRUBIG ERP - 견적서(Quotation) 도메인 로직 및 훅
 
@@ -79,13 +80,19 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     const d3k = calc.tier3k?.[currentMarketType] ?? {}; 
     const d5k = calc.tier5k?.[currentMarketType] ?? {};
 
-    // MCQ는 실제 중량 베이스로 로스 10% 감안하여 계산
-    const effectiveGYd = Number(calc.effectiveGYd) || 0;
-    const weightWithLoss = effectiveGYd * 1.1;
-    // effectiveGYd가 0이면 Infinity 방지 → MCQ 최소 300 보장
-    const rawMcqYd = weightWithLoss > 0 ? (100000 / weightWithLoss) : 0;
-    const roundedMcq = Math.round(rawMcqYd / 100) * 100;
-    const finalMcqYd = Math.max(300, roundedMcq);
+    // MCQ 결정: 원단에 직접 입력값(fabric.mcqYd)이 있으면 우선, 없으면 자동 계산
+    // 자동 계산 식: 100,000g ÷ (G/YD × (1 + 1K tier 염색 LOSS%)), 100단위 올림
+    // 자동값에는 최소 300 YD 안전망 유지(직접 입력값에는 안전망 미적용 — 담당자 의도 존중)
+    const userMcqYd = Number(fabric.mcqYd) || 0;
+    let finalMcqYd;
+    if (userMcqYd > 0) {
+      finalMcqYd = userMcqYd;
+    } else {
+      const effectiveGYd = Number(calc.effectiveGYd) || 0;
+      const dyeLoss1k = Number(fabric.losses?.tier1k?.dye) || 0;
+      const computed = calculateMcqYd(effectiveGYd, dyeLoss1k);
+      finalMcqYd = Math.max(300, computed);
+    }
 
     return {
       fabricId: fabric.id, article: fabric.article, itemName: fabric.itemName, widthCut: fabric.widthCut, widthFull: fabric.widthFull, gsm: fabric.gsm,

@@ -37,7 +37,7 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
   const [expandedFabricId, setExpandedFabricId] = useState(null);
   
   const getInitialFabricInput = () => ({
-    article: '', itemName: '', widthFull: 58, widthCut: 56, gsm: 300, costGYd: '', remarks: '',
+    article: '', itemName: '', widthFull: 58, widthCut: 56, gsm: 300, costGYd: '', mcqYd: '', remarks: '',
     knittingFee1k: 3000, knittingFee3k: 2000, knittingFee5k: 2000, dyeingFee: 8800, extraFee1k: 900, extraFee3k: 700, extraFee5k: 500,
     losses: { tier1k: { knit: 5, dye: 10 }, tier3k: { knit: 3, dye: 10 }, tier5k: { knit: 3, dye: 9 } },
     marginTier: 3, brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 },
@@ -51,7 +51,8 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     if (name === 'article') value = String(value || '').toUpperCase();
 
     // 비숫자 필드는 그대로, 숫자 필드는 [min,max] 범위로 clamp
-    const isText = name === 'article' || name === 'itemName' || name === 'costGYd' || name === 'remarks';
+    // mcqYd / costGYd 는 빈 문자열 허용(비어있으면 자동 계산값 사용) → text로 취급
+    const isText = name === 'article' || name === 'itemName' || name === 'costGYd' || name === 'mcqYd' || name === 'remarks';
     const finalValue = isText ? value : clampField(name, value);
 
     setFabricInput(prev => ({ ...prev, [name]: finalValue }));

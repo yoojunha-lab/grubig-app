@@ -1,7 +1,7 @@
 import React from 'react';
 import { X, RotateCcw, Info, Plus, Save, Factory, Users, AlertTriangle } from 'lucide-react';
 import { SearchableSelect } from '../components/common/SearchableSelect';
-import { num } from '../utils/helpers';
+import { num, calculateMcqYd } from '../utils/helpers';
 import { MARGIN_TIERS } from '../constants/common';
 
 export const CalculatorPage = ({
@@ -21,6 +21,13 @@ export const CalculatorPage = ({
 }) => {
   const totalRatio = fabricInput.yarns.reduce((sum, yarn) => sum + (Number(yarn.ratio) || 0), 0);
   const isRatioValid = totalRatio === 100;
+
+  // MCQ 자동 계산 (1K tier 염색 LOSS 기준): 사용자 직접 입력값이 없을 때 표시될 값
+  const mcqGYdSource = Number(fabricInput.costGYd) > 0
+    ? Number(fabricInput.costGYd)
+    : Number(currentCalcFull?.theoreticalGYd) || 0;
+  const mcqDyeLoss1k = Number(fabricInput.losses?.tier1k?.dye) || 0;
+  const autoMcqYd = calculateMcqYd(mcqGYdSource, mcqDyeLoss1k);
 
   const handleSaveSafe = () => {
     if (!isRatioValid) {
@@ -109,6 +116,34 @@ export const CalculatorPage = ({
               <div className="col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">외폭 (Full)</label><input type="number" name="widthFull" value={fabricInput.widthFull} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-right" placeholder="58" /></div>
               <div className="col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">GSM</label><div className="relative"><input type="number" name="gsm" value={fabricInput.gsm} onChange={handleFabricChange} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-right" placeholder="300" /><span className="absolute -bottom-5 right-0 text-[10px] text-slate-400">≈ 실제 {num(currentCalcFull.theoreticalGYd)} g/yd</span></div></div>
               <div className="col-span-1"><label className="block text-xs font-bold text-blue-600 mb-1">생산 G/YD <span className="text-[10px] text-blue-400 font-normal">(g/yd)</span></label><input type="number" name="costGYd" value={fabricInput.costGYd} onChange={handleFabricChange} className="w-full bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-right font-bold text-blue-700 focus:ring-2 focus:ring-blue-500 outline-none transition-shadow" placeholder={num(currentCalcFull.theoreticalGYd)} /></div>
+            </div>
+
+            {/* [MCQ] 최소 주문량 — 견적 시 100kg 기준 야드 환산 (담당자 직접 설정 가능) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+              <div className="col-span-1">
+                <label className="block text-xs font-bold text-orange-600 mb-1">
+                  MCQ <span className="text-[10px] text-orange-400 font-normal">(YD / 최소 주문량)</span>
+                </label>
+                <input
+                  type="number"
+                  name="mcqYd"
+                  value={fabricInput.mcqYd || ''}
+                  onChange={handleFabricChange}
+                  placeholder={autoMcqYd > 0 ? `자동: ${num(autoMcqYd)} YD` : '비워두면 자동 계산'}
+                  className="w-full bg-orange-50 border border-orange-100 rounded-lg px-3 py-2 text-right font-bold text-orange-700 focus:ring-2 focus:ring-orange-500 outline-none transition-shadow"
+                />
+              </div>
+              <div className="col-span-1 flex items-end">
+                <div className="w-full bg-amber-50/60 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-800 leading-snug">
+                  💡 <strong>100kg 기준 ≈ {num(autoMcqYd)} YD</strong>
+                  <span className="text-amber-600 font-normal ml-1">
+                    (G/YD {num(mcqGYdSource)} × 1K LOSS {mcqDyeLoss1k}% / 100단위 올림)
+                  </span>
+                  <div className="text-[10px] text-amber-600 font-normal mt-0.5">
+                    빈칸 시 자동값 적용. 담당자가 직접 입력하면 입력값 우선 사용.
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-2 mt-6">
               <div className="flex justify-between items-center mb-2">
