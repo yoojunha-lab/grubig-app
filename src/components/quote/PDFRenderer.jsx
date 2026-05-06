@@ -77,12 +77,37 @@ export const PDFRenderer = ({
   const extraMarginPct = Number(quoteInput.extraMargin || 0);
   const currency = quoteInput.currency;
 
-  // [PDF 좌측 잘림 수정] #root 에 max-width:1280px + padding:2rem + text-align:center 가 있어
-  // 자손인 PDFRenderer가 fixed 여도 box/inline-content 영향을 받아 캡처 좌측이 어긋났음.
-  // React Portal 로 document.body 직속에 마운트하여 #root 영향을 완전히 차단한다.
+  // [PDF 좌측 잘림 수정 v3]
+  // - Portal 로 document.body 직속 마운트 (이전 패치 유지)
+  // - Tailwind 클래스 대신 inline style 로 모든 위치/크기 강제 명시
+  //   (브라우저별 mm→px 환산, 부모 transform/text-align 등 영향을 차단)
+  // - 794px (A4 폭) 고정값 사용 — html2canvas 옵션의 width 와 일치시켜 캡처 정합성 확보
+  const containerStyle = {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    width: '794px',
+    margin: 0,
+    padding: 0,
+    backgroundColor: '#ffffff',
+    zIndex: 9998,
+    textAlign: 'left',
+    display: isPdfGenerating ? 'block' : 'none',
+    boxSizing: 'border-box',
+    transform: 'none'
+  };
+  const innerStyle = {
+    width: '794px',
+    margin: 0,
+    padding: 0,
+    backgroundColor: '#ffffff',
+    textAlign: 'left',
+    boxSizing: 'border-box',
+    transform: 'none'
+  };
   return createPortal(
-    <div className={`fixed top-0 left-0 z-[9998] w-[210mm] bg-white ${isPdfGenerating ? 'block' : 'hidden'}`} style={{ textAlign: 'left' }}>
-      <div ref={printRef} className="w-[210mm] bg-white" style={{ textAlign: 'left' }}>
+    <div style={containerStyle}>
+      <div ref={printRef} style={innerStyle}>
         {pages.map((page, pageIdx) => (
           <div
             key={pageIdx}

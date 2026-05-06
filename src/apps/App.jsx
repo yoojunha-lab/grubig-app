@@ -844,13 +844,24 @@ const App = () => {
     // React state 업데이트 + 렌더 사이클을 기다린 후 PDF 생성
     setTimeout(() => {
       if (printRef.current && window.html2pdf) {
+        // [PDF 좌측 잘림 수정 v3] element 실제 rect 로 캡처 좌표 보정
+        //   - scrollX: -rect.left, scrollY: -rect.top → element 의 viewport 위치 어긋남을 상쇄
+        //   - width/windowWidth: rect.width 정확 사용 (794px 고정값 대신 실측치)
+        //   브라우저별 mm 환산 차이, 부모 transform 영향 모두 흡수
+        const rect = printRef.current.getBoundingClientRect();
+        const captureWidth = Math.round(rect.width) || 794;
         const opt = {
           margin: [12, 10, 12, 10],
           filename: `Quotation_${String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9\s-가-힣]/g, '')}_${targetQuote.date || ''}.pdf`,
           image: { type: 'jpeg', quality: 1 },
-          // [PDF 좌측 잘림 수정] width(캡처 결과 폭) + windowWidth(viewport 시뮬레이션)
-          // 둘 다 A4 폭(210mm ≈ 794px)에 명시 → element fixed 위치와 무관하게 정확한 영역 캡처
-          html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0, width: 794, windowWidth: 794 },
+          html2canvas: {
+            scale: 2,
+            useCORS: true,
+            scrollX: -rect.left,
+            scrollY: -rect.top,
+            width: captureWidth,
+            windowWidth: captureWidth
+          },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
           pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.avoid-break'] }
         };
