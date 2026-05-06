@@ -834,40 +834,33 @@ const App = () => {
     // History 페이지 등에서 특정 견적서 출력 시 해당 견적서 데이터를 최우선으로 적용합니다.
     const targetQuote = (targetQuoteFromHistory && targetQuoteFromHistory.id) ? targetQuoteFromHistory : quoteInput;
 
-    if (!isPdfReady) { showToast("PDF 로딩 중입니다.", 'error'); return; }
-    if (!targetQuote.items || targetQuote.items.length === 0) { showToast("내용이 없습니다.", 'error'); return; }
+    if (!targetQuote.items || targetQuote.items.length === 0) {
+      showToast("내용이 없습니다.", 'error');
+      return;
+    }
 
     // PDFRenderer가 올바른 데이터로 렌더링되도록 항상 setQuoteInput 실행
     setQuoteInput(targetQuote);
-    setIsPdfGenerating(true); showToast("PDF 생성 중... (잠시만 기다려주세요)", 'info');
+    setIsPdfGenerating(true);
+    showToast("인쇄 다이얼로그에서 '대상 = PDF로 저장'을 선택해 주세요.", 'info');
 
-    // React state 업데이트 + 렌더 사이클을 기다린 후 PDF 생성
+    // [PDF v4] Chrome native 인쇄 기능 사용
+    //   - window.print() + @media print 스타일 (index.css)
+    //   - document.title 트릭으로 자동 파일명 제안
+    //   - html2pdf 라이브러리 우회 → element 위치 캡처 버그 회피
     setTimeout(() => {
-      if (printRef.current && window.html2pdf) {
-        // [PDF 좌측 잘림 수정 v3] element 실제 rect 로 캡처 좌표 보정
-        //   - scrollX: -rect.left, scrollY: -rect.top → element 의 viewport 위치 어긋남을 상쇄
-        //   - width/windowWidth: rect.width 정확 사용 (794px 고정값 대신 실측치)
-        //   브라우저별 mm 환산 차이, 부모 transform 영향 모두 흡수
-        const rect = printRef.current.getBoundingClientRect();
-        const captureWidth = Math.round(rect.width) || 794;
-        const opt = {
-          margin: [12, 10, 12, 10],
-          filename: `Quotation_${String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9\s-가-힣]/g, '')}_${targetQuote.date || ''}.pdf`,
-          image: { type: 'jpeg', quality: 1 },
-          html2canvas: {
-            scale: 2,
-            useCORS: true,
-            scrollX: -rect.left,
-            scrollY: -rect.top,
-            width: captureWidth,
-            windowWidth: captureWidth
-          },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-          pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.avoid-break'] }
-        };
-        window.html2pdf().set(opt).from(printRef.current).save().then(() => { setIsPdfGenerating(false); showToast("PDF 다운로드 완료.", 'success'); });
-      } else { setIsPdfGenerating(false); }
-    }, 800);
+      const oldTitle = document.title;
+      const safeBuyer = String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9\s-가-힣]/g, '');
+      const filename = `Quotation_${safeBuyer}_${targetQuote.date || ''}`.trim();
+      try {
+        document.title = filename;
+        window.print();
+      } finally {
+        // 인쇄 다이얼로그 닫힌 후 복원
+        document.title = oldTitle;
+        setIsPdfGenerating(false);
+      }
+    }, 400);
   };
 
   // [R1] formatQuotePrice / getBasePrice 정의는 helpers.js로 이전됨.

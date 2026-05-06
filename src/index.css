@@ -41,3 +41,48 @@
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
+
+/* ========================================================== */
+/* [PDF 출력 — native window.print() 사용]                    */
+/* @media print 시 #root(앱 본체)는 숨기고 .pdf-render-root  */
+/* (Portal로 body 직속 마운트된 PDF 컴포넌트)만 좌상단 정렬   */
+/* 으로 노출하여 Chrome native PDF 출력의 정확성을 확보       */
+/* ========================================================== */
+@page {
+  size: A4 portrait;
+  margin: 12mm 10mm 12mm 10mm;
+}
+
+@media print {
+  /* 화면용 콘텐츠 모두 숨김 */
+  body > *:not(.pdf-render-root) {
+    display: none !important;
+  }
+  /* PDF 컴포넌트만 정상 위치로 복원 */
+  body > .pdf-render-root {
+    position: static !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  body > .pdf-render-root .pdf-render-inner {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+  /* 페이지 분할 시 행 잘림 방지 */
+  .avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  /* 색상/배경 정확 출력 (Chrome 기본은 배경 무시) */
+  body {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
