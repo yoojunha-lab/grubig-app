@@ -83,6 +83,17 @@ export const PROCESS_DEFAULT_STATUS = 'pending';
 export const STATUS_TRIGGERS_START_DATE = 'in_progress';  // 진행중 → actualStartDate=today
 export const STATUS_TRIGGERS_END_DATE   = 'done';         // 완료 → actualEndDate=today
 
+// ============================================================
+// 염가공 컬러별 브랜드 컨펌 결과
+// ------------------------------------------------------------
+// 라운드별 result 값. 빈 문자열('')은 미설정(진행 전).
+// ============================================================
+export const BRAND_CONFIRM_RESULTS = [
+  { key: 'pass',   label: '합격',   color: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  { key: 'fail',   label: '불합격', color: 'bg-rose-100 text-rose-700 border-rose-300' },
+  { key: 'retest', label: '재시험', color: 'bg-amber-100 text-amber-700 border-amber-300' }
+];
+
 // 레거시 한글 차수 status → 신규 4상태 키 매핑 (옛 enum 데이터 호환)
 export const LEGACY_BATCH_STATUS_MAP = {
   // 사가공

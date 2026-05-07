@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Trash2, AlertCircle } from 'lucide-react';
+import { Trash2, AlertCircle, ChevronDown, ChevronUp, Palette } from 'lucide-react';
 import {
   BATCH_STATUSES, BATCH_STATUS_COLORS,
   STATUS_TRIGGERS_END_DATE,
   getProcessQtyUnit, normalizeBatchStatus,
 } from '../../../constants/production';
 import { todayYmd, isBatchOverdue } from '../../../utils/orderCalculations';
+import { ColorDetailRow } from './ColorDetailRow';
 
 // ============================================================
 // 차수 1행 (인라인 편집, onBlur 자동 저장)
@@ -23,6 +24,12 @@ export const BatchRow = ({ batch, orderColors, processType, onSave, onDelete, hi
   const [saving, setSaving] = useState(false);
   const rowRef = useRef(null);
   const [flash, setFlash] = useState(false);
+  const [expanded, setExpanded] = useState(false);  // [신규] dyeing 컬러 sub-row 펼치기
+
+  // [신규] 염가공 컬러 sub-row 노출 조건
+  const isDyeing = processType === 'dyeing';
+  const hasColors = (draft.colors || []).length > 0;
+  const canExpand = isDyeing && hasColors;
 
   useEffect(() => {
     setDraft(JSON.parse(JSON.stringify(batch)));
@@ -58,7 +65,27 @@ export const BatchRow = ({ batch, orderColors, processType, onSave, onDelete, hi
   const toggleColor = async (colorName) => {
     const cur = draft.colors || [];
     const exists = cur.some(c => c.color === colorName);
-    const newColors = exists ? cur.filter(c => c.color !== colorName) : [...cur, { color: colorName, quantity: 0 }];
+    // [신규] dyeing 공정은 컬러 추가 시 신규 필드(일정/컨펌/shipping) 초기화
+    const newColorObj = isDyeing
+      ? {
+          color: colorName, quantity: 0,
+          plannedStartDate: '', plannedEndDate: '', actualEndDate: '',
+          brandConfirms: [{ round: 1, sentDate: '', resultDate: '', result: '' }],
+          shippingSample: { sentDate: '', yards: 0 }
+        }
+      : { color: colorName, quantity: 0 };
+    const newColors = exists ? cur.filter(c => c.color !== colorName) : [...cur, newColorObj];
+    const next = { ...draft, colors: newColors };
+    setDraft(next);
+    setSaving(true);
+    try { await onSave(next); } finally { setSaving(false); }
+  };
+
+  // [신규] dyeing 컬러 sub-row 변경 핸들러: 해당 컬러만 갈아끼우고 batch 전체 저장
+  const updateColor = async (colorName, updatedColor) => {
+    const newColors = (draft.colors || []).map(c =>
+      c.color === colorName ? { ...c, ...updatedColor } : c
+    );
     const next = { ...draft, colors: newColors };
     setDraft(next);
     setSaving(true);
@@ -79,7 +106,13 @@ export const BatchRow = ({ batch, orderColors, processType, onSave, onDelete, hi
         ? 'bg-amber-50/30'
         : 'hover:bg-slate-50/50';
 
+  // 컬러 sub-row colspan 계산: 차수+상태+시작+종료+실제종료+메모+삭제 = 7 (+수량 +컬러)
+  const subRowColspan = 7
+    + (qtyUnit ? 1 : 0)
+    + (showColors && (orderColors || []).length > 0 ? 1 : 0);
+
   return (
+   <>
     <tr ref={rowRef} className={`border-b border-slate-100 ${rowCls}`}>
       {/* 차수 번호 (자동, 읽기전용) */}
       <td className="px-1.5 py-1.5 text-center w-[50px]">
@@ -145,7 +178,7 @@ export const BatchRow = ({ batch, orderColors, processType, onSave, onDelete, hi
       {/* 컬러 (오더에 컬러 등록되어 있을 때만) */}
       {showColors && (orderColors || []).length > 0 && (
         <td className="px-1.5 py-1.5">
-          <div className="flex flex-wrap gap-0.5">
+          <div className="flex flex-wrap gap-0.5 items-center">
             {(orderColors || []).map(c => {
               const selected = (draft.colors || []).some(bc => bc.color === c.name);
               return (
@@ -160,6 +193,16 @@ export const BatchRow = ({ batch, orderColors, processType, onSave, onDelete, hi
                 </button>
               );
             })}
+            {/* [신규] dyeing 전용: 컬러별 상세 펼치기 토글 */}
+            {canExpand && (
+              <button
+                onClick={() => setExpanded(v => !v)}
+                className={`ml-1 p-1 rounded transition-colors ${expanded ? 'bg-violet-100 text-violet-700' : 'text-slate-400 hover:text-violet-600 hover:bg-violet-50'}`}
+                title={expanded ? '컬러별 상세 닫기' : '컬러별 상세 펼치기 (일정/컨펌/Shipping)'}
+              >
+                {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+            )}
           </div>
         </td>
       )}
@@ -197,6 +240,31 @@ export const BatchRow = ({ batch, orderColors, processType, onSave, onDelete, hi
         )}
       </td>
     </tr>
+
+    {/* [신규] dyeing 컬러별 상세 sub-row */}
+    {canExpand && expanded && (
+      <tr className="bg-violet-50/30 border-b-2 border-violet-200">
+        <td colSpan={subRowColspan} className="px-3 py-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Palette className="w-3.5 h-3.5 text-violet-600" />
+            <span className="text-[11px] font-extrabold text-violet-700 uppercase tracking-wider">
+              {draft.batchNumber}차 — 컬러별 일정 / 브랜드 컨펌 / Shipping Sample
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            {(draft.colors || []).map(c => (
+              <ColorDetailRow
+                key={c.color}
+                color={c}
+                qtyUnit={qtyUnit || 'KG'}
+                onChange={(updated) => updateColor(c.color, updated)}
+              />
+            ))}
+          </div>
+        </td>
+      </tr>
+    )}
+   </>
   );
 };
 
