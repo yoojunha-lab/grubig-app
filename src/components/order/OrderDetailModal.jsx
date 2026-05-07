@@ -11,6 +11,7 @@ import {
 import {
   calcOrderProgress, getOrderHealth, getHealthColorClass,
   enrichProcessesWithEffectiveDates, analyzeProcessOverruns,
+  diffDaysYmd, todayYmd, getProcessDeadlineInfo,
 } from '../../utils/orderCalculations';
 import { BatchRow, BatchTableHeader } from './editing/BatchRow';
 import { DeliveryRow, DeliveryTableHeader } from './editing/DeliveryRow';
@@ -363,8 +364,28 @@ export const OrderDetailModal = ({
                   ? (p.yarnOrders || []).reduce((s, yo) => s + (yo.deliveries || []).length, 0)
                   : (p.batches || []).length;
 
+                // [신규] 공정 마감 D-N 정보 (완료된 공정은 null)
+                const deadlineInfo = getProcessDeadlineInfo(eff || p);
+                const deadlineBadge = deadlineInfo && (() => {
+                  const { days, urgency } = deadlineInfo;
+                  const cls =
+                    urgency === 'overdue' ? 'bg-rose-100 text-rose-700 border-rose-300 ring-2 ring-rose-200 animate-pulse'
+                    : urgency === 'urgent' ? 'bg-orange-100 text-orange-700 border-orange-300 font-extrabold'
+                    : urgency === 'soon'   ? 'bg-amber-50 text-amber-700 border-amber-200'
+                    : 'bg-slate-100 text-slate-600 border-slate-200';
+                  const text = days < 0 ? `D+${-days} 지연!` : days === 0 ? 'Today 마감' : `D-${days}`;
+                  return { cls, text };
+                })();
+
+                // 공정 카드 외곽 강조: 지연 시 빨간 보더 + 살짝 빨간 배경
+                const processCardCls =
+                  deadlineInfo?.urgency === 'overdue' ? 'border-rose-400 bg-rose-50/30'
+                  : deadlineInfo?.urgency === 'urgent' ? 'border-orange-300'
+                  : overrun ? 'border-amber-300'
+                  : 'border-slate-200';
+
                 return (
-                  <div key={p.processType} className={`border rounded-lg overflow-hidden ${overrun ? 'border-amber-300' : 'border-slate-200'}`}>
+                  <div key={p.processType} className={`border rounded-lg overflow-hidden ${processCardCls}`}>
                     <button
                       onClick={() => setExpandedProcess(isOpen ? null : p.processType)}
                       className={`w-full px-4 py-2.5 flex items-center justify-between transition-all ${isOpen ? 'bg-teal-50' : 'hover:bg-slate-50'}`}
@@ -376,8 +397,15 @@ export const OrderDetailModal = ({
                         <span className="text-sm font-bold text-slate-800">{meta?.label}</span>
                         <span className="text-[11px] text-slate-500">차수 {totalBatches}건</span>
                         {eff?.effectiveEnd && (
-                          <span className="text-[11px] font-mono font-bold text-teal-700">
-                            {eff.effectiveStart} ~ {eff.effectiveEnd}
+                          <span className="text-[11px] font-mono font-bold text-teal-700 flex items-center gap-1">
+                            <Calendar className="w-3 h-3"/> 마감 {eff.effectiveEnd}
+                          </span>
+                        )}
+                        {deadlineBadge && (
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shadow-sm flex items-center gap-1 ${deadlineBadge.cls}`}
+                            title={`공정 전체 종료일 기준 카운트다운`}
+                          >
+                            <Clock className="w-2.5 h-2.5" />{deadlineBadge.text}
                           </span>
                         )}
                         {overrun && (

@@ -1,5 +1,23 @@
 import React from 'react';
-import { Clock, Trash2, Printer, CheckCircle2, XCircle, ArrowRight } from 'lucide-react';
+import { Clock, Trash2, Printer, CheckCircle2, XCircle, ArrowRight, Calendar } from 'lucide-react';
+
+// 진입 날짜 → "MM/DD · N일째" 포맷 (없으면 null)
+const formatStageEntry = (iso) => {
+  if (!iso) return null;
+  const t = new Date(iso); if (isNaN(t)) return null;
+  const now = new Date();
+  const days = Math.floor((now.setHours(0,0,0,0) - new Date(t).setHours(0,0,0,0)) / 86400000);
+  const mm = String(t.getMonth()+1).padStart(2,'0');
+  const dd = String(t.getDate()).padStart(2,'0');
+  return `${mm}/${dd} · ${days === 0 ? '오늘' : `${days}일째`}`;
+};
+
+// 우선순위 (지연/임박/정상) → 카드 좌측 보더 컬러 매핑
+const urgencyBorderCls = {
+  overdue: 'border-l-4 border-l-rose-500',
+  urgent: 'border-l-4 border-l-orange-400',
+  normal: ''
+};
 
 export const DevReqSummaryCard = ({
   d,
@@ -11,7 +29,9 @@ export const DevReqSummaryCard = ({
   openEditModal,
   handleDeleteDevRequest,
   handlePrint,
-  handleGoToSheet
+  handleGoToSheet,
+  compact = false,
+  urgency = 'normal'  // 'overdue' | 'urgent' | 'normal'
 }) => {
   // 단계별로 다른 마감일을 사용
   // - pending/analyzing: 분석 납기 (analysisDeadline)
@@ -30,6 +50,31 @@ export const DevReqSummaryCard = ({
   const db = deadlineBadge(deadlineForStage);
   const isLocked = d.status === 'confirmed' && !!getLinkedSheet(d);
 
+  // 현재 status 진입 날짜 (없으면 updatedAt fallback)
+  const stageEntryStr = formatStageEntry(d.statusEnteredAt?.[d.status] || d.updatedAt);
+
+  const borderCls = urgencyBorderCls[urgency] || '';
+  const bgUrgencyCls = urgency === 'overdue' ? 'bg-rose-50/40' : 'bg-white';
+
+  // ============ 컴팩트 모드 ============
+  if (compact) {
+    return (
+      <div
+        onClick={() => openEditModal(d)}
+        className={`${bgUrgencyCls} rounded-md ${borderCls} border border-slate-200 hover:border-blue-300 shadow-sm hover:shadow transition-all px-2 py-1.5 cursor-pointer flex items-center gap-1.5 text-[11px]`}
+      >
+        <span className="font-mono font-extrabold text-violet-600 shrink-0">{d.devOrderNo}</span>
+        <span className="font-bold text-slate-700 truncate flex-1">{d.buyerName}</span>
+        {db && (
+          <span className={`text-[9px] rounded px-1 py-0.5 whitespace-nowrap leading-none shrink-0 ${db.c}`} title={`${deadlineLabel} 납기`}>
+            {db.t}
+          </span>
+        )}
+      </div>
+    );
+  }
+  // =====================================
+
   // 상태별 명시 액션 버튼 노출 조건
   const showAnalyzeDone = d.status === 'analyzing';
   const showStartDesign = d.status === 'hold' || (d.status === 'confirmed' && !getLinkedSheet(d));
@@ -42,7 +87,7 @@ export const DevReqSummaryCard = ({
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm hover:border-slate-300 transition-all p-2">
+    <div className={`${bgUrgencyCls} rounded-xl ${borderCls} border border-slate-200 shadow-sm hover:border-slate-300 transition-all p-2`}>
       {/* 상단: 상태 및 오더번호 */}
       <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
         <div className="flex gap-1.5 items-center">
@@ -68,6 +113,13 @@ export const DevReqSummaryCard = ({
            {d.devItem && <span className="bg-slate-100 px-1 py-0.5 leading-none rounded">{d.devItem}</span>}
            {d.targetSpec?.composition && <span>{d.targetSpec.composition.substring(0,25)}</span>}
         </div>
+        {/* 단계 진입 날짜 */}
+        {stageEntryStr && (
+          <div className="flex items-center gap-1 text-[9px] text-slate-400 mt-1" title={`${statusLabels[d.status] || d.status} 진입`}>
+            <Calendar className="w-2.5 h-2.5" />
+            <span className="font-medium">{stageEntryStr}</span>
+          </div>
+        )}
       </div>
 
       {/* 명시 액션 버튼 영역 (상태별) */}

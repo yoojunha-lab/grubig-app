@@ -84,11 +84,17 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       devOrderNo = existing?.devOrderNo || generateDevOrderNo();
     }
 
+    // [신규] statusEnteredAt: 신규 의뢰는 현재 status로 초기화, 기존 의뢰는 보존
+    const statusEnteredAt = isNew
+      ? { [devInput.status || 'pending']: now }
+      : (existing?.statusEnteredAt || {});
+
     const itemToSave = {
       ...devInput,
       id: editingDevId || `dev_${Date.now()}`,
       devOrderNo,
       linkedDesignSheetId: isNew ? null : (existing?.linkedDesignSheetId || null),
+      statusEnteredAt,
       createdBy: isNew ? (user?.email || '') : (existing?.createdBy || ''),
       createdAt: isNew ? now : (existing?.createdAt || now),
       updatedAt: now
@@ -176,6 +182,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       }
     }
 
+    const now = new Date().toISOString();
     saveDocToCloud('devRequests', {
       ...devReq,
       status: newStatus,
@@ -184,7 +191,9 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       linkedDesignSheetId: devReq.status === 'confirmed' && newStatus !== 'confirmed'
         ? null
         : restoredSheetId,
-      updatedAt: new Date().toISOString()
+      // [신규] 새 status 진입 시점 누적 기록
+      statusEnteredAt: { ...(devReq.statusEnteredAt || {}), [newStatus]: now },
+      updatedAt: now
     });
     showToast(`상태가 변경되었습니다.`, 'success');
   };
@@ -196,11 +205,17 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     if (!devReq) return;
     // 이미 확정+연결된 경우 → 중복 저장 방지 (설계서 수정 저장 시)
     if (devReq.status === 'confirmed' && devReq.linkedDesignSheetId === designSheetId) return;
+    const now = new Date().toISOString();
+    // [신규] confirmed 신규 진입인 경우에만 시점 기록 (이미 confirmed였으면 보존)
+    const statusEnteredAt = devReq.status === 'confirmed'
+      ? (devReq.statusEnteredAt || {})
+      : { ...(devReq.statusEnteredAt || {}), confirmed: now };
     saveDocToCloud('devRequests', {
       ...devReq,
       linkedDesignSheetId: designSheetId,
       status: 'confirmed',
-      updatedAt: new Date().toISOString()
+      statusEnteredAt,
+      updatedAt: now
     });
   };
 

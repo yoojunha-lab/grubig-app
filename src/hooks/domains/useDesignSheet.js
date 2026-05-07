@@ -227,10 +227,13 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       return;
     }
 
+    const now = new Date().toISOString();
     const updatedSheet = {
       ...sheet,
       stage: nextStage,
-      updatedAt: new Date().toISOString()
+      // [신규] 단계 진입 시점 누적 기록
+      stageEnteredAt: { ...(sheet.stageEnteredAt || {}), [nextStage]: now },
+      updatedAt: now
     };
 
     // [Step 2] 아이템화 진입 시: registerFabricFromSheet가 원단 등록 + 설계서 stage 갱신을
@@ -252,11 +255,14 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     if (sheet.stage !== 'eztex') return; // eztex 단계에서만 작동
     if (!eztexOrderNo?.trim()) return;
 
+    const now = new Date().toISOString();
     const updatedSheet = {
       ...sheet,
       eztexOrderNo: eztexOrderNo.trim(),
       stage: 'sampling',
-      updatedAt: new Date().toISOString()
+      // [신규] sampling 진입 시점 기록
+      stageEnteredAt: { ...(sheet.stageEnteredAt || {}), sampling: now },
+      updatedAt: now
     };
     saveDocToCloud('designSheets', updatedSheet);
     showToast(`EZ-TEX O/D NO. 등록 완료 → '샘플 진행' 단계로 자동 진행되었습니다.`, 'success');
@@ -267,10 +273,13 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     const sheet = designSheets.find(s => s.id === sheetId);
     if (!sheet) return;
     if (sheet.stage !== 'draft') return; // draft에서만 작동
+    const now = new Date().toISOString();
     saveDocToCloud('designSheets', {
       ...sheet,
       stage: 'eztex',
-      updatedAt: new Date().toISOString()
+      // [신규] eztex 진입 시점 기록
+      stageEnteredAt: { ...(sheet.stageEnteredAt || {}), eztex: now },
+      updatedAt: now
     });
   };
 
@@ -318,10 +327,16 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       }
     }
 
+    // [신규] stageEnteredAt: 신규는 현재 stage로 초기화, 기존은 보존
+    const stageEnteredAt = isNew
+      ? { [finalInput.stage || 'draft']: now }
+      : (existing?.stageEnteredAt || {});
+
     const itemToSave = {
       ...finalInput,
       id: editingSheetId || `ds_${Date.now()}`,
       status: finalInput.status || 'active',
+      stageEnteredAt,
       createdBy: isNew ? (user?.email || '') : (existing?.createdBy || ''),
       createdAt: isNew ? now : (existing?.createdAt || now),
       updatedAt: now
@@ -375,6 +390,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     // sampling 상태이고 Article 번호가 입력된 경우 자동으로 articled 로 전환
     if (itemToSave.stage === 'sampling' && String(itemToSave.articleNo || '').trim()) {
       itemToSave.stage = 'articled';
+      itemToSave.stageEnteredAt = { ...(itemToSave.stageEnteredAt || {}), articled: now };
       isAutoArticled = true;
     }
 
@@ -602,15 +618,18 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       remarks: `설계서 아이템화 자동 등록 (${sheet.devOrderNo || ''})`
     };
     saveFabricFromSheet(fabricData);
-    
+
     // 설계서 쪽에도 linkedFabricId 기록
+    const now = new Date().toISOString();
     saveDocToCloud('designSheets', {
         ...sheet,
         stage: 'articled',
         linkedFabricId: fabricId,
-        updatedAt: new Date().toISOString()
+        // [신규] articled 진입 시점 기록 (advanceStage에서 이미 기록됐을 수 있으나 보강)
+        stageEnteredAt: { ...(sheet.stageEnteredAt || {}), articled: sheet.stageEnteredAt?.articled || now },
+        updatedAt: now
     });
-    
+
     showToast(`Article ${sheet.articleNo} 원단이 자동 등록되었습니다.`, 'success');
   };
 

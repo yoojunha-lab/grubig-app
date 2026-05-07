@@ -239,6 +239,79 @@ export const calcOrderProgress = (order) => {
 };
 
 // ============================================================
+// 5-2. 공정 완료 여부 판정 (모든 batch / yarnDelivery 가 done인지)
+// ------------------------------------------------------------
+// 모든 차수가 완료된 공정은 마감 알림 대상에서 제외
+// ============================================================
+export const isProcessComplete = (process) => {
+  if (!process || !process.isActive) return false;
+  if (process.processType === 'yarn') {
+    const all = (process.yarnOrders || []).flatMap(yo =>
+      yo.useKnitterStock ? [] : (yo.deliveries || [])
+    );
+    if (all.length === 0) return false;
+    return all.every(dv => normalizeDeliveryStatus(dv.status) === 'done');
+  }
+  const bs = process.batches || [];
+  if (bs.length === 0) return false;
+  return bs.every(b => !!b.actualEndDate);
+};
+
+// ============================================================
+// 5-3. 공정 마감 우선순위 (납기 카운트다운용)
+// ------------------------------------------------------------
+// effectiveEnd 기준 today와의 차이 (양수=남은일수, 0=오늘, 음수=지연)
+// urgency: 'overdue' | 'urgent'(D-3 이내) | 'soon'(D-7) | 'normal'
+// 완료된 공정은 null 반환
+// ============================================================
+export const getProcessDeadlineInfo = (process) => {
+  if (!process || !process.effectiveEnd) return null;
+  if (isProcessComplete(process)) return null;  // 완료된 공정은 알림 대상 아님
+  const today = todayYmd();
+  const days = diffDaysYmd(today, process.effectiveEnd);
+  let urgency = 'normal';
+  if (days < 0) urgency = 'overdue';
+  else if (days <= 3) urgency = 'urgent';
+  else if (days <= 7) urgency = 'soon';
+  return { days, urgency, effectiveEnd: process.effectiveEnd };
+};
+
+// ============================================================
+// 5-4. 전체 오더 중 마감 임박/지연 공정 추출 (대시보드용)
+// ------------------------------------------------------------
+// 모든 오더의 활성 공정을 순회 → 미완료 + (지연 OR 7일 이내) 만 반환
+// 정렬: 지연일수 내림차순 (가장 위급한 게 위로)
+// ============================================================
+export const collectUrgentProcesses = (orders, threshold = 7) => {
+  if (!Array.isArray(orders)) return [];
+  const labelMap = Object.fromEntries(PROCESS_TYPES.map(p => [p.key, p.label]));
+  const items = [];
+  orders.forEach(order => {
+    if (order.status === 'completed' || order.status === 'cancelled') return;
+    const enriched = enrichProcessesWithEffectiveDates(order);
+    enriched.forEach(p => {
+      const info = getProcessDeadlineInfo(p);
+      if (!info) return;
+      if (info.days > threshold) return;  // threshold 이내만
+      items.push({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        articleNo: order.articleNo,
+        customer: order.customer,
+        processType: p.processType,
+        processLabel: labelMap[p.processType] || p.processType,
+        effectiveEnd: info.effectiveEnd,
+        days: info.days,
+        urgency: info.urgency
+      });
+    });
+  });
+  // 가장 위급한 게 먼저: days 오름차순 (음수가 위)
+  items.sort((a, b) => a.days - b.days);
+  return items;
+};
+
+// ============================================================
 // 6. 납기 건강도 판정 (기획서 4.1 색상)
 // ------------------------------------------------------------
 // green:   estimated <= final 이면서 여유 충분
