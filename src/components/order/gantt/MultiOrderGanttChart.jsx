@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { ORDER_STATUS_COLORS, PROCESS_TYPES, BATCH_STATUS_COLORS, BATCH_STATUSES, getProcessQtyUnit } from '../../../constants/production';
+import React, { useMemo, useRef, useEffect, useState } from 'react';
+import { PROCESS_TYPES, BATCH_STATUS_COLORS, BATCH_STATUSES, getProcessQtyUnit } from '../../../constants/production';
 import {
   enrichProcessesWithEffectiveDates,
   addDaysYmd, diffDaysYmd, todayYmd,
@@ -7,13 +7,40 @@ import {
 } from '../../../utils/orderCalculations';
 import { DAY_PX, toDate, dayLabel, weekdayLabel, flattenYarnDeliveries } from './utils';
 
-const LABEL_W = 240;
+const LABEL_W = 180;
+const ROW_PAD_Y = 8;       // 행 상단 패딩
+const BAR_H = 22;          // 차수 바 높이
+const BAR_GAP = 4;         // 레인 간 세로 간격
+const MIN_ROW_H = 48;
 
 const procLabel = (key) => PROCESS_TYPES.find(p => p.key === key)?.label || key;
 const procSeq   = (key) => PROCESS_TYPES.find(p => p.key === key)?.defaultSequence || 0;
 const statusLabel = (key) => BATCH_STATUSES.find(s => s.key === key)?.label || (key || '대기');
 
-// 오더 → enriched processes (활성, sequenceOrder 순). yarn은 deliveries로 평탄화
+// 한 공정 내 차수들의 시간 겹침을 풀어 레인 번호 부여
+// items: [{ start, end, ...rest }] → 각 item에 .lane(number) 추가, laneCount 반환
+const assignLanes = (items) => {
+  const sorted = [...items].sort((a, b) => (a.start || '').localeCompare(b.start || ''));
+  const laneEnds = []; // 각 레인의 마지막 end (yyyy-mm-dd)
+  sorted.forEach(item => {
+    let placed = false;
+    for (let i = 0; i < laneEnds.length; i++) {
+      if (laneEnds[i] < item.start) {
+        item.lane = i;
+        laneEnds[i] = item.end;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      item.lane = laneEnds.length;
+      laneEnds.push(item.end);
+    }
+  });
+  return { items: sorted, laneCount: laneEnds.length };
+};
+
+// 오더 → enriched processes (활성, yarn은 deliveries로 평탄화)
 const getActiveProcesses = (order) => {
   return enrichProcessesWithEffectiveDates(order)
     .filter(p => p.isActive)
@@ -21,63 +48,84 @@ const getActiveProcesses = (order) => {
       ? { ...p, batches: flattenYarnDeliveries(p) }
       : p
     )
-    .filter(p => (p.batches || []).length > 0)
-    .sort((a, b) => (a.sequenceOrder || 0) - (b.sequenceOrder || 0));
+    .filter(p => (p.batches || []).length > 0);
 };
 
 export const MultiOrderGanttChart = ({ orders = [], onOrderClick }) => {
-  // 행 구성: 오더별로 묶고, 각 오더 아래 활성 공정들 펼침
-  const orderBlocks = useMemo(() => {
-    return (orders || [])
-      .map(order => ({
-        order,
-        processes: getActiveProcesses(order),
-      }))
-      .filter(b => b.processes.length > 0)
-      .sort((a, b) => {
-        const da = a.order.finalDueDate || '9999';
-        const db = b.order.finalDueDate || '9999';
-        return da.localeCompare(db);
-      });
-  }, [orders]);
+  // 1. 모든 오더의 모든 차수를 공정별로 그룹핑
+  //    processGroups: { [processType]: [{ order, process, batch, start, end }] }
+  const { processGroups, range } = useMemo(() => {
+    const groups = {};
+    const allDates = [];
 
-  // 시간 범위 (모든 오더의 모든 활성 공정 + 차수 + 최종납기)
-  const range = useMemo(() => {
-    const dates = [];
-    orderBlocks.forEach(({ order, processes }) => {
-      processes.forEach(p => {
-        if (p.effectiveStart) dates.push(p.effectiveStart);
-        if (p.effectiveEnd) dates.push(p.effectiveEnd);
+    (orders || []).forEach(order => {
+      const procs = getActiveProcesses(order);
+      procs.forEach(p => {
         (p.batches || []).forEach(b => {
-          if (b.plannedStartDate) dates.push(b.plannedStartDate);
-          if (b.plannedEndDate)   dates.push(b.plannedEndDate);
-          if (b.actualEndDate)    dates.push(b.actualEndDate);
-          if (b.expectedEndDate)  dates.push(b.expectedEndDate);
+          const start = b.actualStartDate || b.plannedStartDate || p.effectiveStart;
+          const end   = b.actualEndDate || b.expectedEndDate || b.plannedEndDate || p.effectiveEnd;
+          if (!start || !end) return;
+          allDates.push(start, end);
+
+          if (!groups[p.processType]) groups[p.processType] = [];
+          groups[p.processType].push({ order, process: p, batch: b, start, end });
         });
       });
-      if (order.finalDueDate) dates.push(order.finalDueDate);
+      if (order.finalDueDate) allDates.push(order.finalDueDate);
     });
-    if (dates.length === 0) {
-      const today = todayYmd();
-      return { start: today, end: addDaysYmd(today, 30), totalDays: 30 };
-    }
-    dates.sort();
-    const start = addDaysYmd(dates[0], -3);
-    const end   = addDaysYmd(dates[dates.length - 1], 7);
-    return { start, end, totalDays: diffDaysYmd(start, end) };
-  }, [orderBlocks]);
 
-  if (orderBlocks.length === 0) {
+    // 시간 범위
+    let r;
+    if (allDates.length === 0) {
+      const today = todayYmd();
+      r = { start: today, end: addDaysYmd(today, 30), totalDays: 30 };
+    } else {
+      allDates.sort();
+      const start = addDaysYmd(allDates[0], -3);
+      const end   = addDaysYmd(allDates[allDates.length - 1], 7);
+      r = { start, end, totalDays: diffDaysYmd(start, end) };
+    }
+
+    return { processGroups: groups, range: r };
+  }, [orders]);
+
+  // 2. 공정별 레인 할당 + 행 높이 계산 — PROCESS_TYPES 순서 유지
+  const processRows = useMemo(() => {
+    return PROCESS_TYPES
+      .map(meta => {
+        const items = processGroups[meta.key] || [];
+        if (items.length === 0) return null;
+        const { items: laneItems, laneCount } = assignLanes(items);
+        const rowHeight = Math.max(MIN_ROW_H, laneCount * (BAR_H + BAR_GAP) + ROW_PAD_Y * 2 - BAR_GAP);
+        return { meta, items: laneItems, laneCount, rowHeight };
+      })
+      .filter(Boolean);
+  }, [processGroups]);
+
+  const dateToLeft = (ymd) => (ymd ? diffDaysYmd(range.start, ymd) * DAY_PX : 0);
+  const totalWidth = (range.totalDays + 1) * DAY_PX;
+  const todayLeft = dateToLeft(todayYmd());
+
+  // 오늘 위치로 자동 가로 스크롤
+  const scrollRef = useRef(null);
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    const target = todayLeft >= 0 && todayLeft <= totalWidth
+      ? Math.max(0, todayLeft - 60)
+      : 0;
+    scrollRef.current.scrollLeft = target;
+  }, [todayLeft, totalWidth, processRows.length]);
+
+  // 마우스를 따라다니는 툴팁 상태
+  const [hover, setHover] = useState(null); // { item, x, y } | null
+
+  if (processRows.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-xl p-10 text-center text-sm text-slate-500">
         표시할 차수가 없습니다. 활성 공정에 차수가 등록된 오더만 표시됩니다.
       </div>
     );
   }
-
-  const dateToLeft = (ymd) => (ymd ? diffDaysYmd(range.start, ymd) * DAY_PX : 0);
-  const totalWidth = (range.totalDays + 1) * DAY_PX;
-  const todayLeft = dateToLeft(todayYmd());
 
   // 헤더 일자 배열
   const days = [];
@@ -101,17 +149,55 @@ export const MultiOrderGanttChart = ({ orders = [], onOrderClick }) => {
     }
   });
 
+  // 차수 바 1개 → 툴팁 데이터 빌드
+  const buildTooltipData = ({ order, process, batch, start, end }) => {
+    const isYarn = !!batch._isYarn;
+    const qtyUnit = isYarn ? null : getProcessQtyUnit(process.processType);
+    const qtyLabel = isYarn ? batch.quantity : (qtyUnit ? `${batch.quantity}${qtyUnit}` : String(batch.quantity || ''));
+    const overdue = isYarn ? batch._overdue : isBatchOverdue(batch);
+
+    // 컬러: batch.colors[] 우선, 없으면 order.colors[]
+    const batchColors = (batch.colors || []).map(c => c.color).filter(Boolean);
+    const orderColors = (order.colors || []).map(c => c.color).filter(Boolean);
+    const colorList = batchColors.length > 0 ? batchColors : orderColors;
+
+    return {
+      orderNumber: order.orderNumber,
+      articleNo: order.articleNo || order.orderName || '-',
+      customer: order.customer,
+      brand: order.brand,
+      processName: procLabel(process.processType),
+      batchLabel: batch.batchLabel || `${batch.batchNumber || ''}차`,
+      qtyLabel,
+      colorList,
+      statusLabel: statusLabel(batch.status),
+      statusKey: batch.status || 'pending',
+      start,
+      end,
+      finalDueDate: order.finalDueDate,
+      overdue,
+      notes: batch.notes,
+    };
+  };
+
+  // 헤더 행 (sticky top): 통계 한 줄
+  const orderCount = (orders || []).length;
+  const totalBatchCount = processRows.reduce((acc, r) => acc + r.items.length, 0);
+
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-      <div className="overflow-x-auto">
+      <div ref={scrollRef} className="overflow-x-auto">
         <div style={{ minWidth: `${LABEL_W + totalWidth}px` }}>
           {/* 타임라인 헤더 */}
-          <div className="flex border-b-2 border-slate-200 bg-slate-50 sticky top-0 z-20">
+          <div className="flex border-b-2 border-slate-200 bg-slate-50 sticky top-0 z-30">
             <div
-              className="shrink-0 border-r border-slate-200 px-3 py-2 text-xs font-extrabold text-slate-600 uppercase tracking-wider flex items-center"
+              className="shrink-0 sticky left-0 z-40 bg-slate-50 border-r border-slate-200 px-3 py-2 text-xs font-extrabold text-slate-600 uppercase tracking-wider flex items-center shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]"
               style={{ width: `${LABEL_W}px` }}
             >
-              오더 / 공정 ({orderBlocks.length}개 오더)
+              공정 / 차수
+              <span className="ml-auto text-[10px] text-slate-400 normal-case font-bold">
+                {orderCount}오더 · {totalBatchCount}차수
+              </span>
             </div>
             <div className="relative" style={{ width: `${totalWidth}px` }}>
               <div className="flex border-b border-slate-200 h-6 text-[11px] font-bold text-slate-500">
@@ -149,156 +235,81 @@ export const MultiOrderGanttChart = ({ orders = [], onOrderClick }) => {
             </div>
           </div>
 
-          {/* 오더 블록 반복 */}
-          {orderBlocks.map(({ order, processes }) => {
-            const statusMeta = ORDER_STATUS_COLORS[order.status] || ORDER_STATUS_COLORS.active;
-            const statusText =
-              order.status === 'active' ? '진행중' :
-              order.status === 'delayed_risk' ? '납기위험' :
-              order.status === 'on_hold' ? '보류' :
-              order.status === 'completed' ? '완료' : '-';
-            const finalLeft = order.finalDueDate ? dateToLeft(order.finalDueDate) : null;
-
-            return (
-              <React.Fragment key={order.id}>
-                {/* 오더 헤더 행 (sticky 하지 않음 — 각 오더 그룹의 구분선) */}
-                <div className="flex border-b-2 border-slate-300 bg-slate-100">
-                  <button
-                    onClick={() => onOrderClick && onOrderClick(order.id)}
-                    className="shrink-0 border-r border-slate-200 px-3 py-2 text-left hover:bg-slate-200 transition-colors flex items-center gap-2"
-                    style={{ width: `${LABEL_W}px` }}
-                  >
-                    <span className="font-mono font-extrabold text-xs text-teal-700">{order.orderNumber}</span>
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${statusMeta.bg} ${statusMeta.text}`}>
-                      {statusText}
-                    </span>
-                    <span className="text-[11px] text-slate-700 truncate font-medium">
-                      {order.customer || '-'}{order.articleNo ? ` · ${order.articleNo}` : ''}
-                    </span>
-                  </button>
-                  <div className="relative" style={{ width: `${totalWidth}px`, height: '32px' }}>
-                    {/* 격자 (헤더 행에도 옅게) */}
-                    <div className="absolute inset-0 flex">
-                      {days.map((d, i) => {
-                        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                        return (
-                          <div
-                            key={i}
-                            className={`border-r border-slate-200/60 ${isWeekend ? 'bg-slate-200/40' : ''}`}
-                            style={{ width: `${DAY_PX}px` }}
-                          />
-                        );
-                      })}
-                    </div>
-                    {/* 최종 납기 마커 */}
-                    {finalLeft !== null && finalLeft >= 0 && finalLeft <= totalWidth && (
+          {/* 공정 행 (PROCESS_TYPES 순서, 데이터 있는 공정만) */}
+          {processRows.map(({ meta, items, rowHeight }) => (
+            <div key={meta.key} className="flex border-b border-slate-100 hover:bg-slate-50/30">
+              <div
+                className="shrink-0 sticky left-0 z-30 bg-white border-r border-slate-200 px-3 py-2 flex items-center gap-2 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]"
+                style={{ width: `${LABEL_W}px`, minHeight: `${rowHeight}px` }}
+              >
+                <span className="w-6 h-6 bg-teal-100 text-teal-700 text-xs font-bold rounded flex items-center justify-center shrink-0">
+                  {procSeq(meta.key)}
+                </span>
+                <span className="text-sm font-bold text-slate-700">{meta.label}</span>
+                <span className="text-[10px] text-slate-400 ml-auto">{items.length}건</span>
+              </div>
+              <div className="relative" style={{ width: `${totalWidth}px`, minHeight: `${rowHeight}px` }}>
+                {/* 격자 (일 단위 세로선) */}
+                <div className="absolute inset-0 flex">
+                  {days.map((d, i) => {
+                    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                    return (
                       <div
-                        className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10"
-                        style={{ left: `${finalLeft}px` }}
-                        title={`최종 납기: ${order.finalDueDate}`}
-                      >
-                        <span className="absolute -top-0.5 left-1 text-[9px] font-bold text-red-600 bg-white/90 px-1 rounded whitespace-nowrap">
-                          납기 {order.finalDueDate}
-                        </span>
-                      </div>
-                    )}
-                    {/* 오늘 라인 */}
-                    {todayLeft >= 0 && todayLeft <= totalWidth && (
-                      <div
-                        className="absolute top-0 bottom-0 w-0.5 bg-teal-500 z-10"
-                        style={{ left: `${todayLeft}px` }}
+                        key={i}
+                        className={`border-r border-slate-100 ${isWeekend ? 'bg-slate-50/30' : ''}`}
+                        style={{ width: `${DAY_PX}px` }}
                       />
-                    )}
-                  </div>
+                    );
+                  })}
                 </div>
 
-                {/* 공정 행 (활성 공정만, 원사 제외) */}
-                {processes.map(p => {
-                  const batches = p.batches || [];
-                  const rowHeight = Math.max(40, batches.length * 22 + 14);
+                {/* 오늘 라인 */}
+                {todayLeft >= 0 && todayLeft <= totalWidth && (
+                  <div
+                    className="absolute top-0 bottom-0 w-0.5 bg-teal-500 z-10"
+                    style={{ left: `${todayLeft}px` }}
+                    title="오늘"
+                  />
+                )}
+
+                {/* 차수 바 (모든 오더 평면화) */}
+                {items.map((item) => {
+                  const { order, process, batch, start, end, lane } = item;
+                  const left = dateToLeft(start);
+                  const width = Math.max(DAY_PX * 0.5, (diffDaysYmd(start, end) + 1) * DAY_PX - 2);
+                  const colors = BATCH_STATUS_COLORS[batch.status] || BATCH_STATUS_COLORS.pending;
+                  const hasActual = !!batch.actualEndDate;
+                  const td = buildTooltipData(item);
+                  const barLabel = `${td.orderNumber} · ${td.articleNo}`;
+
                   return (
-                    <div key={`${order.id}-${p.processType}`} className="flex border-b border-slate-100 hover:bg-slate-50/40">
-                      <div
-                        className="shrink-0 border-r border-slate-200 px-3 py-2 flex items-center gap-2 bg-white"
-                        style={{ width: `${LABEL_W}px`, minHeight: `${rowHeight}px` }}
-                      >
-                        <span className="w-5 h-5 bg-teal-100 text-teal-700 text-[10px] font-bold rounded flex items-center justify-center shrink-0">
-                          {procSeq(p.processType)}
-                        </span>
-                        <span className="text-xs font-bold text-slate-700">{procLabel(p.processType)}</span>
-                        <span className="text-[10px] text-slate-400 ml-auto">{batches.length}건</span>
-                      </div>
-                      <div className="relative" style={{ width: `${totalWidth}px`, minHeight: `${rowHeight}px` }}>
-                        {/* 격자 */}
-                        <div className="absolute inset-0 flex">
-                          {days.map((d, i) => {
-                            const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                            return (
-                              <div
-                                key={i}
-                                className={`border-r border-slate-100 ${isWeekend ? 'bg-slate-50/30' : ''}`}
-                                style={{ width: `${DAY_PX}px` }}
-                              />
-                            );
-                          })}
-                        </div>
-                        {/* 오늘 라인 */}
-                        {todayLeft >= 0 && todayLeft <= totalWidth && (
-                          <div
-                            className="absolute top-0 bottom-0 w-0.5 bg-teal-500 z-10"
-                            style={{ left: `${todayLeft}px` }}
-                          />
-                        )}
-                        {/* 최종 납기 마커 (각 공정 행에도 옅게) */}
-                        {finalLeft !== null && finalLeft >= 0 && finalLeft <= totalWidth && (
-                          <div
-                            className="absolute top-0 bottom-0 w-0.5 bg-red-400/60 z-10"
-                            style={{ left: `${finalLeft}px` }}
-                          />
-                        )}
-                        {/* 차수 바 (yarn은 deliveries로 평탄화된 것 포함) */}
-                        {batches.map((b, bIdx) => {
-                          const isYarn = !!b._isYarn;
-                          const start = b.actualStartDate || b.plannedStartDate || p.effectiveStart;
-                          const end   = b.actualEndDate || b.expectedEndDate || b.plannedEndDate || p.effectiveEnd;
-                          if (!start || !end) return null;
-
-                          const left = dateToLeft(start);
-                          const width = Math.max(DAY_PX * 0.5, (diffDaysYmd(start, end) + 1) * DAY_PX - 2);
-                          const colors = BATCH_STATUS_COLORS[b.status] || BATCH_STATUS_COLORS.pending;
-                          const hasActual = !!b.actualEndDate;
-                          const overdue = isYarn ? b._overdue : isBatchOverdue(b);
-                          const qtyUnit = isYarn ? null : getProcessQtyUnit(p.processType);
-                          const qtyLabel = isYarn ? b.quantity : (qtyUnit ? `${b.quantity}${qtyUnit}` : '');
-                          const tooltipText = `${order.orderNumber} · ${procLabel(p.processType)} ${b.batchLabel}\n${qtyLabel} · ${statusLabel(b.status)}\n${start} ~ ${end}${b.notes ? '\n' + b.notes.slice(0, 50) : ''}${overdue ? '\n⚠️ 납기 초과' : ''}`;
-
-                          return (
-                            <button
-                              key={b.id}
-                              onClick={() => onOrderClick && onOrderClick(order.id, p.processType, b.id)}
-                              title={tooltipText}
-                              className={`absolute rounded-md text-[11px] font-bold text-left px-2 truncate ${colors.bg} ${colors.text} border-2 ${overdue ? 'border-red-500 ring-2 ring-red-200' : colors.border} hover:shadow-md hover:z-20 transition-all`}
-                              style={{
-                                left: `${left}px`,
-                                width: `${width}px`,
-                                top: `${8 + bIdx * 22}px`,
-                                height: '20px',
-                                opacity: hasActual ? 1 : 0.9,
-                              }}
-                            >
-                              {b.batchLabel}{qtyLabel ? ` · ${qtyLabel}` : ''}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    <button
+                      key={`${order.id}-${process.processType}-${batch.id}`}
+                      onClick={() => onOrderClick && onOrderClick(order.id, process.processType, batch.id)}
+                      onMouseEnter={(e) => setHover({ item, x: e.clientX, y: e.clientY })}
+                      onMouseMove={(e) => setHover({ item, x: e.clientX, y: e.clientY })}
+                      onMouseLeave={() => setHover(null)}
+                      className={`absolute rounded-md text-[11px] font-bold text-left px-2 truncate ${colors.bg} ${colors.text} border-2 ${td.overdue ? 'border-red-500 ring-2 ring-red-200' : colors.border} hover:shadow-md hover:z-20 transition-all`}
+                      style={{
+                        left: `${left}px`,
+                        width: `${width}px`,
+                        top: `${ROW_PAD_Y + lane * (BAR_H + BAR_GAP)}px`,
+                        height: `${BAR_H - 2}px`,
+                        opacity: hasActual ? 1 : 0.9,
+                      }}
+                    >
+                      {barLabel}
+                    </button>
                   );
                 })}
-              </React.Fragment>
-            );
-          })}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
+
+      {/* 마우스 추적 툴팁 (fixed) */}
+      {hover && <HoverTooltip data={buildTooltipData(hover.item)} x={hover.x} y={hover.y} />}
 
       {/* 범례 */}
       <div className="border-t border-slate-200 bg-slate-50 px-4 py-2 flex items-center gap-4 text-[11px] text-slate-600 flex-wrap">
@@ -317,11 +328,100 @@ export const MultiOrderGanttChart = ({ orders = [], onOrderClick }) => {
             <span className="w-0.5 h-3 bg-teal-500"></span>
             <span>오늘</span>
           </div>
-          <div className="flex items-center gap-1">
-            <span className="w-0.5 h-3 bg-red-500"></span>
-            <span>최종 납기</span>
-          </div>
         </div>
+        <div className="ml-auto text-[10px] text-slate-400">막대 위로 마우스를 올리면 바이어·컬러·수량 등 상세 정보가 표시됩니다</div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// HoverTooltip — 마우스 좌표를 따라 fixed 포지션으로 표시
+// 우측/하단 가장자리 보정 자동
+// ============================================================
+const TOOLTIP_W = 288;     // w-72
+const TOOLTIP_EST_H = 220; // 대략 높이 (컨텐츠 따라 가변)
+const HoverTooltip = ({ data: td, x, y }) => {
+  // 우측 끝에 가까우면 왼쪽으로 띄움
+  const winW = typeof window !== 'undefined' ? window.innerWidth : 1200;
+  const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
+
+  let left = x + 14;
+  if (left + TOOLTIP_W > winW - 8) {
+    left = x - 14 - TOOLTIP_W;
+  }
+  // 마우스 위쪽으로 띄우되, 위로 잘리면 아래로
+  let top = y - 12 - TOOLTIP_EST_H;
+  if (top < 8) top = y + 20;
+  if (top + TOOLTIP_EST_H > winH - 8) top = winH - TOOLTIP_EST_H - 8;
+  if (left < 8) left = 8;
+
+  return (
+    <div
+      className="fixed z-[9999] w-72 bg-slate-900 text-white rounded-lg shadow-2xl p-3 pointer-events-none text-left border border-slate-700"
+      style={{ left: `${left}px`, top: `${top}px` }}
+    >
+      {/* 헤더: 오더번호 · 아티클 */}
+      <div className="font-extrabold text-[12px] mb-1.5 text-white flex items-center gap-1.5 flex-wrap">
+        <span className="font-mono text-teal-300">{td.orderNumber}</span>
+        <span className="text-slate-400">·</span>
+        <span className="font-mono">{td.articleNo}</span>
+        {td.overdue && (
+          <span className="ml-auto text-[10px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded">⚠ 납기초과</span>
+        )}
+      </div>
+
+      {/* 상세 정보 */}
+      <div className="space-y-1 text-[11px]">
+        {(td.customer || td.brand) && (
+          <div className="flex gap-2">
+            <span className="text-slate-400 font-bold w-12 shrink-0">바이어</span>
+            <span className="text-slate-100">{td.customer || '-'}{td.brand ? ` / ${td.brand}` : ''}</span>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <span className="text-slate-400 font-bold w-12 shrink-0">공정</span>
+          <span className="text-slate-100">{td.processName} · <span className="font-bold">{td.batchLabel}</span></span>
+        </div>
+        {td.qtyLabel && (
+          <div className="flex gap-2">
+            <span className="text-slate-400 font-bold w-12 shrink-0">수량</span>
+            <span className="text-slate-100 font-mono">{td.qtyLabel}</span>
+          </div>
+        )}
+        {td.colorList.length > 0 && (
+          <div className="flex gap-2">
+            <span className="text-slate-400 font-bold w-12 shrink-0">컬러</span>
+            <div className="flex flex-wrap gap-1">
+              {td.colorList.slice(0, 8).map((c, i) => (
+                <span key={i} className="text-[10px] bg-slate-700 text-slate-100 px-1.5 py-0.5 rounded">{c}</span>
+              ))}
+              {td.colorList.length > 8 && (
+                <span className="text-[10px] text-slate-400">+{td.colorList.length - 8}</span>
+              )}
+            </div>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <span className="text-slate-400 font-bold w-12 shrink-0">상태</span>
+          <span className="text-slate-100">{td.statusLabel}</span>
+        </div>
+        <div className="flex gap-2">
+          <span className="text-slate-400 font-bold w-12 shrink-0">일정</span>
+          <span className="text-slate-100 font-mono">{td.start} ~ {td.end}</span>
+        </div>
+        {td.finalDueDate && (
+          <div className="flex gap-2">
+            <span className="text-slate-400 font-bold w-12 shrink-0">최종납기</span>
+            <span className={`font-mono ${td.overdue ? 'text-red-300 font-bold' : 'text-slate-100'}`}>{td.finalDueDate}</span>
+          </div>
+        )}
+        {td.notes && (
+          <div className="flex gap-2 mt-1.5 pt-1.5 border-t border-slate-700">
+            <span className="text-slate-400 font-bold w-12 shrink-0">메모</span>
+            <span className="text-slate-300 text-[10px] leading-relaxed">{String(td.notes).slice(0, 100)}</span>
+          </div>
+        )}
       </div>
     </div>
   );

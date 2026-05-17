@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Cloud, Menu, Layers, Home, Globe, Calculator, FileSpreadsheet, Box, FileText,
   Calendar, LogOut, DollarSign, Activity, Archive, FileCheck, FlaskConical,
-  ClipboardEdit, PackageCheck, BarChart3, LayoutDashboard, TrendingUp, ChevronDown, X,
+  ClipboardEdit, LayoutDashboard, TrendingUp, ChevronDown, X,
 } from 'lucide-react';
 
 // 그룹 정의: 활성 탭이 어느 그룹에 속하는지 판단 + 드롭다운 항목 렌더링
@@ -42,9 +42,8 @@ const NAV_GROUPS = [
     label: '생산',
     color: 'teal',
     items: [
-      { tab: 'dashboard',   label: '대시보드', icon: LayoutDashboard },
+      { tab: 'orderList',   label: '생산 현황', icon: LayoutDashboard },
       { tab: 'orderWizard', label: '오더 등록', icon: ClipboardEdit },
-      { tab: 'orderList',   label: '오더 관리', icon: PackageCheck },
       { tab: 'orderReport', label: '리포트', icon: TrendingUp },
     ],
   },

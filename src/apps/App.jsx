@@ -51,7 +51,6 @@ import { MainDetailPage } from '../pages/MainDetailPage';
 import { TempDesignSheetListPage } from '../pages/TempDesignSheetListPage';
 import { OrderWizardPage } from '../pages/OrderWizardPage';
 import { OrderListPage } from '../pages/OrderListPage';
-import { DashboardPage } from '../pages/DashboardPage';
 import { ReportPage } from '../pages/ReportPage';
 import { OrderDetailModal } from '../components/order/OrderDetailModal';
 
@@ -1240,15 +1239,6 @@ const App = () => {
             onOpenOrderDetail={openOrderDetail}
             onSaveBatch={handleSaveBatch}
             onSaveYarnDelivery={handleSaveYarnDelivery}
-            setActiveTab={setActiveTab}
-          />
-        )}
-
-        {/* TAB: 대시보드 */}
-        {activeTab === 'dashboard' && (
-          <DashboardPage
-            orders={orders}
-            onOpenOrderDetail={openOrderDetail}
             setActiveTab={setActiveTab}
           />
         )}

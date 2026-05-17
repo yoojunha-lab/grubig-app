@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useEffect } from 'react';
 import { AlertCircle, Calendar } from 'lucide-react';
 import { PROCESS_TYPES, BATCH_STATUS_COLORS, BATCH_STATUSES, getProcessQtyUnit } from '../../../constants/production';
 import {
@@ -108,17 +108,28 @@ export const GanttChart = ({ order, onBatchClick }) => {
 
   const totalWidth = (range.totalDays + 1) * DAY_PX;
 
+  // 오늘 위치로 자동 가로 스크롤 (마운트 + 오더 변경 시)
+  const scrollRef = useRef(null);
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    // 오늘이 범위 내에 있으면 좌측 패딩 60px 두고 정렬, 아니면 맨 앞
+    const target = todayLeft >= 0 && todayLeft <= totalWidth
+      ? Math.max(0, todayLeft - 60)
+      : 0;
+    scrollRef.current.scrollLeft = target;
+  }, [order?.id, todayLeft, totalWidth]);
+
   const getMeta = (key) => PROCESS_TYPES.find(p => p.key === key);
   const getStatusLabel = (key) => BATCH_STATUSES.find(s => s.key === key)?.label || (key || '대기');
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
       {/* 가로 스크롤 영역 */}
-      <div className="overflow-x-auto">
+      <div ref={scrollRef} className="overflow-x-auto">
         <div style={{ minWidth: `${200 + totalWidth}px` }}>
           {/* 타임라인 헤더 */}
-          <div className="flex border-b-2 border-slate-200 bg-slate-50 sticky top-0 z-10">
-            <div className="w-[200px] shrink-0 border-r border-slate-200 px-3 py-2 text-xs font-extrabold text-slate-600 uppercase tracking-wider">
+          <div className="flex border-b-2 border-slate-200 bg-slate-50 sticky top-0 z-30">
+            <div className="w-[200px] shrink-0 sticky left-0 z-40 bg-slate-50 border-r border-slate-200 px-3 py-2 text-xs font-extrabold text-slate-600 uppercase tracking-wider shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]">
               공정 / 차수
             </div>
             <div className="relative" style={{ width: `${totalWidth}px` }}>
@@ -165,7 +176,7 @@ export const GanttChart = ({ order, onBatchClick }) => {
             const batches = p.batches || [];
             return (
               <div key={p.processType} className="flex border-b border-slate-100 hover:bg-slate-50/30">
-                <div className="w-[200px] shrink-0 border-r border-slate-200 px-3 py-3 flex items-center gap-2">
+                <div className="w-[200px] shrink-0 sticky left-0 z-30 bg-white border-r border-slate-200 px-3 py-3 flex items-center gap-2 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.1)]">
                   <span className="w-6 h-6 bg-teal-100 text-teal-700 text-xs font-bold rounded flex items-center justify-center shrink-0">
                     {p.sequenceOrder}
                   </span>
