@@ -247,21 +247,36 @@ export const DesignSheetPage = ({
         {/* ------------------------------------------- */}
         {/* 2. 원사 혼용률 Grid */}
         {/* ------------------------------------------- */}
-        <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 원사 배합 (Yarn & Composition) {getCompStatus()}</h3>
+        <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 원사 배합 (Yarn & Composition) {getCompStatus()}{isTempMode && <span className="ml-2 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 bg-amber-100 border border-amber-200 rounded">단가 직접 입력 가능 (가설계서 전용)</span>}</h3>
         <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 grid grid-cols-12 mb-6">
           <Th span={2} className="justify-center">No.</Th>
-          <Th span={8}>원사명 (Yarn Name / Count)</Th>
+          <Th span={isTempMode ? 6 : 8}>원사명 (Yarn Name / Count)</Th>
           <Th span={2} className="justify-center">비율(%)</Th>
+          {isTempMode && <Th span={2} className="justify-center bg-amber-50 !border-b-amber-200 text-amber-900">단가(원/kg)</Th>}
 
           {[0, 1, 2, 3].map(idx => (
             <React.Fragment key={idx}>
               <Td span={2} className="flex items-center justify-center bg-slate-50"><span className="text-[10px] font-mono font-bold text-slate-400">Yarn #{idx + 1}</span></Td>
-              <Td span={8} className="p-1">
+              <Td span={isTempMode ? 6 : 8} className="p-1">
                 <SearchableSelect size="small" options={yarnSelectOptions} value={sheetInput.yarns?.[idx]?.yarnId || ''} onChange={(val) => handleSheetYarnChange(idx, 'yarnId', val)} placeholder="원사 검색..." disabled={isFullyLocked} />
               </Td>
               <Td span={2}>
                 <TInput type="number" value={sheetInput.yarns?.[idx]?.ratio || ''} onChange={(e) => handleSheetYarnChange(idx, 'ratio', e.target.value)} readOnly={isFullyLocked} min="0" max="100" className="text-center font-bold font-mono text-blue-700 text-sm bg-blue-50/30" placeholder="0" />
               </Td>
+              {isTempMode && (
+                <Td span={2} className="bg-amber-50/40">
+                  <TInput
+                    type="number"
+                    value={sheetInput.yarns?.[idx]?.priceOverride ?? ''}
+                    onChange={(e) => handleSheetYarnChange(idx, 'priceOverride', e.target.value)}
+                    readOnly={isFullyLocked}
+                    min="0"
+                    placeholder="library가"
+                    title="비워두면 yarn library 기본 공급처 단가를 사용합니다. 입력 시 관세/운임 없이 최종 KRW/kg로 적용됩니다."
+                    className="text-center font-mono font-bold text-amber-800 text-sm placeholder:text-amber-300 placeholder:font-normal placeholder:text-[10px]"
+                  />
+                </Td>
+              )}
             </React.Fragment>
           ))}
         </div>

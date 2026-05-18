@@ -13,12 +13,14 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
     buyerName: '',       // 가설계서 전용 바이어명 (정식에서는 의뢰 참조)
     fabricName: '',      // 원단명
 
-    // (1) 원사 정보 (기존 설계서와 동일 구조)
+    // (1) 원사 정보 (가설계서 전용: priceOverride 추가)
+    // priceOverride: 가설계서에서만 사용하는 슬롯별 단가(KRW/kg) override.
+    // 빈 문자열이면 yarn library 기본 공급처 가격 사용. 정식 변환 시 폐기됨.
     yarns: [
-      { yarnId: '', ratio: 100 },
-      { yarnId: '', ratio: 0 },
-      { yarnId: '', ratio: 0 },
-      { yarnId: '', ratio: 0 }
+      { yarnId: '', ratio: 100, priceOverride: '' },
+      { yarnId: '', ratio: 0,   priceOverride: '' },
+      { yarnId: '', ratio: 0,   priceOverride: '' },
+      { yarnId: '', ratio: 0,   priceOverride: '' }
     ],
 
     // (2) 편직 정보
@@ -100,14 +102,22 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
     }));
   };
 
-  // 원사 슬롯 변경
+  // 원사 슬롯 변경 — functional update로 stale closure 차단
   const handleTempYarnChange = (index, field, value) => {
-    const newYarns = [...tempInput.yarns];
-    newYarns[index] = {
-      ...newYarns[index],
-      [field]: field === 'ratio' ? Number(value) : String(value || '')
-    };
-    setTempInput(prev => ({ ...prev, yarns: newYarns }));
+    let nextValue;
+    if (field === 'ratio') {
+      nextValue = Number(value);
+    } else if (field === 'priceOverride') {
+      // 빈 문자열은 그대로 둠 (override 없음) — 값이 있으면 숫자화
+      nextValue = value === '' || value === null || value === undefined ? '' : Number(value);
+    } else {
+      nextValue = String(value || '');
+    }
+    setTempInput(prev => {
+      const newYarns = [...(prev.yarns || [])];
+      newYarns[index] = { ...(newYarns[index] || {}), [field]: nextValue };
+      return { ...prev, yarns: newYarns };
+    });
   };
 
   // Cost 입력 필드 변경
@@ -205,7 +215,13 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
         },
         brandExtra: { ...initial.costInput.brandExtra, ...(tempSheet.costInput?.brandExtra || {}) }
       },
-      yarns: tempSheet.yarns || initial.yarns
+      // 구버전 문서 호환: priceOverride 필드가 없는 슬롯에 기본값('')을 채워준다.
+      yarns: (tempSheet.yarns || initial.yarns).map((s, i) => ({
+        yarnId: '',
+        ratio: i === 0 ? 100 : 0,
+        priceOverride: '',
+        ...(s || {})
+      }))
     });
     setEditingTempId(tempSheet.id);
   };
@@ -252,11 +268,19 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
       const tempCost = { ...(tempSheet.costInput || {}) };
       delete tempCost.marginTier; // 가설계서의 marginTier는 무시
 
+      // [REF-2] priceOverride는 가설계서 전용 임시 단가 override.
+      // 정식 설계서로 승급할 때는 폐기하여 yarn library 가격으로 자동 재계산되게 한다.
+      const cleanYarns = (tempSheet.yarns || prev.yarns || []).map(slot => {
+        if (!slot) return slot;
+        const { priceOverride, ...rest } = slot;
+        return rest;
+      });
+
       return {
         ...prev,
         // 스펙 데이터만 덮어쓰기 (관리번호·연결정보는 유지)
         fabricName: tempSheet.fabricName || prev.fabricName,
-        yarns: tempSheet.yarns || prev.yarns,
+        yarns: cleanYarns,
         knitting: { ...(prev.knitting || {}), ...(tempSheet.knitting || {}) },
         dyeing: { ...(prev.dyeing || {}), ...(tempSheet.dyeing || {}) },
         finishing: { ...(prev.finishing || {}), ...(tempSheet.finishing || {}) },

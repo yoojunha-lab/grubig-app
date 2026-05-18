@@ -15,7 +15,7 @@ const PriceInputCell = ({ item, tierKey, idx, quoteInput, handleQuoteBasePriceCh
   React.useEffect(() => {
     if (!isFocused) {
       const raw = baseVal * extraMarkup;
-      const display = currency === 'USD' ? Number(raw.toFixed(2)) : Math.round(raw);
+      const display = currency === 'USD' ? Number(raw.toFixed(2)) : Math.round(raw / 100) * 100;
       setLocalVal(display === 0 && !item.isManualOverride ? '' : display.toString());
     }
   }, [baseVal, extraMarkup, currency, isFocused, item.isManualOverride]);

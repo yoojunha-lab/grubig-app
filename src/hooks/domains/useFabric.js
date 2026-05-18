@@ -199,31 +199,64 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
   const calculateCost = (fabricData, overrideExchangeRate = null) => {
     if (!fabricData || !fabricData.yarns) return { avgYarnCostDomestic: 0, avgYarnCostExport: 0, effectiveGYd: 0, theoreticalGYd: 0, tier1k: getSafeTier(), tier3k: getSafeTier(), tier5k: getSafeTier(), missingYarnIds: [] };
 
+    // [임시 디버그] 가설계서 priceOverride 흐름 추적 — 진단 후 제거 예정
+    try {
+      const dbgYarns = (fabricData.yarns || [])
+        .filter(s => s && (s.yarnId || (s.priceOverride !== '' && s.priceOverride !== undefined && s.priceOverride !== null)))
+        .map((s, i) => ({ idx: i, yarnId: s.yarnId || '(none)', ratio: s.ratio, priceOverride: s.priceOverride }));
+      if (dbgYarns.some(d => d.priceOverride !== '' && d.priceOverride !== undefined && d.priceOverride !== null)) {
+        // eslint-disable-next-line no-console
+        console.log('[calcCost] yarns(with override):', dbgYarns);
+      }
+    } catch {}
+
     let yarnCostDomestic = 0; let yarnCostExport = 0;
     const fabricExchangeRate = overrideExchangeRate !== null ? Number(overrideExchangeRate) : (Number(globalExchangeRate) || 1450);
     // 라이브러리에서 찾지 못한 yarnId 추적 — UI에서 경고 배너로 노출
     const missingYarnIds = [];
 
     (fabricData.yarns || []).forEach(slot => {
-      // Optional Chaining 도입으로 방어적 코드 작성
-      if (slot?.yarnId && Number(slot.ratio) > 0) {
-        const realYarnId = String(slot.yarnId).split('::')[0];
-        const yarn = (yarnLibrary || []).find(y => String(y.id) === String(realYarnId));
-        if (yarn) {
-          const sup = yarn.suppliers?.find(s => s.isDefault) || yarn.suppliers?.[0];
-          if (sup) {
-            const ratio = Number(slot.ratio) / 100;
-            let priceInKrw = sup.currency === 'USD' ? Number(sup.price || 0) * fabricExchangeRate : Number(sup.price || 0);
-            const tariffAmt = priceInKrw * ((Number(sup.tariff) || 0) / 100);
-            const freightAmt = Number(sup.freight) || 0;
-            // 관세는 내수(Domestic)에만 포함, 수출(Export)에는 미포함
-            yarnCostExport += (priceInKrw + freightAmt) * ratio;
-            yarnCostDomestic += (priceInKrw + tariffAmt + freightAmt) * ratio;
-          }
-        } else {
-          // 라이브러리에서 사라진 사종 — silent failure 방지용으로 기록
-          missingYarnIds.push(realYarnId);
+      if (!slot) return;
+      const ratio = Number(slot.ratio) / 100;
+      if (!(ratio > 0)) return;
+
+      // [가설계서 전용] priceOverride가 있으면 최종 KRW/kg로 간주.
+      // 관세/운임 추가 없이 그대로 사용하고 내수·수출 동일하게 적용.
+      // yarnId가 비어 있어도(=라이브러리에 없는 신규 원사 가정) 단가만으로 가설계 가능.
+      // 정식 설계서로 승급될 때 loadTempToSheet가 이 필드를 폐기하므로 정식 데이터에는 전파되지 않는다.
+      const overrideRaw = slot.priceOverride;
+      const overrideNum = Number(overrideRaw);
+      const hasOverride =
+        overrideRaw !== '' &&
+        overrideRaw !== undefined &&
+        overrideRaw !== null &&
+        Number.isFinite(overrideNum) &&
+        overrideNum > 0;
+
+      if (hasOverride) {
+        yarnCostDomestic += overrideNum * ratio;
+        yarnCostExport   += overrideNum * ratio;
+        return;
+      }
+
+      // priceOverride가 없는 경우 yarnId가 있어야 library에서 단가 lookup
+      if (!slot.yarnId) return;
+
+      const realYarnId = String(slot.yarnId).split('::')[0];
+      const yarn = (yarnLibrary || []).find(y => String(y.id) === String(realYarnId));
+      if (yarn) {
+        const sup = yarn.suppliers?.find(s => s.isDefault) || yarn.suppliers?.[0];
+        if (sup) {
+          let priceInKrw = sup.currency === 'USD' ? Number(sup.price || 0) * fabricExchangeRate : Number(sup.price || 0);
+          const tariffAmt = priceInKrw * ((Number(sup.tariff) || 0) / 100);
+          const freightAmt = Number(sup.freight) || 0;
+          // 관세는 내수(Domestic)에만 포함, 수출(Export)에는 미포함
+          yarnCostExport += (priceInKrw + freightAmt) * ratio;
+          yarnCostDomestic += (priceInKrw + tariffAmt + freightAmt) * ratio;
         }
+      } else {
+        // 라이브러리에서 사라진 사종 — silent failure 방지용으로 기록
+        missingYarnIds.push(realYarnId);
       }
     });
 
