@@ -269,7 +269,7 @@ export const TempDesignSheetListPage = ({
               handleSaveSheet={(u) => { handleSaveTemp(u); setIsTempModalOpen(false); }}
               handleDeleteSheet={(id) => { handleDeleteTemp(id); setIsTempModalOpen(false); }}
               resetSheetForm={() => { resetTempForm(); setIsTempModalOpen(false); }}
-              advanceStage={() => {}}
+              setStage={() => {}}
               getDesignCost={getTempDesignCost}
               yarnSelectOptions={yarnSelectOptions}
               user={user}

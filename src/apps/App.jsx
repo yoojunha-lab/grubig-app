@@ -9,7 +9,7 @@ import {
 
 // 🔥 Firebase 모듈 (서비스 레이어 연동)
 import { onSnapshot, collection, doc, setDoc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
-import { onAuthStateChanged, signOut, signInWithPopup } from "firebase/auth";
+import { onAuthStateChanged, signOut, signInWithPopup, signInWithEmailAndPassword } from "firebase/auth";
 import { db, auth, googleProvider } from '../services/firebase';
 import { saveDocument, deleteDocument, saveBatchDocuments, updateYarnCategoryBatch } from '../services/db';
 
@@ -124,6 +124,13 @@ const App = () => {
   }, []);
 
   const handleLogin = async () => signInWithPopup(auth, googleProvider);
+  const handleEmailLogin = async (email, password) => {
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (err) {
+      alert(`로그인 실패: ${err.code || err.message}`);
+    }
+  };
   const handleLogout = () => signOut(auth);
 
   useEffect(() => {
@@ -260,8 +267,7 @@ const App = () => {
     handleSheetYarnChange, handleCostInputChange, handleCostNestedChange,
     handleActualDataChange,
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
-    resetSheetForm, getStageIndex, advanceStage,
-    autoAdvanceEztex, advanceToEztex,
+    resetSheetForm, getStageIndex, setStage,
     addOrderNumber, removeOrderNumber,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
     registerFabricFromSheet
@@ -899,7 +905,7 @@ const App = () => {
   // [R1] extraMarkup 계산은 helpers의 calcQuotePrice 안으로 이전됨 (각 자식 컴포넌트가 quoteInput.extraMargin을 직접 참조)
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white font-bold animate-pulse">GRUBIG 시스템 접속 중...</div>;
-  if (!user) return <LoginScreen handleLogin={handleLogin} />;
+  if (!user) return <LoginScreen handleLogin={handleLogin} handleEmailLogin={handleEmailLogin} />;
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col print:bg-white relative">
@@ -1037,9 +1043,8 @@ const App = () => {
             updateDevStatus={updateDevStatus}
             handleEditSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
             handleDeleteSheet={handleDeleteSheet}
-            advanceStage={advanceStage}
-            advanceToEztex={advanceToEztex}
-            autoAdvanceEztex={autoAdvanceEztex}
+            saveDocToCloud={saveDocToCloud}
+            setStage={setStage}
             dropDesignSheet={dropDesignSheet}
             setActiveTab={setActiveTab}
             user={user}
@@ -1071,7 +1076,7 @@ const App = () => {
                 handleSaveSheet={handleSaveSheet}
                 handleDeleteSheet={handleDeleteSheet}
                 resetSheetForm={resetSheetForm}
-                advanceStage={advanceStage}
+                setStage={setStage}
                 getDesignCost={getDesignCost}
                 yarnSelectOptions={yarnSelectOptions}
                 user={user}
@@ -1081,7 +1086,6 @@ const App = () => {
                 devRequests={devRequests}
                 setSheetInput={setSheetInput}
                 linkAndConfirm={linkAndConfirm}
-                advanceToEztex={advanceToEztex}
                 closeModal={() => setIsDesignSheetModalOpen(false)}
                 designSheets={designSheets}
                 knittingFactories={knittingFactories}
@@ -1106,22 +1110,13 @@ const App = () => {
             devRequests={devRequests}
             handleEditSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
             handleDeleteSheet={handleDeleteSheet}
-            initFromDevRequest={initFromDevRequest}
-            createDesignSheetFromDev={createDesignSheetFromDev}
-            advanceStage={advanceStage}
-            autoAdvanceEztex={autoAdvanceEztex}
             getDesignCost={getDesignCost}
-            setActiveTab={setActiveTab}
             user={user}
             viewMode={viewMode}
             yarnLibrary={yarnLibrary}
-            saveDocToCloud={saveDocToCloud}
             restoreFromDrop={restoreFromDrop}
-            dropDesignSheet={dropDesignSheet}
             resetSheetForm={resetSheetForm}
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
-            setSheetInput={setSheetInput}
-            updateDevStatus={updateDevStatus}
           />
         )}
 

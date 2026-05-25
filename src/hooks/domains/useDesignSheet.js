@@ -19,6 +19,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     status: 'active',        // active | dropped
     devRequestId: null,      // 연결된 개발의뢰 ID
     deadline: '',            // 납기 (설계서 전체 납기 관리)
+    registeredDate: new Date().toISOString().slice(0, 10), // 등록 날짜 (사용자 수동 입력, YYYY-MM-DD)
 
     // (1) 원사 정보 (기존 원사 라이브러리 연동)
     yarns: [
@@ -187,33 +188,19 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     return DESIGN_STAGES.findIndex(s => s.key === stageKey);
   };
 
-  // 다음 단계로 진행 (draft → eztex → sampling → articled)
-  const advanceStage = (sheetId) => {
+  // 단계 직접 선택 (수동 전이) — 사용자가 스텝퍼에서 임의의 단계를 클릭하면 호출됨
+  // 앞/뒤 양방향 이동 모두 허용. articled 진입 시에만 필수값 검증 + 원단 자동 등록.
+  const setStage = (sheetId, targetStage) => {
     const sheet = designSheets.find(s => s.id === sheetId);
     if (!sheet) return;
+    if (!DESIGN_STAGES.some(s => s.key === targetStage)) return;
+    if (sheet.stage === targetStage) return;
 
-    const currentIdx = getStageIndex(sheet.stage);
-    if (currentIdx >= DESIGN_STAGES.length - 1) {
-      showToast('이미 최종 단계(아이템화)입니다.', 'error');
-      return;
-    }
-
-    const nextStage = DESIGN_STAGES[currentIdx + 1].key;
-
-    // eztex → sampling 진행 시: EZ-TEX O/D NO. 필수 검증
-    if (nextStage === 'sampling' && !sheet.eztexOrderNo?.trim()) {
-      showToast('EZ-TEX O/D NO.를 먼저 입력해주세요.', 'error');
-      return;
-    }
-
-    // 아이템화 단계 진입 시 articleNo 확인
-    if (nextStage === 'articled' && !sheet.articleNo) {
-      showToast('Article 번호를 먼저 입력해주세요.', 'error');
-      return;
-    }
-
-    // [방어] 아이템화 진입 시 필수 스펙(GSM, 내폭, 외폭) 검증
-    if (nextStage === 'articled') {
+    if (targetStage === 'articled') {
+      if (!sheet.articleNo) {
+        showToast('Article 번호를 먼저 입력해주세요.', 'error');
+        return;
+      }
       const ci = sheet.costInput || {};
       if (!ci.gsm || !ci.widthCut || !ci.widthFull) {
         showToast('아이템화 전에 최종 스펙(GSM, 내폭, 외폭)을 모두 입력해주세요.', 'error');
@@ -221,66 +208,31 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       }
     }
 
-    // [A2 방어] 이미 원단이 등록된 설계서는 중복 등록 차단
-    if (nextStage === 'articled' && sheet.linkedFabricId) {
-      showToast('이미 원단이 등록된 설계서입니다. 중복 등록을 방지합니다.', 'error');
-      return;
-    }
-
     const now = new Date().toISOString();
     const updatedSheet = {
       ...sheet,
-      stage: nextStage,
-      // [신규] 단계 진입 시점 누적 기록
-      stageEnteredAt: { ...(sheet.stageEnteredAt || {}), [nextStage]: now },
+      stage: targetStage,
+      stageEnteredAt: { ...(sheet.stageEnteredAt || {}), [targetStage]: now },
       updatedAt: now
     };
 
-    // [Step 2] 아이템화 진입 시: registerFabricFromSheet가 원단 등록 + 설계서 stage 갱신을
-    // 한 번의 흐름으로 통합 처리 → advanceStage에서의 이중 Write(Race Condition) 방지
-    if (nextStage === 'articled' && saveFabricFromSheet) {
-      registerFabricFromSheet(updatedSheet);
-      showToast(`'${DESIGN_STAGES[currentIdx + 1].label}' 단계로 진행되었습니다.`, 'success');
-      return;
+    // articled 진입: 이미 원단이 연결돼 있으면 신규 등록 없이 stage만 복원
+    // (사용자가 역방향으로 이동 후 다시 articled로 돌아오는 자연스러운 흐름 지원)
+    if (targetStage === 'articled') {
+      if (sheet.linkedFabricId) {
+        saveDocToCloud('designSheets', updatedSheet);
+        showToast('아이템화 단계로 복원되었습니다 (기존 원단 유지).', 'success');
+        return;
+      }
+      if (saveFabricFromSheet) {
+        registerFabricFromSheet(updatedSheet);
+        showToast(`'아이템화' 단계로 이동했습니다.`, 'success');
+        return;
+      }
     }
 
     saveDocToCloud('designSheets', updatedSheet);
-    showToast(`'${DESIGN_STAGES[currentIdx + 1].label}' 단계로 진행되었습니다.`, 'success');
-  };
-
-  // EZ-TEX O/D NO. 입력 시 자동으로 sampling으로 진행
-  const autoAdvanceEztex = (sheetId, eztexOrderNo) => {
-    const sheet = designSheets.find(s => s.id === sheetId);
-    if (!sheet) return;
-    if (sheet.stage !== 'eztex') return; // eztex 단계에서만 작동
-    if (!eztexOrderNo?.trim()) return;
-
-    const now = new Date().toISOString();
-    const updatedSheet = {
-      ...sheet,
-      eztexOrderNo: eztexOrderNo.trim(),
-      stage: 'sampling',
-      // [신규] sampling 진입 시점 기록
-      stageEnteredAt: { ...(sheet.stageEnteredAt || {}), sampling: now },
-      updatedAt: now
-    };
-    saveDocToCloud('designSheets', updatedSheet);
-    showToast(`EZ-TEX O/D NO. 등록 완료 → '샘플 진행' 단계로 자동 진행되었습니다.`, 'success');
-  };
-
-  // 개발투입확정 시 설계서를 draft → eztex로 자동 전환
-  const advanceToEztex = (sheetId) => {
-    const sheet = designSheets.find(s => s.id === sheetId);
-    if (!sheet) return;
-    if (sheet.stage !== 'draft') return; // draft에서만 작동
-    const now = new Date().toISOString();
-    saveDocToCloud('designSheets', {
-      ...sheet,
-      stage: 'eztex',
-      // [신규] eztex 진입 시점 기록
-      stageEnteredAt: { ...(sheet.stageEnteredAt || {}), eztex: now },
-      updatedAt: now
-    });
+    showToast(`'${DESIGN_STAGES.find(s => s.key === targetStage).label}' 단계로 이동했습니다.`, 'success');
   };
 
   // --- CRUD ---
@@ -385,21 +337,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     // changeReason은 임시 필드이므로 Firebase에 저장하지 않음
     delete itemToSave.changeReason;
 
-    // [Step 2] 샘플링 단계 자동 아이템화(원단 등록) 처리
-    let isAutoArticled = false;
-    // sampling 상태이고 Article 번호가 입력된 경우 자동으로 articled 로 전환
-    if (itemToSave.stage === 'sampling' && String(itemToSave.articleNo || '').trim()) {
-      itemToSave.stage = 'articled';
-      itemToSave.stageEnteredAt = { ...(itemToSave.stageEnteredAt || {}), articled: now };
-      isAutoArticled = true;
-    }
-
     saveDocToCloud('designSheets', itemToSave);
-
-    // 자동 아이템화 확정 시 원단 등록 트리거
-    if (isAutoArticled && saveFabricFromSheet) {
-      registerFabricFromSheet(itemToSave);
-    }
     // [양방향 동기화] 연결된 원단이 있다면 해당 원단 DB도 같은 값으로 덮어씀
     // [B4 수정] ?? 연산자로 사용자가 의도한 0값을 보존
     if (itemToSave.linkedFabricId) {
@@ -625,7 +563,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         ...sheet,
         stage: 'articled',
         linkedFabricId: fabricId,
-        // [신규] articled 진입 시점 기록 (advanceStage에서 이미 기록됐을 수 있으나 보강)
+        // articled 진입 시점 기록 (setStage에서 이미 기록됐을 수 있으나 보강)
         stageEnteredAt: { ...(sheet.stageEnteredAt || {}), articled: sheet.stageEnteredAt?.articled || now },
         updatedAt: now
     });
@@ -712,8 +650,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     handleSheetYarnChange, handleCostInputChange, handleCostNestedChange,
     handleActualDataChange,
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
-    resetSheetForm, getStageIndex, advanceStage,
-    autoAdvanceEztex, advanceToEztex,
+    resetSheetForm, getStageIndex, setStage,
     addOrderNumber, removeOrderNumber,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
     registerFabricFromSheet

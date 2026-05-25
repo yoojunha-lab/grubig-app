@@ -1,7 +1,23 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Cloud } from 'lucide-react';
 
-export const LoginScreen = ({ handleLogin }) => {
+export const LoginScreen = ({ handleLogin, handleEmailLogin }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const isDev = import.meta.env.DEV;
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    setSubmitting(true);
+    try {
+      await handleEmailLogin(email, password);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
       <div className="max-w-md w-full bg-slate-800 p-10 rounded-3xl text-center shadow-2xl border border-slate-700">
@@ -13,6 +29,37 @@ export const LoginScreen = ({ handleLogin }) => {
         <button onClick={handleLogin} className="w-full flex items-center justify-center gap-3 bg-white text-slate-900 py-4 rounded-xl font-bold hover:bg-slate-100 transition-transform active:scale-95 shadow-xl">
           <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6" alt="G" /> 구글 계정으로 로그인
         </button>
+
+        {isDev && (
+          <div className="mt-8 pt-6 border-t border-slate-700">
+            <p className="text-xs text-amber-400 mb-4 font-semibold">⚠️ 개발 전용 로그인 (DEV ONLY)</p>
+            <form onSubmit={onSubmit} className="space-y-3 text-left">
+              <input
+                type="email"
+                placeholder="이메일 (@grubig.kr)"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl bg-slate-700 text-white placeholder-slate-400 border border-slate-600 focus:outline-none focus:border-blue-500"
+                autoComplete="email"
+              />
+              <input
+                type="password"
+                placeholder="비밀번호"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl bg-slate-700 text-white placeholder-slate-400 border border-slate-600 focus:outline-none focus:border-blue-500"
+                autoComplete="current-password"
+              />
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-600 text-white py-3 rounded-xl font-bold transition-transform active:scale-95"
+              >
+                {submitting ? '로그인 중...' : '이메일로 로그인'}
+              </button>
+            </form>
+          </div>
+        )}
       </div>
     </div>
   );

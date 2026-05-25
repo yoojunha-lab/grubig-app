@@ -45,7 +45,7 @@ export const DesignSheetPage = ({
   handleSaveSheet,
   handleDeleteSheet,
   resetSheetForm,
-  advanceStage,
+  setStage,
   getDesignCost,
   yarnSelectOptions,
   user,
@@ -54,7 +54,6 @@ export const DesignSheetPage = ({
   globalExchangeRate,
   devRequests,
   linkAndConfirm,
-  advanceToEztex,
   closeModal,
   designSheets,
   setSheetInput,
@@ -154,8 +153,8 @@ export const DesignSheetPage = ({
           {editingSheetId && !isFullyLocked && !isTempMode && (
             <button onClick={() => { handleDeleteSheet(editingSheetId); if (closeModal) closeModal(); else setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded shadow-sm transition-colors flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> 삭제</button>
           )}
-          {editingSheetId && !isTempMode && sheetInput?.stage === 'draft' && typeof advanceStage === 'function' && (
-            <button onClick={() => advanceStage(editingSheetId)} className="px-4 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded shadow-sm transition-colors flex items-center gap-1"><Check className="w-3.5 h-3.5" /> 생산팀 이관하기</button>
+          {editingSheetId && !isTempMode && sheetInput?.stage === 'draft' && typeof setStage === 'function' && (
+            <button onClick={() => setStage(editingSheetId, 'eztex')} className="px-4 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded shadow-sm transition-colors flex items-center gap-1"><Check className="w-3.5 h-3.5" /> 생산팀 이관하기</button>
           )}
           {/* 가설계서 모드: 삭제 버튼 */}
           {isTempMode && editingSheetId && (
@@ -182,7 +181,12 @@ export const DesignSheetPage = ({
         {/* 진행 상태 바 (가설계서 모드에서는 숨김) */}
         {!isTempMode && (
         <div className="mb-6 -mx-2">
-          <DesignStepper currentStage={sheetInput.stage || 'draft'} />
+          <DesignStepper
+            currentStage={sheetInput.stage || 'draft'}
+            onStageClick={editingSheetId && typeof setStage === 'function' && !isFullyLocked
+              ? (target) => setStage(editingSheetId, target)
+              : undefined}
+          />
         </div>
         )}
 
@@ -227,7 +231,9 @@ export const DesignSheetPage = ({
               <Td span={1}><TInput type="date" name="deadline" value={sheetInput.deadline || ''} onChange={handleSheetChange} readOnly={isFullyLocked} className="font-mono font-bold text-red-600" /></Td>
 
               <Th span={1}>원단명 (Name)</Th>
-              <Td span={7}><TInput name="fabricName" value={sheetInput.fabricName || ''} onChange={handleSheetChange} readOnly={isFullyLocked} placeholder="직관적인 원단명 (예: Wool Interlock)" className="text-sm font-extrabold text-slate-900 border-b-2 focus:border-blue-400" /></Td>
+              <Td span={5}><TInput name="fabricName" value={sheetInput.fabricName || ''} onChange={handleSheetChange} readOnly={isFullyLocked} placeholder="직관적인 원단명 (예: Wool Interlock)" className="text-sm font-extrabold text-slate-900 border-b-2 focus:border-blue-400" /></Td>
+              <Th span={1} className="text-blue-700 bg-blue-50/50">등록 날짜</Th>
+              <Td span={1}><TInput type="date" name="registeredDate" value={sheetInput.registeredDate || ''} onChange={handleSheetChange} readOnly={isFullyLocked} className="font-mono font-bold text-blue-700" /></Td>
             </>
           )}
 
