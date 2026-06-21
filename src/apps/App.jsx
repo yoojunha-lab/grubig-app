@@ -709,8 +709,16 @@ const App = () => {
         if (data.length === 0) { showToast('데이터가 없습니다.', 'error'); return; }
 
         const newFabrics = []; let missingYarnNames = new Set();
+        // [중복 차단] 기존 원단 + 이번 업로드 내 중복 Article 모두 건너뜀 (대소문자/공백 무시)
+        const existingArticleKeys = new Set((savedFabrics || []).map(f => String(f.article || '').trim().toUpperCase()));
+        const batchArticleKeys = new Set();
+        let dupSkipped = 0;
         data.forEach((row, idx) => {
-          if (!row.Article) return; const kFee1k = Number(row.KnittingFee1k) || 3000;
+          if (!row.Article) return;
+          const artKey = String(row.Article).trim().toUpperCase();
+          if (existingArticleKeys.has(artKey) || batchArticleKeys.has(artKey)) { dupSkipped++; return; }
+          batchArticleKeys.add(artKey);
+          const kFee1k = Number(row.KnittingFee1k) || 3000;
           let mappedYarns = [];
           for (let i = 1; i <= 4; i++) {
             const yName = row[`Yarn${i}_Name`] ? String(row[`Yarn${i}_Name`]).trim().toUpperCase() : '';
@@ -751,6 +759,13 @@ const App = () => {
           });
         });
 
+        // 유효 신규 건이 없으면 (전부 중복/빈값) 저장하지 않고 안내
+        if (newFabrics.length === 0) {
+          showToast(dupSkipped > 0 ? `모든 행이 중복 Article이라 등록하지 않았습니다. (${dupSkipped}건)` : '등록할 데이터가 없습니다.', 'error');
+          if (fileInputRef.current) fileInputRef.current.value = '';
+          return;
+        }
+
         // 저장 성공 여부 확인 후 UI 후처리 (await 누락으로 거짓 성공 방지)
         const ok = await saveBatchToCloud('fabrics', newFabrics);
         if (!ok) {
@@ -760,10 +775,11 @@ const App = () => {
         setSavedFabrics([...newFabrics, ...savedFabrics]);
         setIsBulkModalOpen(false);
 
+        const dupNote = dupSkipped > 0 ? `\n\n⚠️ 중복 Article ${dupSkipped}건은 건너뛰었습니다.` : '';
         if (missingYarnNames.size > 0) {
-          alert(`✅ 총 ${newFabrics.length}건이 성공적으로 등록되었습니다.\n\n⚠️ 주의: 다음 원사 정보가 아직 라이브러리에 없어서 임시 텍스트로 등록되었습니다.\n해당 원단들의 수율 단가(Cost/gYD) 계산이 부정확할 수 있으니,\n이후 원사 라이브러리에 아래 원사들을 추가하시거나 원단을 수정해주세요.\n\n[미등록 원사 목록]\n${[...missingYarnNames].join(', ')}`);
+          alert(`✅ 총 ${newFabrics.length}건이 성공적으로 등록되었습니다.${dupNote}\n\n⚠️ 주의: 다음 원사 정보가 아직 라이브러리에 없어서 임시 텍스트로 등록되었습니다.\n해당 원단들의 수율 단가(Cost/gYD) 계산이 부정확할 수 있으니,\n이후 원사 라이브러리에 아래 원사들을 추가하시거나 원단을 수정해주세요.\n\n[미등록 원사 목록]\n${[...missingYarnNames].join(', ')}`);
         } else {
-          showToast(`${newFabrics.length}건이 완벽하게 등록되었습니다.`, 'success');
+          showToast(`${newFabrics.length}건이 등록되었습니다.${dupSkipped > 0 ? ` (중복 ${dupSkipped}건 건너뜀)` : ''}`, 'success');
         }
 
         if (fileInputRef.current) fileInputRef.current.value = '';

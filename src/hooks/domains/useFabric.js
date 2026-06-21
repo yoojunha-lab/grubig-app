@@ -99,7 +99,20 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
 
   const handleSaveFabric = (setActiveTab) => {
     if (!fabricInput.article) { showToast("Article을 입력해주세요.", 'error'); return; }
-    
+
+    // [중복 차단] 같은 Article이 이미 원단 리스트에 있으면 저장 중단
+    //   - 대소문자/앞뒤 공백 무시하고 비교
+    //   - 수정 중일 땐 자기 자신(editingFabricId)은 제외
+    const normalizedArticle = String(fabricInput.article || '').trim().toUpperCase();
+    const isDuplicate = (savedFabrics || []).some(f =>
+      String(f.id) !== String(editingFabricId) &&
+      String(f.article || '').trim().toUpperCase() === normalizedArticle
+    );
+    if (isDuplicate) {
+      showToast(`이미 등록된 Article입니다: ${normalizedArticle}`, 'error');
+      return;
+    }
+
     // [Phase 7 검증] 내폭은 외폭보다 클 수 없음
     if (Number(fabricInput.widthCut) > Number(fabricInput.widthFull)) {
       showToast("내폭(Cut)은 외폭(Full)보다 클 수 없습니다.", 'error');
