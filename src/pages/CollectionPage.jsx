@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import {
   Boxes, Plus, Edit2, Trash2, X, Calendar, Tag, Package,
-  Search, Users, FolderPlus, ChevronRight, AlertTriangle, FileSpreadsheet,
+  Search, Users, FolderPlus, ChevronRight, AlertTriangle, FileSpreadsheet, Printer,
 } from 'lucide-react';
 import { AddArticleModal } from '../components/collection/AddArticleModal';
+import { CollectionPrintSheet } from '../components/collection/CollectionPrintSheet';
 
 // 컬렉션 분류 태그 (필터 + 배지 색상)
 const COLLECTION_TYPES = [
@@ -139,6 +140,29 @@ export const CollectionPage = ({
     showToast(`${rows.length}개 아티클을 엑셀로 내보냈습니다.`, 'success');
   };
 
+  // 선택 컬렉션을 PDF(인쇄)로 — 견적서와 동일한 native window.print() 방식
+  const handlePrintPDF = () => {
+    if (!selectedCol) return;
+    if ((selectedCol.items || []).length === 0) {
+      showToast('담긴 아티클이 없습니다.', 'error');
+      return;
+    }
+    showToast("인쇄 다이얼로그에서 '대상 = PDF로 저장'을 선택해 주세요.", 'info');
+    const oldTitle = document.title;
+    const safeName = String(selectedCol.name || 'Collection').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim() || 'Collection';
+    // CollectionPrintSheet(off-screen)가 인쇄 시 노출되도록 body 클래스 토글
+    document.body.classList.add('printing-collection');
+    setTimeout(() => {
+      try {
+        document.title = `Collection_${safeName}`;
+        window.print();
+      } finally {
+        document.title = oldTitle;
+        document.body.classList.remove('printing-collection');
+      }
+    }, 100);
+  };
+
   return (
     <div className="max-w-[1600px] mx-auto w-full print:hidden">
       {/* 헤더 */}
@@ -260,6 +284,14 @@ export const CollectionPage = ({
                       <FileSpreadsheet className="w-4 h-4" /> 엑셀
                     </button>
                     <button
+                      onClick={handlePrintPDF}
+                      disabled={(selectedCol.items || []).length === 0}
+                      title="PDF로 내보내기 (인쇄)"
+                      className="flex items-center gap-1.5 px-3 py-2 bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 text-sm font-bold rounded-lg shadow-sm transition-colors active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Printer className="w-4 h-4" /> PDF
+                    </button>
+                    <button
                       onClick={() => setIsAddOpen(true)}
                       className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow-sm transition-colors active:scale-95"
                     >
@@ -337,6 +369,13 @@ export const CollectionPage = ({
         yarnLibrary={yarnLibrary}
         collectionName={selectedCol?.name || ''}
         onConfirm={onConfirmAddArticles}
+      />
+
+      {/* PDF 인쇄용 라인시트 (화면 밖, 인쇄 시에만 노출) */}
+      <CollectionPrintSheet
+        collection={selectedCol}
+        savedFabrics={savedFabrics}
+        getComposition={getComposition}
       />
 
       {/* 컬렉션 생성/수정 모달 */}
