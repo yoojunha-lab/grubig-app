@@ -361,6 +361,7 @@ const App = () => {
     handleCollectionChange, resetCollectionForm,
     handleSaveCollection, handleEditCollection, handleDeleteCollection,
     addArticlesToCollection, removeArticleFromCollection,
+    updateArticleMemo, moveArticle,
   } = useCollection(collections, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast);
 
   // 오더 상세 모달 열 때 특정 차수에 포커스 (펼침/스크롤/하이라이트)
@@ -1098,6 +1099,8 @@ const App = () => {
             handleDeleteCollection={handleDeleteCollection}
             addArticlesToCollection={addArticlesToCollection}
             removeArticleFromCollection={removeArticleFromCollection}
+            updateArticleMemo={updateArticleMemo}
+            moveArticle={moveArticle}
           />
         )}
 

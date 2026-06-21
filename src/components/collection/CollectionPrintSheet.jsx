@@ -63,7 +63,10 @@ export const CollectionPrintSheet = ({ collection, savedFabrics = [], getComposi
                   <tr key={item.fabricId || idx} className="avoid-break">
                     <td className="py-2.5 text-center text-slate-500">{idx + 1}</td>
                     <td className="py-2.5 font-bold text-slate-800 uppercase">{(fabric?.article) || item.article || ''}</td>
-                    <td className="py-2.5 text-slate-600">{(fabric?.itemName) || item.itemName || ''}</td>
+                    <td className="py-2.5 text-slate-600">
+                      {(fabric?.itemName) || item.itemName || ''}
+                      {item.memo ? <div className="text-[10px] text-slate-400 italic">{item.memo}</div> : null}
+                    </td>
                     <td className="py-2.5 text-slate-600">{comp}</td>
                     <td className="py-2.5 text-right text-slate-500 font-mono">
                       {fabric ? `${fabric.widthCut}/${fabric.widthFull}" · ${fabric.gsm}g` : '—'}

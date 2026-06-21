@@ -97,6 +97,7 @@ export const useCollection = (collections, savedFabrics, saveDocToCloud, deleteD
         fabricId: f.id,
         article: f.article || '',
         itemName: f.itemName || '',
+        memo: '',
         addedAt: new Date().toISOString(),
       }));
 
@@ -127,6 +128,36 @@ export const useCollection = (collections, savedFabrics, saveDocToCloud, deleteD
     showToast('아티클을 컬렉션에서 제외했습니다.', 'success');
   };
 
+  // ── 아티클 메모 수정 (blur 시 호출, 변경 없으면 스킵 — 토스트 없이 조용히 저장) ──
+  const updateArticleMemo = (collectionId, fabricId, memo) => {
+    const col = (collections || []).find(c => c.id === collectionId);
+    if (!col) return;
+    const items = col.items || [];
+    const target = items.find(it => String(it.fabricId) === String(fabricId));
+    if (!target) return;
+    if ((target.memo || '') === (memo || '')) return; // 변경 없으면 저장 안 함
+    const updatedCol = {
+      ...col,
+      items: items.map(it => String(it.fabricId) === String(fabricId) ? { ...it, memo } : it),
+      updatedAt: new Date().toISOString(),
+    };
+    saveDocToCloud('collections', updatedCol);
+  };
+
+  // ── 아티클 순서 이동 (위/아래 이웃과 swap — 토스트 없이 조용히) ──
+  const moveArticle = (collectionId, fabricId, direction) => {
+    const col = (collections || []).find(c => c.id === collectionId);
+    if (!col) return;
+    const items = [...(col.items || [])];
+    const idx = items.findIndex(it => String(it.fabricId) === String(fabricId));
+    if (idx < 0) return;
+    const swapWith = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapWith < 0 || swapWith >= items.length) return;
+    [items[idx], items[swapWith]] = [items[swapWith], items[idx]];
+    const updatedCol = { ...col, items, updatedAt: new Date().toISOString() };
+    saveDocToCloud('collections', updatedCol);
+  };
+
   return {
     collectionInput,
     setCollectionInput,
@@ -140,5 +171,7 @@ export const useCollection = (collections, savedFabrics, saveDocToCloud, deleteD
     handleDeleteCollection,
     addArticlesToCollection,
     removeArticleFromCollection,
+    updateArticleMemo,
+    moveArticle,
   };
 };

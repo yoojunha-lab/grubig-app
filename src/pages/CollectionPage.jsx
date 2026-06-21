@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
   Boxes, Plus, Edit2, Trash2, X, Calendar, Tag, Package,
   Search, Users, FolderPlus, ChevronRight, AlertTriangle, FileSpreadsheet, Printer,
+  ChevronUp, ChevronDown, StickyNote,
 } from 'lucide-react';
 import { AddArticleModal } from '../components/collection/AddArticleModal';
 import { CollectionPrintSheet } from '../components/collection/CollectionPrintSheet';
@@ -32,6 +33,8 @@ export const CollectionPage = ({
   handleDeleteCollection,
   addArticlesToCollection,
   removeArticleFromCollection,
+  updateArticleMemo = () => {},
+  moveArticle = () => {},
 }) => {
   const [selectedId, setSelectedId] = useState(null);
   const [filterType, setFilterType] = useState('전체');
@@ -118,6 +121,7 @@ export const CollectionPage = ({
         '전폭(inch)': fabric?.widthFull ?? '',
         '가공폭(inch)': fabric?.widthCut ?? '',
         'GSM': fabric?.gsm ?? '',
+        '메모': item.memo || '',
         '비고': fabric ? (fabric.remarks || '') : '원단 삭제됨',
       };
     });
@@ -130,7 +134,7 @@ export const CollectionPage = ({
     ];
     const ws = window.XLSX.utils.aoa_to_sheet(meta);
     window.XLSX.utils.sheet_add_json(ws, rows, { origin: 'A4' });
-    ws['!cols'] = [{ wch: 5 }, { wch: 16 }, { wch: 24 }, { wch: 34 }, { wch: 11 }, { wch: 12 }, { wch: 8 }, { wch: 24 }];
+    ws['!cols'] = [{ wch: 5 }, { wch: 16 }, { wch: 24 }, { wch: 34 }, { wch: 11 }, { wch: 12 }, { wch: 8 }, { wch: 24 }, { wch: 24 }];
 
     const wb = window.XLSX.utils.book_new();
     const safeSheet = String(selectedCol.name || 'Collection').replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Collection';
@@ -316,41 +320,62 @@ export const CollectionPage = ({
                   const fabric = (savedFabrics || []).find(f => String(f.id) === String(item.fabricId));
                   const composition = fabric ? getComposition(fabric) : '';
                   const isMissing = !fabric;
+                  const isLast = idx === (selectedCol.items || []).length - 1;
                   return (
                     <div
                       key={item.fabricId || idx}
-                      className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                      className={`p-3 rounded-xl border transition-colors ${
                         isMissing ? 'bg-amber-50/50 border-amber-200' : 'bg-white border-slate-200 hover:border-slate-300'
                       }`}
                     >
-                      <span className="w-6 text-center text-xs font-bold text-slate-300 shrink-0">{idx + 1}</span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-slate-800 uppercase tracking-tight truncate">{item.article || '(번호없음)'}</span>
-                          {isMissing && (
-                            <span title="원단 리스트에서 삭제된 아티클입니다" className="text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded shrink-0 flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" /> 원단 삭제됨
-                            </span>
+                      <div className="flex items-center gap-3">
+                        <span className="w-6 text-center text-xs font-bold text-slate-300 shrink-0">{idx + 1}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-extrabold text-slate-800 uppercase tracking-tight truncate">{item.article || '(번호없음)'}</span>
+                            {isMissing && (
+                              <span title="원단 리스트에서 삭제된 아티클입니다" className="text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded shrink-0 flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3" /> 원단 삭제됨
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-slate-500 truncate">{(fabric?.itemName) || item.itemName || '-'}</div>
+                          {composition && (
+                            <div className="text-[11px] text-indigo-600/80 font-medium truncate mt-0.5">{composition}</div>
                           )}
                         </div>
-                        <div className="text-xs text-slate-500 truncate">{(fabric?.itemName) || item.itemName || '-'}</div>
-                        {composition && (
-                          <div className="text-[11px] text-indigo-600/80 font-medium truncate mt-0.5">{composition}</div>
+                        {fabric && (
+                          <div className="text-right shrink-0 font-mono text-[11px] text-slate-400 hidden sm:block">
+                            <div>{fabric.widthCut}/{fabric.widthFull}"</div>
+                            <div>{fabric.gsm}g</div>
+                          </div>
                         )}
-                      </div>
-                      {fabric && (
-                        <div className="text-right shrink-0 font-mono text-[11px] text-slate-400 hidden sm:block">
-                          <div>{fabric.widthCut}/{fabric.widthFull}"</div>
-                          <div>{fabric.gsm}g</div>
+                        {/* 순서 이동 + 삭제 */}
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <div className="flex flex-col">
+                            <button onClick={() => moveArticle(selectedCol.id, item.fabricId, 'up')} disabled={idx === 0} title="위로" className="p-0.5 text-slate-400 hover:text-indigo-600 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"><ChevronUp className="w-4 h-4" /></button>
+                            <button onClick={() => moveArticle(selectedCol.id, item.fabricId, 'down')} disabled={isLast} title="아래로" className="p-0.5 text-slate-400 hover:text-indigo-600 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"><ChevronDown className="w-4 h-4" /></button>
+                          </div>
+                          <button
+                            onClick={() => removeArticleFromCollection(selectedCol.id, item.fabricId)}
+                            title="컬렉션에서 빼기"
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
-                      )}
-                      <button
-                        onClick={() => removeArticleFromCollection(selectedCol.id, item.fabricId)}
-                        title="컬렉션에서 빼기"
-                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      </div>
+                      {/* 메모 입력 (blur 시 저장) */}
+                      <div className="flex items-center gap-1.5 mt-2 pl-9">
+                        <StickyNote className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                        <input
+                          type="text"
+                          defaultValue={item.memo || ''}
+                          onBlur={(e) => updateArticleMemo(selectedCol.id, item.fabricId, e.target.value)}
+                          placeholder="메모 (예: 베스트셀러, 바이어 요청 컬러)"
+                          className="w-full text-xs bg-transparent border-b border-dashed border-slate-200 focus:border-indigo-400 outline-none py-0.5 text-slate-600 placeholder:text-slate-300 transition-colors"
+                        />
+                      </div>
                     </div>
                   );
                 })}
