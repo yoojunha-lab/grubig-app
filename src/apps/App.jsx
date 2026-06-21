@@ -15,6 +15,7 @@ import { saveDocument, deleteDocument, saveBatchDocuments, updateYarnCategoryBat
 
 // ⚙️ 공통 상수 & 유틸리티 연동
 import { ALLOWED_DOMAIN, DEFAULT_YARN_CATEGORIES, MARGIN_TIERS } from '../constants/common';
+import { DEV_SAMPLE_FABRICS, DEV_SAMPLE_YARNS } from '../constants/devSamples';
 import { useXLSX, useHTML2PDF } from '../hooks/useExternalScripts';
 
 // ⚓️ 도메인 로직 훅 연동
@@ -26,6 +27,7 @@ import { useDesignSheet } from '../hooks/domains/useDesignSheet';
 import { useMainDetail } from '../hooks/domains/useMainDetail';
 import { useTempDesignSheet } from '../hooks/domains/useTempDesignSheet';
 import { useOrder } from '../hooks/domains/useOrder';
+import { useCollection } from '../hooks/domains/useCollection';
 import { makeChangeLogEntry, appendChangeLog, summarizeBatchDiff } from '../utils/auditLog';
 import { PROCESS_TYPES } from '../constants/production';
 
@@ -52,6 +54,7 @@ import { TempDesignSheetListPage } from '../pages/TempDesignSheetListPage';
 import { OrderWizardPage } from '../pages/OrderWizardPage';
 import { OrderListPage } from '../pages/OrderListPage';
 import { ReportPage } from '../pages/ReportPage';
+import { CollectionPage } from '../pages/CollectionPage';
 import { OrderDetailModal } from '../components/order/OrderDetailModal';
 
 const App = () => {
@@ -77,6 +80,7 @@ const App = () => {
   const [mainDetails, setMainDetails] = useState([]);
   const [tempDesignSheets, setTempDesignSheets] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [collections, setCollections] = useState([]);
 
   // 마스터 데이터 (settings/general에 배열로 저장)
   const [knittingFactories, setKnittingFactories] = useState([]);
@@ -114,7 +118,20 @@ const App = () => {
   const isXlsxReady = useXLSX();
   const isPdfReady = useHTML2PDF();
 
+  // ── [DEV 검증 전용] 가짜 로그인 + 인메모리 데이터 모드 ─────────────────────
+  // 개발 빌드(import.meta.env.DEV)이고 localStorage('grubig_dev_bypass')==='1'일 때만 활성.
+  // 프로덕션 빌드(vite build)에선 import.meta.env.DEV===false → 아래 분기 전부 죽은 코드로 제거됨.
+  // 실제 Firestore/운영 데이터는 일절 건드리지 않음.
+  const DEV_BYPASS = import.meta.env.DEV &&
+    typeof window !== 'undefined' &&
+    window.localStorage?.getItem('grubig_dev_bypass') === '1';
+
   useEffect(() => {
+    if (DEV_BYPASS) {
+      setUser({ email: 'dev@grubig.kr', uid: 'dev-bypass', displayName: 'DEV 검증용' });
+      setAuthLoading(false);
+      return; // 실제 Firebase 인증 구독 건너뜀
+    }
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser && currentUser.email.endsWith(ALLOWED_DOMAIN)) setUser(currentUser);
       else if (currentUser) { alert("접근 불가: grubig.kr 계정이 아닙니다."); signOut(auth); }
@@ -135,6 +152,13 @@ const App = () => {
 
   useEffect(() => {
     if (!user) return;
+    if (DEV_BYPASS) {
+      // Firestore 구독 대신 격리 샘플 데이터 주입 (collections는 빈 상태에서 UI로 생성)
+      setYarnLibrary(DEV_SAMPLE_YARNS);
+      setSavedFabrics(DEV_SAMPLE_FABRICS);
+      setSyncStatus('saved');
+      return; // 실제 Firestore 구독 건너뜀
+    }
     const unsubSettings = onSnapshot(doc(db, 'settings', 'general'), (docSnap) => {
       if (docSnap.exists()) {
         const d = docSnap.data();
@@ -167,11 +191,35 @@ const App = () => {
     const unsubTempDesignSheets = onSnapshot(collection(db, 'tempDesignSheets'), (snapshot) => setTempDesignSheets(snapshot.docs.map(doc => doc.data())));
     // 생산 오더 컬렉션 구독
     const unsubOrders = onSnapshot(collection(db, 'orders'), (snapshot) => setOrders(snapshot.docs.map(doc => doc.data())));
-    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); };
+    // 영업 컬렉션(아티클 묶음) 구독
+    const unsubCollections = onSnapshot(collection(db, 'collections'), (snapshot) => setCollections(snapshot.docs.map(doc => doc.data())));
+    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); };
   }, [user]);
 
-  const saveDocToCloud = async (colName, item) => { setSyncStatus('syncing'); try { await saveDocument(colName, item); setSyncStatus('saved'); } catch (e) { setSyncStatus('error'); showToast("저장 실패", "error"); } };
-  const deleteDocFromCloud = async (colName, id) => { setSyncStatus('syncing'); try { await deleteDocument(colName, id); setSyncStatus('saved'); } catch (e) { setSyncStatus('error'); showToast("삭제 실패", "error"); } };
+  // DEV 우회 시 Firestore 대신 로컬 state만 갱신하기 위한 컬렉션명 → setter 매핑
+  const DEV_LOCAL_SETTERS = {
+    collections: setCollections, fabrics: setSavedFabrics, yarns: setYarnLibrary,
+    quotes: setSavedQuotes, devRequests: setDevRequests, designSheets: setDesignSheets,
+    mainDetails: setMainDetails, tempDesignSheets: setTempDesignSheets, orders: setOrders,
+  };
+  const saveDocToCloud = async (colName, item) => {
+    if (DEV_BYPASS) {
+      const setter = DEV_LOCAL_SETTERS[colName];
+      if (setter) setter(prev => [...prev.filter(x => String(x.id) !== String(item.id)), item]);
+      setSyncStatus('saved');
+      return;
+    }
+    setSyncStatus('syncing'); try { await saveDocument(colName, item); setSyncStatus('saved'); } catch (e) { setSyncStatus('error'); showToast("저장 실패", "error"); }
+  };
+  const deleteDocFromCloud = async (colName, id) => {
+    if (DEV_BYPASS) {
+      const setter = DEV_LOCAL_SETTERS[colName];
+      if (setter) setter(prev => prev.filter(x => String(x.id) !== String(id)));
+      setSyncStatus('saved');
+      return;
+    }
+    setSyncStatus('syncing'); try { await deleteDocument(colName, id); setSyncStatus('saved'); } catch (e) { setSyncStatus('error'); showToast("삭제 실패", "error"); }
+  };
   // 일괄 저장: 성공 true / 실패 false 반환 (호출자가 후처리 분기 가능)
   const saveBatchToCloud = async (colName, items) => {
     setSyncStatus('syncing');
@@ -306,6 +354,14 @@ const App = () => {
     resetOrderForm,
     applyFabricTemplate, detachFabric,
   } = useOrder(orders, saveDocToCloud, deleteDocFromCloud, showToast);
+
+  // ⚓️ 컬렉션(영업) 훅 — 아티클(원단) 묶음 관리
+  const {
+    collectionInput, editingCollectionId,
+    handleCollectionChange, resetCollectionForm,
+    handleSaveCollection, handleEditCollection, handleDeleteCollection,
+    addArticlesToCollection, removeArticleFromCollection,
+  } = useCollection(collections, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast);
 
   // 오더 상세 모달 열 때 특정 차수에 포커스 (펼침/스크롤/하이라이트)
   const [orderModalFocus, setOrderModalFocus] = useState(null); // { processType, batchId } | null
@@ -1022,6 +1078,26 @@ const App = () => {
             globalExchangeRate={globalExchangeRate}
             buyers={buyers}
             setIsBuyerModalOpen={setIsBuyerModalOpen}
+          />
+        )}
+
+        {/* TAB: 컬렉션 관리 (영업 - 아티클 묶음) */}
+        {activeTab === 'collection' && (
+          <CollectionPage
+            collections={collections}
+            savedFabrics={savedFabrics}
+            yarnLibrary={yarnLibrary}
+            isXlsxReady={isXlsxReady}
+            showToast={showToast}
+            collectionInput={collectionInput}
+            editingCollectionId={editingCollectionId}
+            handleCollectionChange={handleCollectionChange}
+            resetCollectionForm={resetCollectionForm}
+            handleSaveCollection={handleSaveCollection}
+            handleEditCollection={handleEditCollection}
+            handleDeleteCollection={handleDeleteCollection}
+            addArticlesToCollection={addArticlesToCollection}
+            removeArticleFromCollection={removeArticleFromCollection}
           />
         )}
 
