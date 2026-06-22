@@ -281,8 +281,9 @@ const App = () => {
   } = useYarn(yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast, designSheets);
 
   const {
-    quoteInput, setQuoteInput, handleQuoteSettingChange, createQuoteItem,
-    handleAddFabricToQuote, handleGridPaste, handleQuoteBasePriceChange,
+    quoteInput, setQuoteInput, handleQuoteSettingChange, handleQuoteMarginChange,
+    handleBulkMarginRateChange, handleQuoteItemMarginChange,
+    createQuoteItem, addFabricToQuoteById, handleGridPaste,
     handleRemoveItemFromQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
   } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, setGlobalExchangeRate);
 
@@ -660,7 +661,6 @@ const App = () => {
 
   const devPrintRef = useRef(null);
 
-  const [selectedFabricIdForQuote, setSelectedFabricIdForQuote] = useState('');
   const [bulkArticleInput, setBulkArticleInput] = useState('');
 
   const [editingCategoryOld, setEditingCategoryOld] = useState(null);
@@ -980,7 +980,7 @@ const App = () => {
     return { id: y.id, name: `${y.name} [${defSup.name || '기본'}]`, price: defSup.price, currency: defSup.currency };
   });
 
-  // [R1] extraMarkup 계산은 helpers의 calcQuotePrice 안으로 이전됨 (각 자식 컴포넌트가 quoteInput.extraMargin을 직접 참조)
+  // [마진 개편] 견적 가격 계산은 helpers의 calcQuotePrice로 일원화 (원단별 매출이익율% item.marginRate + 구간별 YD당 정액 quoteInput.marginAdd)
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white font-bold animate-pulse">GRUBIG 시스템 접속 중...</div>;
   if (!user) return <LoginScreen handleLogin={handleLogin} handleEmailLogin={handleEmailLogin} />;
@@ -1090,13 +1090,14 @@ const App = () => {
             setSavedQuotes={setSavedQuotes}
             handleDownloadPDF={handleDownloadPDF}
             handleQuoteSettingChange={handleQuoteSettingChange}
-            selectedFabricIdForQuote={selectedFabricIdForQuote}
-            setSelectedFabricIdForQuote={setSelectedFabricIdForQuote}
+            handleQuoteMarginChange={handleQuoteMarginChange}
+            handleBulkMarginRateChange={handleBulkMarginRateChange}
+            handleQuoteItemMarginChange={handleQuoteItemMarginChange}
             savedFabrics={savedFabrics}
-            handleAddFabricToQuote={handleAddFabricToQuote}
-            handleQuoteBasePriceChange={handleQuoteBasePriceChange}
+            addFabricToQuoteById={addFabricToQuoteById}
             handleRemoveItemFromQuote={handleRemoveItemFromQuote}
             createQuoteItem={createQuoteItem}
+            calculateCost={calculateCost}
             showToast={showToast}
             handleGridPaste={handleGridPaste}
             globalExchangeRate={globalExchangeRate}

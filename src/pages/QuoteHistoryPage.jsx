@@ -85,7 +85,7 @@ export const QuoteHistoryPage = ({
                   </td>
                   <td className="p-4">
                     <div className="flex flex-col gap-1">
-                      <span className={`text-[10px] w-max px-2 py-0.5 rounded font-bold uppercase ${quote.buyerType === 'converter' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>{quote.buyerType}</span>
+                      {quote.buyerType && <span className={`text-[10px] w-max px-2 py-0.5 rounded font-bold uppercase ${quote.buyerType === 'converter' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>{quote.buyerType}</span>}
                       <span className={`text-[10px] w-max px-2 py-0.5 rounded font-bold uppercase border ${quote.marketType === 'domestic' ? 'border-blue-200 text-blue-600' : 'border-emerald-200 text-emerald-600'}`}>{quote.marketType === 'domestic' ? 'DOM' : 'EXP'} ({quote.currency})</span>
                     </div>
                   </td>
@@ -127,7 +127,7 @@ export const QuoteHistoryPage = ({
                               <tbody className="divide-y divide-slate-100">
                                 {(quote.items || []).map((item, idx) => {
                                   // [R1] base price 조회는 헬퍼로 일원화 (legacy/신규 필드 양쪽 호환)
-                                  // 아코디언 미리보기는 base price만 노출 (extraMargin 미적용 의도 유지)
+                                  // 아코디언 미리보기는 영업 기준원가(base)만 노출 (마진 미적용 의도 유지)
                                   const cur = quote.currency;
                                   return (
                                     <tr key={idx} className="hover:bg-slate-50">
@@ -200,12 +200,11 @@ export const QuoteHistoryPage = ({
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {(quickViewQuote.items || []).map((item, idx) => {
-                    // [R1] 헬퍼로 일원화 — extraMargin 가산 + 통화별 반올림/포맷 모두 처리
-                    const extra = Number(quickViewQuote.extraMargin) || 0;
+                    // [R1] 헬퍼로 일원화 — 구간별 마진(매출이익율% + YD당 정액) 적용 + 통화별 반올림/포맷
                     const cur = quickViewQuote.currency;
                     return (
                       <tr key={idx}>
-                        <td className="py-3 font-bold text-slate-800 uppercase">{item.article}</td><td className="py-3 text-slate-600 truncate max-w-[120px]">{item.itemName}</td><td className="py-3 text-center text-slate-500">{item.widthCut}"</td><td className="py-3 text-center text-slate-500">{item.widthFull}"</td><td className="py-3 text-right text-slate-500">{item.gsm}</td><td className="py-3 text-right text-slate-500 font-mono">{num(item.gYd)}</td><td className="py-3 text-right text-slate-900 font-mono font-bold">{num(item.mcqYd || 300)} YD</td><td className="py-3 text-right font-mono">{formatQuotePrice(calcQuotePrice(item, '1k', extra, cur), cur)}</td><td className="py-3 text-right font-mono font-bold">{formatQuotePrice(calcQuotePrice(item, '3k', extra, cur), cur)}</td><td className="py-3 text-right font-mono">{formatQuotePrice(calcQuotePrice(item, '5k', extra, cur), cur)}</td>
+                        <td className="py-3 font-bold text-slate-800 uppercase">{item.article}</td><td className="py-3 text-slate-600 truncate max-w-[120px]">{item.itemName}</td><td className="py-3 text-center text-slate-500">{item.widthCut}"</td><td className="py-3 text-center text-slate-500">{item.widthFull}"</td><td className="py-3 text-right text-slate-500">{item.gsm}</td><td className="py-3 text-right text-slate-500 font-mono">{num(item.gYd)}</td><td className="py-3 text-right text-slate-900 font-mono font-bold">{num(item.mcqYd || 300)} YD</td><td className="py-3 text-right font-mono">{formatQuotePrice(calcQuotePrice(item, '1k', quickViewQuote, cur), cur)}</td><td className="py-3 text-right font-mono font-bold">{formatQuotePrice(calcQuotePrice(item, '3k', quickViewQuote, cur), cur)}</td><td className="py-3 text-right font-mono">{formatQuotePrice(calcQuotePrice(item, '5k', quickViewQuote, cur), cur)}</td>
                       </tr>
                     )
                   })}
