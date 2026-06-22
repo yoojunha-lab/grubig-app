@@ -396,6 +396,10 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
           losses: ci.losses ?? linkedFabric.losses,
           marginTier: ci.marginTier ?? linkedFabric.marginTier,
           brandExtra: ci.brandExtra ?? linkedFabric.brandExtra,
+          // [신규 원가모델] 후가공·기타비용·위험마진도 동기화 (원단은 top-level 보관)
+          finishing: ci.finishing ?? linkedFabric.finishing,
+          etcCosts: ci.etcCosts ?? linkedFabric.etcCosts,
+          riskMarginPct: ci.riskMarginPct ?? linkedFabric.riskMarginPct,
           yarns: itemToSave.yarns || linkedFabric.yarns || []
         };
         saveDocToCloud('fabrics', fabricToSync);
@@ -595,6 +599,10 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       losses: ci.losses ?? { tier1k:{knit:5,dye:10}, tier3k:{knit:3,dye:10}, tier5k:{knit:3,dye:9} },
       marginTier: ci.marginTier ?? 3,
       brandExtra: ci.brandExtra ?? { tier1k:1000, tier3k:700, tier5k:500 },
+      // [신규 원가모델] 후가공·기타비용·위험마진 보존
+      finishing: Array.isArray(ci.finishing) ? ci.finishing : [],
+      etcCosts: Array.isArray(ci.etcCosts) && ci.etcCosts.length ? ci.etcCosts : makeDefaultEtcCosts(),
+      riskMarginPct: Number(ci.riskMarginPct || 0),
       yarns: sheet.yarns || [],
       remarks: `설계서 아이템화 자동 등록 (${sheet.devOrderNo || ''})`
     };

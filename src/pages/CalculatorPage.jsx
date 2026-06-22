@@ -11,8 +11,6 @@ export const CalculatorPage = ({
   handleFabricChange,
   currentCalcFull,
   yarnSelectOptions,
-  handleYarnSlotChange,
-  handleNestedChange,
   setFabricInput,
   handleSaveFabric,
   setActiveTab,
