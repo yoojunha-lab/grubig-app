@@ -179,10 +179,19 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     if (fabric?.linkedSheetId && designSheets) {
       const linkedSheet = designSheets.find(s => String(s.id) === String(fabric.linkedSheetId));
       if (linkedSheet?.linkedFabricId && String(linkedSheet.linkedFabricId) === String(id)) {
+        const now = new Date().toISOString();
+        // [연동 보호] 원단이 사라졌으므로, 아이템화 상태였다면 직전 단계(sampling)로 되돌린다.
+        //   articled로 남으면 원단도 없는데 삭제/DROP이 막혀 설계서가 고립되므로,
+        //   재편집·재등록이 가능한 상태로 복구한다.
+        const wasArticled = linkedSheet.stage === 'articled';
         saveDocToCloud('designSheets', {
           ...linkedSheet,
           linkedFabricId: null,
-          updatedAt: new Date().toISOString()
+          stage: wasArticled ? 'sampling' : linkedSheet.stage,
+          stageEnteredAt: wasArticled
+            ? { ...(linkedSheet.stageEnteredAt || {}), sampling: now }
+            : linkedSheet.stageEnteredAt,
+          updatedAt: now
         });
       }
     }

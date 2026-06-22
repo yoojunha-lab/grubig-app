@@ -225,7 +225,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         return;
       }
       if (saveFabricFromSheet) {
-        registerFabricFromSheet(updatedSheet);
+        // 원단 등록이 가드(Article 중복 등)에 막히면 단계 이동도 취소 — 오해 소지 있는 성공 토스트 방지
+        if (!registerFabricFromSheet(updatedSheet)) return;
         showToast(`'아이템화' 단계로 이동했습니다.`, 'success');
         return;
       }
@@ -253,6 +254,31 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     if (!finalInput.fabricName?.trim()) {
       showToast('원단명(Name)을 반드시 입력해주세요.', 'error');
       return;
+    }
+
+    // [연동 보호] 이미 원단이 연결된(아이템화된) 설계서는 재편집 저장 시에도 필수값을 유지해야 한다.
+    //   handleSaveSheet가 아래에서 연결 원단으로 역동기화하므로, 빈 Article/스펙이 원단을
+    //   조용히 오염시키는 것을 차단한다. (아이템화 전이 검증과 동일한 규칙을 재편집에도 적용)
+    if (finalInput.linkedFabricId) {
+      const ci = finalInput.costInput || {};
+      if (!finalInput.articleNo?.trim()) {
+        showToast('원단이 연결된 설계서는 Article 번호를 비울 수 없습니다.', 'error');
+        return;
+      }
+      if (!ci.gsm || !ci.widthCut || !ci.widthFull) {
+        showToast('원단이 연결된 설계서는 최종 스펙(GSM, 내폭, 외폭)을 비울 수 없습니다.', 'error');
+        return;
+      }
+      // Article을 '다른' 원단과 중복되게 바꾸면 차단 (원단 Article 유일성 보호)
+      const a = String(finalInput.articleNo).trim().toUpperCase();
+      const collide = (savedFabrics || []).find(
+        f => String(f.id) !== String(finalInput.linkedFabricId) &&
+             String(f.article || '').trim().toUpperCase() === a
+      );
+      if (collide) {
+        showToast(`같은 Article의 다른 원단이 이미 있습니다: ${a}`, 'error');
+        return;
+      }
     }
 
     // [방어] 수정 모드에서 변경사유 미입력 시 경고 (저장은 허용)
@@ -517,13 +543,27 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   // [D3] generateSelfDevOrderNo 제거됨 — 자체 설계서는 빈칸 유지 정책 (데드코드 정리)
 
   // 아이템화 시 원단 자동 등록 (savedFabrics에 변환 저장)
+  // 반환값: 등록 성공 true / 가드에 막혀 미등록 false (호출부에서 단계 이동·모달 닫기 판단에 사용)
   const registerFabricFromSheet = (sheet) => {
-    if (!saveFabricFromSheet) return;
+    if (!saveFabricFromSheet) return false;
 
     // [A2 방어] 이미 원단이 등록된 설계서는 중복 등록 차단
     if (sheet.linkedFabricId) {
       showToast('이미 원단이 등록된 설계서입니다.', 'error');
-      return;
+      return false;
+    }
+
+    // [연동 보호] 동일 Article 원단이 이미 있으면 자동 등록 차단 (수동 원단 저장과 동일한 유일성 규칙)
+    //   → 수동 등록만 막혀 있고 자동 등록/동기화로 중복 Article이 새는 비대칭 제거
+    const dupArticle = String(sheet.articleNo || '').trim().toUpperCase();
+    if (dupArticle) {
+      const dupFabric = (savedFabrics || []).find(
+        f => String(f.article || '').trim().toUpperCase() === dupArticle
+      );
+      if (dupFabric) {
+        showToast(`이미 같은 Article의 원단이 있습니다: ${dupArticle}. 다른 Article로 변경 후 등록하세요.`, 'error');
+        return false;
+      }
     }
 
     // [B3 수정] ID를 문자열로 생성하여 타입 불일치 방지
@@ -567,6 +607,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     });
 
     showToast(`Article ${sheet.articleNo} 원단이 자동 등록되었습니다.`, 'success');
+    return true;
   };
 
   // DROP 처리 (설계서를 보관함으로 이동, 현황에서 숨김)

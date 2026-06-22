@@ -612,8 +612,10 @@ export const DesignSheetPage = ({
                     // 2. 최신 입력값(sheetInput)을 병합하여 원단 시스템에 등록 (데이터 누락/구버전화 방지)
                     const sheet = (designSheets || []).find(s => s.id === editingSheetId);
                     if (sheet && registerFabricFromSheet) {
-                      registerFabricFromSheet({ ...sheet, ...sheetInput, id: editingSheetId });
-                      closeModal?.();
+                      // 등록 성공 시에만 모달을 닫는다 (Article 중복 등으로 막히면 수정할 수 있게 유지)
+                      if (registerFabricFromSheet({ ...sheet, ...sheetInput, id: editingSheetId })) {
+                        closeModal?.();
+                      }
                     }
                   }
                 }} className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 rounded-lg shadow-sm hover:bg-blue-700 active:scale-95 transition-all flex items-center gap-1">
