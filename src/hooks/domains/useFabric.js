@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { calculateGYd, smartRound, applyGrossMargin, clampNum } from '../../utils/helpers';
-import { MARGIN_TIERS } from '../../constants/common';
+import { MARGIN_TIERS, DEFAULT_ETC_COSTS, makeDefaultEtcCosts } from '../../constants/common';
 
 // GRUBIG ERP - 원단(Fabric) 도메인 로직 및 비용 계산 훅
 
@@ -41,6 +41,11 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     knittingFee1k: 3000, knittingFee3k: 2000, knittingFee5k: 2000, dyeingFee: 8800, extraFee1k: 900, extraFee3k: 700, extraFee5k: 500,
     losses: { tier1k: { knit: 5, dye: 10 }, tier3k: { knit: 3, dye: 10 }, tier5k: { knit: 3, dye: 9 } },
     marginTier: 3, brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 },
+    // [신규 원가모델] 후가공(추가/삭제) + 기타비용 항목화(외관검사·이화학검사·운임) + 오퍼가격
+    finishing: [],
+    etcCosts: makeDefaultEtcCosts(),
+    riskMarginPct: 0,   // 위험 마진(%) — 메인 전·위험 원단 추가 마진 (영업 기준원가에 가산)
+    offerPrice: '',
     yarns: [{ yarnId: '', ratio: 100 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }]
   });
 
@@ -88,12 +93,19 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
   };
 
   const handleEditFabric = (fabric, setActiveTab) => {
-    setFabricInput({ 
-      ...fabric, 
-      remarks: String(fabric.remarks || ''), 
-      losses: fabric.losses || { tier1k: { knit: 5, dye: 10 }, tier3k: { knit: 3, dye: 10 }, tier5k: { knit: 3, dye: 9 } } 
+    const init = getInitialFabricInput();
+    setFabricInput({
+      ...fabric,
+      remarks: String(fabric.remarks || ''),
+      losses: fabric.losses || init.losses,
+      // [신규 원가모델] 레거시 원단 호환 — 없으면 기본값 시드
+      finishing: Array.isArray(fabric.finishing) ? fabric.finishing : [],
+      // etcCosts 없는 기존 원단은 표준 기본값(외관/이화학/운임) 시드
+      etcCosts: (Array.isArray(fabric.etcCosts) && fabric.etcCosts.length) ? fabric.etcCosts : makeDefaultEtcCosts(),
+      riskMarginPct: fabric.riskMarginPct ?? 0,
+      offerPrice: fabric.offerPrice ?? ''
     });
-    setEditingFabricId(fabric.id); 
+    setEditingFabricId(fabric.id);
     if (setActiveTab) setActiveTab('calculator');
   };
 
@@ -207,45 +219,43 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
   // ----------------------------------------------------------------------
   // 원가 계산 (Cost Calculation) 핵심 로직
   // ----------------------------------------------------------------------
-  const getSafeTier = () => ({
-    domestic: { yarnCostYd: 0, knitCostYd: 0, dyeCostYd: 0, extraFeeYd: 0, totalCostYd: 0, priceConverter: 0, priceBrand: 0 },
-    export: { yarnCostYd: 0, knitCostYd: 0, dyeCostYd: 0, extraFeeYd: 0, totalCostYd: 0, priceConverter: 0, priceBrand: 0 },
-    requiredKg: 0
-  });
+  const getSafeTier = () => {
+    const safeSide = { yarnCostYd: 0, knitCostYd: 0, dyeCostYd: 0, extraFeeYd: 0, totalCostYd: 0, riskAmtYd: 0, finalCostYd: 0, priceConverter: 0, priceBrand: 0, pricePerM: 0, pricePerKg: 0, lines: { material: [], knit: [], proc: [], etc: [] } };
+    return { domestic: { ...safeSide }, export: { ...safeSide, lines: { material: [], knit: [], proc: [], etc: [] } }, requiredKg: 0 };
+  };
 
+  // ── [신규 원가 모델] 첨부 "가격정보" 표 방식 ─────────────────────────────────
+  //  · 재료비 = Σ(원사 landed단가KRW/kg × 혼용률) × 가공중량(kg/yd)  (손실 부풀림 없음)
+  //  · 편직 Loss = 재료비소계 × 편직loss%
+  //  · 가공(염가공·후가공) Loss = (재료비소계 + 편직비소계) × 각 loss%  (모든 가공손실 동일 기준액)
+  //  · 기타비용 = 항목별 (perYd: 그대로 / lumpSum: 총액÷오더수량)
+  //  · 판매가 = applyGrossMargin(소계, 도매 마진 단계) → priceConverter, +brandExtra → priceBrand
+  //  · 출력 단위 추가: /m(÷0.9144), /kg(×yd/kg)
   const calculateCost = (fabricData, overrideExchangeRate = null) => {
-    if (!fabricData || !fabricData.yarns) return { avgYarnCostDomestic: 0, avgYarnCostExport: 0, effectiveGYd: 0, theoreticalGYd: 0, tier1k: getSafeTier(), tier3k: getSafeTier(), tier5k: getSafeTier(), missingYarnIds: [] };
+    if (!fabricData || !fabricData.yarns) return { avgYarnCostDomestic: 0, avgYarnCostExport: 0, effectiveGYd: 0, theoreticalGYd: 0, ydPerKg: 0, tier1k: getSafeTier(), tier3k: getSafeTier(), tier5k: getSafeTier(), missingYarnIds: [] };
 
-    let yarnCostDomestic = 0; let yarnCostExport = 0;
+    const round = Math.round;
     const fabricExchangeRate = overrideExchangeRate !== null ? Number(overrideExchangeRate) : (Number(globalExchangeRate) || 1450);
-    // 라이브러리에서 찾지 못한 yarnId 추적 — UI에서 경고 배너로 노출
     const missingYarnIds = [];
 
+    // === 재료비: 원사 라인별 landed 단가(KRW/kg) × 혼용률 (내수=관세포함, 수출=관세제외) ===
+    let yarnCostDomestic = 0; let yarnCostExport = 0;
+    const materialLines = []; // { name, wDomestic(=landed×ratio), wExport }
     (fabricData.yarns || []).forEach(slot => {
       if (!slot) return;
       const ratio = Number(slot.ratio) / 100;
       if (!(ratio > 0)) return;
 
-      // [가설계서 전용] priceOverride가 있으면 최종 KRW/kg로 간주.
-      // 관세/운임 추가 없이 그대로 사용하고 내수·수출 동일하게 적용.
-      // yarnId가 비어 있어도(=라이브러리에 없는 신규 원사 가정) 단가만으로 가설계 가능.
-      // 정식 설계서로 승급될 때 loadTempToSheet가 이 필드를 폐기하므로 정식 데이터에는 전파되지 않는다.
+      // [가설계서 전용] priceOverride = 최종 KRW/kg (관세/운임 미적용, 내수·수출 동일)
       const overrideRaw = slot.priceOverride;
       const overrideNum = Number(overrideRaw);
-      const hasOverride =
-        overrideRaw !== '' &&
-        overrideRaw !== undefined &&
-        overrideRaw !== null &&
-        Number.isFinite(overrideNum) &&
-        overrideNum > 0;
-
+      const hasOverride = overrideRaw !== '' && overrideRaw !== undefined && overrideRaw !== null && Number.isFinite(overrideNum) && overrideNum > 0;
       if (hasOverride) {
-        yarnCostDomestic += overrideNum * ratio;
-        yarnCostExport   += overrideNum * ratio;
+        const w = overrideNum * ratio;
+        yarnCostDomestic += w; yarnCostExport += w;
+        materialLines.push({ name: '단가 직접입력', wDomestic: w, wExport: w });
         return;
       }
-
-      // priceOverride가 없는 경우 yarnId가 있어야 library에서 단가 lookup
       if (!slot.yarnId) return;
 
       const realYarnId = String(slot.yarnId).split('::')[0];
@@ -253,59 +263,104 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
       if (yarn) {
         const sup = yarn.suppliers?.find(s => s.isDefault) || yarn.suppliers?.[0];
         if (sup) {
-          let priceInKrw = sup.currency === 'USD' ? Number(sup.price || 0) * fabricExchangeRate : Number(sup.price || 0);
+          const priceInKrw = sup.currency === 'USD' ? Number(sup.price || 0) * fabricExchangeRate : Number(sup.price || 0);
           const tariffAmt = priceInKrw * ((Number(sup.tariff) || 0) / 100);
           const freightAmt = Number(sup.freight) || 0;
-          // 관세는 내수(Domestic)에만 포함, 수출(Export)에는 미포함
-          yarnCostExport += (priceInKrw + freightAmt) * ratio;
-          yarnCostDomestic += (priceInKrw + tariffAmt + freightAmt) * ratio;
+          const wDom = (priceInKrw + tariffAmt + freightAmt) * ratio; // 관세 내수만
+          const wExp = (priceInKrw + freightAmt) * ratio;             // 수출 관세 제외
+          yarnCostDomestic += wDom; yarnCostExport += wExp;
+          materialLines.push({ name: yarn.name || '원사', wDomestic: wDom, wExport: wExp });
         }
       } else {
-        // 라이브러리에서 사라진 사종 — silent failure 방지용으로 기록
-        missingYarnIds.push(realYarnId);
+        missingYarnIds.push(realYarnId); // 라이브러리에서 사라진 사종 — 경고 배너용
       }
     });
 
     const theoreticalGYd = calculateGYd(Number(fabricData.gsm || 0), Number(fabricData.widthFull || 0));
     const effectiveGYd = fabricData.costGYd && Number(fabricData.costGYd) > 0 ? Number(fabricData.costGYd) : theoreticalGYd;
-    const weightPerYdKg = (effectiveGYd || 1) / 1000;
+    const weightPerYdKg = (effectiveGYd || 0) / 1000;
 
-    const EXTRA_FEE_KEY = { tier1k: 'extraFee1k', tier3k: 'extraFee3k', tier5k: 'extraFee5k' };
+    const finishing = Array.isArray(fabricData.finishing) ? fabricData.finishing : [];
+    const hasEtc = Array.isArray(fabricData.etcCosts) && fabricData.etcCosts.length > 0;
+    const dyeingFee = Number(fabricData.dyeingFee || 0);
+
+    // 한 mode(내수/수출)의 KRW 라인 분해 (손실 누적 가산식).
+    // [변경] 중간 반올림 없이 정확값(소수)으로 계산 — 반올림은 최종원가(finalCostYd)에서만.
+    const buildKRW = (tierKey, knittingFeeKg, qty, useExport) => {
+      const matLines = materialLines.map(m => ({ name: m.name, amt: (useExport ? m.wExport : m.wDomestic) * weightPerYdKg }));
+      const matSub = matLines.reduce((s, l) => s + l.amt, 0);
+
+      const knitFeeAmt = Number(knittingFeeKg || 0) * weightPerYdKg;
+      const knitLossPct = Number(fabricData.losses?.[tierKey]?.knit || 0);
+      const knitLossAmt = matSub * knitLossPct / 100;
+      const knitSub = knitFeeAmt + knitLossAmt;
+
+      const procBase = matSub + knitSub; // 가공 손실 기준액 = 재료비 + 편직비
+      const dyeFeeAmt = dyeingFee * weightPerYdKg;
+      const dyeLossPct = Number(fabricData.losses?.[tierKey]?.dye || 0);
+      const dyeLossAmt = procBase * dyeLossPct / 100;
+      const procLines = [{ name: '염가공료', amt: dyeFeeAmt }, { name: '염가공 Loss', amt: dyeLossAmt }];
+      finishing.forEach(f => {
+        const nm = f.name || '후가공';
+        procLines.push({ name: nm, amt: Number(f.fee || 0) * weightPerYdKg });
+        const lp = Number(f.lossPct || 0);
+        if (lp > 0) procLines.push({ name: `${nm} Loss`, amt: procBase * lp / 100 });
+      });
+      const procSub = procLines.reduce((s, l) => s + l.amt, 0);
+
+      // 기타비용: 항목별 구간별 값(원/yd). etcCosts 없는 기존 원단은 표준 기본값 적용.
+      let etcLines;
+      if (hasEtc) {
+        etcLines = fabricData.etcCosts.map(e => ({ name: e.name || '기타', amt: Number(e.vals?.[tierKey] || 0) }));
+      } else {
+        etcLines = DEFAULT_ETC_COSTS.map(e => ({ name: e.name, amt: Number(e.vals?.[tierKey] || 0) }));
+      }
+      const etcSub = etcLines.reduce((s, l) => s + l.amt, 0);
+
+      const total = matSub + knitSub + procSub + etcSub;
+      const sumLossPct = knitLossPct + dyeLossPct + finishing.reduce((s, f) => s + Number(f.lossPct || 0), 0);
+      return { matLines, matSub, knitFeeAmt, knitLossAmt, knitSub, procLines, procSub, etcLines, etcSub, total, sumLossPct };
+    };
+
+    // [변경] 판매마진(도매 단계)·brandExtra 제거 — 마진은 영업(견적)에서 결정.
+    //   대신 '위험 마진(%)'만 원가에 가산 → 영업 기준원가(finalCostYd). 단일 %(원단당 1개).
+    const riskPct = Number(fabricData.riskMarginPct || 0);
+    const ydPerM = 1 / 0.9144;
+    const perKgFactor = weightPerYdKg > 0 ? 1 / weightPerYdKg : 0; // /yd가 × (yd/kg) = /kg가
 
     const calcTier = (tierKey, knittingFeeKg, qty) => {
-      const specificLoss = fabricData.losses?.[tierKey] || { knit: 0, dye: 0 };
-      const totalLossRate = (Number(specificLoss.knit || 0) + Number(specificLoss.dye || 0)) / 100;
-      const safeLossRate = totalLossRate >= 1 ? 0.99 : totalLossRate;
+      const dom = buildKRW(tierKey, knittingFeeKg, qty, false);
+      const domRiskAmt = dom.total * riskPct / 100; // 정확값 (반올림은 finalCostYd에서만)
+      const domFinal = smartRound(dom.total + domRiskAmt, 'KRW'); // 영업 기준원가 = 순원가 + 위험마진
 
-      const extraFee = Number(fabricData[EXTRA_FEE_KEY[tierKey]]) || 0;
-
-      const costKnitYd = (Number(knittingFeeKg || 0) / (1 - safeLossRate)) * weightPerYdKg;
-      const costDyeYd = (Number(fabricData.dyeingFee || 0) / (1 - safeLossRate)) * weightPerYdKg;
-      const costYarnYdDomestic = (yarnCostDomestic / (1 - safeLossRate)) * weightPerYdKg;
-      const costYarnYdExport = (yarnCostExport / (1 - safeLossRate)) * weightPerYdKg;
-
-      const totalCostYdDomesticKRW = costYarnYdDomestic + costKnitYd + costDyeYd + extraFee;
-      const totalCostYdExportKRW = costYarnYdExport + costKnitYd + costDyeYd + extraFee;
-
-      const marginPct = MARGIN_TIERS[fabricData.marginTier ?? 3] ?? 19;
-      const brandEx = Number(fabricData.brandExtra?.[tierKey] || 0);
-
-      const domesticPriceConv = applyGrossMargin(totalCostYdDomesticKRW, marginPct);
-      const domesticPriceBrand = domesticPriceConv + brandEx;
-      const totalCostYdExportUSD = totalCostYdExportKRW / fabricExchangeRate;
-      const exportPriceConv = applyGrossMargin(totalCostYdExportUSD, marginPct);
-      const exportPriceBrand = exportPriceConv + (brandEx / fabricExchangeRate);
+      const exp = buildKRW(tierKey, knittingFeeKg, qty, true);
+      const expUSDtotal = fabricExchangeRate > 0 ? exp.total / fabricExchangeRate : 0;
+      const expRiskAmt = expUSDtotal * riskPct / 100;
+      const expFinal = smartRound(expUSDtotal + expRiskAmt, 'USD');
 
       return {
-        domestic: { yarnCostYd: costYarnYdDomestic, knitCostYd: costKnitYd, dyeCostYd: costDyeYd, extraFeeYd: extraFee, totalCostYd: Math.round(totalCostYdDomesticKRW), priceConverter: smartRound(domesticPriceConv, 'KRW'), priceBrand: smartRound(domesticPriceBrand, 'KRW') },
-        export: { yarnCostYd: costYarnYdExport / fabricExchangeRate, knitCostYd: costKnitYd / fabricExchangeRate, dyeCostYd: costDyeYd / fabricExchangeRate, extraFeeYd: extraFee / fabricExchangeRate, totalCostYd: Number(totalCostYdExportUSD.toFixed(2)), priceConverter: smartRound(exportPriceConv, 'USD'), priceBrand: smartRound(exportPriceBrand, 'USD') },
-        requiredKg: Math.round((qty * weightPerYdKg) / (1 - safeLossRate))
+        domestic: {
+          yarnCostYd: dom.matSub, knitCostYd: dom.knitSub, dyeCostYd: dom.procSub, extraFeeYd: dom.etcSub,
+          totalCostYd: dom.total, riskAmtYd: domRiskAmt, finalCostYd: domFinal,
+          // 판매가가 아니라 '영업 기준원가'(판매마진은 견적에서 적용). 견적/리스트 호환 위해 필드명 유지.
+          priceConverter: domFinal, priceBrand: domFinal,
+          pricePerM: smartRound(domFinal * ydPerM, 'KRW'), pricePerKg: smartRound(domFinal * perKgFactor, 'KRW'),
+          lines: { material: dom.matLines, knit: [{ name: '편직', amt: dom.knitFeeAmt }, { name: '편직 Loss', amt: dom.knitLossAmt }], proc: dom.procLines, etc: dom.etcLines },
+        },
+        export: {
+          yarnCostYd: exp.matSub / (fabricExchangeRate || 1), knitCostYd: exp.knitSub / (fabricExchangeRate || 1), dyeCostYd: exp.procSub / (fabricExchangeRate || 1), extraFeeYd: exp.etcSub / (fabricExchangeRate || 1),
+          totalCostYd: Number(expUSDtotal.toFixed(2)), riskAmtYd: Number(expRiskAmt.toFixed(2)), finalCostYd: expFinal,
+          priceConverter: expFinal, priceBrand: expFinal,
+          pricePerM: Number((expFinal * ydPerM).toFixed(2)), pricePerKg: Number((expFinal * perKgFactor).toFixed(2)),
+          lines: { material: exp.matLines, knit: [{ name: '편직', amt: exp.knitFeeAmt }, { name: '편직 Loss', amt: exp.knitLossAmt }], proc: exp.procLines, etc: exp.etcLines },
+        },
+        requiredKg: round(qty * weightPerYdKg * (1 + dom.sumLossPct / 100)),
       };
     };
 
     return {
       avgYarnCostDomestic: Math.round(yarnCostDomestic), avgYarnCostExport: Math.round(yarnCostExport),
-      effectiveGYd, theoreticalGYd,
+      effectiveGYd, theoreticalGYd, ydPerKg: perKgFactor,
       tier1k: calcTier('tier1k', fabricData.knittingFee1k, 1000),
       tier3k: calcTier('tier3k', fabricData.knittingFee3k, 3000),
       tier5k: calcTier('tier5k', fabricData.knittingFee5k, 5000),

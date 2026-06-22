@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { makeDefaultEtcCosts } from '../../constants/common';
 
 // GRUBIG ERP - 가설계서(Temp Design Sheet) 독립 도메인 훅
 // ⚠️ 기존 useDesignSheet.js는 수정하지 않음 (사이드이펙트 차단)
@@ -77,7 +78,12 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
         tier5k: { knit: 3, dye: 9 }
       },
       marginTier: 3,
-      brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 }
+      brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 },
+      // [신규 원가모델] 후가공(추가/삭제) + 기타비용 항목화 + 오퍼가격
+      finishing: [],
+      etcCosts: makeDefaultEtcCosts(),
+      riskMarginPct: 0,
+      offerPrice: ''
     }
   });
 

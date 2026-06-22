@@ -1021,6 +1021,7 @@ const App = () => {
             handleSaveFabric={handleSaveFabric}
             setActiveTab={setActiveTab}
             globalExchangeRate={globalExchangeRate}
+            yarnLibrary={yarnLibrary}
           />
         )}
 

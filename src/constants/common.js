@@ -16,6 +16,15 @@ export const MARGIN_TIERS = {
   6: 28
 };
 
+// 기타비용 기본값 (외관검사/이화학검사/운임) — 구간별 원/yd. 신규·기존 원단 공통 기본.
+export const DEFAULT_ETC_COSTS = [
+  { id: 'etc_visual', name: '외관검사',   vals: { tier1k: 190, tier3k: 190, tier5k: 190 } },
+  { id: 'etc_chem',   name: '이화학검사', vals: { tier1k: 400, tier3k: 300, tier5k: 200 } },
+  { id: 'etc_freight', name: '운임',      vals: { tier1k: 500, tier3k: 300, tier5k: 200 } },
+];
+// state 시드용 — 깊은 복사본 반환 (상수 직접 변형 방지)
+export const makeDefaultEtcCosts = () => DEFAULT_ETC_COSTS.map(e => ({ ...e, vals: { ...e.vals } }));
+
 // 원단 설계서 진행 4단계 (confirmed 삭제됨)
 export const DESIGN_STAGES = [
   { key: 'draft', label: '설계서 작성', icon: 'Edit2' },

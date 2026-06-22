@@ -70,8 +70,8 @@ export const FabricListPage = ({
               <th className="font-bold p-2 text-left border-r border-slate-200 min-w-[220px]">사용 원사 (Yarn Mix)</th>
               <th className="font-bold p-2 text-center border-r border-slate-200">편직비 & LOSS</th>
               <th className="font-bold p-2 text-center border-r border-slate-200">염가공 & LOSS</th>
-              <th className="font-bold p-2 text-center border-r border-slate-200">Margin(%)</th>
-              <th colSpan="3" className="font-bold p-2 text-center border-r border-slate-200 text-slate-500 bg-slate-50">CONV (도매 단가)</th>
+              <th className="font-bold p-2 text-center border-r border-slate-200">위험마진(%)</th>
+              <th colSpan="3" className="font-bold p-2 text-center border-r border-slate-200 text-emerald-700 bg-emerald-50/50">영업 기준원가</th>
               <th className="font-bold p-2 text-center w-12"></th>
             </tr>
             <tr className="text-[10px] text-center bg-slate-50/50">

@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 import { ChevronUp, ChevronDown, Edit2, Trash2, Factory, TrendingUp, DollarSign, Info } from 'lucide-react';
-import { MARGIN_TIERS } from '../../constants/common';
 import { num } from '../../utils/helpers';
 
 export const DesktopFabricRow = React.memo(({
@@ -143,8 +142,8 @@ export const DesktopFabricRow = React.memo(({
         </td>
 
         <td className="p-2 border-r border-slate-50 text-center align-middle">
-          <span className="font-extrabold text-[12px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded px-2 py-1 inline-flex items-center justify-center">
-            {MARGIN_TIERS[f.marginTier]}%
+          <span className="font-extrabold text-[12px] text-rose-700 bg-rose-50 border border-rose-100 rounded px-2 py-1 inline-flex items-center justify-center">
+            {Number(f.riskMarginPct || 0)}%
           </span>
         </td>
 
@@ -178,7 +177,7 @@ export const DesktopFabricRow = React.memo(({
                     <div className="text-left pl-1">항목</div><div>1k</div><div className="text-blue-500 bg-blue-50/50 rounded">3k (기준)</div><div>5k</div>
                   </div>
                   <div className="grid grid-cols-4 text-center font-mono py-1.5 items-center border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                    <div className="text-left text-slate-500 text-[10px] font-bold">원사비</div>
+                    <div className="text-left text-slate-500 text-[10px] font-bold">재료비</div>
                     <div>{num(c.tier1k[viewMode]?.yarnCostYd, viewMode)}</div>
                     <div className="text-blue-600 font-bold bg-blue-50/30 rounded">{num(c.tier3k[viewMode]?.yarnCostYd, viewMode)}</div>
                     <div>{num(c.tier5k[viewMode]?.yarnCostYd, viewMode)}</div>
@@ -190,19 +189,19 @@ export const DesktopFabricRow = React.memo(({
                     <div>{num(c.tier5k[viewMode]?.knitCostYd, viewMode)}</div>
                   </div>
                   <div className="grid grid-cols-4 text-center font-mono py-1.5 items-center border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                    <div className="text-left text-slate-500 text-[10px] font-bold">염가공비</div>
+                    <div className="text-left text-slate-500 text-[10px] font-bold">가공비</div>
                     <div>{num(c.tier1k[viewMode]?.dyeCostYd, viewMode)}</div>
                     <div className="text-blue-600 font-bold bg-blue-50/30 rounded">{num(c.tier3k[viewMode]?.dyeCostYd, viewMode)}</div>
                     <div>{num(c.tier5k[viewMode]?.dyeCostYd, viewMode)}</div>
                   </div>
                   <div className="grid grid-cols-4 text-center font-mono py-1.5 items-center border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                    <div className="text-left text-slate-500 text-[10px] font-bold">부대비용</div>
+                    <div className="text-left text-slate-500 text-[10px] font-bold">기타비용</div>
                     <div>{num(c.tier1k[viewMode]?.extraFeeYd, viewMode)}</div>
                     <div className="text-blue-600 font-bold bg-blue-50/30 rounded">{num(c.tier3k[viewMode]?.extraFeeYd, viewMode)}</div>
                     <div>{num(c.tier5k[viewMode]?.extraFeeYd, viewMode)}</div>
                   </div>
                   <div className="grid grid-cols-4 text-center font-mono py-2 items-center bg-slate-50 rounded mt-1">
-                    <div className="text-left text-slate-700 text-[11px] font-bold pl-1">총 원가/YD</div>
+                    <div className="text-left text-slate-700 text-[11px] font-bold pl-1">순원가/YD</div>
                     <div className="text-slate-600 font-bold">{num(c.tier1k[viewMode]?.totalCostYd, viewMode)}</div>
                     <div className="text-blue-700 font-extrabold text-[13px]">{num(c.tier3k[viewMode]?.totalCostYd, viewMode)}</div>
                     <div className="text-slate-600 font-bold">{num(c.tier5k[viewMode]?.totalCostYd, viewMode)}</div>
@@ -220,9 +219,9 @@ export const DesktopFabricRow = React.memo(({
                 <div className="space-y-1 flex-1 flex flex-col justify-center relative z-10">
                   <div className="grid grid-cols-4 text-center font-bold text-[10px] text-slate-400 pb-2 border-b border-slate-700 mb-1">
                     <div>오더 구간</div>
-                    <div className="text-slate-300">원가 (COST)</div>
-                    <div className="text-emerald-400">도매 (CONV)</div>
-                    <div className="text-indigo-400">직납 (BRAND)</div>
+                    <div className="text-slate-300">순원가</div>
+                    <div className="text-rose-400">위험마진</div>
+                    <div className="text-emerald-400">영업 기준원가</div>
                   </div>
 
                   {['tier1k', 'tier3k', 'tier5k'].map((tier, i) => {
@@ -233,8 +232,8 @@ export const DesktopFabricRow = React.memo(({
                       <div key={tier} className={`grid grid-cols-4 text-center font-mono py-2.5 rounded text-xs items-center transition-colors ${is3k ? 'bg-slate-700/80 shadow-inner' : 'hover:bg-slate-700/30'}`}>
                         <div className={`text-[10px] ${is3k ? 'text-blue-300 font-bold' : 'text-slate-400 font-medium'}`}>{label}</div>
                         <div className={`${is3k ? 'text-white font-bold' : 'text-slate-300'}`}>{sym}{num(d.totalCostYd, viewMode)}</div>
-                        <div className={`${is3k ? 'text-emerald-300 font-extrabold text-[14px]' : 'text-emerald-500'}`}>{sym}{num(d.priceConverter, viewMode)}</div>
-                        <div className={`${is3k ? 'text-indigo-300 font-bold text-[13px]' : 'text-indigo-500'}`}>{sym}{num(d.priceBrand, viewMode)}</div>
+                        <div className={`${is3k ? 'text-rose-300 font-bold' : 'text-rose-400'}`}>{sym}{num(d.riskAmtYd, viewMode)}</div>
+                        <div className={`${is3k ? 'text-emerald-300 font-extrabold text-[14px]' : 'text-emerald-500'}`}>{sym}{num(d.finalCostYd, viewMode)}</div>
                       </div>
                     );
                   })}
@@ -255,9 +254,9 @@ export const DesktopFabricRow = React.memo(({
                     </div>
                   </div>
 
-                  <div className="bg-emerald-50/30 rounded-lg p-2.5 border border-emerald-100/50">
-                    <div className="flex justify-between items-center mb-1"><span className="text-[10px] font-bold text-slate-500">도매(Conv) 마진 단계</span><span className="font-bold text-emerald-600">{f.marginTier}단계 ({MARGIN_TIERS[f.marginTier]}%)</span></div>
-                    <div className="text-[9px] text-slate-400 leading-tight">선택하신 도매가 마진율이 CONV 단가 책정 시 자동 계산되어 반영됩니다.</div>
+                  <div className="bg-rose-50/30 rounded-lg p-2.5 border border-rose-100/50">
+                    <div className="flex justify-between items-center mb-1"><span className="text-[10px] font-bold text-slate-500">위험 마진</span><span className="font-bold text-rose-600">{Number(f.riskMarginPct || 0)}%</span></div>
+                    <div className="text-[9px] text-slate-400 leading-tight">메인 전·위험 원단 추가 마진. 순원가에 가산되어 '영업 기준원가'가 됩니다. (판매마진은 견적에서)</div>
                   </div>
 
                 </div>

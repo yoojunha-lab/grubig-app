@@ -2,8 +2,8 @@ import React from 'react';
 import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download } from 'lucide-react';
 import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
+import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
 import { num, calculateGYd } from '../utils/helpers';
-import { MARGIN_TIERS } from '../constants/common';
 
 // 편직 조직도 관련 부호
 const KNIT_SYMBOLS = ['︹', '︺', '︿', '﹀', '━', '┃', '╋', '○', '●', '◎', '△', '▽'];
@@ -440,104 +440,16 @@ export const DesignSheetPage = ({
           <p className="text-[9px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200">※ 색칠된 칸이 최종 거래 스펙 및 가격의 기준이 됩니다.</p>
         </div>
 
-        <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 border-b-[2px] rounded-none overflow-hidden grid grid-cols-4 md:grid-cols-10 mb-8 bg-white shadow-sm">
-
-          {/* 1. Header (항목명) ROW */}
-          <Th span={2} className="bg-slate-200 justify-center text-[10px] !py-1">생산 항목</Th>
-          <Th span={2} className="bg-slate-100 justify-center text-[10px] !py-1 text-slate-600">1,000 YDS 범위</Th>
-          <Th span={2} className="bg-indigo-100 justify-center text-[10px] text-indigo-900 border-b-indigo-200 !py-1 shadow-inner">3,000 YDS 기준 (Main)</Th>
-          <Th span={2} className="bg-slate-100 justify-center text-[10px] !py-1 text-slate-600">5,000 YDS 범위</Th>
-          <Th span={2} className="bg-slate-200 justify-center text-[10px] text-slate-700 !py-1 border-r-0 text-center leading-tight">도매(Conv) 마진 단계 지정</Th>
-
-          {/* 2. 원가 항목 데이터 ROW 1 (편직비) */}
-          <Th span={2} className="text-slate-700 justify-center">
-            <span>편직비 (￦/kg)</span>
-          </Th>
-          <Td span={2}><TInput type="number" name="knittingFee1k" value={sheetInput.costInput?.knittingFee1k ?? ''} onChange={handleCostInputChange} placeholder="1K 편직비" className="text-center font-mono text-slate-700" /></Td>
-          <Td span={2} className="bg-indigo-50/40 shadow-inner"><TInput type="number" name="knittingFee3k" value={sheetInput.costInput?.knittingFee3k ?? ''} onChange={handleCostInputChange} placeholder="3K 편직비" className="text-center font-mono font-black text-indigo-800 bg-transparent" /></Td>
-          <Td span={2}><TInput type="number" name="knittingFee5k" value={sheetInput.costInput?.knittingFee5k ?? ''} onChange={handleCostInputChange} placeholder="5K 편직비" className="text-center font-mono text-slate-700" /></Td>
-          <Th span={2} className="bg-slate-100 justify-center text-slate-600 border-l border-l-slate-800 border-r-0">염가공비 (￦/kg)</Th>
-
-          {/* 3. 원가 항목 데이터 ROW 2 (편직 로스율) */}
-          <Th span={2} className="text-amber-700 justify-center bg-amber-50/50">
-            <span>편직 Loss (%)</span>
-          </Th>
-          <Td span={2} className="bg-amber-50/30"><TInput type="number" value={sheetInput.costInput?.losses?.tier1k?.knit ?? ''} onChange={e => handleCostNestedChange('losses', 'tier1k', 'knit', e.target.value)} placeholder="%" className="text-center font-mono text-amber-700 bg-transparent" /></Td>
-          <Td span={2} className="bg-indigo-50/40 shadow-inner"><TInput type="number" value={sheetInput.costInput?.losses?.tier3k?.knit ?? ''} onChange={e => handleCostNestedChange('losses', 'tier3k', 'knit', e.target.value)} placeholder="%" className="text-center font-mono font-black text-amber-700 bg-transparent" /></Td>
-          <Td span={2} className="bg-amber-50/30"><TInput type="number" value={sheetInput.costInput?.losses?.tier5k?.knit ?? ''} onChange={e => handleCostNestedChange('losses', 'tier5k', 'knit', e.target.value)} placeholder="%" className="text-center font-mono text-amber-700 bg-transparent" /></Td>
-          <Td span={2} className="bg-white border-l border-l-slate-800 border-r-0"><TInput type="number" name="dyeingFee" value={sheetInput.costInput?.dyeingFee ?? ''} onChange={handleCostInputChange} placeholder="전구간 단일 (₩)" className="text-center font-mono font-black text-slate-800 text-sm h-full" /></Td>
-
-          {/* 4. 원가 항목 데이터 ROW 3 (염색 로스율) */}
-          <Th span={2} className="text-blue-700 justify-center bg-blue-50/50">
-            <span>염가공 Loss (%)</span>
-          </Th>
-          <Td span={2} className="bg-blue-50/30"><TInput type="number" value={sheetInput.costInput?.losses?.tier1k?.dye ?? ''} onChange={e => handleCostNestedChange('losses', 'tier1k', 'dye', e.target.value)} placeholder="%" className="text-center font-mono text-blue-700 bg-transparent" /></Td>
-          <Td span={2} className="bg-indigo-50/40 shadow-inner"><TInput type="number" value={sheetInput.costInput?.losses?.tier3k?.dye ?? ''} onChange={e => handleCostNestedChange('losses', 'tier3k', 'dye', e.target.value)} placeholder="%" className="text-center font-mono font-black text-blue-700 bg-transparent" /></Td>
-          <Td span={2} className="bg-blue-50/30"><TInput type="number" value={sheetInput.costInput?.losses?.tier5k?.dye ?? ''} onChange={e => handleCostNestedChange('losses', 'tier5k', 'dye', e.target.value)} placeholder="%" className="text-center font-mono text-blue-700 bg-transparent" /></Td>
-          <Th span={2} className="bg-slate-100 justify-center text-slate-600 border-l border-l-slate-800 border-r-0"></Th>
-
-          {/* 5. 원가 항목 데이터 ROW 4 (부대비) */}
-          <Th span={2} className="text-slate-500 justify-center">
-            <span>부대비용 (￦/YD)</span>
-          </Th>
-          <Td span={2}><TInput type="number" name="extraFee1k" value={sheetInput.costInput?.extraFee1k ?? ''} onChange={handleCostInputChange} placeholder="1K 요금" className="text-center font-mono text-slate-500" /></Td>
-          <Td span={2} className="bg-indigo-50/40 shadow-inner"><TInput type="number" name="extraFee3k" value={sheetInput.costInput?.extraFee3k ?? ''} onChange={handleCostInputChange} placeholder="3K 요금" className="text-center font-mono font-black text-slate-600 bg-transparent" /></Td>
-          <Td span={2}><TInput type="number" name="extraFee5k" value={sheetInput.costInput?.extraFee5k ?? ''} onChange={handleCostInputChange} placeholder="5K 요금" className="text-center font-mono text-slate-500" /></Td>
-          <Td span={2} className="bg-slate-50 border-l border-l-slate-800 border-r-0">
-            <TSelect value={sheetInput.costInput?.marginTier ?? 3} onChange={e => handleCostInputChange({ target: { name: 'marginTier', value: Number(e.target.value) } })} className="text-center font-bold text-slate-800 bg-transparent h-full">
-              {Object.entries(MARGIN_TIERS).map(([tier, pct]) => (
-                <option key={tier} value={tier}>{tier}단계 ({pct}%)</option>
-              ))}
-            </TSelect>
-          </Td>
-
-          {/* 6. 원가 항목 데이터 ROW 5 (직납로고비) */}
-          <Th span={2} className="text-purple-700 justify-center bg-purple-50/50 !border-b-0">
-            <span>Brand 직납 추가금 (￦/YD)</span>
-          </Th>
-          <Td span={2} className="bg-purple-50/30 !border-b-0"><TInput type="number" value={sheetInput.costInput?.brandExtra?.tier1k ?? ''} onChange={e => handleCostInputChange({ target: { name: 'brandExtra_tier1k', value: e.target.value } })} placeholder="1K 로고비" className="text-center font-mono text-purple-700 bg-transparent" /></Td>
-          <Td span={2} className="bg-indigo-50/40 shadow-inner !border-b-0"><TInput type="number" value={sheetInput.costInput?.brandExtra?.tier3k ?? ''} onChange={e => handleCostInputChange({ target: { name: 'brandExtra_tier3k', value: e.target.value } })} placeholder="3K 로고비" className="text-center font-mono font-black text-purple-700 bg-transparent" /></Td>
-          <Td span={2} className="bg-purple-50/30 !border-b-0"><TInput type="number" value={sheetInput.costInput?.brandExtra?.tier5k ?? ''} onChange={e => handleCostInputChange({ target: { name: 'brandExtra_tier5k', value: e.target.value } })} placeholder="5K 로고비" className="text-center font-mono text-purple-700 bg-transparent" /></Td>
-          <Td span={2} className="bg-slate-50 border-l border-l-slate-800 border-r-0 !border-b-0">
-            <div className="flex items-center justify-center p-2 h-full text-[9px] text-slate-400 font-bold tracking-tighter text-center leading-tight">
-              ★ 우측 공통 상수는<br />판가 산출시 일괄 적용됩니다.
-            </div>
-          </Td>
-
-          {/* 7. 최하단 Summary Banner (Column 맞춰서 분할) */}
-          <Td span={2} className="bg-slate-100 flex items-center justify-center !border-b-0">
-             <span className="text-[10px] font-black text-slate-400">구간별 최종 단가</span>
-          </Td>
-          {costData && ['tier1k', 'tier3k', 'tier5k'].map((tier, i) => {
-            const data = viewMode === 'export' ? costData[tier]?.export : costData[tier]?.domestic;
-            const pre = viewMode === 'export' ? '$' : '₩';
-            const fmt = v => viewMode === 'export' ? (v || 0).toFixed(2) : num(v || 0);
-            const is3K = tier === 'tier3k';
-            return (
-              <Td span={2} key={tier} className={`flex-1 flex flex-col items-center justify-center p-2.5 !border-b-0 ${is3K ? 'bg-indigo-900 shadow-inner border-indigo-900' : 'bg-white'}`}>
-                <span className={`text-[9px] font-bold ${is3K ? 'text-indigo-200' : 'text-slate-500'} tracking-widest uppercase mb-2`}>{['1,000 YDS', '3,000 YDS', '5,000 YDS'][i]} 원가 산출</span>
-                <div className="flex flex-col items-center gap-1.5 w-full relative">
-                  <div className="flex justify-between w-full px-2">
-                    <span className={`text-[9px] ${is3K ? 'text-indigo-300' : 'text-slate-400'}`}>순수(Cost)</span>
-                    <span className={`text-[10px] font-mono font-bold ${is3K ? 'text-indigo-200' : 'text-slate-500'}`}>{pre}{fmt(data?.totalCostYd)}</span>
-                  </div>
-                  <div className={`w-[90%] h-px ${is3K ? 'bg-indigo-800' : 'bg-slate-200'} my-0.5`}></div>
-                  <div className="flex justify-between w-full px-2">
-                    <span className={`text-[9px] ${is3K ? 'text-indigo-300' : 'text-slate-400'}`}>기본(일반)</span>
-                    <span className={`text-[10px] font-mono font-bold ${is3K ? 'text-white' : 'text-slate-700'}`}>{pre}{fmt(data?.priceConverter)}</span>
-                  </div>
-                  <div className={`w-[90%] h-px ${is3K ? 'bg-indigo-800' : 'bg-slate-200'} my-0.5`}></div>
-                  <div className="flex justify-between w-full px-2 items-center">
-                    <span className={`text-[9px] ${is3K ? 'text-yellow-500 font-bold' : 'text-slate-600 font-bold'}`}>직납(Brand)</span>
-                    <span className={`text-[10px] font-mono font-bold ${is3K ? 'text-yellow-400' : 'text-slate-800'}`}>{pre}{fmt(data?.priceBrand)}</span>
-                  </div>
-                </div>
-              </Td>
-            );
-          })}
-          <Td span={2} className="bg-slate-100 border-l border-l-slate-800 border-r-0 !border-b-0 flex flex-col items-center justify-center">
-          </Td>
-        </div>
+        <CostBreakdownTable
+          cost={sheetInput.costInput || {}}
+          yarns={sheetInput.yarns}
+          calc={costData}
+          viewMode={viewMode}
+          globalExchangeRate={globalExchangeRate}
+          showMaterial={false}
+          setCost={(fn) => setSheetInput?.(prev => ({ ...prev, costInput: fn(prev.costInput || {}) }))}
+          setYarns={(fn) => setSheetInput?.(prev => ({ ...prev, yarns: fn(prev.yarns || []) }))}
+        />
 
 
         {/* 메모 및 서명 영역 — [BUG-2] 가설계서 모드에서는 이력 관리 불필요하므로 숨김 */}

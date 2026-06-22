@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DESIGN_STAGES } from '../../constants/common';
+import { DESIGN_STAGES, makeDefaultEtcCosts } from '../../constants/common';
 
 // GRUBIG ERP - 원단 설계서 도메인 로직 훅
 
@@ -92,7 +92,12 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         tier5k: { knit: 3, dye: 9 }
       },
       marginTier: 3,
-      brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 }
+      brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 },
+      // [신규 원가모델] 후가공(추가/삭제) + 기타비용 항목화 + 오퍼가격
+      finishing: [],
+      etcCosts: makeDefaultEtcCosts(),
+      riskMarginPct: 0,
+      offerPrice: ''
     }
   });
 

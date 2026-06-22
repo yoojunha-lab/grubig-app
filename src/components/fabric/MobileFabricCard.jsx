@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 import { ChevronUp, ChevronDown, Edit2, Trash2, Factory, TrendingUp, DollarSign, Info } from 'lucide-react';
-import { MARGIN_TIERS } from '../../constants/common';
 import { num } from '../../utils/helpers';
 
 export const MobileFabricCard = React.memo(({
@@ -119,12 +118,12 @@ export const MobileFabricCard = React.memo(({
 
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div className="bg-emerald-50/30 p-2.5 rounded-lg border border-emerald-100/50 flex flex-col justify-center items-center">
-            <div className="text-[10px] text-emerald-600/70 font-bold mb-0.5 uppercase tracking-wide">도매가 (3k)</div>
-            <div className="font-mono font-extrabold text-emerald-700 text-sm">{sym}{num(c.tier3k[viewMode]?.priceConverter, viewMode)}</div>
+            <div className="text-[10px] text-emerald-600/70 font-bold mb-0.5 uppercase tracking-wide">영업 기준원가 (3k)</div>
+            <div className="font-mono font-extrabold text-emerald-700 text-sm">{sym}{num(c.tier3k[viewMode]?.finalCostYd, viewMode)}</div>
           </div>
-          <div className="bg-emerald-100 rounded-lg border border-emerald-200 shadow-sm flex flex-col justify-center items-center p-2.5">
-            <div className="text-emerald-800 font-extrabold text-sm">{MARGIN_TIERS[f.marginTier]}%</div>
-            <div className="text-[10px] text-emerald-700/80 font-bold uppercase tracking-wide">Sales Margin</div>
+          <div className="bg-rose-100 rounded-lg border border-rose-200 shadow-sm flex flex-col justify-center items-center p-2.5">
+            <div className="text-rose-800 font-extrabold text-sm">{Number(f.riskMarginPct || 0)}%</div>
+            <div className="text-[10px] text-rose-700/80 font-bold uppercase tracking-wide">위험마진</div>
           </div>
         </div>
       </div>
@@ -141,10 +140,10 @@ export const MobileFabricCard = React.memo(({
           </div>
 
           <div className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
-            <h4 className="text-[11px] font-bold text-slate-700 mb-2.5 flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5 text-emerald-500" /> 판매 및 마진율</h4>
+            <h4 className="text-[11px] font-bold text-slate-700 mb-2.5 flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5 text-rose-500" /> 위험 마진</h4>
             <div className="space-y-2 text-xs">
-              <div className="flex justify-between items-center"><span className="text-slate-500">도매(Conv) 마진 단계</span><span className="font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">{f.marginTier}단계 ({MARGIN_TIERS[f.marginTier]}%)</span></div>
-              <div className="flex justify-between items-center"><span className="text-slate-500">직납 추가금(3k)</span><span className="font-mono font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">+{num(f.brandExtra?.tier3k)}/yd</span></div>
+              <div className="flex justify-between items-center"><span className="text-slate-500">위험 마진</span><span className="font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">{Number(f.riskMarginPct || 0)}%</span></div>
+              <div className="text-[10px] text-slate-400 leading-tight">순원가에 가산 → 영업 기준원가. 판매마진은 견적에서 적용.</div>
             </div>
           </div>
 
@@ -153,7 +152,7 @@ export const MobileFabricCard = React.memo(({
               <span className="flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5 text-blue-400" /> 구간별 단가표</span>
               <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${viewMode === 'domestic' ? 'bg-blue-500/20 text-blue-300' : 'bg-emerald-500/20 text-emerald-300'}`}>{viewMode === 'domestic' ? '내수' : '수출'}</span>
             </h4>
-            <div className="grid grid-cols-4 text-center font-bold text-[10px] text-slate-400 pb-1.5 pt-1"><div>구간</div><div>원가</div><div className="text-emerald-400">도매</div><div className="text-indigo-400">직납</div></div>
+            <div className="grid grid-cols-4 text-center font-bold text-[10px] text-slate-400 pb-1.5 pt-1"><div>구간</div><div>순원가</div><div className="text-rose-400">위험마진</div><div className="text-emerald-400">영업원가</div></div>
             {['tier1k', 'tier3k', 'tier5k'].map((tier, i) => {
               const d = c[tier][viewMode];
               const is3k = tier === 'tier3k';
@@ -161,8 +160,8 @@ export const MobileFabricCard = React.memo(({
                 <div key={tier} className={`grid grid-cols-4 text-center font-mono py-1.5 items-center text-[10px] rounded ${is3k ? 'bg-slate-700 font-bold text-white shadow-inner' : 'text-slate-300'}`}>
                   <div className={is3k ? 'text-blue-300' : 'text-slate-400'}>{['1k', '3k', '5k'][i]}</div>
                   <div>{num(d.totalCostYd)}</div>
-                  <div className={is3k ? 'text-emerald-300' : 'text-emerald-400'}>{num(d.priceConverter)}</div>
-                  <div className={is3k ? 'text-indigo-300' : 'text-indigo-400'}>{num(d.priceBrand)}</div>
+                  <div className={is3k ? 'text-rose-300' : 'text-rose-400'}>{num(d.riskAmtYd)}</div>
+                  <div className={is3k ? 'text-emerald-300' : 'text-emerald-400'}>{num(d.finalCostYd)}</div>
                 </div>
               )
             })}
