@@ -256,7 +256,7 @@ export const DesktopFabricRow = React.memo(({
                   </div>
 
                   <div className="bg-emerald-50/30 rounded-lg p-2.5 border border-emerald-100/50">
-                    <div className="flex justify-between items-center mb-1"><span className="text-[10px] font-bold text-slate-500">지정 마진율</span><span className="font-bold text-emerald-600">{f.marginTier}단계 ({MARGIN_TIERS[f.marginTier]}%)</span></div>
+                    <div className="flex justify-between items-center mb-1"><span className="text-[10px] font-bold text-slate-500">도매(Conv) 마진 단계</span><span className="font-bold text-emerald-600">{f.marginTier}단계 ({MARGIN_TIERS[f.marginTier]}%)</span></div>
                     <div className="text-[9px] text-slate-400 leading-tight">선택하신 도매가 마진율이 CONV 단가 책정 시 자동 계산되어 반영됩니다.</div>
                   </div>
 

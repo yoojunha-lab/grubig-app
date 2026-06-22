@@ -266,7 +266,7 @@ export const TempDesignSheetListPage = ({
               handleCostInputChange={handleTempCostInputChange}
               handleCostNestedChange={handleTempCostNestedChange}
               handleActualDataChange={() => {}}
-              handleSaveSheet={(u) => { handleSaveTemp(u); setIsTempModalOpen(false); }}
+              handleSaveSheet={handleSaveTemp}
               handleDeleteSheet={(id) => { handleDeleteTemp(id); setIsTempModalOpen(false); }}
               resetSheetForm={() => { resetTempForm(); setIsTempModalOpen(false); }}
               setStage={() => {}}

@@ -13,5 +13,5 @@ export const FIELD_LABELS = {
   'costInput.costGYd': 'G/YD', 'costInput.knittingFee1k': '편직비1K', 'costInput.knittingFee3k': '편직비3K',
   'costInput.knittingFee5k': '편직비5K', 'costInput.dyeingFee': '염가공비',
   'costInput.extraFee1k': '부대비1K', 'costInput.extraFee3k': '부대비3K', 'costInput.extraFee5k': '부대비5K',
-  'costInput.marginTier': '마진등급'
+  'costInput.marginTier': '도매(Conv) 마진 단계'
 };

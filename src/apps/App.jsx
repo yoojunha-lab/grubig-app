@@ -209,9 +209,12 @@ const App = () => {
       const setter = DEV_LOCAL_SETTERS[colName];
       if (setter) setter(prev => [...prev.filter(x => String(x.id) !== String(item.id)), item]);
       setSyncStatus('saved');
-      return;
+      return true;
     }
-    setSyncStatus('syncing'); try { await saveDocument(colName, item); setSyncStatus('saved'); } catch (e) { setSyncStatus('error'); showToast("저장 실패", "error"); }
+    // 성공 시 true / 실패 시 false 반환 — 호출자가 저장 성공 여부에 따라 후처리(폼 리셋·모달 닫기 등)를 분기할 수 있도록 함
+    setSyncStatus('syncing');
+    try { await saveDocument(colName, item); setSyncStatus('saved'); return true; }
+    catch (e) { setSyncStatus('error'); showToast(`저장 실패: ${e?.message || '네트워크 오류'}`, "error"); return false; }
   };
   const deleteDocFromCloud = async (colName, id) => {
     if (DEV_BYPASS) {

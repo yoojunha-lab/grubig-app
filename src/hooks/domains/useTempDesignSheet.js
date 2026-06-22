@@ -169,7 +169,10 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
   // --- CRUD ---
 
   // 저장 (새로 생성 or 수정)
-  const handleSaveTemp = (user) => {
+  // [버그수정] 저장을 await 하고 '성공했을 때만' 폼 리셋 + 성공 토스트 + id 반환.
+  //   이전에는 await 없이 즉시 성공 처리해서, Firestore 쓰기 실패(예: undefined 필드 거부)가
+  //   "저장되었습니다"로 가려지고 입력값(원사 등)이 사라지는 것처럼 보였음.
+  const handleSaveTemp = async (user) => {
     const finalInput = { ...tempInput };
 
     // [방어] 원단명 필수 입력 검증
@@ -180,17 +183,21 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
 
     const now = new Date().toISOString();
     const isNew = !editingTempId;
+    const existing = isNew ? null : (tempDesignSheets || []).find(s => s.id === editingTempId);
 
     const itemToSave = {
       ...finalInput,
       id: editingTempId || `tds_${Date.now()}`,
-      createdBy: isNew ? (user?.email || '') : (tempDesignSheets?.find(s => s.id === editingTempId)?.createdBy || ''),
-      createdAt: isNew ? now : (tempDesignSheets?.find(s => s.id === editingTempId)?.createdAt || now),
+      // [방어] undefined 방지 (Firestore는 undefined 필드를 거부함)
+      createdBy: isNew ? (user?.email || '') : (existing?.createdBy || ''),
+      createdAt: isNew ? now : (existing?.createdAt || now),
       updatedAt: now
     };
 
-    // Firestore의 tempDesignSheets 컬렉션에 저장
-    saveDocToCloud('tempDesignSheets', itemToSave);
+    // Firestore의 tempDesignSheets 컬렉션에 저장 — 성공 여부 확인
+    const ok = await saveDocToCloud('tempDesignSheets', itemToSave);
+    if (!ok) return; // 저장 실패 시: 입력값 보존(폼 유지), 성공 토스트 미표시
+
     resetTempForm();
     showToast(isNew ? '가설계서가 저장되었습니다.' : '가설계서가 수정되었습니다.', 'success');
     return itemToSave.id;

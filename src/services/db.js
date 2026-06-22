@@ -4,11 +4,29 @@ import { db } from "./firebase";
 // GRUBIG ERP - 공통 파이어베이스 CRUD 모듈
 
 /**
+ * 객체 트리에서 undefined 값을 제거합니다. (Firestore는 undefined 필드를 거부하기 때문)
+ * - 일반 객체/배열만 재귀 처리하고, Date·Timestamp 등 특수 객체는 그대로 보존합니다.
+ * - 이렇게 하면 일부 필드가 undefined여도 문서 전체 저장이 실패하는 일을 방지합니다.
+ */
+const stripUndefinedDeep = (val) => {
+  if (Array.isArray(val)) return val.map(stripUndefinedDeep);
+  if (val && typeof val === 'object' && (val.constructor === Object || Object.getPrototypeOf(val) === null)) {
+    const out = {};
+    for (const [k, v] of Object.entries(val)) {
+      if (v === undefined) continue;
+      out[k] = stripUndefinedDeep(v);
+    }
+    return out;
+  }
+  return val; // 원시값 / Date / Firestore Timestamp 등은 변형 없이 통과
+};
+
+/**
  * 단일 문서를 컬렉션에 저장합니다. (Upsert)
  */
 export const saveDocument = async (collectionName, item) => {
   try {
-    await setDoc(doc(db, collectionName, String(item.id)), item);
+    await setDoc(doc(db, collectionName, String(item.id)), stripUndefinedDeep(item));
     return true;
   } catch (error) {
     console.error(`Error saving to ${collectionName}:`, error);
@@ -40,7 +58,7 @@ export const saveBatchDocuments = async (collectionName, items) => {
       const batch = writeBatch(db);
       const chunk = items.slice(i, i + CHUNK_SIZE);
       chunk.forEach(item => {
-        batch.set(doc(db, collectionName, String(item.id)), item);
+        batch.set(doc(db, collectionName, String(item.id)), stripUndefinedDeep(item));
       });
       await batch.commit();
     }

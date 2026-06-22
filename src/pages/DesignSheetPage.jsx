@@ -3,6 +3,7 @@ import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory
 import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { num, calculateGYd } from '../utils/helpers';
+import { MARGIN_TIERS } from '../constants/common';
 
 // 편직 조직도 관련 부호
 const KNIT_SYMBOLS = ['︹', '︺', '︿', '﹀', '━', '┃', '╋', '○', '●', '◎', '△', '▽'];
@@ -109,16 +110,17 @@ export const DesignSheetPage = ({
   // 이론 G/YD = GSM × 외폭 × 변환계수
   const theoreticalGYd = calculateGYd(Number(sheetInput.costInput?.gsm || 0), Number(sheetInput.costInput?.widthFull || 0));
 
-  const handleSaveAndGo = () => {
+  const handleSaveAndGo = async () => {
     // [REF-2] 가설계서 모드에서는 의뢰 연결(onLink) 불필요
+    // 저장이 실제로 성공(truthy id 반환)했을 때만 모달을 닫는다. (실패 시 입력값 유지)
     if (isTempMode) {
-      const savedId = handleSaveSheet(user);
+      const savedId = await handleSaveSheet(user);
       if (!savedId) return;
       if (closeModal) closeModal();
       return;
     }
     const onLink = (devReqId, sheetId) => { if (linkAndConfirm) linkAndConfirm(devReqId, sheetId); };
-    const savedId = handleSaveSheet(user, onLink);
+    const savedId = await handleSaveSheet(user, onLink);
     if (!savedId) return; // 저장 실패(유효성 검사 등) 시 모달 닫지 않음
     if (closeModal) closeModal();
     else if (setActiveTab) setActiveTab('devStatus');
@@ -445,7 +447,7 @@ export const DesignSheetPage = ({
           <Th span={2} className="bg-slate-100 justify-center text-[10px] !py-1 text-slate-600">1,000 YDS 범위</Th>
           <Th span={2} className="bg-indigo-100 justify-center text-[10px] text-indigo-900 border-b-indigo-200 !py-1 shadow-inner">3,000 YDS 기준 (Main)</Th>
           <Th span={2} className="bg-slate-100 justify-center text-[10px] !py-1 text-slate-600">5,000 YDS 범위</Th>
-          <Th span={2} className="bg-slate-200 justify-center text-[10px] text-slate-700 !py-1 border-r-0">통합 적용 상수</Th>
+          <Th span={2} className="bg-slate-200 justify-center text-[10px] text-slate-700 !py-1 border-r-0 text-center leading-tight">도매(Conv) 마진 단계 지정</Th>
 
           {/* 2. 원가 항목 데이터 ROW 1 (편직비) */}
           <Th span={2} className="text-slate-700 justify-center">
@@ -472,7 +474,7 @@ export const DesignSheetPage = ({
           <Td span={2} className="bg-blue-50/30"><TInput type="number" value={sheetInput.costInput?.losses?.tier1k?.dye ?? ''} onChange={e => handleCostNestedChange('losses', 'tier1k', 'dye', e.target.value)} placeholder="%" className="text-center font-mono text-blue-700 bg-transparent" /></Td>
           <Td span={2} className="bg-indigo-50/40 shadow-inner"><TInput type="number" value={sheetInput.costInput?.losses?.tier3k?.dye ?? ''} onChange={e => handleCostNestedChange('losses', 'tier3k', 'dye', e.target.value)} placeholder="%" className="text-center font-mono font-black text-blue-700 bg-transparent" /></Td>
           <Td span={2} className="bg-blue-50/30"><TInput type="number" value={sheetInput.costInput?.losses?.tier5k?.dye ?? ''} onChange={e => handleCostNestedChange('losses', 'tier5k', 'dye', e.target.value)} placeholder="%" className="text-center font-mono text-blue-700 bg-transparent" /></Td>
-          <Th span={2} className="bg-slate-100 justify-center text-slate-600 border-l border-l-slate-800 border-r-0">도매(Conv) 마진</Th>
+          <Th span={2} className="bg-slate-100 justify-center text-slate-600 border-l border-l-slate-800 border-r-0"></Th>
 
           {/* 5. 원가 항목 데이터 ROW 4 (부대비) */}
           <Th span={2} className="text-slate-500 justify-center">
@@ -483,11 +485,9 @@ export const DesignSheetPage = ({
           <Td span={2}><TInput type="number" name="extraFee5k" value={sheetInput.costInput?.extraFee5k ?? ''} onChange={handleCostInputChange} placeholder="5K 요금" className="text-center font-mono text-slate-500" /></Td>
           <Td span={2} className="bg-slate-50 border-l border-l-slate-800 border-r-0">
             <TSelect value={sheetInput.costInput?.marginTier ?? 3} onChange={e => handleCostInputChange({ target: { name: 'marginTier', value: Number(e.target.value) } })} className="text-center font-bold text-slate-800 bg-transparent h-full">
-              <option value={1}>1급 (13%)</option>
-              <option value={2}>2급 (16%)</option>
-              <option value={3}>3급 (19%)</option>
-              <option value={4}>4급 (22%)</option>
-              <option value={5}>5급 (25%)</option>
+              {Object.entries(MARGIN_TIERS).map(([tier, pct]) => (
+                <option key={tier} value={tier}>{tier}단계 ({pct}%)</option>
+              ))}
             </TSelect>
           </Td>
 
