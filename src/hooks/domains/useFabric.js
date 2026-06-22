@@ -122,17 +122,12 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     // [기획오류 #6 수정] ID를 문자열(fab_)로 통일 — useDesignSheet의 registerFabricFromSheet와 동일한 포맷
     const itemToSave = { id: editingFabricId || `fab_${Date.now()}`, date: new Date().toLocaleDateString(), ...fabricInput };
 
-    // 양방향 동기화 무한루프 방어:
-    //   설계서 → 원단으로 동기화될 때 fabricInput에 `_syncedFromSheet=true` 마킹됨
-    //   이 플래그가 있으면 저장 시 설계서를 역동기화하지 않음 (이미 설계서가 발신측이므로 루프 차단)
-    //   itemToSave에 플래그 자체는 저장하지 않음 (DB에 남기지 않음)
-    const wasSyncedFromSheet = !!fabricInput._syncedFromSheet;
-    delete itemToSave._syncedFromSheet;
-
     saveDocToCloud('fabrics', itemToSave);
 
-    // 사용자 직접 편집(=설계서 동기화가 아님)이고 연결된 설계서가 있을 때만 역동기화
-    if (itemToSave.linkedSheetId && !wasSyncedFromSheet) {
+    // [양방향 동기화] 사용자가 원단을 직접 편집했고 연결된 설계서가 있으면 설계서로 역동기화한다.
+    //   설계서 → 원단 동기화(useDesignSheet.handleSaveSheet)는 DB에 직접 쓰므로 이 핸들러를
+    //   거치지 않는다. 즉 두 동기화 경로가 서로의 save 핸들러를 호출하지 않아 무한루프가 발생하지 않는다.
+    if (itemToSave.linkedSheetId) {
        const linkedSheet = designSheets?.find(s => String(s.id) === String(itemToSave.linkedSheetId));
        if (linkedSheet) {
           saveDocToCloud('designSheets', {
@@ -211,17 +206,6 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
 
   const calculateCost = (fabricData, overrideExchangeRate = null) => {
     if (!fabricData || !fabricData.yarns) return { avgYarnCostDomestic: 0, avgYarnCostExport: 0, effectiveGYd: 0, theoreticalGYd: 0, tier1k: getSafeTier(), tier3k: getSafeTier(), tier5k: getSafeTier(), missingYarnIds: [] };
-
-    // [임시 디버그] 가설계서 priceOverride 흐름 추적 — 진단 후 제거 예정
-    try {
-      const dbgYarns = (fabricData.yarns || [])
-        .filter(s => s && (s.yarnId || (s.priceOverride !== '' && s.priceOverride !== undefined && s.priceOverride !== null)))
-        .map((s, i) => ({ idx: i, yarnId: s.yarnId || '(none)', ratio: s.ratio, priceOverride: s.priceOverride }));
-      if (dbgYarns.some(d => d.priceOverride !== '' && d.priceOverride !== undefined && d.priceOverride !== null)) {
-        // eslint-disable-next-line no-console
-        console.log('[calcCost] yarns(with override):', dbgYarns);
-      }
-    } catch {}
 
     let yarnCostDomestic = 0; let yarnCostExport = 0;
     const fabricExchangeRate = overrideExchangeRate !== null ? Number(overrideExchangeRate) : (Number(globalExchangeRate) || 1450);

@@ -367,8 +367,6 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
           brandExtra: ci.brandExtra ?? linkedFabric.brandExtra,
           yarns: itemToSave.yarns || linkedFabric.yarns || []
         };
-        // _syncedFromSheet는 내부 플래그이므로 DB에 저장하지 않음
-        delete fabricToSync._syncedFromSheet;
         saveDocToCloud('fabrics', fabricToSync);
       }
     }

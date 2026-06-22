@@ -1040,6 +1040,7 @@ const App = () => {
             designSheets={designSheets}
             handleEditSheet={handleEditSheet}
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
+            globalExchangeRate={globalExchangeRate}
           />
         )}
 

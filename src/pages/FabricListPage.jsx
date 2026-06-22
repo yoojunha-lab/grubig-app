@@ -19,7 +19,8 @@ export const FabricListPage = ({
   yarnLibrary,
   designSheets,
   handleEditSheet,
-  setIsDesignSheetModalOpen
+  setIsDesignSheetModalOpen,
+  globalExchangeRate
 }) => {
   return (
     <div className="max-w-[1600px] mx-auto print:hidden w-full">
@@ -97,6 +98,7 @@ export const FabricListPage = ({
                 designSheets={designSheets}
                 handleEditSheet={handleEditSheet}
                 setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
+                globalExchangeRate={globalExchangeRate}
               />
             ))}
             {filteredFabrics.length === 0 && (
@@ -130,6 +132,7 @@ export const FabricListPage = ({
             designSheets={designSheets}
             handleEditSheet={handleEditSheet}
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
+            globalExchangeRate={globalExchangeRate}
           />
         ))}
         {filteredFabrics.length === 0 && (

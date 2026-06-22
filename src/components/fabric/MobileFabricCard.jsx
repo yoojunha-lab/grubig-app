@@ -15,7 +15,8 @@ export const MobileFabricCard = React.memo(({
   yarnLibrary,
   designSheets,
   handleEditSheet,
-  setIsDesignSheetModalOpen
+  setIsDesignSheetModalOpen,
+  globalExchangeRate
 }) => {
   const c = useMemo(() => calculateCost(f), [f, calculateCost]);
   const sym = viewMode === 'domestic' ? '￦' : '$';
@@ -181,5 +182,7 @@ export const MobileFabricCard = React.memo(({
          prevProps.viewMode === nextProps.viewMode &&
          prevProps.isExpanded === nextProps.isExpanded &&
          prevProps.yarnLibrary === nextProps.yarnLibrary &&
-         prevProps.designSheets === nextProps.designSheets;
+         prevProps.designSheets === nextProps.designSheets &&
+         // 전역 환율이 바뀌면 수출 단가가 달라지므로 반드시 재렌더 (calculateCost가 환율을 내포)
+         prevProps.globalExchangeRate === nextProps.globalExchangeRate;
 });
