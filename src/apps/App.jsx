@@ -15,7 +15,7 @@ import { saveDocument, deleteDocument, saveBatchDocuments, updateYarnCategoryBat
 
 // ⚙️ 공통 상수 & 유틸리티 연동
 import { ALLOWED_DOMAIN, DEFAULT_YARN_CATEGORIES, MARGIN_TIERS } from '../constants/common';
-import { DEV_SAMPLE_FABRICS, DEV_SAMPLE_YARNS } from '../constants/devSamples';
+import { DEV_SAMPLE_FABRICS, DEV_SAMPLE_YARNS, DEV_SAMPLE_DEV_REQUESTS, DEV_SAMPLE_DESIGN_SHEETS } from '../constants/devSamples';
 import { useXLSX, useHTML2PDF } from '../hooks/useExternalScripts';
 
 // ⚓️ 도메인 로직 훅 연동
@@ -156,6 +156,8 @@ const App = () => {
       // Firestore 구독 대신 격리 샘플 데이터 주입 (collections는 빈 상태에서 UI로 생성)
       setYarnLibrary(DEV_SAMPLE_YARNS);
       setSavedFabrics(DEV_SAMPLE_FABRICS);
+      setDevRequests(DEV_SAMPLE_DEV_REQUESTS);
+      setDesignSheets(DEV_SAMPLE_DESIGN_SHEETS);
       setSyncStatus('saved');
       return; // 실제 Firestore 구독 건너뜀
     }

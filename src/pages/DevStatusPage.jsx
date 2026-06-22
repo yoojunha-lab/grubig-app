@@ -600,16 +600,17 @@ export const DevStatusPage = ({
           ) : (
             <>
               <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[900px]">
+                <table className="w-full text-left border-collapse min-w-[1020px]">
                   <thead>
                     <tr className="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
-                      <th className="p-3 w-[120px]">O/D No.</th>
-                      <th className="p-3 w-[140px]">바이어</th>
+                      <th className="p-3 w-[110px]">EZ-Tex No.</th>
+                      <th className="p-3 w-[110px]">개발번호</th>
+                      <th className="p-3 w-[130px]">바이어</th>
                       <th className="p-3 w-[100px]">등록 날짜</th>
                       <th className="p-3">원단명</th>
-                      <th className="p-3 w-[200px]">현재 단계</th>
-                      <th className="p-3 w-[80px] text-right">경과</th>
-                      <th className="p-3 w-[320px] text-right">관리</th>
+                      <th className="p-3 w-[190px]">현재 단계</th>
+                      <th className="p-3 w-[120px]">납기(경과)</th>
+                      <th className="p-3 w-[300px] text-right">관리</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -623,7 +624,10 @@ export const DevStatusPage = ({
                       const regDate = s.registeredDate || (s.createdAt || '').slice(0, 10) || '-';
                       return (
                         <tr key={s.id} className={`border-b border-slate-100 hover:bg-slate-50/50 transition-colors ${rowBg(urgency)}`}>
-                          <td className="p-3 text-xs font-mono font-extrabold text-violet-700">{s.devOrderNo || '자체'}</td>
+                          <td className="p-3 text-xs font-mono font-bold text-violet-700">
+                            {s.eztexOrderNo || <span className="text-slate-300 font-sans">-</span>}
+                          </td>
+                          <td className="p-3 text-xs font-mono font-extrabold text-slate-600">{s.devOrderNo || '자체'}</td>
                           <td className="p-3 text-xs font-bold text-slate-700 truncate">
                             {isSelfDev
                               ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-500 border-slate-200">자체개발</span>
@@ -636,10 +640,7 @@ export const DevStatusPage = ({
                           </td>
                           <td className="p-3">
                             <div className="flex flex-col gap-1.5">
-                              <div className="flex items-center gap-2">
-                                <PendingProgressBar stageKey={s.stage} />
-                                {db && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>}
-                              </div>
+                              <PendingProgressBar stageKey={s.stage} />
                               <select
                                 value={s.stage}
                                 onChange={(e) => setStage && setStage(s.id, e.target.value)}
@@ -652,7 +653,18 @@ export const DevStatusPage = ({
                               </select>
                             </div>
                           </td>
-                          <td className="p-3 text-xs text-slate-500 text-right">{days != null ? `${days}일` : '-'}</td>
+                          <td className="p-3 text-xs">
+                            {s.deadline ? (
+                              <div className="flex flex-col gap-1">
+                                <span className="font-mono font-bold text-slate-700">{s.deadline}</span>
+                                {db
+                                  ? <span className={`inline-block w-fit text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>
+                                  : (days != null && <span className="text-[9px] text-slate-400">등록 {days}일째</span>)}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">{days != null ? `등록 ${days}일째` : '-'}</span>
+                            )}
+                          </td>
                           <td className="p-3">
                             <div className="flex gap-1 justify-end items-center">
                               {s.stage === 'eztex' && (
@@ -702,7 +714,12 @@ export const DevStatusPage = ({
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200">설계서</span>
                         <span className="text-[10px] text-slate-400">{days != null ? `${days}일 경과` : ''}</span>
                       </div>
-                      <p className="text-xs font-mono font-extrabold text-violet-700 mb-0.5">{s.devOrderNo || '자체'}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                        {s.eztexOrderNo && (
+                          <span className="text-[10px] font-mono font-bold text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded border border-violet-100">EZ {s.eztexOrderNo}</span>
+                        )}
+                        <span className="text-xs font-mono font-extrabold text-slate-600">{s.devOrderNo || '자체'}</span>
+                      </div>
                       <p className="text-sm font-bold text-slate-800 mb-0.5">{s.fabricName || '원단명 미입력'}</p>
                       <p className="text-[11px] text-slate-500 mb-2">
                         {isSelfDev
