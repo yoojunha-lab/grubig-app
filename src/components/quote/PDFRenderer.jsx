@@ -74,7 +74,6 @@ export const PDFRenderer = ({
   // extraMarkup·basePrice·반올림·통화포맷이 모두 헬퍼 안에서 처리됨
   const pages = splitPages(quoteInput.items || []);
   const totalPages = pages.length;
-  const extraMarginPct = Number(quoteInput.extraMargin || 0);
   const currency = quoteInput.currency;
 
   // [PDF 좌측 잘림 v4 — native window.print() 방식]
@@ -169,9 +168,9 @@ export const PDFRenderer = ({
                     <td className="py-3 text-right text-slate-500">{item.gsm}</td>
                     <td className="py-3 text-right text-slate-500 font-mono">{num(item.gYd)}</td>
                     <td className="py-3 text-right text-slate-900 font-mono font-bold">{num(item.mcqYd || 300)} YD</td>
-                    <td className="py-3 text-right font-mono">{formatQuotePrice(calcQuotePrice(item, '1k', extraMarginPct, currency), currency)}</td>
-                    <td className="py-3 text-right font-mono font-bold">{formatQuotePrice(calcQuotePrice(item, '3k', extraMarginPct, currency), currency)}</td>
-                    <td className="py-3 text-right font-mono">{formatQuotePrice(calcQuotePrice(item, '5k', extraMarginPct, currency), currency)}</td>
+                    <td className="py-3 text-right font-mono">{formatQuotePrice(calcQuotePrice(item, '1k', quoteInput, currency), currency)}</td>
+                    <td className="py-3 text-right font-mono font-bold">{formatQuotePrice(calcQuotePrice(item, '3k', quoteInput, currency), currency)}</td>
+                    <td className="py-3 text-right font-mono">{formatQuotePrice(calcQuotePrice(item, '5k', quoteInput, currency), currency)}</td>
                   </tr>
                 ))}
               </tbody>

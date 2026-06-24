@@ -4,18 +4,20 @@ import { calculateMcqYd } from '../../utils/helpers';
 // GRUBIG ERP - 견적서(Quotation) 도메인 로직 및 훅
 
 // 빈 견적서 초기 상태 (신규 작성 / "새 견적서" 초기화 공용 팩토리)
+// [마진 모델] 매출이익율(%)은 일괄값(bulkMarginRate) + 원단별 개별(item.marginRate),
+//             추가 영업마진은 구간별 YD당 정액(marginAdd) — 전체 적용.
 // validityOption 기본값 '2weeks' = 작성일로부터 2주
 const makeBlankQuote = () => ({
-  buyerName: '', attention: '', buyerType: 'converter', marketType: 'domestic',
-  currency: 'KRW', date: new Date().toISOString().split('T')[0], extraMargin: 0,
+  buyerName: '', attention: '', marketType: 'domestic',
+  currency: 'KRW', date: new Date().toISOString().split('T')[0],
+  bulkMarginRate: 0, marginAdd: { '1k': 0, '3k': 0, '5k': 0 },
   remarks: '', items: [], validityOption: '2weeks'
 });
 
 export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, setGlobalExchangeRate) => {
   const [quoteInput, setQuoteInput] = useState(makeBlankQuote);
 
-  // 글로벌 환율 변동 감지 및 재계산
-  // [D2] 환율 변경 시 confirm "취소" → 환율값 자체를 이전 값으로 롤백 (UI/상태 일치)
+  // 글로벌 환율 변동 감지 및 재계산 (기준원가만 재계산, 원단별 매출이익율은 보존)
   const isMountedRef = useRef(false);
   const prevExchangeRateRef = useRef(globalExchangeRate);
   useEffect(() => {
@@ -24,81 +26,82 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       prevExchangeRateRef.current = globalExchangeRate;
       return;
     }
-
-    // 롤백으로 인한 재트리거 차단 (이미 같은 값이면 skip)
     if (prevExchangeRateRef.current === globalExchangeRate) return;
 
     if (quoteInput.items && quoteInput.items.length > 0 && quoteInput.marketType) {
-      const hasManualOverride = quoteInput.items.some(item => item.isManualOverride);
-      if (hasManualOverride) {
-        const confirmReset = window.confirm("수동으로 변경된 단가가 있습니다. 환율을 변동하면 수정한 단가가 원본으로 초기화됩니다. 계속하시겠습니까?");
-        if (!confirmReset) {
-          // [D2] 사용자 취소 시 환율을 이전 값으로 롤백 → UI/계산 일관성 유지
-          if (typeof setGlobalExchangeRate === 'function') {
-            setGlobalExchangeRate(prevExchangeRateRef.current);
-          }
-          return;
-        }
-      }
-
       setQuoteInput(prev => ({
         ...prev,
         items: prev.items.map(item => {
           const fabric = savedFabrics.find(f => String(f.id) === String(item.fabricId));
           if (!fabric) return item;
-          // createQuoteItem은 새로운 객체를 반환하므로 isManualOverride 플래그가 자동 삭제됨
-          return createQuoteItem(fabric, globalExchangeRate, prev.marketType, prev.buyerType);
+          // 환율 변동 → 기준원가만 재계산. 원단별 매출이익율(marginRate)은 유지.
+          return createQuoteItem(fabric, globalExchangeRate, prev.marketType, item.marginRate);
         })
       }));
     }
-
-    // 정상 적용 시 새 환율을 prev 로 기록
     prevExchangeRateRef.current = globalExchangeRate;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalExchangeRate]);
+
   const handleQuoteSettingChange = (field, value) => {
-    // [사이드 이펙트 방지 방어 코드] extraMargin 변경 시 초기화 경고 예외 처리
-    if (field === 'extraMargin') {
-      setQuoteInput(prev => ({ ...prev, extraMargin: Number(value) || 0 }));
-      return;
-    }
-
-    const hasManualOverride = (quoteInput.items || []).some(item => item.isManualOverride);
-    if (['marketType', 'buyerType'].includes(field) && hasManualOverride) {
-      const confirmReset = window.confirm("수동으로 변경된 단가가 있습니다. 설정을 변경하면 수정한 단가가 모두 초기화됩니다. 계속하시겠습니까?");
-      if (!confirmReset) return;
-    }
-
     setQuoteInput(prev => {
-      const safeValue = value;
-      let next = { ...prev, [field]: safeValue };
-      if (field === 'marketType') next.currency = safeValue === 'export' ? 'USD' : 'KRW';
-      
-      // 확인을 누르면 모든 아이템 재계산 수행 후 덮어쓰기 (isManualOverride 초기화)
-      if (['marketType', 'buyerType'].includes(field)) {
-        next.items = next.items.map(item => {
+      let next = { ...prev, [field]: value };
+      // 시장 구분(내수/수출) 변경 시: 통화 갱신 + 기준원가 재계산(매출이익율은 보존)
+      if (field === 'marketType') {
+        next.currency = value === 'export' ? 'USD' : 'KRW';
+        next.items = (next.items || []).map(item => {
           const fabric = savedFabrics.find(f => String(f.id) === String(item.fabricId));
           if (!fabric) return item;
-          return createQuoteItem(fabric, globalExchangeRate, next.marketType, next.buyerType);
+          return createQuoteItem(fabric, globalExchangeRate, next.marketType, item.marginRate);
         });
       }
       return next;
     });
   };
 
-  const createQuoteItem = (fabric, currentExchangeRate, currentMarketType, currentBuyerType) => {
+  // 구간별 YD당 정액(원/$) 입력 — 추가 영업마진(전체 적용). kind: 'add'
+  const handleQuoteMarginChange = (kind, tier, value) => {
+    const field = kind === 'rate' ? 'marginRate' : 'marginAdd';
+    const v = Math.max(0, Number(value) || 0);
+    setQuoteInput(prev => ({ ...prev, [field]: { ...(prev[field] || {}), [tier]: v } }));
+  };
+
+  // 일괄 매출이익율(%) — 모든 원단에 일괄 적용 (개별 수정분도 덮어씀). 0~99로 clamp.
+  const handleBulkMarginRateChange = (value) => {
+    const v = Math.min(99, Math.max(0, Number(value) || 0));
+    setQuoteInput(prev => ({
+      ...prev,
+      bulkMarginRate: v,
+      items: (prev.items || []).map(it => ({ ...it, marginRate: v }))
+    }));
+  };
+
+  // 원단별 매출이익율(%) 개별 수정. 0~99로 clamp.
+  const handleQuoteItemMarginChange = (index, value) => {
+    const v = Math.min(99, Math.max(0, Number(value) || 0));
+    setQuoteInput(prev => {
+      const items = [...(prev.items || [])];
+      if (!items[index]) return prev;
+      items[index] = { ...items[index], marginRate: v };
+      return { ...prev, items };
+    });
+  };
+
+  // 견적 품목 생성. base = 영업 기준원가(도매 기준 priceConverter), 판가는 calcQuotePrice에서 마진 적용.
+  // marginRate = 원단별 매출이익율(%) — 일괄값을 기본으로 받아 표에서 개별 수정 가능.
+  const createQuoteItem = (fabric, currentExchangeRate, currentMarketType, marginRate = 0) => {
+    const safeMarginRate = Math.min(99, Math.max(0, Number(marginRate) || 0));
     const calc = calculateCost(fabric, currentExchangeRate);
     // calculateCost 반환값이 null/undefined일 때 방어 (삭제된 원단 등)
     if (!calc) {
       return {
         fabricId: fabric.id, article: fabric.article || 'N/A', itemName: fabric.itemName || '', widthCut: fabric.widthCut || 0, widthFull: fabric.widthFull || 0, gsm: fabric.gsm || 0,
-        gYd: 0, mcqYd: 300, basePrice1k: 0, basePrice3k: 0, basePrice5k: 0,
+        gYd: 0, mcqYd: 300, basePrice1k: 0, basePrice3k: 0, basePrice5k: 0, marginRate: safeMarginRate,
       };
     }
-    const isBrand = currentBuyerType === 'brand';
     // tier 객체가 없을 수 있으므로 옵셔널 체이닝 + 빈 객체 폴백
-    const d1k = calc.tier1k?.[currentMarketType] ?? {}; 
-    const d3k = calc.tier3k?.[currentMarketType] ?? {}; 
+    const d1k = calc.tier1k?.[currentMarketType] ?? {};
+    const d3k = calc.tier3k?.[currentMarketType] ?? {};
     const d5k = calc.tier5k?.[currentMarketType] ?? {};
 
     // MCQ 결정: 원단에 직접 입력값(fabric.mcqYd)이 있으면 우선, 없으면 자동 계산
@@ -117,11 +120,12 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
     return {
       fabricId: fabric.id, article: fabric.article, itemName: fabric.itemName, widthCut: fabric.widthCut, widthFull: fabric.widthFull, gsm: fabric.gsm,
-      gYd: calc.theoreticalGYd ?? 0, 
+      gYd: calc.theoreticalGYd ?? 0,
       mcqYd: finalMcqYd,
-      basePrice1k: (isBrand ? d1k.priceBrand : d1k.priceConverter) ?? 0,
-      basePrice3k: (isBrand ? d3k.priceBrand : d3k.priceConverter) ?? 0,
-      basePrice5k: (isBrand ? d5k.priceBrand : d5k.priceConverter) ?? 0,
+      basePrice1k: d1k.priceConverter ?? 0,
+      basePrice3k: d3k.priceConverter ?? 0,
+      basePrice5k: d5k.priceConverter ?? 0,
+      marginRate: safeMarginRate,   // 원단별 매출이익율(%) — 일괄값 기본, 표에서 개별 수정 가능
     };
   };
 
@@ -138,8 +142,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
     const fabric = savedFabrics.find(f => String(f.id) === String(selectedFabricIdForQuote));
     if (!fabric) return;
-    const newItem = createQuoteItem(fabric, globalExchangeRate, quoteInput.marketType, quoteInput.buyerType);
-    setQuoteInput(prev => ({ ...prev, items: [...(prev.items || []), newItem] })); 
+    const newItem = createQuoteItem(fabric, globalExchangeRate, quoteInput.marketType, quoteInput.bulkMarginRate);
+    setQuoteInput(prev => ({ ...prev, items: [...(prev.items || []), newItem] }));
     setSelectedFabricIdForQuote(''); 
     showToast(`원단이 추가되었습니다.`, 'success');
   };
@@ -160,7 +164,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       }
 
       const fabric = savedFabrics.find(f => String(f.article).toUpperCase() === art);
-      if (fabric) { newItems.push(createQuoteItem(fabric, globalExchangeRate, quoteInput.marketType, quoteInput.buyerType)); }
+      if (fabric) { newItems.push(createQuoteItem(fabric, globalExchangeRate, quoteInput.marketType, quoteInput.bulkMarginRate)); }
       else { notFound.push(art); }
     });
 
@@ -174,15 +178,6 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     if (notFound.length > 0) alert(`다음 Article은 리스트에 없습니다:\n\n${notFound.join('\n')}`);
   };
 
-  const handleQuoteBasePriceChange = (index, field, value) => {
-    const newItems = [...quoteInput.items];
-    // [기획오류 #13 수정] 음수 방어
-    newItems[index][field] = Math.max(0, Number(value));
-    // [Step 2] 수동 수정 상태 플래그 부여
-    newItems[index].isManualOverride = true;
-    setQuoteInput({ ...quoteInput, items: newItems });
-  };
-  
   const handleRemoveItemFromQuote = (index) => {
     const newItems = quoteInput.items.filter((_, i) => i !== index);
     setQuoteInput({ ...quoteInput, items: newItems });
@@ -247,7 +242,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   return {
     quoteInput, setQuoteInput,
     handleQuoteSettingChange, createQuoteItem,
-    handleAddFabricToQuote, handleGridPaste, handleQuoteBasePriceChange,
+    handleQuoteMarginChange, handleBulkMarginRateChange, handleQuoteItemMarginChange,
+    handleAddFabricToQuote, handleGridPaste,
     handleRemoveItemFromQuote, handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
   };
 };

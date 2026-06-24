@@ -283,7 +283,8 @@ const App = () => {
 
   const {
     quoteInput, setQuoteInput, handleQuoteSettingChange, createQuoteItem,
-    handleAddFabricToQuote, handleGridPaste, handleQuoteBasePriceChange,
+    handleQuoteMarginChange, handleBulkMarginRateChange, handleQuoteItemMarginChange,
+    handleAddFabricToQuote, handleGridPaste,
     handleRemoveItemFromQuote, handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
   } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, setGlobalExchangeRate);
 
@@ -963,7 +964,6 @@ const App = () => {
     }
 
     const cur = targetQuote.currency;
-    const extra = Number(targetQuote.extraMargin) || 0;
 
     const rows = (targetQuote.items || []).map((item, idx) => ({
       'No': idx + 1,
@@ -974,9 +974,9 @@ const App = () => {
       'GSM': item.gsm ?? '',
       'g/YD': Number(item.gYd) || 0,
       'MCQ(YD)': Number(item.mcqYd || 300),
-      [`1,000YD (${cur})`]: calcQuotePrice(item, '1k', extra, cur),
-      [`3,000YD (${cur})`]: calcQuotePrice(item, '3k', extra, cur),
-      [`5,000YD (${cur})`]: calcQuotePrice(item, '5k', extra, cur),
+      [`1,000YD (${cur})`]: calcQuotePrice(item, '1k', targetQuote, cur),
+      [`3,000YD (${cur})`]: calcQuotePrice(item, '3k', targetQuote, cur),
+      [`5,000YD (${cur})`]: calcQuotePrice(item, '5k', targetQuote, cur),
     }));
 
     const validUntil = getQuoteValidUntil(targetQuote.date, targetQuote.validityOption);
@@ -1147,11 +1147,13 @@ const App = () => {
             handleDownloadExcel={handleDownloadQuoteExcel}
             handleNewQuote={handleNewQuote}
             handleQuoteSettingChange={handleQuoteSettingChange}
+            handleQuoteMarginChange={handleQuoteMarginChange}
+            handleBulkMarginRateChange={handleBulkMarginRateChange}
+            handleQuoteItemMarginChange={handleQuoteItemMarginChange}
             selectedFabricIdForQuote={selectedFabricIdForQuote}
             setSelectedFabricIdForQuote={setSelectedFabricIdForQuote}
             savedFabrics={savedFabrics}
             handleAddFabricToQuote={handleAddFabricToQuote}
-            handleQuoteBasePriceChange={handleQuoteBasePriceChange}
             handleRemoveItemFromQuote={handleRemoveItemFromQuote}
             createQuoteItem={createQuoteItem}
             showToast={showToast}

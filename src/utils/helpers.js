@@ -143,16 +143,29 @@ export const getBasePrice = (item, tier) => {
 };
 
 /**
- * extraMargin(%) 가산 + 통화별 스마트 반올림된 견적 가격 계산.
- * @param {Object} item - 견적 아이템
+ * 견적 가격 계산: '매출이익율(%)'(원단별) + 'YD당 정액(원/$)'(구간별)을 적용한 뒤 통화별 스마트 반올림.
+ * 공식: 판가 = base / (1 - rate%) + add
+ *  - rate = 원단별 매출이익율(item.marginRate). 없으면 일괄값(quote.bulkMarginRate)
+ *  - add  = 구간별 YD당 정액(quote.marginAdd[tier])
+ *  - rate=0, add=0 → 판가 = base (영업 기준원가 그대로)
+ * @param {Object} item - 견적 아이템 (basePrice1k/3k/5k, marginRate 보유)
  * @param {string} tier - '1k' | '3k' | '5k'
- * @param {number} extraMarginPct - 추가 마진(%) (예: 5 = +5%)
+ * @param {Object} quote - 견적 객체 (bulkMarginRate/marginAdd). 구버전은 extraMargin(%) 폴백.
  * @param {string} currency - 'USD' | 'KRW'
  */
-export const calcQuotePrice = (item, tier, extraMarginPct, currency) => {
+export const calcQuotePrice = (item, tier, quote, currency) => {
   const base = getBasePrice(item, tier);
-  const extraMarkup = 1 + (Number(extraMarginPct) || 0) / 100;
-  return smartRound(base * extraMarkup, currency);
+  const isNewModel =
+    (quote && (quote.marginAdd !== undefined || quote.bulkMarginRate !== undefined)) ||
+    (item && item.marginRate !== undefined);
+  if (!isNewModel) {
+    // 레거시 견적(extraMargin만 보유): 기존 마크업 방식으로 과거 숫자를 그대로 보존
+    const markup = 1 + (Number(quote?.extraMargin) || 0) / 100;
+    return smartRound(base * markup, currency);
+  }
+  const rate = Number(item?.marginRate ?? quote?.bulkMarginRate) || 0;
+  const add = Number(quote?.marginAdd?.[tier]) || 0;
+  return smartRound(applyGrossMargin(base, rate) + add, currency);
 };
 
 /**
