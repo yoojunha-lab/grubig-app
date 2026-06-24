@@ -98,6 +98,8 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
       ...fabric,
       remarks: String(fabric.remarks || ''),
       losses: fabric.losses || init.losses,
+      // [방어] yarns 없는(레거시/손상) 원단도 안전하게 수정 — 기본 4슬롯 시드 (없으면 CalculatorPage에서 크래시)
+      yarns: (Array.isArray(fabric.yarns) && fabric.yarns.length) ? fabric.yarns : init.yarns,
       // [신규 원가모델] 레거시 원단 호환 — 없으면 기본값 시드
       finishing: Array.isArray(fabric.finishing) ? fabric.finishing : [],
       // etcCosts 없는 기존 원단은 표준 기본값(외관/이화학/운임) 시드
@@ -334,18 +336,23 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
 
     const calcTier = (tierKey, knittingFeeKg, qty) => {
       const dom = buildKRW(tierKey, knittingFeeKg, false);
-      const domRiskAmt = dom.total * riskPct / 100; // 정확값 (반올림은 finalCostYd에서만)
-      const domFinal = smartRound(dom.total + domRiskAmt, 'KRW'); // 영업 기준원가 = 순원가 + 위험마진
+      // [표시 일관성] 순원가도 영업 기준원가와 같은 100원 단위로 반올림하고,
+      //   위험마진 = 영업 기준원가 − 순원가 로 역산 → 세 값이 정확히 더해지고, 위험마진 0%면 순원가=영업 기준원가.
+      //   finalCostYd(=견적 base) 값 자체는 기존과 동일(= smartRound(순원가×(1+위험%))).
+      const domTotal = smartRound(dom.total, 'KRW');
+      const domFinal = smartRound(dom.total * (1 + riskPct / 100), 'KRW'); // 영업 기준원가
+      const domRiskAmt = domFinal - domTotal;
 
       const exp = buildKRW(tierKey, knittingFeeKg, true);
-      const expUSDtotal = fabricExchangeRate > 0 ? exp.total / fabricExchangeRate : 0;
-      const expRiskAmt = expUSDtotal * riskPct / 100;
-      const expFinal = smartRound(expUSDtotal + expRiskAmt, 'USD');
+      const expUSDraw = fabricExchangeRate > 0 ? exp.total / fabricExchangeRate : 0;
+      const expTotal = smartRound(expUSDraw, 'USD');
+      const expFinal = smartRound(expUSDraw * (1 + riskPct / 100), 'USD');
+      const expRiskAmt = Number((expFinal - expTotal).toFixed(2));
 
       return {
         domestic: {
           yarnCostYd: dom.matSub, knitCostYd: dom.knitSub, dyeCostYd: dom.procSub, extraFeeYd: dom.etcSub,
-          totalCostYd: dom.total, riskAmtYd: domRiskAmt, finalCostYd: domFinal,
+          totalCostYd: domTotal, riskAmtYd: domRiskAmt, finalCostYd: domFinal,
           // 판매가가 아니라 '영업 기준원가'(판매마진은 견적에서 적용). 견적/리스트 호환 위해 필드명 유지.
           priceConverter: domFinal, priceBrand: domFinal,
           pricePerM: smartRound(domFinal * ydPerM, 'KRW'), pricePerKg: smartRound(domFinal * perKgFactor, 'KRW'),
@@ -353,7 +360,7 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
         },
         export: {
           yarnCostYd: exp.matSub / (fabricExchangeRate || 1), knitCostYd: exp.knitSub / (fabricExchangeRate || 1), dyeCostYd: exp.procSub / (fabricExchangeRate || 1), extraFeeYd: exp.etcSub / (fabricExchangeRate || 1),
-          totalCostYd: Number(expUSDtotal.toFixed(2)), riskAmtYd: Number(expRiskAmt.toFixed(2)), finalCostYd: expFinal,
+          totalCostYd: expTotal, riskAmtYd: expRiskAmt, finalCostYd: expFinal,
           priceConverter: expFinal, priceBrand: expFinal,
           pricePerM: Number((expFinal * ydPerM).toFixed(2)), pricePerKg: Number((expFinal * perKgFactor).toFixed(2)),
           // [수정] 수출 모드 라인 금액도 USD로 환산 (소계는 USD인데 라인만 KRW였던 통화 불일치 해소)

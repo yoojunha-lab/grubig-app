@@ -159,9 +159,9 @@ export const MobileFabricCard = React.memo(({
               return (
                 <div key={tier} className={`grid grid-cols-4 text-center font-mono py-1.5 items-center text-[10px] rounded ${is3k ? 'bg-slate-700 font-bold text-white shadow-inner' : 'text-slate-300'}`}>
                   <div className={is3k ? 'text-blue-300' : 'text-slate-400'}>{['1k', '3k', '5k'][i]}</div>
-                  <div>{num(d.totalCostYd)}</div>
-                  <div className={is3k ? 'text-rose-300' : 'text-rose-400'}>{num(d.riskAmtYd)}</div>
-                  <div className={is3k ? 'text-emerald-300' : 'text-emerald-400'}>{num(d.finalCostYd)}</div>
+                  <div>{sym}{num(d.totalCostYd, viewMode)}</div>
+                  <div className={is3k ? 'text-rose-300' : 'text-rose-400'}>{sym}{num(d.riskAmtYd, viewMode)}</div>
+                  <div className={is3k ? 'text-emerald-300' : 'text-emerald-400'}>{sym}{num(d.finalCostYd, viewMode)}</div>
                 </div>
               )
             })}

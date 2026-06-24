@@ -1,7 +1,7 @@
 import React from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
-import { num, calculateGYd } from '../../utils/helpers';
+import { num, calculateGYd, clampNum } from '../../utils/helpers';
 
 /**
  * 첨부 "가격정보" 표 방식의 원가 분해 — 1,000 / 3,000 / 5,000 YD 3구간 동시 표시.
@@ -55,21 +55,26 @@ export const CostBreakdownTable = ({
   // ---- mutators ----
   const addYarn = () => setYarns(prev => [...(prev || []), { yarnId: '', ratio: 0 }]);
   const removeYarn = (i) => setYarns(prev => (prev || []).filter((_, idx) => idx !== i));
-  const setYarn = (i, field, value) => setYarns(prev => (prev || []).map((y, idx) => idx === i ? { ...y, [field]: field === 'ratio' ? Number(value) : value } : y));
+  // [입력 검증] 혼용률 0~100. (음수/100 초과 차단)
+  const setYarn = (i, field, value) => setYarns(prev => (prev || []).map((y, idx) => idx === i ? { ...y, [field]: field === 'ratio' ? clampNum(value, 0, 100) : value } : y));
 
-  const setField = (name, value) => setCost(prev => ({ ...prev, [name]: Number(value) }));
-  const setLoss = (tier, field, value) => setCost(prev => ({ ...prev, losses: { ...prev.losses, [tier]: { ...prev.losses?.[tier], [field]: Number(value) } } }));
+  // [입력 검증] 편직료/염가공료/위험마진(%) 등은 음수 차단(0 이상)
+  const setField = (name, value) => setCost(prev => ({ ...prev, [name]: clampNum(value, 0) }));
+  // [입력 검증] Loss%는 0~99 (분모 0 방지)
+  const setLoss = (tier, field, value) => setCost(prev => ({ ...prev, losses: { ...prev.losses, [tier]: { ...prev.losses?.[tier], [field]: clampNum(value, 0, 99) } } }));
 
   const finishing = Array.isArray(cost.finishing) ? cost.finishing : [];
   const addFinishing = () => setCost(prev => ({ ...prev, finishing: [...(prev.finishing || []), { id: `fin_${(prev.finishing || []).length}_${(prev.finishing || []).length + 1}`, name: '', fee: 0, lossPct: 0 }] }));
   const removeFinishing = (i) => setCost(prev => ({ ...prev, finishing: (prev.finishing || []).filter((_, idx) => idx !== i) }));
-  const setFinishing = (i, field, value) => setCost(prev => ({ ...prev, finishing: (prev.finishing || []).map((f, idx) => idx === i ? { ...f, [field]: field === 'name' ? value : Number(value) } : f) }));
+  // [입력 검증] 후가공 fee 0 이상, lossPct 0~99
+  const setFinishing = (i, field, value) => setCost(prev => ({ ...prev, finishing: (prev.finishing || []).map((f, idx) => idx === i ? { ...f, [field]: field === 'name' ? value : (field === 'lossPct' ? clampNum(value, 0, 99) : clampNum(value, 0)) } : f) }));
 
   const etcCosts = Array.isArray(cost.etcCosts) ? cost.etcCosts : [];
   const addEtc = () => setCost(prev => ({ ...prev, etcCosts: [...(prev.etcCosts || []), { id: `etc_${(prev.etcCosts || []).length}_x`, name: '', vals: { tier1k: 0, tier3k: 0, tier5k: 0 } }] }));
   const removeEtc = (i) => setCost(prev => ({ ...prev, etcCosts: (prev.etcCosts || []).filter((_, idx) => idx !== i) }));
   const setEtcName = (i, value) => setCost(prev => ({ ...prev, etcCosts: (prev.etcCosts || []).map((e, idx) => idx === i ? { ...e, name: value } : e) }));
-  const setEtcVal = (i, tier, value) => setCost(prev => ({ ...prev, etcCosts: (prev.etcCosts || []).map((e, idx) => idx === i ? { ...e, vals: { ...(e.vals || {}), [tier]: Number(value) } } : e) }));
+  // [입력 검증] 기타비용 원/yd 0 이상
+  const setEtcVal = (i, tier, value) => setCost(prev => ({ ...prev, etcCosts: (prev.etcCosts || []).map((e, idx) => idx === i ? { ...e, vals: { ...(e.vals || {}), [tier]: clampNum(value, 0) } } : e) }));
 
   const tv = (tierKey) => (calc?.[tierKey]?.[viewMode]) || {};
   const matSub = tv('tier3k').yarnCostYd || 0; // 재료비는 구간 무관
