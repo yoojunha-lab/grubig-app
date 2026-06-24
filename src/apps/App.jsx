@@ -30,6 +30,7 @@ import { useOrder } from '../hooks/domains/useOrder';
 import { useCollection } from '../hooks/domains/useCollection';
 import { makeChangeLogEntry, appendChangeLog, summarizeBatchDiff } from '../utils/auditLog';
 import { PROCESS_TYPES } from '../constants/production';
+import { calcQuotePrice, getQuoteValidUntil } from '../utils/helpers';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
 import { SearchableSelect } from '../components/common/SearchableSelect';
@@ -283,7 +284,7 @@ const App = () => {
   const {
     quoteInput, setQuoteInput, handleQuoteSettingChange, createQuoteItem,
     handleAddFabricToQuote, handleGridPaste, handleQuoteBasePriceChange,
-    handleRemoveItemFromQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
+    handleRemoveItemFromQuote, handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
   } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, setGlobalExchangeRate);
 
   // ⚓️ 설계서 시스템 훅
@@ -946,6 +947,60 @@ const App = () => {
     }, 400);
   };
 
+  // [신규] 견적서를 엑셀(.xlsx)로 내보내기
+  //   - PDF와 동일한 내용(바이어/날짜/통화/유효기간 + 품목별 스펙·단가)
+  //   - 단가는 Extra Margin 반영 + 통화별 반올림된 최종가(PDF와 일치)
+  //   - History 행에서 호출 시 해당 견적서, 작성 화면에서 호출 시 현재 quoteInput 사용
+  const handleDownloadQuoteExcel = (targetQuoteFromHistory = null) => {
+    if (!isXlsxReady || !window.XLSX) {
+      showToast('엑셀 모듈을 불러오는 중입니다. 잠시 후 다시 시도해주세요.', 'error');
+      return;
+    }
+    const targetQuote = (targetQuoteFromHistory && targetQuoteFromHistory.id) ? targetQuoteFromHistory : quoteInput;
+    if (!targetQuote.items || targetQuote.items.length === 0) {
+      showToast("내용이 없습니다.", 'error');
+      return;
+    }
+
+    const cur = targetQuote.currency;
+    const extra = Number(targetQuote.extraMargin) || 0;
+
+    const rows = (targetQuote.items || []).map((item, idx) => ({
+      'No': idx + 1,
+      'Article': item.article || '',
+      'Spec': item.itemName || '',
+      'Cut(inch)': item.widthCut ?? '',
+      'Full(inch)': item.widthFull ?? '',
+      'GSM': item.gsm ?? '',
+      'g/YD': Number(item.gYd) || 0,
+      'MCQ(YD)': Number(item.mcqYd || 300),
+      [`1,000YD (${cur})`]: calcQuotePrice(item, '1k', extra, cur),
+      [`3,000YD (${cur})`]: calcQuotePrice(item, '3k', extra, cur),
+      [`5,000YD (${cur})`]: calcQuotePrice(item, '5k', extra, cur),
+    }));
+
+    const validUntil = getQuoteValidUntil(targetQuote.date, targetQuote.validityOption);
+    const meta = [
+      ['GRUBIG FABRIC QUOTATION (FOB PRICE)'],
+      [`Buyer: ${targetQuote.buyerName || ''}${targetQuote.attention ? `    Attn: ${targetQuote.attention}` : ''}`],
+      [`Date: ${targetQuote.date || ''}    Currency: ${cur}    Valid Until: ${validUntil}`],
+      [],
+    ];
+    const ws = window.XLSX.utils.aoa_to_sheet(meta);
+    window.XLSX.utils.sheet_add_json(ws, rows, { origin: 'A5' });
+    ws['!cols'] = [
+      { wch: 5 }, { wch: 16 }, { wch: 28 }, { wch: 9 }, { wch: 9 },
+      { wch: 7 }, { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 14 }
+    ];
+
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, 'Quotation');
+    const safeBuyer = String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim();
+    const fileParts = ['Quotation', safeBuyer, targetQuote.date].filter(Boolean);
+    window.XLSX.writeFile(wb, `${fileParts.join('_')}.xlsx`);
+    showToast(`${rows.length}개 품목을 엑셀로 내보냈습니다.`, 'success');
+  };
+
   // [R1] formatQuotePrice / getBasePrice 정의는 helpers.js로 이전됨.
   //   각 자식 컴포넌트(PDFRenderer/QuotationPage/QuoteHistoryPage)가 직접 import해서 사용
 
@@ -1089,6 +1144,8 @@ const App = () => {
             savedQuotes={savedQuotes}
             setSavedQuotes={setSavedQuotes}
             handleDownloadPDF={handleDownloadPDF}
+            handleDownloadExcel={handleDownloadQuoteExcel}
+            handleNewQuote={handleNewQuote}
             handleQuoteSettingChange={handleQuoteSettingChange}
             selectedFabricIdForQuote={selectedFabricIdForQuote}
             setSelectedFabricIdForQuote={setSelectedFabricIdForQuote}
@@ -1292,6 +1349,7 @@ const App = () => {
             setQuoteInput={setQuoteInput}
             setActiveTab={setActiveTab}
             handleDownloadPDF={handleDownloadPDF}
+            handleDownloadExcel={handleDownloadQuoteExcel}
             handleDeleteQuote={handleDeleteQuote}
             savedQuotes={savedQuotes}
             setSavedQuotes={setSavedQuotes}

@@ -3,10 +3,16 @@ import { calculateMcqYd } from '../../utils/helpers';
 
 // GRUBIG ERP - 견적서(Quotation) 도메인 로직 및 훅
 
+// 빈 견적서 초기 상태 (신규 작성 / "새 견적서" 초기화 공용 팩토리)
+// validityOption 기본값 '2weeks' = 작성일로부터 2주
+const makeBlankQuote = () => ({
+  buyerName: '', attention: '', buyerType: 'converter', marketType: 'domestic',
+  currency: 'KRW', date: new Date().toISOString().split('T')[0], extraMargin: 0,
+  remarks: '', items: [], validityOption: '2weeks'
+});
+
 export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, setGlobalExchangeRate) => {
-  const [quoteInput, setQuoteInput] = useState({
-    buyerName: '', attention: '', buyerType: 'converter', marketType: 'domestic', currency: 'KRW', date: new Date().toISOString().split('T')[0], extraMargin: 0, remarks: '', items: []
-  });
+  const [quoteInput, setQuoteInput] = useState(makeBlankQuote);
 
   // 글로벌 환율 변동 감지 및 재계산
   // [D2] 환율 변경 시 confirm "취소" → 환율값 자체를 이전 값으로 롤백 (UI/상태 일치)
@@ -177,9 +183,20 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     setQuoteInput({ ...quoteInput, items: newItems });
   };
   
-  const handleRemoveItemFromQuote = (index) => { 
-    const newItems = quoteInput.items.filter((_, i) => i !== index); 
-    setQuoteInput({ ...quoteInput, items: newItems }); 
+  const handleRemoveItemFromQuote = (index) => {
+    const newItems = quoteInput.items.filter((_, i) => i !== index);
+    setQuoteInput({ ...quoteInput, items: newItems });
+  };
+
+  // [신규] 현재 작성 중인 견적서를 비우고 새 견적서 시작
+  // 작성 중 내용이 있으면 확인 후 초기화 (수정/복제 모드의 id·createdAt 도 함께 제거됨 → 신규 저장으로 동작)
+  const handleNewQuote = () => {
+    const hasContent =
+      (quoteInput.items && quoteInput.items.length > 0) ||
+      quoteInput.buyerName || quoteInput.attention || quoteInput.remarks;
+    if (hasContent && !window.confirm("현재 작성 중인 견적서를 비우고 새 견적서를 시작할까요?\n저장하지 않은 내용은 사라집니다.")) return;
+    setQuoteInput(makeBlankQuote());
+    showToast("새 견적서를 시작합니다.", 'success');
   };
 
   const handleSaveQuote = (savedQuotesCallback) => {
@@ -231,6 +248,6 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     quoteInput, setQuoteInput,
     handleQuoteSettingChange, createQuoteItem,
     handleAddFabricToQuote, handleGridPaste, handleQuoteBasePriceChange,
-    handleRemoveItemFromQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
+    handleRemoveItemFromQuote, handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
   };
 };

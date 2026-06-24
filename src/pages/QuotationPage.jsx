@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { FileText, Save, Download, DollarSign, X, Plus, ClipboardPaste } from 'lucide-react';
+import { FileText, Save, Download, DollarSign, X, Plus, ClipboardPaste, FileSpreadsheet, FilePlus } from 'lucide-react';
 import { SearchableSelect } from '../components/common/SearchableSelect';
-import { num, getBasePrice, formatQuotePrice } from '../utils/helpers';
+import { num, getBasePrice, formatQuotePrice, getQuoteValidUntil, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
 
 // [Refactoring] 개별 단가 입력 셀 (입력 튕김 방지 및 로컬 상태 관리)
 // [R1] 가격 헬퍼는 helpers.js에서 직접 import — props chain 제거
@@ -49,6 +49,8 @@ export const QuotationPage = ({
   savedQuotes,
   setSavedQuotes,
   handleDownloadPDF,
+  handleDownloadExcel,
+  handleNewQuote,
   handleQuoteSettingChange,
   selectedFabricIdForQuote,
   setSelectedFabricIdForQuote,
@@ -70,6 +72,7 @@ export const QuotationPage = ({
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><FileText className="w-6 h-6 text-indigo-600" /> Quotation</h2>
         <div className="flex gap-2 w-full sm:w-auto">
+          <button onClick={handleNewQuote} className="flex-1 sm:flex-none bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50 hover:border-slate-400 flex items-center justify-center gap-2 transition-colors"><FilePlus className="w-4 h-4" /> 새 견적서</button>
           <button onClick={() => handleSaveQuote((item) => {
             // 기존 id가 있으면 수정(덮어쓰기), 없으면 신규 추가
             if (item.id && savedQuotes.some(q => q.id === item.id)) {
@@ -79,6 +82,7 @@ export const QuotationPage = ({
             }
           })} className="flex-1 sm:flex-none bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800 flex items-center justify-center gap-2"><Save className="w-4 h-4" /> Save</button>
           <button onClick={handleDownloadPDF} className="flex-1 sm:flex-none bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-2 shadow-lg shadow-indigo-200"><Download className="w-4 h-4" /> PDF</button>
+          <button onClick={() => handleDownloadExcel()} className="flex-1 sm:flex-none bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 flex items-center justify-center gap-2 shadow-lg shadow-emerald-200"><FileSpreadsheet className="w-4 h-4" /> Excel</button>
         </div>
       </div>
 
@@ -102,6 +106,17 @@ export const QuotationPage = ({
             <input type="text" value={quoteInput.attention || ''} onChange={(e) => setQuoteInput({ ...quoteInput, attention: e.target.value.toUpperCase() })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 uppercase" placeholder="예: MR. JOHN" />
           </div>
           <div className="lg:col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">Quote Date</label><input type="date" value={quoteInput.date} onChange={(e) => setQuoteInput({ ...quoteInput, date: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2" /></div>
+          <div className="lg:col-span-1">
+            <label className="block text-xs font-bold text-slate-500 mb-1">Valid (유효기간)</label>
+            <select
+              value={quoteInput.validityOption || '2weeks'}
+              onChange={(e) => setQuoteInput({ ...quoteInput, validityOption: e.target.value })}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 ring-blue-400"
+            >
+              {QUOTE_VALIDITY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
+            <p className="text-[10px] text-slate-400 mt-1 truncate" title="견적서에 표기될 유효기간 만료일">~ {getQuoteValidUntil(quoteInput.date, quoteInput.validityOption || '2weeks')}</p>
+          </div>
           <div className="lg:col-span-1">
             <label className="block text-xs font-bold text-slate-500 mb-1">Settings</label>
             <div className="flex bg-slate-100 p-1 rounded-lg gap-1">

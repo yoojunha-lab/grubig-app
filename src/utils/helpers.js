@@ -79,6 +79,51 @@ export const getLastDayOfQuoteMonth = (dateString) => {
     .toUpperCase();
 };
 
+/**
+ * 견적서 유효기간(Valid Until) 선택 옵션 목록.
+ * value: quoteInput.validityOption 에 저장되는 키
+ * label: 화면(드롭다운) 표시용 한국어 라벨
+ */
+export const QUOTE_VALIDITY_OPTIONS = [
+  { value: '2weeks', label: '2주 (견적일 + 14일)' },
+  { value: '1month', label: '1개월' },
+  { value: '2months', label: '2개월' },
+  { value: '3months', label: '3개월' },
+  { value: 'endOfMonth', label: '이번 달 말일' },
+];
+
+/**
+ * 견적 작성일과 선택 옵션을 받아 유효기간 만료일을
+ * 'MMM DD, YYYY' 영문 대문자 포맷으로 반환합니다. (견적서 VALID UNTIL 표기용)
+ * - 옵션 값이 없으면(예전 저장 견적서 등) 기본값 '2weeks'(작성일 + 2주) 적용.
+ * @param {string} dateString - 견적 작성일 (YYYY-MM-DD)
+ * @param {string} option - '2weeks' | '1month' | '2months' | '3months' | 'endOfMonth'
+ */
+export const getQuoteValidUntil = (dateString, option = '2weeks') => {
+  const base = dateString ? new Date(dateString) : new Date();
+  let target;
+  switch (option) {
+    case '1month':
+      target = new Date(base.getFullYear(), base.getMonth() + 1, base.getDate());
+      break;
+    case '2months':
+      target = new Date(base.getFullYear(), base.getMonth() + 2, base.getDate());
+      break;
+    case '3months':
+      target = new Date(base.getFullYear(), base.getMonth() + 3, base.getDate());
+      break;
+    case 'endOfMonth':
+      return getLastDayOfQuoteMonth(dateString);
+    case '2weeks':
+    default:
+      target = new Date(base.getFullYear(), base.getMonth(), base.getDate() + 14);
+      break;
+  }
+  return target
+    .toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+    .toUpperCase();
+};
+
 // ----------------------------------------------------------------------
 // 견적서 가격 표시 공통 헬퍼 (R1)
 // 견적 아이템의 신규/레거시 필드 호환 + extraMargin 가산 + 통화 포맷을

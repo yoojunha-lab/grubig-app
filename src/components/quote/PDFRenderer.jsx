@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { num, getLastDayOfQuoteMonth, calcQuotePrice, formatQuotePrice } from '../../utils/helpers';
+import { num, getQuoteValidUntil, calcQuotePrice, formatQuotePrice } from '../../utils/helpers';
 
 // A4 한 장 기준 담을 수 있는 행 수 (패딩/마진 감안 경험치)
 const SINGLE_PAGE_MAX = 13;     // 로고+인사+품목+하단약관을 한 장에 다 담는 최대 품목수
@@ -148,11 +148,11 @@ export const PDFRenderer = ({
               {/* [D1] colgroup 명시 - Article·Spec 잘림 방지 + 가격 컬럼 일관 폭 */}
               <colgroup>
                 <col style={{ width: '13%' }} />{/* Article */}
-                <col style={{ width: '17%' }} />{/* Spec (item name) */}
-                <col style={{ width: '6%' }} /> {/* Cut */}
-                <col style={{ width: '6%' }} /> {/* Full */}
-                <col style={{ width: '7%' }} /> {/* GSM */}
-                <col style={{ width: '8%' }} /> {/* g/YD */}
+                <col style={{ width: '21%' }} />{/* Spec (item name) — 두 줄 줄바꿈 위해 확대 */}
+                <col style={{ width: '5%' }} />{/* Cut */}
+                <col style={{ width: '5%' }} />{/* Full */}
+                <col style={{ width: '6%' }} />{/* GSM */}
+                <col style={{ width: '7%' }} />{/* g/YD */}
                 <col style={{ width: '11%' }} />{/* MCQ */}
                 <col style={{ width: '10%' }} />{/* 1,000 YD */}
                 <col style={{ width: '11%' }} />{/* 3,000 YD */}
@@ -162,8 +162,8 @@ export const PDFRenderer = ({
               <tbody className="divide-y divide-slate-200">
                 {page.items.map((item, idx) => (
                   <tr key={idx} className="avoid-break">
-                    <td className="py-3 font-bold text-slate-800 uppercase">{item.article}</td>
-                    <td className="py-3 text-slate-600 truncate max-w-[120px]">{item.itemName}</td>
+                    <td className="py-3 font-bold text-slate-800 uppercase break-words">{item.article}</td>
+                    <td className="py-3 text-slate-600 break-words leading-tight">{item.itemName}</td>
                     <td className="py-3 text-center text-slate-500">{item.widthCut}"</td>
                     <td className="py-3 text-center text-slate-500">{item.widthFull}"</td>
                     <td className="py-3 text-right text-slate-500">{item.gsm}</td>
@@ -179,7 +179,7 @@ export const PDFRenderer = ({
 
             {page.isLast && (
               <div className="border-t-2 border-slate-800 pt-6 mt-10 text-[10px] text-slate-500 font-medium leading-relaxed pb-4 avoid-break">
-                <p className="mb-1">• VALID UNTIL: <span className="font-bold text-slate-800">{getLastDayOfQuoteMonth(quoteInput.date)}</span></p>
+                <p className="mb-1">• VALID UNTIL: <span className="font-bold text-slate-800">{getQuoteValidUntil(quoteInput.date, quoteInput.validityOption)}</span></p>
                 <p className="mb-1">• ±5% WEIGHT AND WIDTH TOLERANCE</p>
                 <p className="mb-1">• BULK PRICING NEGOTIABLE</p>
                 <p className="mb-4">• UPCHARGE APPLIES FOR ORDERS BELOW MCQ/MOQ</p>
