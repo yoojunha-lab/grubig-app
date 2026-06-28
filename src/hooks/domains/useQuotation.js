@@ -1,16 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
-import { calculateMcqYd } from '../../utils/helpers';
+import { calculateMcqYd, toTierRate, normalizeQuoteMargins } from '../../utils/helpers';
 
 // GRUBIG ERP - 견적서(Quotation) 도메인 로직 및 훅
 
 // 빈 견적서 초기 상태 (신규 작성 / "새 견적서" 초기화 공용 팩토리)
-// [마진 모델] 매출이익율(%)은 일괄값(bulkMarginRate) + 원단별 개별(item.marginRate),
+// [마진 모델] 매출이익율(%)은 구간별 객체 — 일괄값(bulkMarginRate{1k,3k,5k}) + 원단별 개별(item.marginRate{1k,3k,5k}),
 //             추가 영업마진은 구간별 YD당 정액(marginAdd) — 전체 적용.
 // validityOption 기본값 '2weeks' = 작성일로부터 2주
 const makeBlankQuote = () => ({
   buyerName: '', attention: '', marketType: 'domestic',
   currency: 'KRW', date: new Date().toISOString().split('T')[0],
-  bulkMarginRate: 0, marginAdd: { '1k': 0, '3k': 0, '5k': 0 },
+  bulkMarginRate: { '1k': 0, '3k': 0, '5k': 0 }, marginAdd: { '1k': 0, '3k': 0, '5k': 0 },
   remarks: '', items: [], validityOption: '2weeks'
 });
 
@@ -66,23 +66,26 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     setQuoteInput(prev => ({ ...prev, [field]: { ...(prev[field] || {}), [tier]: v } }));
   };
 
-  // 일괄 매출이익율(%) — 모든 원단에 일괄 적용 (개별 수정분도 덮어씀). 0~99로 clamp.
-  const handleBulkMarginRateChange = (value) => {
+  // 일괄 매출이익율(%) — 특정 구간(tier)을 모든 원단의 같은 구간에 일괄 적용 (개별 수정분도 덮어씀). 0~99로 clamp.
+  const handleBulkMarginRateChange = (tier, value) => {
     const v = Math.min(99, Math.max(0, Number(value) || 0));
     setQuoteInput(prev => ({
       ...prev,
-      bulkMarginRate: v,
-      items: (prev.items || []).map(it => ({ ...it, marginRate: v }))
+      bulkMarginRate: { ...toTierRate(prev.bulkMarginRate), [tier]: v },
+      items: (prev.items || []).map(it => ({
+        ...it,
+        marginRate: { ...toTierRate(it.marginRate), [tier]: v }
+      }))
     }));
   };
 
-  // 원단별 매출이익율(%) 개별 수정. 0~99로 clamp.
-  const handleQuoteItemMarginChange = (index, value) => {
+  // 원단별 매출이익율(%) 개별 수정 — 특정 원단의 특정 구간(tier)만 변경. 0~99로 clamp.
+  const handleQuoteItemMarginChange = (index, tier, value) => {
     const v = Math.min(99, Math.max(0, Number(value) || 0));
     setQuoteInput(prev => {
       const items = [...(prev.items || [])];
       if (!items[index]) return prev;
-      items[index] = { ...items[index], marginRate: v };
+      items[index] = { ...items[index], marginRate: { ...toTierRate(items[index].marginRate), [tier]: v } };
       return { ...prev, items };
     });
   };
@@ -90,7 +93,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   // 견적 품목 생성. base = 영업 기준원가(도매 기준 priceConverter), 판가는 calcQuotePrice에서 마진 적용.
   // marginRate = 원단별 매출이익율(%) — 일괄값을 기본으로 받아 표에서 개별 수정 가능.
   const createQuoteItem = (fabric, currentExchangeRate, currentMarketType, marginRate = 0) => {
-    const safeMarginRate = Math.min(99, Math.max(0, Number(marginRate) || 0));
+    // marginRate는 구간별 객체 {1k,3k,5k} 또는 레거시 단일 숫자 모두 허용 → 객체로 정규화
+    const safeMarginRate = toTierRate(marginRate);
     const calc = calculateCost(fabric, currentExchangeRate);
     // calculateCost 반환값이 null/undefined일 때 방어 (삭제된 원단 등)
     if (!calc) {
@@ -125,7 +129,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       basePrice1k: d1k.priceConverter ?? 0,
       basePrice3k: d3k.priceConverter ?? 0,
       basePrice5k: d5k.priceConverter ?? 0,
-      marginRate: safeMarginRate,   // 원단별 매출이익율(%) — 일괄값 기본, 표에서 개별 수정 가능
+      marginRate: safeMarginRate,   // 원단별 매출이익율(%) 구간별 객체 — 일괄값 기본, 표에서 구간마다 개별 수정 가능
     };
   };
 
@@ -228,12 +232,12 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     // [U2] ID와 Date를 갱신하여 복제본 생성. 이미 "(Copy)"로 끝나면 추가하지 않아 누적 방지
     const rawName = String(quoteToCopy.buyerName || '');
     const buyerName = / \(Copy\)$/.test(rawName) ? rawName : `${rawName} (Copy)`;
-    const duplicatedQuote = {
+    const duplicatedQuote = normalizeQuoteMargins({
       ...quoteToCopy,
       id: Date.now(),
       date: new Date().toISOString().split('T')[0],
       buyerName
-    };
+    });
     setQuoteInput(duplicatedQuote);
     if(navigateCallback) navigateCallback();
     showToast("견적서가 성공적으로 복제되었습니다. (날짜 최신화)", 'success');

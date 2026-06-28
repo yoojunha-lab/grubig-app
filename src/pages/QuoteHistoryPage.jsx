@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Calendar, Search, X, Eye, Trash2, AlertCircle, Copy, ChevronDown, ChevronRight, CheckCircle2, FileText, FileSpreadsheet } from 'lucide-react';
-import { num, getQuoteValidUntil, calcQuotePrice, formatQuotePrice, getBasePrice } from '../utils/helpers';
+import { num, getQuoteValidUntil, calcQuotePrice, formatQuotePrice, getBasePrice, normalizeQuoteMargins } from '../utils/helpers';
 
 export const QuoteHistoryPage = ({
   quoteBuyerFilter,
@@ -100,7 +100,7 @@ export const QuoteHistoryPage = ({
                   <td className="p-4">
                     <div className="flex gap-1.5 justify-center">
                       <button onClick={(e) => { e.stopPropagation(); handleDuplicateQuote(quote, () => setActiveTab('quotation')); }} className="bg-emerald-50 text-emerald-600 px-2 py-1.5 rounded text-xs font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1" title="이 견적서를 복사하여 새 견적서 작성하기"><Copy className="w-3.5 h-3.5" /> <span className="hidden sm:inline">복제</span></button>
-                      <button onClick={(e) => { e.stopPropagation(); setQuoteInput(quote); setActiveTab('quotation'); }} className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-200 transition-colors">수정</button>
+                      <button onClick={(e) => { e.stopPropagation(); setQuoteInput(normalizeQuoteMargins(quote)); setActiveTab('quotation'); }} className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-200 transition-colors">수정</button>
                       <button onClick={(e) => { e.stopPropagation(); handleDownloadPDF(quote); }} className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-100 transition-colors">PDF</button>
                       <button onClick={(e) => { e.stopPropagation(); handleDownloadExcel(quote); }} className="bg-emerald-50 text-emerald-700 px-2.5 py-1.5 rounded text-xs font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1" title="엑셀로 다운로드"><FileSpreadsheet className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Excel</span></button>
                       <button onClick={(e) => { e.stopPropagation(); handleDeleteQuote(quote.id, (id) => setSavedQuotes(savedQuotes.filter(q => q.id !== id))); }} className="text-slate-300 hover:text-red-500 p-1.5 rounded hover:bg-red-50 transition-colors" title="삭제"><Trash2 className="w-4 h-4" /></button>

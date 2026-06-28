@@ -1161,6 +1161,7 @@ const App = () => {
             globalExchangeRate={globalExchangeRate}
             buyers={buyers}
             setIsBuyerModalOpen={setIsBuyerModalOpen}
+            yarnLibrary={yarnLibrary}
           />
         )}
 

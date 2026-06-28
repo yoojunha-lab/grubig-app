@@ -65,8 +65,42 @@ export const smartRound = (value, currency) => {
  * 타겟 마진율(%)에 맞춰 원가에서 판매가를 산출(Gross Margin)합니다.
  * 공식: cost / (1 - margin%)
  */
-export const applyGrossMargin = (cost, margin) => 
+export const applyGrossMargin = (cost, margin) =>
   margin >= 100 ? 0 : cost / (1 - (margin / 100));
+
+/**
+ * 매출이익율(%) 값을 구간별 객체 { '1k', '3k', '5k' } 로 정규화합니다. (0~99 clamp)
+ *  - 숫자(레거시 단일값) → 세 구간 모두 같은 값으로 펼침
+ *  - 객체(신규 구간별) → 각 구간값을 clamp
+ *  - null/undefined/빈값 → { '1k':0, '3k':0, '5k':0 }
+ */
+export const toTierRate = (val) => {
+  const clamp = (n) => Math.min(99, Math.max(0, Number(n) || 0));
+  if (val && typeof val === 'object') {
+    return { '1k': clamp(val['1k']), '3k': clamp(val['3k']), '5k': clamp(val['5k']) };
+  }
+  const v = clamp(val);
+  return { '1k': v, '3k': v, '5k': v };
+};
+
+/**
+ * 견적서를 에디터(작성/수정/복제)로 불러올 때, 매출이익율을 구간별 객체로 정규화합니다.
+ *  - 일괄값(bulkMarginRate)과 각 품목(item.marginRate)을 { '1k','3k','5k' } 형태로 통일
+ *  - 단, 아주 옛날 'extraMargin'만 가진 레거시 견적은 그대로 둠(가격 보존)
+ */
+export const normalizeQuoteMargins = (quote) => {
+  if (!quote) return quote;
+  const isNewModel =
+    quote.bulkMarginRate !== undefined ||
+    quote.marginAdd !== undefined ||
+    (quote.items || []).some(it => it && it.marginRate !== undefined);
+  if (!isNewModel) return quote; // extraMargin 기반 구버전 견적은 손대지 않음
+  return {
+    ...quote,
+    bulkMarginRate: toTierRate(quote.bulkMarginRate),
+    items: (quote.items || []).map(it => ({ ...it, marginRate: toTierRate(it.marginRate) })),
+  };
+};
 
 /**
  * 특정 날짜 문자열(YYYY-MM-DD 등)을 입력받아 해당 달의 마지막 날짜를
@@ -143,9 +177,10 @@ export const getBasePrice = (item, tier) => {
 };
 
 /**
- * 견적 가격 계산: '매출이익율(%)'(원단별) + 'YD당 정액(원/$)'(구간별)을 적용한 뒤 통화별 스마트 반올림.
+ * 견적 가격 계산: '매출이익율(%)'(원단별·구간별) + 'YD당 정액(원/$)'(구간별)을 적용한 뒤 통화별 스마트 반올림.
  * 공식: 판가 = base / (1 - rate%) + add
- *  - rate = 원단별 매출이익율(item.marginRate). 없으면 일괄값(quote.bulkMarginRate)
+ *  - rate = 원단별 매출이익율(item.marginRate[tier]). 없으면 일괄값(quote.bulkMarginRate[tier])
+ *           ※ 레거시 저장본은 객체가 아닌 단일 숫자일 수 있어 그 경우 모든 구간에 동일 적용
  *  - add  = 구간별 YD당 정액(quote.marginAdd[tier])
  *  - rate=0, add=0 → 판가 = base (영업 기준원가 그대로)
  * @param {Object} item - 견적 아이템 (basePrice1k/3k/5k, marginRate 보유)
@@ -163,7 +198,12 @@ export const calcQuotePrice = (item, tier, quote, currency) => {
     const markup = 1 + (Number(quote?.extraMargin) || 0) / 100;
     return smartRound(base * markup, currency);
   }
-  const rate = Number(item?.marginRate ?? quote?.bulkMarginRate) || 0;
+  // 매출이익율(%): 구간별 객체/단일 숫자 모두 지원. 원단별(item) 값 우선, 없으면 일괄값(quote).
+  const pickRate = (val) => {
+    if (val === undefined || val === null) return undefined;
+    return (typeof val === 'object') ? (Number(val[tier]) || 0) : (Number(val) || 0);
+  };
+  const rate = pickRate(item?.marginRate) ?? pickRate(quote?.bulkMarginRate) ?? 0;
   const add = Number(quote?.marginAdd?.[tier]) || 0;
   return smartRound(applyGrossMargin(base, rate) + add, currency);
 };

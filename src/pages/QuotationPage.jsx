@@ -1,7 +1,8 @@
-import React from 'react';
-import { FileText, Save, Download, X, Plus, ClipboardPaste, FileSpreadsheet, FilePlus, DollarSign } from 'lucide-react';
+import React, { useState } from 'react';
+import { FileText, Save, Download, X, Plus, ClipboardPaste, FileSpreadsheet, FilePlus, DollarSign, Search } from 'lucide-react';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { num, calcQuotePrice, formatQuotePrice, getBasePrice, getQuoteValidUntil, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
+import { FabricPickerModal } from '../components/quote/FabricPickerModal';
 
 // 견적 구간(오더 수량)
 const TIERS = [
@@ -23,8 +24,6 @@ export const QuotationPage = ({
   handleQuoteMarginChange,
   handleBulkMarginRateChange,
   handleQuoteItemMarginChange,
-  selectedFabricIdForQuote,
-  setSelectedFabricIdForQuote,
   savedFabrics,
   handleAddFabricToQuote,
   handleRemoveItemFromQuote,
@@ -33,10 +32,20 @@ export const QuotationPage = ({
   handleGridPaste,
   globalExchangeRate,
   buyers = [],
-  setIsBuyerModalOpen
+  setIsBuyerModalOpen,
+  yarnLibrary = []
 }) => {
   const currency = quoteInput.currency;
   const cSym = currency === 'USD' ? '$' : '￦';
+
+  // 단일 검색 추가용 원단 선택 팝업 상태
+  const [isFabricPickerOpen, setIsFabricPickerOpen] = useState(false);
+
+  // 매출이익율 입력칸 표시값: 구간별 객체면 해당 구간값, 레거시 단일 숫자면 그대로. (0은 "0"으로, 빈값은 "")
+  const getTierRate = (val, tier) => {
+    if (val && typeof val === 'object') return val[tier] ?? '';
+    return val ?? '';
+  };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 w-full print:hidden">
@@ -100,17 +109,24 @@ export const QuotationPage = ({
             <div className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-right font-mono font-bold text-slate-600 text-sm shadow-sm">￦{num(globalExchangeRate)}</div>
           </div>
 
-          {/* 마진 설정: 일괄 매출이익율(%) + 구간별 추가 영업마진(YD당 정액) */}
-          <div className="col-span-1 sm:col-span-2 lg:col-span-6 mt-1 grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-1">
-              <label className="block text-xs font-bold text-indigo-500 mb-1">일괄 매출이익율 (%)</label>
-              <div className="relative">
-                <input type="number" value={quoteInput.bulkMarginRate ?? ''} onChange={(e) => handleBulkMarginRateChange(e.target.value)} className="w-full bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-right font-bold text-indigo-700 outline-none" placeholder="0" />
-                <span className="absolute right-3 top-2.5 text-xs text-indigo-400 font-bold">%</span>
+          {/* 마진 설정: 구간별 일괄 매출이익율(%) + 구간별 추가 영업마진(YD당 정액) */}
+          <div className="col-span-1 sm:col-span-2 lg:col-span-6 mt-1 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-indigo-500 mb-1">일괄 매출이익율 · 구간별 (%) — 전체 적용</label>
+              <div className="grid grid-cols-3 gap-2">
+                {TIERS.map(t => (
+                  <div key={t.key}>
+                    <div className={`text-[10px] font-bold mb-0.5 ${t.main ? 'text-indigo-600' : 'text-slate-400'}`}>{t.label}</div>
+                    <div className="relative">
+                      <input type="number" step="any" value={getTierRate(quoteInput.bulkMarginRate, t.key)} onChange={(e) => handleBulkMarginRateChange(t.key, e.target.value)} className="w-full bg-indigo-50 border border-indigo-200 rounded px-2 py-2 text-right text-sm font-bold text-indigo-700 outline-none focus:border-indigo-400" placeholder="0" />
+                      <span className="absolute right-1.5 top-2.5 text-[10px] text-indigo-400 font-bold pointer-events-none">%</span>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <p className="text-[10px] text-slate-400 mt-1">모든 원단에 일괄 적용. 아래 표에서 원단별로 따로 수정할 수 있고, 이 값을 다시 입력하면 전체가 재설정됩니다.</p>
+              <p className="text-[10px] text-slate-400 mt-1">구간별로 모든 원단에 일괄 적용. 아래 표에서 원단별로 따로 수정할 수 있고, 이 값을 다시 입력하면 해당 구간 전체가 재설정됩니다.</p>
             </div>
-            <div className="lg:col-span-2">
+            <div>
               <label className="block text-xs font-bold text-slate-500 mb-1">구간별 추가 영업마진 · YD당 정액 ({cSym}) — 전체 적용</label>
               <div className="grid grid-cols-3 gap-2">
                 {TIERS.map(t => (
@@ -134,17 +150,19 @@ export const QuotationPage = ({
       <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 border-b border-slate-100 pb-2 gap-2">
           <h3 className="text-sm font-bold text-slate-400 uppercase">1. 단일 검색 추가</h3>
-          <div className="flex gap-2 w-full sm:w-max">
-            <SearchableSelect value={selectedFabricIdForQuote} options={savedFabrics} onChange={setSelectedFabricIdForQuote} placeholder="Search Fabric..." labelKey="article" valueKey="id" />
-            <button onClick={() => handleAddFabricToQuote(selectedFabricIdForQuote, setSelectedFabricIdForQuote)} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-100 shrink-0 border border-indigo-200">+ Add</button>
-          </div>
+          <button
+            onClick={() => setIsFabricPickerOpen(true)}
+            className="w-full sm:w-max bg-indigo-50 text-indigo-600 px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-100 border border-indigo-200 flex items-center justify-center gap-2 shrink-0"
+          >
+            <Search className="w-4 h-4" /> 원단 검색·추가 (목록에서 선택)
+          </button>
         </div>
 
         <h3 className="text-sm font-bold text-slate-400 uppercase mb-2 mt-6">2. 견적서 리스트 및 일괄 추가</h3>
         <div className="overflow-hidden rounded-xl border border-slate-200 overflow-x-auto">
           <table className="w-full text-sm text-left min-w-[1000px]">
             <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
-              <tr><th className="p-3 w-10 text-center">No.</th><th className="p-3">Article</th><th className="p-3">Spec</th><th className="p-3 text-center">Cut</th><th className="p-3 text-center">Full</th><th className="p-3 text-right">GSM</th><th className="p-3 text-right">g/YD</th><th className="p-3 text-right text-orange-600 bg-orange-50/50">MCQ</th><th className="p-3 w-24 text-center bg-indigo-50 text-indigo-700">매출이익율</th><th className="p-3 w-28 bg-slate-100 text-right">1,000 YD ({cSym})</th><th className="p-3 w-28 bg-indigo-50 text-indigo-900 text-right">3,000 YD ({cSym})</th><th className="p-3 w-28 bg-slate-100 text-right">5,000 YD ({cSym})</th><th className="p-3 w-10 text-center"></th></tr>
+              <tr><th className="p-3 w-10 text-center">No.</th><th className="p-3">Article</th><th className="p-3">Spec</th><th className="p-3 text-center">Cut</th><th className="p-3 text-center">Full</th><th className="p-3 text-right">GSM</th><th className="p-3 text-right">g/YD</th><th className="p-3 text-right text-orange-600 bg-orange-50/50">MCQ</th><th className="p-3 w-32 bg-slate-100 text-right">1,000 YD ({cSym})<span className="block text-[9px] font-normal text-slate-400 normal-case">판가 / 이익율%</span></th><th className="p-3 w-32 bg-indigo-50 text-indigo-900 text-right">3,000 YD ({cSym})<span className="block text-[9px] font-normal text-indigo-400 normal-case">판가 / 이익율%</span></th><th className="p-3 w-32 bg-slate-100 text-right">5,000 YD ({cSym})<span className="block text-[9px] font-normal text-slate-400 normal-case">판가 / 이익율%</span></th><th className="p-3 w-10 text-center"></th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {(quoteInput.items || []).map((item, idx) => (
@@ -161,28 +179,27 @@ export const QuotationPage = ({
                   <td className="p-3 text-right text-slate-500 font-mono text-xs">{num(item.gYd)}</td>
                   <td className="p-3 text-right text-orange-600 font-bold font-mono bg-orange-50/30 text-xs">{num(item.mcqYd || 300)}</td>
 
-                  {/* 원단별 매출이익율(%) — 일괄값 기본, 개별 수정 가능 */}
-                  <td className="p-2 bg-indigo-50/40">
-                    <div className="relative">
-                      <input
-                        type="number" step="any"
-                        value={item.marginRate ?? ''}
-                        onChange={(e) => handleQuoteItemMarginChange(idx, e.target.value)}
-                        className="w-full bg-white border border-indigo-200 rounded px-2 py-1 text-right text-xs font-bold text-indigo-700 outline-none focus:border-indigo-500"
-                        placeholder="0"
-                      />
-                      <span className="absolute right-1.5 top-1.5 text-[9px] text-slate-300 font-bold pointer-events-none">%</span>
-                    </div>
-                  </td>
-
+                  {/* 구간별 판가 + 원가, 그 아래 작게 원단별 매출이익율(%) 개별 입력 */}
                   {TIERS.map(t => {
                     const price = calcQuotePrice(item, t.key, quoteInput, currency);
                     const base = getBasePrice(item, t.key);
-                    const showBase = (Number(item.marginRate) || 0) > 0 || (Number(quoteInput.marginAdd?.[t.key]) || 0) > 0;
+                    const rate = getTierRate(item.marginRate, t.key);
+                    const showBase = (Number(rate) || 0) > 0 || (Number(quoteInput.marginAdd?.[t.key]) || 0) > 0;
                     return (
-                      <td key={t.key} className={`p-3 text-right ${t.main ? 'bg-indigo-50/30' : 'bg-slate-50'}`}>
-                        <div className={`font-mono text-xs ${t.main ? 'font-bold text-indigo-700' : 'text-slate-600'}`}>{formatQuotePrice(price, currency)}</div>
-                        {showBase && <div className="text-[9px] text-slate-400 mt-0.5">원가 {formatQuotePrice(base, currency)}</div>}
+                      <td key={t.key} className={`p-2 align-top ${t.main ? 'bg-indigo-50/30' : 'bg-slate-50'}`}>
+                        <div className={`font-mono text-xs text-right ${t.main ? 'font-bold text-indigo-700' : 'text-slate-600'}`}>{formatQuotePrice(price, currency)}</div>
+                        {showBase && <div className="text-[9px] text-slate-400 mt-0.5 text-right">원가 {formatQuotePrice(base, currency)}</div>}
+                        <div className="relative mt-1">
+                          <input
+                            type="number" step="any"
+                            value={rate}
+                            onChange={(e) => handleQuoteItemMarginChange(idx, t.key, e.target.value)}
+                            className="w-full bg-white border border-indigo-200 rounded pl-1.5 pr-4 py-0.5 text-right text-[11px] font-bold text-indigo-700 outline-none focus:border-indigo-500"
+                            placeholder="0"
+                            title="이 원단의 해당 구간 매출이익율(%)"
+                          />
+                          <span className="absolute right-1 top-1 text-[8px] text-slate-300 font-bold pointer-events-none">%</span>
+                        </div>
                       </td>
                     );
                   })}
@@ -223,7 +240,7 @@ export const QuotationPage = ({
                     }}
                   />
                 </td>
-                <td colSpan="10" className="p-2 text-xs text-slate-400 border-t border-slate-200 bg-slate-50/50 flex items-center gap-1 h-[42px] rounded-br-xl">
+                <td colSpan="9" className="p-2 text-xs text-slate-400 border-t border-slate-200 bg-slate-50/50 flex items-center gap-1 h-[42px] rounded-br-xl">
                   <ClipboardPaste className="w-3.5 h-3.5 text-indigo-400" /> <span className="hidden sm:inline">왼쪽 칸을 클릭하고</span> 엑셀 Article(원단명) 열을 복사 후 붙여넣어 보세요.
                 </td>
               </tr>
@@ -231,6 +248,16 @@ export const QuotationPage = ({
           </table>
         </div>
       </div>
+
+      {/* 단일 검색 추가 → 원단 선택 팝업 */}
+      <FabricPickerModal
+        isOpen={isFabricPickerOpen}
+        onClose={() => setIsFabricPickerOpen(false)}
+        fabrics={savedFabrics}
+        existingFabricIds={(quoteInput.items || []).map(i => i.fabricId)}
+        yarnLibrary={yarnLibrary}
+        onPick={(fabricId) => handleAddFabricToQuote(fabricId, () => {})}
+      />
     </div>
   );
 };
