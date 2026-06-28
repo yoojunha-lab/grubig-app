@@ -10,7 +10,8 @@ import { calculateMcqYd, toTierRate, normalizeQuoteMargins } from '../../utils/h
 const makeBlankQuote = () => ({
   buyerName: '', attention: '', marketType: 'domestic',
   currency: 'KRW', date: new Date().toISOString().split('T')[0],
-  bulkMarginRate: { '1k': 0, '3k': 0, '5k': 0 }, marginAdd: { '1k': 0, '3k': 0, '5k': 0 },
+  // 매출이익율 기본값: 1,000YD 23% / 3,000YD 20% / 5,000YD 17% (물량 많을수록 마진 낮춤)
+  bulkMarginRate: { '1k': 23, '3k': 20, '5k': 17 }, marginAdd: { '1k': 0, '3k': 0, '5k': 0 },
   remarks: '', items: [], validityOption: '2weeks'
 });
 
