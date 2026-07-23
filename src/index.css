@@ -114,3 +114,31 @@
     background: #ffffff !important;
   }
 }
+
+/* ========================================================== */
+/* [개발 의뢰서 인쇄 모드]                                     */
+/* body.printing-devreq 일 때만 개발 의뢰서(.devreq-print-    */
+/* root)만 노출하고, 견적 PDF(.pdf-render-root)는 숨김        */
+/* 높은 specificity + !important 로 위 견적용 규칙을 덮어씀   */
+/* ========================================================== */
+@media print {
+  body.printing-devreq > .pdf-render-root { display: none !important; }
+  body.printing-devreq > *:not(.devreq-print-root) { display: none !important; }
+  body.printing-devreq > .devreq-print-root {
+    display: block !important;
+    position: static !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  body.printing-devreq > .devreq-print-root .pdf-render-inner {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+}

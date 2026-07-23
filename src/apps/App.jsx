@@ -660,8 +660,6 @@ const App = () => {
     applyFabricTemplate(fabric, yarnLibrary);
   };
 
-  const devPrintRef = useRef(null);
-
   const [selectedFabricIdForQuote, setSelectedFabricIdForQuote] = useState('');
   const [bulkArticleInput, setBulkArticleInput] = useState('');
 
@@ -1213,7 +1211,6 @@ const App = () => {
             buyers={buyers}
             yarnLibrary={yarnLibrary}
             viewMode={viewMode}
-            devPrintRef={devPrintRef}
             addMasterItem={addMasterItem}
             generateDevOrderNo={generateDevOrderNo}
             setIsBuyerModalOpen={setIsBuyerModalOpen}
