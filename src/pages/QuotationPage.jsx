@@ -128,26 +128,26 @@ export const QuotationPage = ({
           {/* 마진 설정: 구간별 일괄 매출이익율(%) + 구간별 추가 영업마진(YD당 정액) */}
           <div className="col-span-1 sm:col-span-2 lg:col-span-6 grid grid-cols-1 lg:grid-cols-2 gap-3 pt-2 mt-1 border-t border-slate-100">
             <div>
-              <label className="block text-[11px] font-bold text-indigo-500 mb-1">일괄 매출이익율 · 구간별 (%) — 전체 적용</label>
+              <label className="block text-[11px] font-bold text-indigo-500 mb-1.5">일괄 매출이익율 · 구간별 (%) — 전체 적용</label>
               <div className="grid grid-cols-3 gap-2">
                 {TIERS.map(t => (
-                  <div key={t.key} className="flex items-center gap-1.5">
-                    <span className={`text-[10px] font-bold shrink-0 w-9 ${t.main ? 'text-indigo-600' : 'text-slate-400'}`}>{t.label.replace(' YD', '')}</span>
-                    <div className="relative flex-1">
-                      <input type="number" step="any" value={getTierRate(quoteInput.bulkMarginRate, t.key)} onChange={(e) => handleBulkMarginRateChange(t.key, e.target.value)} className="w-full bg-indigo-50 border border-indigo-200 rounded px-2 py-1.5 pr-5 text-right text-sm font-bold text-indigo-700 outline-none focus:border-indigo-400" placeholder="0" />
-                      <span className="absolute right-1.5 top-2 text-[10px] text-indigo-400 font-bold pointer-events-none">%</span>
+                  <div key={t.key}>
+                    <div className={`text-[10px] font-bold mb-0.5 ${t.main ? 'text-indigo-600' : 'text-slate-400'}`}>{t.label}</div>
+                    <div className="relative">
+                      <input type="number" step="any" value={getTierRate(quoteInput.bulkMarginRate, t.key)} onChange={(e) => handleBulkMarginRateChange(t.key, e.target.value)} className="w-full bg-indigo-50 border border-indigo-200 rounded px-2 py-1.5 pr-6 text-right text-sm font-bold text-indigo-700 outline-none focus:border-indigo-400" placeholder="0" />
+                      <span className="absolute right-2 top-2 text-[10px] text-indigo-400 font-bold pointer-events-none">%</span>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 mb-1">구간별 추가 영업마진 · YD당 정액 ({cSym}) — 전체 적용</label>
+              <label className="block text-[11px] font-bold text-slate-500 mb-1.5">구간별 추가 영업마진 · YD당 정액 ({cSym}) — 전체 적용</label>
               <div className="grid grid-cols-3 gap-2">
                 {TIERS.map(t => (
-                  <div key={t.key} className="flex items-center gap-1.5">
-                    <span className={`text-[10px] font-bold shrink-0 w-9 ${t.main ? 'text-indigo-600' : 'text-slate-400'}`}>{t.label.replace(' YD', '')}</span>
-                    <input type="number" value={quoteInput.marginAdd?.[t.key] ?? ''} onChange={(e) => handleQuoteMarginChange('add', t.key, e.target.value)} className="flex-1 bg-white border border-slate-200 rounded px-2 py-1.5 text-right text-sm font-bold text-slate-700 outline-none focus:border-indigo-400" placeholder="0" />
+                  <div key={t.key}>
+                    <div className={`text-[10px] font-bold mb-0.5 ${t.main ? 'text-indigo-600' : 'text-slate-400'}`}>{t.label}</div>
+                    <input type="number" value={quoteInput.marginAdd?.[t.key] ?? ''} onChange={(e) => handleQuoteMarginChange('add', t.key, e.target.value)} className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-right text-sm font-bold text-slate-700 outline-none focus:border-indigo-400" placeholder="0" />
                   </div>
                 ))}
               </div>
