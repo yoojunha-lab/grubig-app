@@ -31,10 +31,10 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
     setEditingYarnId(yarn.id);
   };
 
-  const handleSaveYarn = () => {
+  const handleSaveYarn = async () => {
     if (!yarnInput.name) {
       showToast('원사명을 입력해주세요', 'error');
-      return;
+      return false;
     }
 
     const normalizedName = String(yarnInput.name).trim().toUpperCase();
@@ -45,25 +45,33 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
     );
     if (isDuplicate) {
       showToast('이미 존재하는 원사명입니다.', 'error');
-      return;
+      return false;
     }
 
-    // [Step 1] 단가 변경 자동 히스토리 기록
+    // [Step 1] 단가 변경 자동 히스토리 기록 (변경일 = 오늘 날짜)
     const existingYarn = editingYarnId ? (yarnLibrary || []).find(y => y.id === editingYarnId) : null;
     const today = new Date().toISOString().slice(0, 10);
 
     const suppliersWithHistory = yarnInput.suppliers.map(s => {
       const updatedSupplier = { ...s, name: String(s.name).toUpperCase(), history: [...(s.history || [])] };
+      const hasPrice = s.price !== '' && s.price !== undefined && s.price !== null;
 
       if (existingYarn) {
-        // 수정 모드: 기존 공급처와 단가 비교 → 변경 시 히스토리 추가
         const oldSupplier = (existingYarn.suppliers || []).find(os => os.id === s.id);
-        if (oldSupplier && Number(oldSupplier.price) !== Number(s.price) && s.price !== '' && s.price !== undefined) {
-          updatedSupplier.history = [{ date: today, price: Number(s.price) }, ...updatedSupplier.history];
+        if (oldSupplier) {
+          // 기존 공급처: 단가가 바뀌었을 때만 히스토리에 새 기록 추가
+          if (hasPrice && Number(oldSupplier.price) !== Number(s.price)) {
+            updatedSupplier.history = [{ date: today, price: Number(s.price) }, ...updatedSupplier.history];
+          }
+        } else {
+          // 수정 중 새로 추가한 공급처: 최초 단가를 히스토리에 기록
+          if (hasPrice && updatedSupplier.history.length === 0) {
+            updatedSupplier.history = [{ date: today, price: Number(s.price) }];
+          }
         }
       } else {
         // 새 원사 등록: 최초 단가를 히스토리에 기록
-        if (s.price !== '' && s.price !== undefined && updatedSupplier.history.length === 0) {
+        if (hasPrice && updatedSupplier.history.length === 0) {
           updatedSupplier.history = [{ date: today, price: Number(s.price) }];
         }
       }
@@ -75,11 +83,16 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
       ...yarnInput,
       name: normalizedName,
       category: String(yarnInput.category).toUpperCase(),
-      suppliers: suppliersWithHistory
+      suppliers: suppliersWithHistory,
+      updatedAt: today // 단가 수정일 표시용(폴백)
     };
-    saveDocToCloud('yarns', itemToSave);
+
+    // [저장 규약] await 후 성공(true)일 때만 폼 리셋·성공 토스트. 실패 시 입력값 보존.
+    const ok = await saveDocToCloud('yarns', itemToSave);
+    if (ok === false) return false;
     resetYarnForm();
     showToast('원사가 저장되었습니다.', 'success');
+    return true;
   };
 
   const handleDeleteYarn = async (id, syncYarnLibraryStateCallback) => {

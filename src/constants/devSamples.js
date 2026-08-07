@@ -4,8 +4,8 @@
 //  - 실제 Firestore 데이터와 무관한 가짜 데이터입니다.
 
 export const DEV_SAMPLE_YARNS = [
-  { id: 'y_dev_1', category: '소모',    name: '2/48 WOOL', remarks: '', suppliers: [{ id: 's_dev_1', name: 'XINAO',  currency: 'KRW', price: 18000, tariff: 8, freight: 2, isDefault: true, history: [] }] },
-  { id: 'y_dev_2', category: '면방',    name: 'CM 30S',    remarks: '', suppliers: [{ id: 's_dev_2', name: '대원',    currency: 'KRW', price: 9000,  tariff: 0, freight: 0, isDefault: true, history: [] }] },
+  { id: 'y_dev_1', category: '소모',    name: '2/48 WOOL', remarks: '', updatedAt: '2026-07-15', suppliers: [{ id: 's_dev_1', name: 'XINAO',  currency: 'KRW', price: 18000, tariff: 8, freight: 2, isDefault: true, history: [{ date: '2026-07-15', price: 18000 }, { date: '2026-05-02', price: 17000 }] }] },
+  { id: 'y_dev_2', category: '면방',    name: 'CM 30S',    remarks: '', updatedAt: '2026-06-20', suppliers: [{ id: 's_dev_2', name: '대원',    currency: 'KRW', price: 9000,  tariff: 0, freight: 0, isDefault: true, history: [{ date: '2026-06-20', price: 9000 }] }] },
   { id: 'y_dev_3', category: 'SPANDEX', name: 'SPAN 40D',  remarks: '', suppliers: [{ id: 's_dev_3', name: '효성',    currency: 'KRW', price: 12000, tariff: 0, freight: 0, isDefault: true, history: [] }] },
   { id: 'y_dev_4', category: '화섬',    name: 'POLY 75D',  remarks: '', suppliers: [{ id: 's_dev_4', name: 'TORAY',  currency: 'KRW', price: 7000,  tariff: 8, freight: 1, isDefault: true, history: [] }] },
 ];

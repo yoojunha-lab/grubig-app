@@ -101,11 +101,16 @@ const App = () => {
   const [dyeingFactories, setDyeingFactories] = useState([]);
   const [machineTypes, setMachineTypes] = useState([]);
   const [structures, setStructures] = useState([]);
+  const [yarnSuppliers, setYarnSuppliers] = useState([]); // 원사 업체(공급처) 마스터 — 견적 거래처(partners)와 완전 분리
+  const [settingsLoaded, setSettingsLoaded] = useState(false); // settings/general 최초 도착 여부 (원사 업체 seed 경쟁조건 방지)
+  const [yarnsLoaded, setYarnsLoaded] = useState(false);       // yarns 스냅샷 최초 도착 여부
+  const yarnSuppliersSeededRef = useRef(false);                // 원사 업체 마스터 1회 백필 가드
 
   const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
   const [viewMode, setViewMode] = useState('domestic');
   const [yarnFilterCategory, setYarnFilterCategory] = useState('All');
   const [yarnFilterSupplier, setYarnFilterSupplier] = useState('All');
+  const [yarnPage, setYarnPage] = useState(0); // 원사 목록 페이지네이션 (0-base)
 
   const [quoteAuthorFilter, setQuoteAuthorFilter] = useState('All');
   const [quoteBuyerFilter, setQuoteBuyerFilter] = useState('');
@@ -176,6 +181,7 @@ const App = () => {
       return; // 실제 Firestore 구독 건너뜀
     }
     const unsubSettings = onSnapshot(doc(db, 'settings', 'general'), (docSnap) => {
+      setSettingsLoaded(true);
       if (docSnap.exists()) {
         const d = docSnap.data();
         if (d.yarnCategories) setCategories(d.yarnCategories);
@@ -185,6 +191,7 @@ const App = () => {
         setDyeingFactories(Array.isArray(d.dyeingFactories) ? d.dyeingFactories : []);
         setMachineTypes(Array.isArray(d.machineTypes) ? d.machineTypes : []);
         setStructures(Array.isArray(d.structures) ? d.structures : []);
+        setYarnSuppliers(Array.isArray(d.yarnSuppliers) ? d.yarnSuppliers : []);
       } else {
         // 문서가 없을 때만 yarnCategories만 시드 — 마스터 배열은 비워둠 (실제 추가될 때 자동 생성됨)
         // 빈 배열로 시드하면 만약 콘솔 등에서 doc 재삭제 후 이 코드가 다시 돌면 데이터 영구 손실 위험
@@ -197,6 +204,7 @@ const App = () => {
         if (!data.suppliers) return { ...data, suppliers: [{ id: 'sup_legacy', name: data.supplier || '기본업체', currency: data.currency || 'KRW', price: data.price || 0, tariff: data.tariff || 0, freight: data.freight || 0, history: data.history || [], isDefault: true }] };
         return data;
       }));
+      setYarnsLoaded(true);
     });
     const unsubFabrics = onSnapshot(collection(db, 'fabrics'), (snapshot) => setSavedFabrics(snapshot.docs.map(doc => doc.data())));
     const unsubQuotes = onSnapshot(collection(db, 'quotes'), (snapshot) => { setSavedQuotes(snapshot.docs.map(doc => doc.data())); setSyncStatus('saved'); });
@@ -215,6 +223,27 @@ const App = () => {
     const unsubPartners = onSnapshot(collection(db, 'partners'), (snapshot) => { setPartners(snapshot.docs.map(doc => doc.data())); setPartnersLoaded(true); });
     return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); unsubPIs(); unsubPartners(); };
   }, [user]);
+
+  // 원사 검색/필터가 바뀌면 목록을 1페이지로 되돌림
+  useEffect(() => { setYarnPage(0); }, [yarnSearchTerm, yarnFilterCategory, yarnFilterSupplier]);
+
+  // 원사 업체(공급처) 마스터 최초 1회 백필: 기존 원사들에 쓰인 공급처 이름을 마스터가 비어있을 때만 자동 등록
+  useEffect(() => {
+    if (DEV_BYPASS) return;
+    if (yarnSuppliersSeededRef.current) return;
+    if (!settingsLoaded || !yarnsLoaded) return;          // 두 스냅샷 모두 도착 후에만 판단 (race 방지)
+    yarnSuppliersSeededRef.current = true;                // 세션당 1회만 시도
+    if ((yarnSuppliers || []).length > 0) return;         // 이미 관리 목록이 있으면 건드리지 않음
+    const names = new Set();
+    (yarnLibrary || []).forEach(y => (y.suppliers || []).forEach(s => {
+      const u = String(s.name || '').trim().toUpperCase();
+      if (u) names.add(u);
+    }));
+    const toSeed = [...names];
+    if (toSeed.length === 0) return;
+    setDoc(doc(db, 'settings', 'general'), { yarnSuppliers: arrayUnion(...toSeed) }, { merge: true })
+      .catch(e => console.error('원사 업체 자동등록 실패', e));
+  }, [settingsLoaded, yarnsLoaded, yarnSuppliers, yarnLibrary]);
 
   // DEV 우회 시 Firestore 대신 로컬 state만 갱신하기 위한 컬렉션명 → setter 매핑
   const DEV_LOCAL_SETTERS = {
@@ -265,7 +294,7 @@ const App = () => {
   const addMasterItem = async (field, name) => {
     const trimmed = String(name).trim();
     if (!trimmed) { showToast('이름을 입력해주세요.', 'error'); return false; }
-    const currentMap = { buyers, knittingFactories, dyeingFactories, machineTypes, structures };
+    const currentMap = { buyers, knittingFactories, dyeingFactories, machineTypes, structures, yarnSuppliers };
     const current = currentMap[field] || [];
     if (current.includes(trimmed)) { showToast('이미 등록된 항목입니다.', 'error'); return false; }
     try {
@@ -976,6 +1005,47 @@ const App = () => {
     }
   };
 
+  // 카테고리 합치기: sources(없앨 카테고리들)의 원사를 target(남길 카테고리)으로 일괄 재분류 후 sources 삭제
+  const handleMergeCategories = async (sources, target) => {
+    const upperTarget = String(target || '').trim().toUpperCase();
+    const upperSources = [...new Set((sources || []).map(s => String(s).trim().toUpperCase()))]
+      .filter(s => s && s !== upperTarget);
+    if (!upperTarget) { alert('남길(대상) 카테고리를 선택해주세요.'); return; }
+    if (upperSources.length === 0) { alert('합칠 카테고리를 1개 이상 선택해주세요.'); return; }
+    if (!window.confirm(
+      `[${upperSources.join(', ')}] → [${upperTarget}] (으)로 합칩니다.\n\n` +
+      `해당 카테고리의 원사가 모두 '${upperTarget}'(으)로 바뀌고, 합쳐진 카테고리는 목록에서 삭제됩니다.\n계속하시겠습니까?`
+    )) return;
+
+    try {
+      setSyncStatus('syncing');
+      const yarnsToUpdate = yarnLibrary.filter(y => upperSources.includes(String(y.category || '').toUpperCase()));
+      if (yarnsToUpdate.length > 0) {
+        const result = await updateYarnCategoryBatch(yarnsToUpdate, upperTarget);
+        if (result.failed.length > 0) {
+          alert(
+            `⚠️ 카테고리 합치기 중 ${result.failed.length}/${result.totalAttempted}건 실패\n\n` +
+            `성공: ${result.success}건 / 실패: ${result.failed.length}건\n\n` +
+            `네트워크 상태 확인 후 다시 시도해주세요. (카테고리 목록 정리는 진행됩니다)`
+          );
+        }
+      }
+      // categories 목록에서 sources 제거, target 유지
+      const remaining = categories.filter(c => !upperSources.includes(String(c).toUpperCase()));
+      if (!remaining.map(c => String(c).toUpperCase()).includes(upperTarget)) remaining.push(upperTarget);
+      await setDoc(doc(db, 'settings', 'general'), { yarnCategories: [...new Set(remaining)] }, { merge: true });
+
+      // 현재 보고 있던 필터가 합쳐져 사라진 카테고리면 전체로 되돌림
+      if (upperSources.includes(String(yarnFilterCategory).toUpperCase())) setYarnFilterCategory('All');
+
+      setIsCategoryModalOpen(false);
+      setSyncStatus('saved');
+      showToast(`${upperSources.length}개 카테고리를 '${upperTarget}'(으)로 합쳤습니다.`, 'success');
+    } catch (e) {
+      setSyncStatus('error'); alert(`오류 발생: ${e.message}`);
+    }
+  };
+
   const handleSaveBuyer = async (newName) => {
     const safeNewName = String(newName || '').trim().toUpperCase();
     if (!safeNewName) { alert("바이어 상호명을 입력해주세요."); return; }
@@ -1214,6 +1284,10 @@ const App = () => {
             yarnLibrary={yarnLibrary}
             setYarnLibrary={setYarnLibrary}
             globalExchangeRate={globalExchangeRate}
+            yarnSuppliers={yarnSuppliers}
+            setActiveMasterModal={setActiveMasterModal}
+            yarnPage={yarnPage}
+            setYarnPage={setYarnPage}
           />
         )}
 
@@ -1547,6 +1621,8 @@ const App = () => {
           setEditingCategoryNew={setEditingCategoryNew}
           handleSaveCategoryEdit={handleSaveCategoryEdit}
           handleDeleteCategory={handleDeleteCategory}
+          handleMergeCategories={handleMergeCategories}
+          yarnLibrary={yarnLibrary}
         />
 
         {/* Master Data Manager Modal */}
@@ -1561,7 +1637,8 @@ const App = () => {
               activeMasterModal.key === 'knittingFactories' ? knittingFactories :
               activeMasterModal.key === 'dyeingFactories' ? dyeingFactories :
               activeMasterModal.key === 'machineTypes' ? machineTypes :
-              activeMasterModal.key === 'structures' ? structures : []
+              activeMasterModal.key === 'structures' ? structures :
+              activeMasterModal.key === 'yarnSuppliers' ? yarnSuppliers : []
             }
             onAdd={(name) => addMasterItem(activeMasterModal.key, name)}
             onDelete={(name) => removeMasterItem(activeMasterModal.key, name)}

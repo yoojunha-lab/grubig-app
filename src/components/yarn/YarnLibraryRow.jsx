@@ -19,6 +19,8 @@ export const YarnLibraryRow = React.memo(({
   const freightAmt = Number(defSup.freight) || 0;
   // 관세는 내수(Dom)에만 포함, 수출(Export)에는 미포함
   const domPrice = Math.round(convertedPrice + tariffAmt + freightAmt);
+  // 대표 공급처 기준 최종 단가 수정일 (history[0] = 최신, 없으면 원사 updatedAt 폴백)
+  const lastPriceDate = (defSup.history && defSup.history.length > 0) ? defSup.history[0].date : (y.updatedAt || null);
 
   const getCategoryColor = (cat) => {
     const colors = [
@@ -79,6 +81,11 @@ export const YarnLibraryRow = React.memo(({
             <span className="text-[9px] text-slate-500 font-sans tracking-tight bg-slate-100 px-1 rounded leading-none">($적용)</span>
           </div>
         ) : <span className="text-blue-700">￦{num(domPrice)}</span>}
+      </td>
+      <td className="px-6 py-2.5 text-center whitespace-nowrap">
+        {lastPriceDate
+          ? <span className="text-slate-600 font-medium font-mono text-[12px]">{lastPriceDate}</span>
+          : <span className="text-slate-300">-</span>}
       </td>
       <td className="px-6 py-2.5 text-slate-500 text-xs max-w-[200px]">
         <div className="line-clamp-2 leading-tight" title={y.remarks}>{y.remarks}</div>

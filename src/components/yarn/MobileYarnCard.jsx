@@ -19,6 +19,8 @@ export const MobileYarnCard = React.memo(({
   const freightAmt = Number(defSup.freight) || 0;
   // 관세는 내수(Dom)에만 포함, 수출(Export)에는 미포함
   const domPrice = Math.round(convertedPrice + tariffAmt + freightAmt);
+  // 대표 공급처 기준 최종 단가 수정일 (history[0] = 최신, 없으면 원사 updatedAt 폴백)
+  const lastPriceDate = (defSup.history && defSup.history.length > 0) ? defSup.history[0].date : (y.updatedAt || null);
 
   const getCategoryColor = (cat) => {
     const colors = [
@@ -91,6 +93,11 @@ export const MobileYarnCard = React.memo(({
               <div className="text-[10px] font-bold text-blue-500 mb-0.5">최종 내수전환 단가 (/kg)</div>
               <div className="font-mono font-extrabold text-[17px] text-blue-700 leading-none">￦{num(domPrice)}</div>
             </div>
+          </div>
+
+          <div className="mt-2 pt-2 border-t border-slate-200/60 flex justify-between items-center text-[10px]">
+            <span className="text-slate-400 font-bold">단가 수정일</span>
+            <span className="font-mono text-slate-500">{lastPriceDate || '-'}</span>
           </div>
         </div>
 

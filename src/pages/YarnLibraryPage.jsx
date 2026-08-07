@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { X, Database, Upload, Factory, History, Plus, Save, Settings, Search, Filter, Edit2, Trash2, Truck, Check } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Database, Upload, Factory, History, Plus, Save, Settings, Search, Edit2, Trash2, Truck, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { YarnLibraryRow } from '../components/yarn/YarnLibraryRow';
 import { MobileYarnCard } from '../components/yarn/MobileYarnCard';
+import { SearchableSelect } from '../components/common/SearchableSelect';
 import { num, usd } from '../utils/helpers';
 import { saveBatchDocuments } from '../services/db';
+
+const PAGE_SIZE = 30; // 1페이지당 원사 수 (로드 성능)
 
 export const YarnLibraryPage = ({
   filteredYarns,
@@ -31,7 +34,11 @@ export const YarnLibraryPage = ({
   handleDeleteYarn,
   yarnLibrary,
   setYarnLibrary,
-  globalExchangeRate
+  globalExchangeRate,
+  yarnSuppliers = [],       // 원사 업체(공급처) 마스터 — 견적 거래처와 별도
+  setActiveMasterModal,     // 업체 목록 관리 모달 오픈용
+  yarnPage = 0,
+  setYarnPage,
 }) => {
   const [isYarnFormModalOpen, setIsYarnFormModalOpen] = useState(false);
   const [isBulkFreightModalOpen, setIsBulkFreightModalOpen] = useState(false);
@@ -55,14 +62,62 @@ export const YarnLibraryPage = ({
     setIsYarnFormModalOpen(false);
   };
 
-  const handleSaveModalYarn = () => {
-    if (!yarnInput.name) {
-      handleSaveYarn(); // 기본 훅에서 에러 토스트 띄움
-      return;
-    }
-    handleSaveYarn();
-    setIsYarnFormModalOpen(false);
+  // [저장 규약] await 후 성공(true)일 때만 모달을 닫음. 실패 시 입력값 보존.
+  const handleSaveModalYarn = async () => {
+    const ok = await handleSaveYarn();
+    if (ok) setIsYarnFormModalOpen(false);
   };
+
+  // 원사 업체(공급처) 목록 관리 모달 열기
+  const openYarnSupplierManager = () => {
+    if (!setActiveMasterModal) return;
+    setActiveMasterModal({
+      key: 'yarnSuppliers',
+      title: '원사 업체(공급처) 관리',
+      description: '여기에 원사 업체를 등록해 두면, 원사 등록 시 목록에서 정확하게 검색·선택할 수 있습니다. (견적 거래처와는 별도로 관리됩니다)',
+      icon: Factory,
+    });
+  };
+
+  // 공급처 선택 옵션: 등록 업체(yarnSuppliers) + 현재 원사에 이미 들어있는 이름(레거시)까지 합쳐 항상 표시되게 함
+  const supplierOptions = useMemo(() => {
+    const set = new Set();
+    (yarnSuppliers || []).forEach(s => { const u = String(s || '').trim().toUpperCase(); if (u) set.add(u); });
+    (yarnInput.suppliers || []).forEach(s => { const u = String(s.name || '').trim().toUpperCase(); if (u) set.add(u); });
+    return [...set].sort().map(n => ({ id: n, name: n }));
+  }, [yarnSuppliers, yarnInput.suppliers]);
+
+  // --- 페이지네이션 계산 ---
+  const total = filteredYarns.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const safePage = Math.min(Math.max(0, yarnPage), totalPages - 1);
+  const pageYarns = filteredYarns.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const rangeStart = total === 0 ? 0 : safePage * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(total, safePage * PAGE_SIZE + PAGE_SIZE);
+  const goPage = (p) => setYarnPage && setYarnPage(Math.min(Math.max(0, p), totalPages - 1));
+
+  // 현재 페이지 주변 최대 7개 번호
+  const pageNums = () => {
+    const nums = [];
+    let s = Math.max(0, safePage - 3);
+    let e = Math.min(totalPages - 1, s + 6);
+    s = Math.max(0, e - 6);
+    for (let i = s; i <= e; i++) nums.push(i);
+    return nums;
+  };
+
+  const Pagination = totalPages > 1 && (
+    <div className="flex items-center justify-between mt-4 px-1">
+      <span className="text-xs text-slate-500">{rangeStart}–{rangeEnd} / 총 {total}개</span>
+      <div className="flex items-center gap-1">
+        <button onClick={() => goPage(safePage - 1)} disabled={safePage === 0} className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronLeft className="w-4 h-4" /></button>
+        {pageNums().map(n => (
+          <button key={n} onClick={() => goPage(n)} className={`min-w-[32px] h-8 px-2 rounded-lg text-sm font-bold transition-colors ${n === safePage ? 'bg-blue-600 text-white shadow' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>{n + 1}</button>
+        ))}
+        <button onClick={() => goPage(safePage + 1)} disabled={safePage >= totalPages - 1} className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronRight className="w-4 h-4" /></button>
+      </div>
+    </div>
+  );
 
   // --- 업체별 일괄 업데이트 모달 로직 ---
   const handleOpenBulkModal = () => {
@@ -73,7 +128,7 @@ export const YarnLibraryPage = ({
   };
 
   const toggleBulkSupplier = (sup) => {
-    setSelectedBulkSuppliers(prev => 
+    setSelectedBulkSuppliers(prev =>
       prev.includes(sup) ? prev.filter(s => s !== sup) : [...prev, sup]
     );
   };
@@ -91,7 +146,7 @@ export const YarnLibraryPage = ({
       window.alert('올바른 금액을 숫자로만 입력해 주세요.');
       return;
     }
-    
+
     if (window.confirm(`선택한 업체(${selectedBulkSuppliers.join(', ')})에 대하여 운반비를 ￦${num(freightValue)}(으)로 일괄 변경하시겠습니까?`)) {
       const updatedYarns = [];
       const updatedLibrary = yarnLibrary.map(yarn => {
@@ -103,7 +158,7 @@ export const YarnLibraryPage = ({
           }
           return sup;
         });
-        
+
         if (hasChanges) {
           const newYarn = { ...yarn, suppliers: newSuppliers };
           updatedYarns.push(newYarn);
@@ -131,11 +186,12 @@ export const YarnLibraryPage = ({
   return (
     <div className="max-w-[1500px] mx-auto space-y-6 w-full print:hidden">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h2 className="text-2xl font-bold text-slate-800">원사 라이브러리 ({filteredYarns.length}개)</h2>
+        <h2 className="text-2xl font-bold text-slate-800">원사 라이브러리 ({total}개)</h2>
         <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto">
           <button onClick={handleOpenAddYarn} className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-800 transition-colors shadow-sm whitespace-nowrap"><Plus className="w-4 h-4" /> 새 원사 등록</button>
-          
+
           <div className="flex bg-white border border-slate-200 rounded-lg overflow-hidden shrink-0 shadow-sm w-full sm:w-auto mt-2 sm:mt-0">
+            <button onClick={openYarnSupplierManager} className="flex-1 sm:flex-none justify-center items-center gap-2 px-3 py-2 text-slate-600 hover:bg-slate-50 border-r border-slate-200 text-sm font-bold flex"><Factory className="w-4 h-4 text-slate-400" /> 업체 관리</button>
             <button onClick={handleOpenBulkModal} className="flex-1 sm:flex-none justify-center items-center gap-2 px-3 py-2 text-emerald-700 hover:bg-emerald-50 border-r border-slate-200 text-sm font-bold flex"><Truck className="w-4 h-4 text-emerald-500" /> 업체별 일괄변경</button>
             <button onClick={handleBackupYarns} className="flex-1 sm:flex-none justify-center items-center gap-2 px-3 py-2 text-slate-600 hover:bg-slate-50 border-r border-slate-200 text-sm font-bold flex"><Database className="w-4 h-4 text-blue-500" /> 백업</button>
             <button onClick={() => setIsYarnBulkModalOpen(true)} className="flex-1 sm:flex-none justify-center items-center gap-2 px-3 py-2 text-emerald-700 hover:bg-emerald-50 text-sm font-bold flex"><Upload className="w-4 h-4" /> 엑셀 등록</button>
@@ -143,7 +199,7 @@ export const YarnLibraryPage = ({
         </div>
       </div>
 
-      {/* 검색 및 필터 영역 강화 */}
+      {/* 검색 및 필터 영역 */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
         <div className="relative flex-1 w-full md:max-w-xl">
           <input
@@ -160,7 +216,7 @@ export const YarnLibraryPage = ({
             </button>
           )}
         </div>
-        
+
         <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
           <select value={yarnFilterCategory} onChange={(e) => setYarnFilterCategory(e.target.value)} className="bg-white border border-slate-200 text-sm font-bold text-slate-600 rounded-lg px-4 py-3 outline-none shadow-sm cursor-pointer hover:border-slate-300 transition-colors uppercase shrink-0">
             <option value="All">전체 카테고리</option>
@@ -170,13 +226,13 @@ export const YarnLibraryPage = ({
             {uniqueSuppliers.map(sup => <option key={sup} value={sup}>{sup === 'All' ? '모든 공급처' : sup}</option>)}
           </select>
           <button onClick={() => setIsCategoryModalOpen(true)} className="px-3 py-3 bg-slate-100 text-slate-500 hover:bg-slate-200 rounded-lg text-sm font-bold flex items-center justify-center gap-1 transition-colors shrink-0 whitespace-nowrap">
-            <Settings className="w-4 h-4" /> 관리
+            <Settings className="w-4 h-4" /> 카테고리
           </button>
         </div>
       </div>
 
       <div className="hidden md:block bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
-        <table className="w-full text-sm text-left min-w-[900px]">
+        <table className="w-full text-sm text-left min-w-[1000px]">
           <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 uppercase tracking-tight text-[13px]">
             <tr>
               <th className="px-6 py-3 w-28">Category</th>
@@ -186,12 +242,13 @@ export const YarnLibraryPage = ({
               <th className="px-6 py-3 text-right">Tariff</th>
               <th className="px-6 py-3 text-right">Freight(￦) (/kg)</th>
               <th className="px-6 py-3 text-right text-blue-800">Price(Dom) (/kg)</th>
+              <th className="px-6 py-3 text-center whitespace-nowrap">단가 수정일</th>
               <th className="px-6 py-3">Remarks</th>
               <th className="px-6 py-3 text-center">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filteredYarns.map((y) => (
+            {pageYarns.map((y) => (
               <YarnLibraryRow
                 key={y.id}
                 y={y}
@@ -202,14 +259,14 @@ export const YarnLibraryPage = ({
                 setYarnLibrary={setYarnLibrary}
               />
             ))}
-            {filteredYarns.length === 0 && <tr><td colSpan="9" className="p-16 text-center text-slate-500 font-medium">검색 결과가 없거나 등록된 원사가 없습니다.</td></tr>}
+            {total === 0 && <tr><td colSpan="10" className="p-16 text-center text-slate-500 font-medium">검색 결과가 없거나 등록된 원사가 없습니다.</td></tr>}
           </tbody>
         </table>
       </div>
 
       {/* 모바일 뷰 카드 리스트 */}
-      <div className="md:hidden space-y-4 pb-6">
-        {filteredYarns.map((y) => (
+      <div className="md:hidden space-y-4 pb-2">
+        {pageYarns.map((y) => (
           <MobileYarnCard
             key={y.id}
             y={y}
@@ -220,7 +277,7 @@ export const YarnLibraryPage = ({
             setYarnLibrary={setYarnLibrary}
           />
         ))}
-        {filteredYarns.length === 0 && (
+        {total === 0 && (
           <div className="bg-white rounded-xl p-8 text-center border border-slate-200 shadow-sm">
             <div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-100">
               <Search className="w-8 h-8 text-slate-300" />
@@ -231,11 +288,13 @@ export const YarnLibraryPage = ({
         )}
       </div>
 
+      {Pagination}
+
       {/* 원사 등록/수정 모달 (Modal) */}
       {isYarnFormModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm transition-opacity">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            
+
             {/* Modal Header */}
             <div className="flex justify-between items-center px-6 py-4 border-b border-slate-200 bg-slate-50">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -272,9 +331,12 @@ export const YarnLibraryPage = ({
               <div className="bg-slate-50/80 p-5 rounded-xl border border-slate-200">
                 <div className="flex justify-between items-center mb-4">
                   <span className="font-bold text-sm text-slate-700 flex items-center gap-2"><Factory className="w-4 h-4 text-slate-400" /> 공급처(Supplier) 단가 관리</span>
-                  <button onClick={handleAddSupplier} className="text-xs bg-white border border-emerald-200 text-emerald-700 px-3 py-1.5 rounded-lg font-bold shadow-sm hover:bg-emerald-50 transition-colors active:scale-95">+ 새로운 업체 추가</button>
+                  <div className="flex gap-2">
+                    <button onClick={openYarnSupplierManager} className="text-xs bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg font-bold shadow-sm hover:bg-slate-50 transition-colors active:scale-95 flex items-center gap-1"><Settings className="w-3.5 h-3.5" /> 업체 목록 관리</button>
+                    <button onClick={handleAddSupplier} className="text-xs bg-white border border-emerald-200 text-emerald-700 px-3 py-1.5 rounded-lg font-bold shadow-sm hover:bg-emerald-50 transition-colors active:scale-95">+ 공급처 추가</button>
+                  </div>
                 </div>
-                
+
                 <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-2 overflow-x-hidden min-w-[700px] md:min-w-0">
                   {yarnInput.suppliers.map((sup, idx) => (
                     <div key={sup.id} className={`flex flex-col gap-2 bg-white p-3.5 rounded-xl border shadow-sm relative transition-all ${sup.isDefault ? 'border-blue-300 ring-2 ring-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
@@ -283,9 +345,14 @@ export const YarnLibraryPage = ({
                           <label className="text-[10px] text-slate-500 font-bold cursor-pointer">대표</label>
                           <input type="radio" name="defaultSup" checked={sup.isDefault} readOnly className="w-3.5 h-3.5 text-blue-600 cursor-pointer" />
                         </div>
-                        <div className="flex-1 min-w-[120px]">
-                          <label className="text-[10px] text-slate-500 font-bold mb-1 block">업체명</label>
-                          <input type="text" value={sup.name} onChange={e => handleSupplierChange(sup.id, 'name', e.target.value)} className="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm font-bold text-slate-800 focus:border-blue-500 outline-none uppercase bg-slate-50 focus:bg-white" placeholder="업체명" />
+                        <div className="flex-1 min-w-[150px]">
+                          <label className="text-[10px] text-slate-500 font-bold mb-1 block">업체명 (등록 업체에서 선택)</label>
+                          <SearchableSelect
+                            value={sup.name || ''}
+                            options={supplierOptions}
+                            onChange={(val) => handleSupplierChange(sup.id, 'name', val)}
+                            placeholder="업체 검색·선택"
+                          />
                         </div>
                         <div className="w-24 shrink-0">
                           <label className="text-[10px] text-slate-500 font-bold mb-1 block">화폐</label>
@@ -315,11 +382,12 @@ export const YarnLibraryPage = ({
 
                       {sup.history && sup.history.length > 0 && (
                         <div className="ml-[60px] bg-slate-50 border border-slate-100 p-2.5 rounded-lg mt-1">
-                          <p className="text-[10px] font-bold text-slate-400 mb-1.5 flex items-center gap-1"><History className="w-3 h-3" /> 단가 변경 기록</p>
+                          <p className="text-[10px] font-bold text-slate-400 mb-1.5 flex items-center gap-1"><History className="w-3 h-3" /> 단가 변경 기록 (최근 순)</p>
                           <div className="flex flex-wrap gap-2">
                             {sup.history.map((h, hIdx) => (
-                              <div key={hIdx} className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1 rounded-md text-[11px] font-mono text-slate-600 shadow-sm">
-                                <span>{h.date}</span><span className="text-slate-200">|</span><span className="font-bold">{sup.currency === 'USD' ? '$' : '￦'}{sup.currency === 'USD' ? usd(h.price) : num(h.price)}</span>
+                              <div key={hIdx} className={`flex items-center gap-1.5 border px-2.5 py-1 rounded-md text-[11px] font-mono shadow-sm ${hIdx === 0 ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600'}`}>
+                                <span>{h.date}</span><span className="text-slate-300">|</span><span className="font-bold">{sup.currency === 'USD' ? '$' : '￦'}{sup.currency === 'USD' ? usd(h.price) : num(h.price)}</span>
+                                {hIdx === 0 && <span className="text-[9px] font-sans font-bold bg-blue-100 text-blue-600 px-1 rounded ml-0.5">최신</span>}
                                 <button onClick={() => handleDeleteHistoryItem(sup.id, hIdx)} className="ml-1 text-slate-300 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
                               </div>
                             ))}
@@ -334,14 +402,14 @@ export const YarnLibraryPage = ({
 
             {/* Modal Footer */}
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
-              <button 
-                onClick={handleCloseYarnModal} 
+              <button
+                onClick={handleCloseYarnModal}
                 className="px-6 py-2.5 rounded-xl font-bold text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 transition-colors"
               >
                 취소
               </button>
-              <button 
-                onClick={handleSaveModalYarn} 
+              <button
+                onClick={handleSaveModalYarn}
                 className={`px-8 py-2.5 rounded-xl flex gap-2 items-center font-bold text-white transition-all shadow-md active:scale-95 ${editingYarnId ? 'bg-yellow-500 hover:bg-yellow-600 shadow-yellow-500/20' : 'bg-slate-900 hover:bg-slate-800'}`}
               >
                 {editingYarnId ? <><Save className="w-4 h-4" /> 수정 완료</> : <><Plus className="w-4 h-4" /> 정보 등록</>}
@@ -394,10 +462,10 @@ export const YarnLibraryPage = ({
                 <label className="text-sm font-bold text-slate-700 mb-2 block">일괄 적용할 운반비 (￦) / kg</label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">￦</span>
-                  <input 
-                    type="number" 
-                    value={bulkFreightAmount} 
-                    onChange={e => setBulkFreightAmount(e.target.value)} 
+                  <input
+                    type="number"
+                    value={bulkFreightAmount}
+                    onChange={e => setBulkFreightAmount(e.target.value)}
                     placeholder="0"
                     className="w-full border-2 border-emerald-200 rounded-xl pl-8 pr-4 py-3 text-lg font-bold text-slate-800 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-50 outline-none transition-all"
                   />
@@ -406,14 +474,14 @@ export const YarnLibraryPage = ({
             </div>
 
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex gap-3">
-              <button 
-                onClick={() => setIsBulkFreightModalOpen(false)} 
+              <button
+                onClick={() => setIsBulkFreightModalOpen(false)}
                 className="flex-1 py-3 rounded-xl font-bold text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 transition-colors"
               >
                 취소
               </button>
-              <button 
-                onClick={executeBulkFreightUpdate} 
+              <button
+                onClick={executeBulkFreightUpdate}
                 className="flex-1 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-600/20 transition-all active:scale-95"
               >
                 일괄 업데이트 실행
