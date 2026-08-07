@@ -209,10 +209,11 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     
     const authorName = user?.displayName || user?.email?.split('@')[0] || 'Unknown';
     // 기존 id가 있으면 유지(수정 모드) → 중복 생성 방지, 없으면 새 ID 부여 (스냅샷 정렬 배열 포함)
-    const itemToSave = { id: quoteInput.id || Date.now(), createdAt: quoteInput.createdAt || new Date().toLocaleString(), authorName, ...quoteInput, items: sortedItems };
-    
-    // UI에 보여지는 상태도 즉시 정렬되게끔 업데이트
-    setQuoteInput(prev => ({ ...prev, items: sortedItems }));
+    // exchangeRate: 이 견적을 계산할 때 적용된 전역 환율을 스냅샷으로 저장 (수출 USD 환산 근거)
+    const itemToSave = { id: quoteInput.id || Date.now(), createdAt: quoteInput.createdAt || new Date().toLocaleString(), authorName, ...quoteInput, items: sortedItems, exchangeRate: globalExchangeRate };
+
+    // UI 상태에 저장된 id/생성일/환율도 반영 → 다시 Save 눌러도 같은 문서를 덮어써 중복 저장 방지
+    setQuoteInput(prev => ({ ...prev, id: itemToSave.id, createdAt: itemToSave.createdAt, exchangeRate: globalExchangeRate, items: sortedItems }));
 
     if(savedQuotesCallback) savedQuotesCallback(itemToSave);
     saveDocToCloud('quotes', itemToSave); 
