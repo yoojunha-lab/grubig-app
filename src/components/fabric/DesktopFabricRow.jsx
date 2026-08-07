@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { ChevronUp, ChevronDown, Edit2, Trash2, Factory, TrendingUp, DollarSign, Info } from 'lucide-react';
+import { ChevronUp, ChevronDown, Edit2, Trash2, Factory, TrendingUp } from 'lucide-react';
 import { num } from '../../utils/helpers';
 
 export const DesktopFabricRow = React.memo(({
