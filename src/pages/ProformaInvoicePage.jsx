@@ -4,6 +4,7 @@ import {
   Copy, Globe, Home, Users, Search, Package, Pencil, X, RefreshCw,
 } from 'lucide-react';
 import { SearchableSelect } from '../components/common/SearchableSelect';
+import { PartnerSelectField } from '../components/common/PartnerSelectField';
 import { PI_UNIT_OPTIONS, buildPIDescription } from '../constants/proformaInvoice';
 import { computePITotals } from '../components/pi/PIPrintSheet';
 
@@ -44,6 +45,7 @@ export const ProformaInvoicePage = ({
   handlePrintPI, handleDownloadPIExcel,
   proformaInvoices = [], savedFabrics = [], yarnLibrary = [],
   buyers = [], setIsBuyerModalOpen,
+  partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
 }) => {
   const isExport = piInput.marketType !== 'domestic';
   const symbol = isExport ? '$' : '₩';
@@ -201,24 +203,27 @@ export const ProformaInvoicePage = ({
         <section>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">매수인 (공급받는 자)</h3>
-            <button onClick={() => setIsBuyerModalOpen && setIsBuyerModalOpen(true)} className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-              <Users className="w-3.5 h-3.5" /> 바이어 관리
-            </button>
+            <span className="text-[11px] text-slate-400">거래처 선택 시 주소·연락처 자동 입력</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div>
-              <label className="block text-[11px] font-bold text-slate-500 mb-1">상호 *</label>
-              <input
-                name="buyerCompany"
-                value={piInput.buyerCompany ?? ''}
-                onChange={handlePIChange}
-                list="pi-buyer-list"
-                placeholder="바이어 상호 (자유 입력)"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+              <label className="block text-[11px] font-bold text-slate-500 mb-1">상호 * (거래처)</label>
+              <PartnerSelectField
+                value={piInput.buyerCompany || ''}
+                onSelect={(p) => setPIInput(prev => ({
+                  ...prev,
+                  buyerCompany: p.name || '',
+                  buyerBizNo: p.bizNo || prev.buyerBizNo,
+                  buyerAddress: p.address || prev.buyerAddress,
+                  buyerTel: p.tel || prev.buyerTel,
+                  buyerContact: p.contact || p.mobile || prev.buyerContact,
+                }))}
+                partners={partners}
+                savePartner={savePartner}
+                deletePartner={deletePartner}
+                makeEmptyPartner={makeEmptyPartner}
+                placeholder="거래처 선택 / 등록"
               />
-              <datalist id="pi-buyer-list">
-                {(buyers || []).map(b => <option key={b} value={b} />)}
-              </datalist>
             </div>
             {!isExport && <Field label="사업자등록번호" name="buyerBizNo" value={piInput.buyerBizNo} onChange={handlePIChange} />}
             <Field label={isExport ? 'Tel' : '전화'} name="buyerTel" value={piInput.buyerTel} onChange={handlePIChange} />

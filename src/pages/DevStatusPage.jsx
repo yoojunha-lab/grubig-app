@@ -45,7 +45,8 @@ export const DevStatusPage = ({
   handleEditSheet, handleDeleteSheet, saveDocToCloud, setStage, dropDesignSheet,
   setActiveTab, user, buyers, yarnLibrary, viewMode,
   addMasterItem, generateDevOrderNo, setIsBuyerModalOpen,
-  setIsDesignSheetModalOpen
+  setIsDesignSheetModalOpen,
+  partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
 }) => {
   const [showDevModal, setShowDevModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -829,6 +830,10 @@ export const DevStatusPage = ({
           buyers={buyers}
           setIsBuyerModalOpen={setIsBuyerModalOpen}
           generateDevOrderNo={generateDevOrderNo}
+          partners={partners}
+          savePartner={savePartner}
+          deletePartner={deletePartner}
+          makeEmptyPartner={makeEmptyPartner}
         />
 
         {/* 통합 보관함 모달 */}

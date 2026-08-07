@@ -1,6 +1,7 @@
 import React from 'react';
 import { Edit2, Plus, X, Check } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
+import { PartnerSelectField } from '../common/PartnerSelectField';
 
 /**
  * 개발 의뢰 등록/수정 모달
@@ -27,7 +28,8 @@ export const DevRequestFormModal = ({
   onSave,
   buyers,
   setIsBuyerModalOpen,
-  generateDevOrderNo
+  generateDevOrderNo,
+  partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
 }) => {
   if (!isOpen) return null;
 
@@ -70,21 +72,15 @@ export const DevRequestFormModal = ({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <div className="flex justify-between items-center mb-0.5">
-                <label className="block text-[10px] font-bold text-red-500">바이어명 *</label>
-                <button
-                  type="button"
-                  onClick={() => setIsBuyerModalOpen(true)}
-                  className="text-[10px] text-indigo-500 hover:text-indigo-700 font-bold bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors whitespace-nowrap"
-                >
-                  + 바이어 관리
-                </button>
-              </div>
-              <SearchableSelect
+              <label className="block text-[10px] font-bold text-red-500 mb-0.5">바이어명 * (거래처)</label>
+              <PartnerSelectField
                 value={devInput.buyerName || ''}
-                options={(buyers || []).map(b => ({ id: b, name: b }))}
-                onChange={v => handleDevChange({ target: { name: 'buyerName', value: v } })}
-                placeholder="-- 바이어 선택 --"
+                onSelect={p => handleDevChange({ target: { name: 'buyerName', value: p.name } })}
+                partners={partners}
+                savePartner={savePartner}
+                deletePartner={deletePartner}
+                makeEmptyPartner={makeEmptyPartner}
+                placeholder="거래처 선택 / 등록"
               />
             </div>
             <div>

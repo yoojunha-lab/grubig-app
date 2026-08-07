@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Package, Calendar, Scale, FileSpreadsheet, Link2, Unlink, Settings2 } from 'lucide-react';
 import { SearchableSelect } from '../../common/SearchableSelect';
+import { PartnerSelectField } from '../../common/PartnerSelectField';
 import { OrderTypeModal } from '../modals/OrderTypeModal';
 import { ORDER_TYPES, START_STAGES } from '../../../constants/production';
 
@@ -14,6 +15,7 @@ export const Step1BasicInfo = ({
   savedFabrics = [],
   onApplyFabric,
   onDetachFabric,
+  partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
 }) => {
   const [orderTypeModalOpen, setOrderTypeModalOpen] = useState(false);
 
@@ -59,25 +61,17 @@ export const Step1BasicInfo = ({
       {/* 거래처 + 오더(자체번호) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="text-xs font-bold text-slate-600">
-              거래처 <span className="text-red-500">*</span>
-            </label>
-            {setIsBuyerModalOpen && (
-              <button
-                type="button"
-                onClick={() => setIsBuyerModalOpen(true)}
-                className="text-[10px] text-teal-600 hover:text-teal-800 font-bold bg-teal-50 hover:bg-teal-100 px-2 py-0.5 rounded transition-colors whitespace-nowrap"
-              >
-                + 바이어 관리
-              </button>
-            )}
-          </div>
-          <SearchableSelect
+          <label className="text-xs font-bold text-slate-600 mb-1.5 block">
+            거래처 <span className="text-red-500">*</span>
+          </label>
+          <PartnerSelectField
             value={orderInput.customer || ''}
-            options={buyerOptions}
-            onChange={(v) => handleOrderChange('customer', v)}
-            placeholder="거래처 선택..."
+            onSelect={(p) => handleOrderChange('customer', p.name)}
+            partners={partners}
+            savePartner={savePartner}
+            deletePartner={deletePartner}
+            makeEmptyPartner={makeEmptyPartner}
+            placeholder="거래처 선택 / 등록"
           />
         </div>
         <div>

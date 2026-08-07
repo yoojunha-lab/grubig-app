@@ -32,6 +32,7 @@ export const OrderWizardPage = ({
   setActiveTab,
   onApplyFabric,
   onDetachFabric,
+  partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
 }) => {
   const [savingInProgress, setSavingInProgress] = useState(false);
 
@@ -191,6 +192,10 @@ export const OrderWizardPage = ({
           savedFabrics={savedFabrics}
           onApplyFabric={onApplyFabric}
           onDetachFabric={onDetachFabric}
+          partners={partners}
+          savePartner={savePartner}
+          deletePartner={deletePartner}
+          makeEmptyPartner={makeEmptyPartner}
         />
 
         {/* 컬러는 같은 카드 안 서브 블록 */}

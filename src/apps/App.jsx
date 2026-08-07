@@ -29,6 +29,7 @@ import { useTempDesignSheet } from '../hooks/domains/useTempDesignSheet';
 import { useOrder } from '../hooks/domains/useOrder';
 import { useCollection } from '../hooks/domains/useCollection';
 import { useProformaInvoice } from '../hooks/domains/useProformaInvoice';
+import { usePartner } from '../hooks/domains/usePartner';
 import { makeChangeLogEntry, appendChangeLog, summarizeBatchDiff } from '../utils/auditLog';
 import { PROCESS_TYPES } from '../constants/production';
 import { calcQuotePrice, getQuoteValidUntil } from '../utils/helpers';
@@ -86,6 +87,7 @@ const App = () => {
   const [collections, setCollections] = useState([]);
   const [proformaInvoices, setProformaInvoices] = useState([]);
   const [selectedPIForPrint, setSelectedPIForPrint] = useState(null);
+  const [partners, setPartners] = useState([]);
 
   // 마스터 데이터 (settings/general에 배열로 저장)
   const [knittingFactories, setKnittingFactories] = useState([]);
@@ -202,7 +204,9 @@ const App = () => {
     const unsubCollections = onSnapshot(collection(db, 'collections'), (snapshot) => setCollections(snapshot.docs.map(doc => doc.data())));
     // 영업 PI/거래확인서 구독
     const unsubPIs = onSnapshot(collection(db, 'proformaInvoices'), (snapshot) => setProformaInvoices(snapshot.docs.map(doc => doc.data())));
-    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); unsubPIs(); };
+    // 거래처(Partner) 구독
+    const unsubPartners = onSnapshot(collection(db, 'partners'), (snapshot) => setPartners(snapshot.docs.map(doc => doc.data())));
+    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); unsubPIs(); unsubPartners(); };
   }, [user]);
 
   // DEV 우회 시 Firestore 대신 로컬 state만 갱신하기 위한 컬렉션명 → setter 매핑
@@ -210,7 +214,7 @@ const App = () => {
     collections: setCollections, fabrics: setSavedFabrics, yarns: setYarnLibrary,
     quotes: setSavedQuotes, devRequests: setDevRequests, designSheets: setDesignSheets,
     mainDetails: setMainDetails, tempDesignSheets: setTempDesignSheets, orders: setOrders,
-    proformaInvoices: setProformaInvoices,
+    proformaInvoices: setProformaInvoices, partners: setPartners,
   };
   const saveDocToCloud = async (colName, item) => {
     if (DEV_BYPASS) {
@@ -386,6 +390,12 @@ const App = () => {
     addPIItem, removePIItem, handleItemChange, addItemFromFabric,
     handleSavePI, handleEditPI, handleDuplicatePI, handleDeletePI,
   } = useProformaInvoice(proformaInvoices, saveDocToCloud, deleteDocFromCloud, showToast, user);
+
+  // ⚓️ 거래처(Partner) 훅 — 모든 거래처 선택/등록 공통
+  const { makeEmptyPartner, savePartner, deletePartner } =
+    usePartner(partners, buyers, saveDocToCloud, saveBatchToCloud, deleteDocFromCloud, showToast);
+  // 거래처 선택 필드/모달에 넘길 공통 묶음 (견적/PI/개발/오더 공용)
+  const partnerBag = { partners, savePartner, deletePartner, makeEmptyPartner };
 
   // PI 인쇄 (견적/컬렉션과 동일한 native window.print() 방식, body.printing-pi 토글)
   const handlePrintPI = (targetPI = null) => {
@@ -1251,6 +1261,7 @@ const App = () => {
             setActiveTab={setActiveTab}
             handleDeleteQuote={handleDeleteQuote}
             handleDuplicateQuote={handleDuplicateQuote}
+            {...partnerBag}
           />
         )}
 
@@ -1301,6 +1312,7 @@ const App = () => {
             yarnLibrary={yarnLibrary}
             buyers={buyers}
             setIsBuyerModalOpen={setIsBuyerModalOpen}
+            {...partnerBag}
           />
         )}
 
@@ -1334,6 +1346,7 @@ const App = () => {
             generateDevOrderNo={generateDevOrderNo}
             setIsBuyerModalOpen={setIsBuyerModalOpen}
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
+            {...partnerBag}
           />
         )}
 
@@ -1476,6 +1489,7 @@ const App = () => {
             setActiveTab={setActiveTab}
             onApplyFabric={handleApplyFabricToOrder}
             onDetachFabric={detachFabric}
+            {...partnerBag}
           />
         )}
 

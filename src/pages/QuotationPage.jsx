@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FileText, Save, Download, X, Plus, ClipboardPaste, FileSpreadsheet, FilePlus, DollarSign, Search, ArrowLeft } from 'lucide-react';
 import { SearchableSelect } from '../components/common/SearchableSelect';
+import { PartnerSelectField } from '../components/common/PartnerSelectField';
 import { num, calcQuotePrice, formatQuotePrice, getBasePrice, getQuoteValidUntil, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
 import { FabricPickerModal } from '../components/quote/FabricPickerModal';
 
@@ -35,6 +36,7 @@ export const QuotationPage = ({
   setIsBuyerModalOpen,
   yarnLibrary = [],
   onBackToList,           // 병합 화면(견적서 workspace)에서 목록으로 돌아가기 (없으면 버튼 미표시)
+  partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
 }) => {
   const currency = quoteInput.currency;
   const cSym = currency === 'USD' ? '$' : '￦';
@@ -78,15 +80,15 @@ export const QuotationPage = ({
         <h3 className="text-sm font-bold text-slate-400 uppercase mb-4">Buyer Information & Currency</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 sm:gap-6">
           <div className="lg:col-span-2">
-            <div className="flex justify-between items-center mb-1">
-              <label className="block text-xs font-bold text-slate-500">Buyer Name</label>
-              <button onClick={() => setIsBuyerModalOpen(true)} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-bold bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors">+ 바이어 관리</button>
-            </div>
-            <SearchableSelect
+            <label className="block text-xs font-bold text-slate-500 mb-1">Buyer Name (거래처)</label>
+            <PartnerSelectField
               value={quoteInput.buyerName || ''}
-              options={(buyers || []).map(b => ({ id: b, name: b }))}
-              onChange={(v) => setQuoteInput({ ...quoteInput, buyerName: v })}
-              placeholder="등록된 바이어 선택..."
+              onSelect={(p) => setQuoteInput({ ...quoteInput, buyerName: p.name })}
+              partners={partners}
+              savePartner={savePartner}
+              deletePartner={deletePartner}
+              makeEmptyPartner={makeEmptyPartner}
+              placeholder="거래처 선택 / 등록"
             />
           </div>
           <div className="lg:col-span-2">
