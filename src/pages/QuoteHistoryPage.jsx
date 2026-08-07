@@ -68,9 +68,9 @@ export const QuoteHistoryPage = ({
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-x-auto">
-          <table className="w-full text-xs text-left min-w-[640px]">
-            <thead className="bg-slate-50 text-slate-400 font-bold border-b border-slate-200">
-              <tr className="text-[10px] uppercase tracking-wide"><th className="py-2 px-3 w-24">Date</th><th className="py-2 px-3">Buyer</th><th className="py-2 px-3 w-36">Type</th><th className="py-2 px-3 w-16 text-center">Items</th><th className="py-2 px-3 w-24">Author</th><th className="py-2 px-3 w-72 text-center">Action</th></tr>
+          <table className="w-full text-xs text-left min-w-[820px] border-collapse">
+            <thead className="bg-slate-50 text-slate-400 font-bold border-b-2 border-slate-200">
+              <tr className="text-[10px] uppercase tracking-wide divide-x divide-slate-200"><th className="py-2 px-3 w-24">Date</th><th className="py-2 px-3 w-36">Buyer</th><th className="py-2 px-3 w-28">ATTN (담당자)</th><th className="py-2 px-3">Remark (비고)</th><th className="py-2 px-3 w-28">Type</th><th className="py-2 px-3 w-14 text-center">Items</th><th className="py-2 px-3 w-24">Author</th><th className="py-2 px-3 w-72 text-center">Action</th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {[...filteredQuotesList]
@@ -79,29 +79,34 @@ export const QuoteHistoryPage = ({
                 const isExpanded = expandedRowId === quote.id;
                 return (
                 <React.Fragment key={quote.id}>
-                <tr className={`group cursor-pointer transition-colors ${isExpanded ? 'bg-slate-50' : 'bg-white hover:bg-slate-50'}`} onClick={(e) => toggleExpand(quote.id, e)}>
-                  <td className="py-1 px-3 font-mono text-slate-500 whitespace-nowrap">{quote.date}</td>
-                  <td className="py-1 px-3">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-slate-800 text-[13px] uppercase">{quote.buyerName}</span>
-                      {quote.attention && <span className="text-[10px] text-indigo-500 font-bold uppercase tracking-tight">ATTN: {quote.attention}</span>}
-                      {quote.remarks && <span className="text-[10px] text-slate-500 bg-yellow-50 px-1.5 py-0.5 rounded border border-yellow-100 max-w-[180px] truncate" title={quote.remarks}>{quote.remarks}</span>}
-                    </div>
+                <tr className={`group cursor-pointer transition-colors divide-x divide-slate-100 ${isExpanded ? 'bg-slate-50' : 'bg-white hover:bg-slate-50'}`} onClick={(e) => toggleExpand(quote.id, e)}>
+                  <td className="py-1.5 px-3 font-mono text-slate-500 whitespace-nowrap">{quote.date}</td>
+                  <td className="py-1.5 px-3">
+                    <span className="font-bold text-slate-800 text-[13px] uppercase leading-tight">{quote.buyerName}</span>
                   </td>
-                  <td className="py-1 px-3 whitespace-nowrap">
+                  <td className="py-1.5 px-3 text-slate-600 text-xs uppercase">
+                    {quote.attention || <span className="text-slate-300">-</span>}
+                  </td>
+                  <td className="py-1.5 px-3 text-slate-600 text-xs">
+                    {quote.remarks
+                      ? <div className="line-clamp-2 break-words leading-tight" title={quote.remarks}>{quote.remarks}</div>
+                      : <span className="text-slate-300">-</span>}
+                  </td>
+                  <td className="py-1.5 px-3 whitespace-nowrap">
                     <div className="flex items-center gap-1">
                       {quote.buyerType && <span className={`text-[9px] px-1 py-0.5 rounded font-bold uppercase ${quote.buyerType === 'converter' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>{quote.buyerType}</span>}
                       <span className={`text-[9px] px-1 py-0.5 rounded font-bold uppercase border ${quote.marketType === 'domestic' ? 'border-blue-200 text-blue-600' : 'border-emerald-200 text-emerald-600'}`}>{quote.marketType === 'domestic' ? 'DOM' : 'EXP'} ({quote.currency})</span>
                     </div>
+                    {quote.marketType === 'export' && quote.exchangeRate ? <div className="text-[9px] text-slate-400 font-mono mt-0.5">환율 ￦{num(quote.exchangeRate)}/$</div> : null}
                   </td>
-                  <td className="py-1 px-3 text-center">
+                  <td className="py-1.5 px-3 text-center">
                     <div className={`px-2 py-0.5 text-xs rounded-full font-bold flex items-center justify-center gap-0.5 w-max mx-auto select-none transition-colors ${isExpanded ? 'bg-slate-200 text-slate-700' : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'}`}>
                       {quote.items?.length || 0}
                       {isExpanded ? <ChevronDown className="w-3.5 h-3.5 opacity-70" /> : <ChevronRight className="w-3.5 h-3.5 opacity-70" />}
                     </div>
                   </td>
-                  <td className="py-1 px-3 text-slate-500 text-xs">{quote.authorName}</td>
-                  <td className="py-1 px-3">
+                  <td className="py-1.5 px-3 text-slate-500 text-xs">{quote.authorName}</td>
+                  <td className="py-1.5 px-3">
                     <div className="flex gap-1 justify-center flex-nowrap">
                       <button onClick={(e) => { e.stopPropagation(); handleDuplicateQuote(quote, () => setActiveTab('quotation')); }} className="shrink-0 whitespace-nowrap bg-emerald-50 text-emerald-600 px-2 py-1 rounded text-[11px] font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1" title="이 견적서를 복사하여 새 견적서 작성하기"><Copy className="w-3 h-3" /> <span className="hidden sm:inline">복제</span></button>
                       <button onClick={(e) => { e.stopPropagation(); setQuoteInput(normalizeQuoteMargins(quote)); setActiveTab('quotation'); }} className="shrink-0 whitespace-nowrap bg-slate-100 text-slate-600 px-2.5 py-1 rounded text-[11px] font-bold hover:bg-slate-200 transition-colors">수정</button>
@@ -114,7 +119,7 @@ export const QuoteHistoryPage = ({
                 {/* 확장된 미리보기 (Accordion) 영역 */}
                 {isExpanded && (
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <td colSpan="6" className="p-0">
+                    <td colSpan="8" className="p-0">
                       <div className="px-6 py-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
                         <div>
                           <p className="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> 포함된 품목 리스트</p>
@@ -166,7 +171,7 @@ export const QuoteHistoryPage = ({
               </React.Fragment>
               );
             })}
-              {filteredQuotesList.length === 0 && <tr><td colSpan="6" className="p-12 text-center text-slate-400">No quotation history found matching the filters.</td></tr>}
+              {filteredQuotesList.length === 0 && <tr><td colSpan="8" className="p-12 text-center text-slate-400">No quotation history found matching the filters.</td></tr>}
             </tbody>
           </table>
         </div>
