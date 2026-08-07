@@ -112,9 +112,10 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     if (setActiveTab) setActiveTab('calculator');
   };
 
+  // 저장: 성공 시 true, 검증실패/중복호출/저장실패 시 false 반환 (워크스페이스 가드가 성공 여부로 이탈 결정)
   const handleSaveFabric = async (setActiveTab) => {
-    if (savingRef.current) return; // 저장 진행 중이면 무시 (빠른 더블클릭 중복 방지)
-    if (!fabricInput.article) { showToast("Article을 입력해주세요.", 'error'); return; }
+    if (savingRef.current) return false; // 저장 진행 중이면 무시 (빠른 더블클릭 중복 방지)
+    if (!fabricInput.article) { showToast("Article을 입력해주세요.", 'error'); return false; }
 
     // [중복 차단] 같은 Article이 이미 원단 리스트에 있으면 저장 중단
     //   - 대소문자/앞뒤 공백 무시하고 비교
@@ -126,13 +127,13 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     );
     if (isDuplicate) {
       showToast(`이미 등록된 Article입니다: ${normalizedArticle}`, 'error');
-      return;
+      return false;
     }
 
     // [Phase 7 검증] 내폭은 외폭보다 클 수 없음
     if (Number(fabricInput.widthCut) > Number(fabricInput.widthFull)) {
       showToast("내폭(Cut)은 외폭(Full)보다 클 수 없습니다.", 'error');
-      return;
+      return false;
     }
 
     // [기획오류 #6 수정] ID를 문자열(fab_)로 통일 — useDesignSheet의 registerFabricFromSheet와 동일한 포맷
@@ -141,7 +142,7 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     savingRef.current = true; // 검증 통과 → 저장 시작 (가드 잠금)
     try {
     const ok = await saveDocToCloud('fabrics', itemToSave);
-    if (ok === false) return; // 클라우드 저장 실패 → 후처리/폼리셋/이동 안 함
+    if (ok === false) return false; // 클라우드 저장 실패 → 후처리/폼리셋/이동 안 함
 
     // [양방향 동기화] 사용자가 원단을 직접 편집했고 연결된 설계서가 있으면 설계서로 역동기화한다.
     //   설계서 → 원단 동기화(useDesignSheet.handleSaveSheet)는 DB에 직접 쓰므로 이 핸들러를
@@ -183,6 +184,7 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
 
     resetFabricForm();
     if (setActiveTab) setActiveTab('list');
+    return true;
     } finally {
       savingRef.current = false;
     }

@@ -150,14 +150,18 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
     const fabric = savedFabrics.find(f => String(f.id) === String(selectedFabricIdForQuote));
     if (!fabric) return;
-    const newItem = createQuoteItem(fabric, globalExchangeRate, quoteInput.marketType, quoteInput.bulkMarginRate);
-    setQuoteInput(prev => ({ ...prev, items: [...(prev.items || []), newItem] }));
-    setSelectedFabricIdForQuote(''); 
+    // 추가 항목은 견적의 기존 환율(있으면)로 계산 → 한 견적 안 항목들의 환율 일관성 유지(옛 견적에 추가해도 혼재 방지)
+    const rate = quoteInput.exchangeRate || globalExchangeRate;
+    const newItem = createQuoteItem(fabric, rate, quoteInput.marketType, quoteInput.bulkMarginRate);
+    setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || globalExchangeRate, items: [...(prev.items || []), newItem] }));
+    setSelectedFabricIdForQuote('');
     showToast(`원단이 추가되었습니다.`, 'success');
   };
 
   const handleGridPaste = (text) => {
     const articles = String(text).split('\n').map(a => String(a).trim().toUpperCase()).filter(a => a);
+    // 추가 항목은 견적의 기존 환율(있으면)로 계산 → 환율 일관성 유지
+    const rate = quoteInput.exchangeRate || globalExchangeRate;
     let newItems = [];
     let notFound = [];
     let duplicates = 0;
@@ -172,12 +176,12 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       }
 
       const fabric = savedFabrics.find(f => String(f.article).toUpperCase() === art);
-      if (fabric) { newItems.push(createQuoteItem(fabric, globalExchangeRate, quoteInput.marketType, quoteInput.bulkMarginRate)); }
+      if (fabric) { newItems.push(createQuoteItem(fabric, rate, quoteInput.marketType, quoteInput.bulkMarginRate)); }
       else { notFound.push(art); }
     });
 
     if (newItems.length > 0) {
-      setQuoteInput(prev => ({ ...prev, items: [...(prev.items || []), ...newItems] }));
+      setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || globalExchangeRate, items: [...(prev.items || []), ...newItems] }));
       showToast(`${newItems.length}개의 원단이 일괄 추가되었습니다.${duplicates > 0 ? ` (중복 제외됨: ${duplicates}건)` : ''}`, 'success');
     } else if (duplicates > 0) {
       showToast(`이미 추가된 품목입니다. (중복 제외됨: ${duplicates}건)`, 'error');
@@ -217,9 +221,10 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     const authorName = user?.displayName || user?.email?.split('@')[0] || 'Unknown';
     // 기존 id가 있으면 유지(수정 모드) → 중복 생성 방지, 없으면 새 ID 부여 (스냅샷 정렬 배열 포함)
     // exchangeRate: 이 견적의 단가(원가)를 계산할 때 적용된 환율.
-    //   수동으로 환율/시장을 바꿔 원가가 재계산되면 quoteInput.exchangeRate가 갱신됨(아래 effect/handleQuoteSettingChange).
+    //   항목을 추가/재계산할 때 quoteInput.exchangeRate가 설정됨(add 경로/effect/시장전환).
     //   그런 변경 없이 저장하면 작성 당시 환율을 그대로 보존 → 기록(record)이 어긋나지 않음.
-    const savedRate = quoteInput.exchangeRate || globalExchangeRate;
+    //   레거시 견적(환율 미기록)은 현재 환율을 억지로 찍지 않고 null(미상)로 둠 → 잘못된 기록 방지.
+    const savedRate = quoteInput.exchangeRate ?? null;
     const itemToSave = { id: quoteInput.id || Date.now(), createdAt: quoteInput.createdAt || new Date().toLocaleString(), authorName, ...quoteInput, items: sortedItems, exchangeRate: savedRate };
 
     // id/생성일/환율/정렬을 즉시 반영 → 다시 Save 눌러도 같은 문서를 덮어써 중복 저장 방지(저장 실패해도 id는 고정)

@@ -234,7 +234,7 @@ export const QuotationPage = ({
                              e.target.value = '';
                              return;
                           }
-                          setQuoteInput(prev => ({ ...prev, items: [...(prev.items || []), createQuoteItem(fabric, globalExchangeRate, prev.marketType, prev.bulkMarginRate)] }));
+                          setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || globalExchangeRate, items: [...(prev.items || []), createQuoteItem(fabric, prev.exchangeRate || globalExchangeRate, prev.marketType, prev.bulkMarginRate)] }));
                           showToast('추가 완료', 'success'); e.target.value = '';
                         } else alert(`'${art}' 원단을 찾을 수 없습니다.`);
                       }

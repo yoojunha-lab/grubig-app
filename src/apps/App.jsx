@@ -1152,6 +1152,7 @@ const App = () => {
         {/* TAB: 원단 관리 (새 원단 등록 + 원단 리스트 병합 워크스페이스) */}
         {(activeTab === 'calculator' || activeTab === 'list') && (
           <FabricWorkspacePage
+            navGuardRef={navGuardRef}
             // ── 리스트(FabricListPage)용 ──
             filteredFabrics={filteredFabrics}
             viewMode={viewMode}
