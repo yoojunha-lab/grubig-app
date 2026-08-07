@@ -68,6 +68,13 @@ const App = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const [activeTab, setActiveTab] = useState('calculator');
+  // 견적서 등 편집 중 변경사항 이탈 가드 (상단 네비 클릭 시 QuotationWorkspacePage가 등록한 가드 통과)
+  const navGuardRef = useRef(null);
+  const requestSetActiveTab = (tab) => {
+    const go = () => setActiveTab(tab);
+    const guard = navGuardRef.current;
+    if (guard) guard(go); else go();
+  };
   const [globalExchangeRate, setGlobalExchangeRate] = useState(() => Number(localStorage.getItem('grubig_global_exchange_rate')) || 1450);
 
   useEffect(() => {
@@ -1130,7 +1137,7 @@ const App = () => {
         isMobileMenuOpen={isMobileMenuOpen}
         setIsMobileMenuOpen={setIsMobileMenuOpen}
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={requestSetActiveTab}
         viewMode={viewMode}
         setViewMode={setViewMode}
         syncStatus={syncStatus}
@@ -1220,6 +1227,7 @@ const App = () => {
         {/* TAB: 견적서 (작성 + 히스토리 병합 워크스페이스) */}
         {(activeTab === 'quotation' || activeTab === 'quoteHistory') && (
           <QuotationWorkspacePage
+            navGuardRef={navGuardRef}
             // ── 작성 폼(QuotationPage)용 ──
             quoteInput={quoteInput}
             setQuoteInput={setQuoteInput}

@@ -14,6 +14,7 @@ export const QuotationWorkspacePage = (props) => {
   const {
     quoteInput, setQuoteInput, handleNewQuote, handleSaveQuote,
     savedQuotes = [], setSavedQuotes, setActiveTab, showToast,
+    navGuardRef,
   } = props;
 
   const [mode, setMode] = useState('list');
@@ -57,6 +58,17 @@ export const QuotationWorkspacePage = (props) => {
   const backToList = () => guard(() => setMode('list'));
   const openNew = () => guard(() => { handleNewQuote(true); enterForm(); });
   const loadQuote = (quote) => guard(() => { setQuoteInput(normalizeQuoteMargins(quote)); enterForm(); });
+
+  // 상단 네비 등 화면 밖으로 이탈할 때도 변경사항 확인 (App의 requestSetActiveTab이 이 가드를 통과)
+  //  dep 배열 없음 → 매 렌더마다 최신 mode/quoteInput 클로저로 갱신, 언마운트 시 해제
+  useEffect(() => {
+    if (!navGuardRef) return;
+    navGuardRef.current = (proceed) => {
+      if (mode === 'form' && isDirty()) setPendingLeave(() => proceed);
+      else proceed();
+    };
+    return () => { if (navGuardRef) navGuardRef.current = null; };
+  });
 
   // 히스토리의 '수정/복제'는 setActiveTab('quotation') 호출 → 폼 진입으로 가로채기(기준 캡처 포함)
   const historySetActiveTab = (tab) => {
