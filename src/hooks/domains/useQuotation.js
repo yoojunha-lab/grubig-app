@@ -33,6 +33,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     if (quoteInput.items && quoteInput.items.length > 0 && quoteInput.marketType) {
       setQuoteInput(prev => ({
         ...prev,
+        exchangeRate: globalExchangeRate,   // 환율을 실제로 바꿔 원가를 재계산 → 환율 스냅샷도 갱신
         items: prev.items.map(item => {
           const fabric = savedFabrics.find(f => String(f.id) === String(item.fabricId));
           if (!fabric) return item;
@@ -48,9 +49,10 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   const handleQuoteSettingChange = (field, value) => {
     setQuoteInput(prev => {
       let next = { ...prev, [field]: value };
-      // 시장 구분(내수/수출) 변경 시: 통화 갱신 + 기준원가 재계산(매출이익율은 보존)
+      // 시장 구분(내수/수출) 변경 시: 통화 갱신 + 기준원가 재계산(매출이익율은 보존) + 환율 스냅샷 갱신
       if (field === 'marketType') {
         next.currency = value === 'export' ? 'USD' : 'KRW';
+        next.exchangeRate = globalExchangeRate;
         next.items = (next.items || []).map(item => {
           const fabric = savedFabrics.find(f => String(f.id) === String(item.fabricId));
           if (!fabric) return item;
@@ -214,11 +216,14 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
     const authorName = user?.displayName || user?.email?.split('@')[0] || 'Unknown';
     // 기존 id가 있으면 유지(수정 모드) → 중복 생성 방지, 없으면 새 ID 부여 (스냅샷 정렬 배열 포함)
-    // exchangeRate: 이 견적을 계산할 때 적용된 전역 환율을 스냅샷으로 저장 (수출 USD 환산 근거)
-    const itemToSave = { id: quoteInput.id || Date.now(), createdAt: quoteInput.createdAt || new Date().toLocaleString(), authorName, ...quoteInput, items: sortedItems, exchangeRate: globalExchangeRate };
+    // exchangeRate: 이 견적의 단가(원가)를 계산할 때 적용된 환율.
+    //   수동으로 환율/시장을 바꿔 원가가 재계산되면 quoteInput.exchangeRate가 갱신됨(아래 effect/handleQuoteSettingChange).
+    //   그런 변경 없이 저장하면 작성 당시 환율을 그대로 보존 → 기록(record)이 어긋나지 않음.
+    const savedRate = quoteInput.exchangeRate || globalExchangeRate;
+    const itemToSave = { id: quoteInput.id || Date.now(), createdAt: quoteInput.createdAt || new Date().toLocaleString(), authorName, ...quoteInput, items: sortedItems, exchangeRate: savedRate };
 
     // id/생성일/환율/정렬을 즉시 반영 → 다시 Save 눌러도 같은 문서를 덮어써 중복 저장 방지(저장 실패해도 id는 고정)
-    setQuoteInput(prev => ({ ...prev, id: itemToSave.id, createdAt: itemToSave.createdAt, exchangeRate: globalExchangeRate, items: sortedItems }));
+    setQuoteInput(prev => ({ ...prev, id: itemToSave.id, createdAt: itemToSave.createdAt, exchangeRate: savedRate, items: sortedItems }));
 
     savingRef.current = true;
     try {
