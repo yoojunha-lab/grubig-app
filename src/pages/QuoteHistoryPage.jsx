@@ -97,7 +97,7 @@ export const QuoteHistoryPage = ({
                       {quote.buyerType && <span className={`text-[9px] px-1 py-0.5 rounded font-bold uppercase ${quote.buyerType === 'converter' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>{quote.buyerType}</span>}
                       <span className={`text-[9px] px-1 py-0.5 rounded font-bold uppercase border ${quote.marketType === 'domestic' ? 'border-blue-200 text-blue-600' : 'border-emerald-200 text-emerald-600'}`}>{quote.marketType === 'domestic' ? 'DOM' : 'EXP'} ({quote.currency})</span>
                     </div>
-                    {quote.marketType === 'export' && quote.exchangeRate ? <div className="text-[9px] text-slate-400 font-mono mt-0.5">환율 ￦{num(quote.exchangeRate)}/$</div> : null}
+                    {quote.exchangeRate ? <div className="text-[9px] text-slate-400 font-mono mt-0.5">환율 ￦{num(quote.exchangeRate)}/$</div> : null}
                   </td>
                   <td className="py-1.5 px-3 text-center">
                     <div className={`px-2 py-0.5 text-xs rounded-full font-bold flex items-center justify-center gap-0.5 w-max mx-auto select-none transition-colors ${isExpanded ? 'bg-slate-200 text-slate-700' : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'}`}>
