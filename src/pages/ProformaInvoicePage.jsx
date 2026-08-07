@@ -171,7 +171,7 @@ export const ProformaInvoicePage = ({
             <Save className="w-4 h-4" /> 저장
           </button>
           <button onClick={backToList} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-100 flex items-center gap-1.5 text-sm font-bold">
-            <X className="w-4 h-4" /> 취소
+            <X className="w-4 h-4" /> 닫기
           </button>
         </div>
       </div>
@@ -388,7 +388,39 @@ export const ProformaInvoicePage = ({
   );
 
   // ════════════════════════════════════════════════════════
-  // 보관함 (리스트) — 항상 기본 전체 표 (폼은 위에 모달로 뜸)
+  // 좌측 좁은 목록 (폼 열렸을 때) — 클릭하면 바로 그 문서 편집으로 전환
+  // ════════════════════════════════════════════════════════
+  const compactList = (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full max-h-[calc(100vh-150px)]">
+      <div className="px-3 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
+        <span className="text-xs font-extrabold text-slate-500">보관함 ({filteredList.length})</span>
+        <button onClick={openNew} className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5">
+          <Plus className="w-3.5 h-3.5" /> 새로 작성
+        </button>
+      </div>
+      <div className="overflow-y-auto flex-1">
+        {filteredList.length === 0 ? (
+          <div className="py-10 text-center text-slate-400 text-xs">저장된 문서가 없습니다.</div>
+        ) : filteredList.map(pi => (
+          <button key={pi.id} onClick={() => openEdit(pi.id)}
+            className={`w-full text-left px-3 py-2.5 border-b border-slate-100 hover:bg-indigo-50/60 transition-colors ${editingPIId === pi.id ? 'bg-indigo-50 border-l-[3px] border-l-indigo-500' : 'border-l-[3px] border-l-transparent'}`}>
+            <div className="flex items-center justify-between gap-2 mb-0.5">
+              <span className="text-[13px] font-bold text-slate-800 truncate">{pi.piNo}</span>
+              {marketBadge(pi.marketType)}
+            </div>
+            <div className="text-[11px] text-slate-500 truncate uppercase">{pi.buyerCompany || '(바이어 미입력)'}</div>
+            <div className="flex items-center justify-between text-[10px] text-slate-400 mt-0.5">
+              <span>{pi.date}</span>
+              <span className="font-mono text-slate-600">{fmtAmt(pi, computePITotals(pi))}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  // ════════════════════════════════════════════════════════
+  // 보관함 전체 표 (기본 화면)
   // ════════════════════════════════════════════════════════
   const fullList = (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -448,18 +480,14 @@ export const ProformaInvoicePage = ({
   return (
     <div className="max-w-[1600px] mx-auto w-full print:hidden">
       {Header}
-      {/* 기본 화면: 보관함(전체 표)은 항상 렌더 */}
-      {fullList}
-
-      {/* 작성/편집: 보관함 위에 모달(새창)로 뜸 */}
-      {mode === 'form' && (
-        <div
-          className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-3 md:p-6"
-          onClick={backToList}
-        >
-          <div className="w-full max-w-4xl my-2 md:my-6" onClick={e => e.stopPropagation()}>
-            {FormPanel}
-          </div>
+      {mode === 'list' ? (
+        /* 기본 화면: 보관함 전체 표 */
+        fullList
+      ) : (
+        /* 작성/편집: 좌측 목록 + 우측 폼이 옆에 붙어서 (좌측 클릭 시 즉시 전환) */
+        <div className="flex flex-col lg:flex-row gap-4 items-start">
+          <aside className="w-full lg:w-72 shrink-0">{compactList}</aside>
+          <div className="flex-1 min-w-0 w-full max-w-5xl">{FormPanel}</div>
         </div>
       )}
     </div>
