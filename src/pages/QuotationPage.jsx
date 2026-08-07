@@ -249,8 +249,10 @@ export const QuotationPage = ({
                     }}
                   />
                 </td>
-                <td colSpan="9" className="p-2 text-xs text-slate-400 border-t border-slate-200 bg-slate-50/50 flex items-center gap-1 h-[42px] rounded-br-xl">
-                  <ClipboardPaste className="w-3.5 h-3.5 text-indigo-400" /> <span className="hidden sm:inline">왼쪽 칸을 클릭하고</span> 엑셀 Article(원단명) 열을 복사 후 붙여넣어 보세요.
+                <td colSpan="9" className="p-2 text-xs text-slate-400 border-t border-slate-200 bg-slate-50/50 h-[42px] rounded-br-xl align-middle overflow-hidden">
+                  <div className="flex items-center gap-1 whitespace-nowrap">
+                    <ClipboardPaste className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> <span className="hidden sm:inline">왼쪽 칸을 클릭하고</span> 엑셀 Article(원단명) 열을 복사 후 붙여넣어 보세요.
+                  </div>
                 </td>
               </tr>
             </tbody>
