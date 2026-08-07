@@ -15,7 +15,6 @@ export const DesktopFabricRow = React.memo(({
   designSheets,
   handleEditSheet,
   setIsDesignSheetModalOpen,
-  globalExchangeRate
 }) => {
   // calculateCost를 f와 calculateCost 의존성으로만 재계산 (렌더 최적화)
   const c = useMemo(() => calculateCost(f), [f, calculateCost]);
@@ -161,11 +160,8 @@ export const DesktopFabricRow = React.memo(({
 
       {isExpanded && (
         <tr className="bg-slate-50/80 border-b-2 border-blue-200 shadow-inner">
-          <td colSpan="14" className="p-4 sm:p-6 cursor-default relative overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="absolute -top-10 -right-10 w-40 h-40 bg-blue-100/50 rounded-full blur-3xl pointer-events-none"></div>
-            <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-emerald-100/40 rounded-full blur-3xl pointer-events-none"></div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 max-w-[1200px] w-full relative z-10">
+          <td colSpan="14" className="p-3 sm:p-4 cursor-default relative overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 lg:gap-4 max-w-[900px] w-full relative z-10">
 
               <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col">
                 <h4 className="text-xs font-bold text-slate-800 mb-3 flex items-center justify-between border-b border-slate-100 pb-2">
@@ -209,39 +205,8 @@ export const DesktopFabricRow = React.memo(({
                 </div>
               </div>
 
-              <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 shadow-md text-white flex flex-col relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none"></div>
-
-                <h4 className="text-xs font-bold text-slate-200 mb-3 flex items-center justify-between border-b border-slate-600 pb-2 relative z-10">
-                  <span className="flex items-center gap-1"><DollarSign className="w-4 h-4 text-emerald-400" /> 단가 요약 분석표 (Price Matrix)</span>
-                </h4>
-
-                <div className="space-y-1 flex-1 flex flex-col justify-center relative z-10">
-                  <div className="grid grid-cols-4 text-center font-bold text-[10px] text-slate-400 pb-2 border-b border-slate-700 mb-1">
-                    <div>오더 구간</div>
-                    <div className="text-slate-300">순원가</div>
-                    <div className="text-rose-400">위험마진</div>
-                    <div className="text-emerald-400">영업 기준원가</div>
-                  </div>
-
-                  {['tier1k', 'tier3k', 'tier5k'].map((tier, i) => {
-                    const d = c[tier][viewMode];
-                    const label = ['1k (미니멈)', '3k (메인)', '5k (대량)'][i];
-                    const is3k = tier === 'tier3k';
-                    return (
-                      <div key={tier} className={`grid grid-cols-4 text-center font-mono py-2.5 rounded text-xs items-center transition-colors ${is3k ? 'bg-slate-700/80 shadow-inner' : 'hover:bg-slate-700/30'}`}>
-                        <div className={`text-[10px] ${is3k ? 'text-blue-300 font-bold' : 'text-slate-400 font-medium'}`}>{label}</div>
-                        <div className={`${is3k ? 'text-white font-bold' : 'text-slate-300'}`}>{sym}{num(d.totalCostYd, viewMode)}</div>
-                        <div className={`${is3k ? 'text-rose-300 font-bold' : 'text-rose-400'}`}>{sym}{num(d.riskAmtYd, viewMode)}</div>
-                        <div className={`${is3k ? 'text-emerald-300 font-extrabold text-[14px]' : 'text-emerald-500'}`}>{sym}{num(d.finalCostYd, viewMode)}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col">
-                <h4 className="text-xs font-bold text-slate-800 mb-3 flex items-center gap-1 border-b border-slate-100 pb-2"><TrendingUp className="w-4 h-4 text-indigo-500" /> 생산 조건 및 특이사항</h4>
+              <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm flex flex-col">
+                <h4 className="text-xs font-bold text-slate-800 mb-2 flex items-center gap-1 border-b border-slate-100 pb-2"><TrendingUp className="w-4 h-4 text-indigo-500" /> 생산 조건 및 특이사항</h4>
                 <div className="space-y-3 text-xs text-slate-600 flex-1">
 
                   <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-100">

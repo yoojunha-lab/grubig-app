@@ -12,8 +12,7 @@ const NAV_GROUPS = [
     label: '원단',
     color: 'blue',
     items: [
-      { tab: 'calculator', label: '새 원단 등록', icon: Calculator },
-      { tab: 'list',       label: '원단 리스트', icon: FileSpreadsheet },
+      { tab: 'list',       label: '원단 관리', icon: FileSpreadsheet },
       { tab: 'yarns',      label: '원사 라이브러리', icon: Box },
     ],
   },

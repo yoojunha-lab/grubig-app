@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { calculateGYd, smartRound, clampNum } from '../../utils/helpers';
 import { DEFAULT_ETC_COSTS, makeDefaultEtcCosts } from '../../constants/common';
 
@@ -35,6 +35,7 @@ const clampField = (name, value) => {
 export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate, savedQuotes = []) => {
   const [editingFabricId, setEditingFabricId] = useState(null);
   const [expandedFabricId, setExpandedFabricId] = useState(null);
+  const savingRef = useRef(false); // 저장 in-flight 가드 (빠른 더블클릭 중복 방지)
   
   const getInitialFabricInput = () => ({
     article: '', itemName: '', widthFull: 58, widthCut: 56, gsm: 300, costGYd: '', mcqYd: '', remarks: '',
@@ -111,7 +112,8 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     if (setActiveTab) setActiveTab('calculator');
   };
 
-  const handleSaveFabric = (setActiveTab) => {
+  const handleSaveFabric = async (setActiveTab) => {
+    if (savingRef.current) return; // 저장 진행 중이면 무시 (빠른 더블클릭 중복 방지)
     if (!fabricInput.article) { showToast("Article을 입력해주세요.", 'error'); return; }
 
     // [중복 차단] 같은 Article이 이미 원단 리스트에 있으면 저장 중단
@@ -136,7 +138,10 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     // [기획오류 #6 수정] ID를 문자열(fab_)로 통일 — useDesignSheet의 registerFabricFromSheet와 동일한 포맷
     const itemToSave = { id: editingFabricId || `fab_${Date.now()}`, date: new Date().toLocaleDateString(), ...fabricInput };
 
-    saveDocToCloud('fabrics', itemToSave);
+    savingRef.current = true; // 검증 통과 → 저장 시작 (가드 잠금)
+    try {
+    const ok = await saveDocToCloud('fabrics', itemToSave);
+    if (ok === false) return; // 클라우드 저장 실패 → 후처리/폼리셋/이동 안 함
 
     // [양방향 동기화] 사용자가 원단을 직접 편집했고 연결된 설계서가 있으면 설계서로 역동기화한다.
     //   설계서 → 원단 동기화(useDesignSheet.handleSaveSheet)는 DB에 직접 쓰므로 이 핸들러를
@@ -176,8 +181,11 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
        }
     }
 
-    resetFabricForm(); 
+    resetFabricForm();
     if (setActiveTab) setActiveTab('list');
+    } finally {
+      savingRef.current = false;
+    }
   };
 
   const handleDeleteFabric = async (id) => {

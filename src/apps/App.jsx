@@ -43,8 +43,7 @@ import { MasterDataModal } from '../components/common/MasterDataModal';
 import { CategoryModal } from '../components/common/CategoryModal';
 
 // 📄 도메인 뷰 (페이지) 컴포넌트
-import { CalculatorPage } from '../pages/CalculatorPage';
-import { FabricListPage } from '../pages/FabricListPage';
+import { FabricWorkspacePage } from '../pages/FabricWorkspacePage';
 import { YarnLibraryPage } from '../pages/YarnLibraryPage';
 import { QuotationWorkspacePage } from '../pages/QuotationWorkspacePage';
 import { PDFRenderer } from '../components/quote/PDFRenderer';
@@ -67,7 +66,7 @@ const App = () => {
   const [syncStatus, setSyncStatus] = useState('loading');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const [activeTab, setActiveTab] = useState('calculator');
+  const [activeTab, setActiveTab] = useState('list');
   // 견적서 등 편집 중 변경사항 이탈 가드 (상단 네비 클릭 시 QuotationWorkspacePage가 등록한 가드 통과)
   const navGuardRef = useRef(null);
   const requestSetActiveTab = (tab) => {
@@ -1150,28 +1149,10 @@ const App = () => {
       <div className="flex-1 p-4 md:p-8 print:p-0 print:overflow-visible relative w-full overflow-x-hidden">
 
         {/* TAB 1: CALCULATOR */}
-        {activeTab === 'calculator' && (
-          <CalculatorPage
-            editingFabricId={editingFabricId}
-            viewMode={viewMode}
-            resetFabricForm={resetFabricForm}
-            fabricInput={fabricInput}
-            handleFabricChange={handleFabricChange}
-            currentCalcFull={currentCalcFull}
-            yarnSelectOptions={yarnSelectOptions}
-            handleYarnSlotChange={handleYarnSlotChange}
-            handleNestedChange={handleNestedChange}
-            setFabricInput={setFabricInput}
-            handleSaveFabric={handleSaveFabric}
-            setActiveTab={setActiveTab}
-            globalExchangeRate={globalExchangeRate}
-            yarnLibrary={yarnLibrary}
-          />
-        )}
-
-        {/* ✅ TAB 2: LIST (아코디언 카드형 UI 개편) */}
-        {activeTab === 'list' && (
-          <FabricListPage
+        {/* TAB: 원단 관리 (새 원단 등록 + 원단 리스트 병합 워크스페이스) */}
+        {(activeTab === 'calculator' || activeTab === 'list') && (
+          <FabricWorkspacePage
+            // ── 리스트(FabricListPage)용 ──
             filteredFabrics={filteredFabrics}
             viewMode={viewMode}
             fabricSearchTerm={fabricSearchTerm}
@@ -1184,11 +1165,22 @@ const App = () => {
             handleEditFabric={handleEditFabric}
             handleDeleteFabric={handleDeleteFabric}
             setActiveTab={setActiveTab}
-            yarnLibrary={yarnLibrary}
             designSheets={designSheets}
             handleEditSheet={handleEditSheet}
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
+            // ── 등록/편집 폼(CalculatorPage)용 ──
+            editingFabricId={editingFabricId}
+            resetFabricForm={resetFabricForm}
+            fabricInput={fabricInput}
+            handleFabricChange={handleFabricChange}
+            currentCalcFull={currentCalcFull}
+            yarnSelectOptions={yarnSelectOptions}
+            handleYarnSlotChange={handleYarnSlotChange}
+            handleNestedChange={handleNestedChange}
+            setFabricInput={setFabricInput}
+            handleSaveFabric={handleSaveFabric}
             globalExchangeRate={globalExchangeRate}
+            yarnLibrary={yarnLibrary}
           />
         )}
 
