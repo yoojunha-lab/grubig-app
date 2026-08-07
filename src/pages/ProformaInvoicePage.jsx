@@ -388,37 +388,8 @@ export const ProformaInvoicePage = ({
   );
 
   // ════════════════════════════════════════════════════════
-  // 보관함 (리스트) — 폼 모드에선 좌측 좁은 목록, 기본은 전체 표
+  // 보관함 (리스트) — 항상 기본 전체 표 (폼은 위에 모달로 뜸)
   // ════════════════════════════════════════════════════════
-  const compactList = (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col max-h-[calc(100vh-160px)]">
-      <div className="px-3 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-        <span className="text-xs font-extrabold text-slate-500">보관함 ({filteredList.length})</span>
-        <button onClick={openNew} className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5">
-          <Plus className="w-3.5 h-3.5" /> 새로 작성
-        </button>
-      </div>
-      <div className="overflow-y-auto">
-        {filteredList.length === 0 ? (
-          <div className="py-10 text-center text-slate-400 text-xs">저장된 문서가 없습니다.</div>
-        ) : filteredList.map(pi => (
-          <button key={pi.id} onClick={() => openEdit(pi.id)}
-            className={`w-full text-left px-3 py-2.5 border-b border-slate-100 hover:bg-indigo-50/50 transition-colors ${editingPIId === pi.id ? 'bg-indigo-50 border-l-2 border-l-indigo-500' : ''}`}>
-            <div className="flex items-center justify-between gap-2 mb-0.5">
-              <span className="text-[13px] font-bold text-slate-800 truncate">{pi.piNo}</span>
-              {marketBadge(pi.marketType)}
-            </div>
-            <div className="text-[11px] text-slate-500 truncate uppercase">{pi.buyerCompany || '(바이어 미입력)'}</div>
-            <div className="flex items-center justify-between text-[10px] text-slate-400 mt-0.5">
-              <span>{pi.date}</span>
-              <span className="font-mono text-slate-600">{fmtAmt(pi, computePITotals(pi))}</span>
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
   const fullList = (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
       {filteredList.length === 0 ? (
@@ -477,12 +448,18 @@ export const ProformaInvoicePage = ({
   return (
     <div className="max-w-[1600px] mx-auto w-full print:hidden">
       {Header}
-      {mode === 'list' ? (
-        fullList
-      ) : (
-        <div className="flex flex-col lg:flex-row gap-4">
-          <aside className="lg:w-64 shrink-0">{compactList}</aside>
-          <div className="flex-1 min-w-0">{FormPanel}</div>
+      {/* 기본 화면: 보관함(전체 표)은 항상 렌더 */}
+      {fullList}
+
+      {/* 작성/편집: 보관함 위에 모달(새창)로 뜸 */}
+      {mode === 'form' && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-3 md:p-6"
+          onClick={backToList}
+        >
+          <div className="w-full max-w-4xl my-2 md:my-6" onClick={e => e.stopPropagation()}>
+            {FormPanel}
+          </div>
         </div>
       )}
     </div>
