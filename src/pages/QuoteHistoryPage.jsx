@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Calendar, Search, X, Eye, Trash2, AlertCircle, Copy, ChevronDown, ChevronRight, CheckCircle2, FileText, FileSpreadsheet } from 'lucide-react';
+import { Calendar, Search, X, Eye, Trash2, AlertCircle, Copy, ChevronDown, ChevronRight, CheckCircle2, FileText, FileSpreadsheet, FilePlus } from 'lucide-react';
 import { num, getQuoteValidUntil, calcQuotePrice, formatQuotePrice, getBasePrice, normalizeQuoteMargins } from '../utils/helpers';
 
 export const QuoteHistoryPage = ({
@@ -22,7 +22,8 @@ export const QuoteHistoryPage = ({
   handleDeleteQuote,
   savedQuotes,
   setSavedQuotes,
-  handleDuplicateQuote
+  handleDuplicateQuote,
+  onNewQuote,             // 병합 화면: [새 견적서] 버튼 (없으면 미표시)
 }) => {
   const [expandedRowId, setExpandedRowId] = useState(null);
 
@@ -36,9 +37,14 @@ export const QuoteHistoryPage = ({
     <>
       <div className="max-w-[1600px] mx-auto space-y-6 print:hidden w-full">
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 border-b border-slate-200 pb-4">
-          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Calendar className="w-6 h-6 text-indigo-600" /> Quote History</h2>
+          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><FileText className="w-6 h-6 text-indigo-600" /> 견적서 <span className="text-base font-bold text-slate-400">({(savedQuotes || []).length})</span></h2>
 
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full xl:w-auto">
+            {onNewQuote && (
+              <button onClick={onNewQuote} className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-1.5 text-sm font-bold shadow-lg shadow-indigo-200 shrink-0 order-first xl:order-none">
+                <FilePlus className="w-4 h-4" /> 새 견적서
+              </button>
+            )}
             <div className="flex flex-1 sm:flex-none items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5 shadow-sm">
               <Search className="w-3.5 h-3.5 text-slate-400" /><input type="text" placeholder="바이어 검색..." value={quoteBuyerFilter} onChange={(e) => setQuoteBuyerFilter(e.target.value.toUpperCase())} className="text-sm outline-none w-full sm:w-28 text-slate-600 font-bold uppercase" />
             </div>

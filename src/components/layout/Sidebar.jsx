@@ -22,8 +22,7 @@ const NAV_GROUPS = [
     label: '영업',
     color: 'indigo',
     items: [
-      { tab: 'quotation',    label: '견적서 작성', icon: FileText },
-      { tab: 'quoteHistory', label: '견적 히스토리', icon: Calendar },
+      { tab: 'quotation',    label: '견적서', icon: FileText },
       { tab: 'proformaInvoice', label: 'PI / 거래확인서', icon: FileSignature },
       { tab: 'collection',   label: '컬렉션 관리', icon: Boxes },
     ],

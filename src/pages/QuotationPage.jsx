@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Save, Download, X, Plus, ClipboardPaste, FileSpreadsheet, FilePlus, DollarSign, Search } from 'lucide-react';
+import { FileText, Save, Download, X, Plus, ClipboardPaste, FileSpreadsheet, FilePlus, DollarSign, Search, ArrowLeft } from 'lucide-react';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { num, calcQuotePrice, formatQuotePrice, getBasePrice, getQuoteValidUntil, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
 import { FabricPickerModal } from '../components/quote/FabricPickerModal';
@@ -33,7 +33,8 @@ export const QuotationPage = ({
   globalExchangeRate,
   buyers = [],
   setIsBuyerModalOpen,
-  yarnLibrary = []
+  yarnLibrary = [],
+  onBackToList,           // 병합 화면(견적서 workspace)에서 목록으로 돌아가기 (없으면 버튼 미표시)
 }) => {
   const currency = quoteInput.currency;
   const cSym = currency === 'USD' ? '$' : '￦';
@@ -50,7 +51,14 @@ export const QuotationPage = ({
   return (
     <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 w-full print:hidden">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><FileText className="w-6 h-6 text-indigo-600" /> Quotation</h2>
+        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+          {onBackToList && (
+            <button onClick={onBackToList} title="견적 목록으로" className="text-slate-400 hover:text-indigo-600 hover:bg-slate-100 p-1.5 rounded-lg transition-colors">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
+          <FileText className="w-6 h-6 text-indigo-600" /> Quotation
+        </h2>
         <div className="flex gap-2 w-full sm:w-auto">
           <button onClick={handleNewQuote} className="flex-1 sm:flex-none bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50 hover:border-slate-400 flex items-center justify-center gap-2 transition-colors"><FilePlus className="w-4 h-4" /> 새 견적서</button>
           <button onClick={() => handleSaveQuote((item) => {

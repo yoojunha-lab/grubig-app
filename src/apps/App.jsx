@@ -45,8 +45,7 @@ import { CategoryModal } from '../components/common/CategoryModal';
 import { CalculatorPage } from '../pages/CalculatorPage';
 import { FabricListPage } from '../pages/FabricListPage';
 import { YarnLibraryPage } from '../pages/YarnLibraryPage';
-import { QuotationPage } from '../pages/QuotationPage';
-import { QuoteHistoryPage } from '../pages/QuoteHistoryPage';
+import { QuotationWorkspacePage } from '../pages/QuotationWorkspacePage';
 import { PDFRenderer } from '../components/quote/PDFRenderer';
 import { DesignSheetPage } from '../pages/DesignSheetPage';
 import { DesignSheetListPage } from '../pages/DesignSheetListPage';
@@ -1208,8 +1207,10 @@ const App = () => {
         )}
 
         {/* QUOTATION */}
-        {activeTab === 'quotation' && (
-          <QuotationPage
+        {/* TAB: 견적서 (작성 + 히스토리 병합 워크스페이스) */}
+        {(activeTab === 'quotation' || activeTab === 'quoteHistory') && (
+          <QuotationWorkspacePage
+            // ── 작성 폼(QuotationPage)용 ──
             quoteInput={quoteInput}
             setQuoteInput={setQuoteInput}
             handleSaveQuote={handleSaveQuote}
@@ -1234,6 +1235,22 @@ const App = () => {
             buyers={buyers}
             setIsBuyerModalOpen={setIsBuyerModalOpen}
             yarnLibrary={yarnLibrary}
+            // ── 히스토리 목록(QuoteHistoryPage)용 ──
+            quoteBuyerFilter={quoteBuyerFilter}
+            setQuoteBuyerFilter={setQuoteBuyerFilter}
+            quoteDateFilter={quoteDateFilter}
+            setQuoteDateFilter={setQuoteDateFilter}
+            quoteMarketFilter={quoteMarketFilter}
+            setQuoteMarketFilter={setQuoteMarketFilter}
+            quoteAuthorFilter={quoteAuthorFilter}
+            setQuoteAuthorFilter={setQuoteAuthorFilter}
+            uniqueAuthors={uniqueAuthors}
+            filteredQuotesList={filteredQuotesList}
+            quickViewQuote={quickViewQuote}
+            setQuickViewQuote={setQuickViewQuote}
+            setActiveTab={setActiveTab}
+            handleDeleteQuote={handleDeleteQuote}
+            handleDuplicateQuote={handleDuplicateQuote}
           />
         )}
 
@@ -1433,31 +1450,6 @@ const App = () => {
           />
         )}
 
-        {/* TAB 5: HISTORY */}
-        {activeTab === 'quoteHistory' && (
-          <QuoteHistoryPage
-            quoteBuyerFilter={quoteBuyerFilter}
-            setQuoteBuyerFilter={setQuoteBuyerFilter}
-            quoteDateFilter={quoteDateFilter}
-            setQuoteDateFilter={setQuoteDateFilter}
-            quoteMarketFilter={quoteMarketFilter}
-            setQuoteMarketFilter={setQuoteMarketFilter}
-            quoteAuthorFilter={quoteAuthorFilter}
-            setQuoteAuthorFilter={setQuoteAuthorFilter}
-            uniqueAuthors={uniqueAuthors}
-            filteredQuotesList={filteredQuotesList}
-            quickViewQuote={quickViewQuote}
-            setQuickViewQuote={setQuickViewQuote}
-            setQuoteInput={setQuoteInput}
-            setActiveTab={setActiveTab}
-            handleDownloadPDF={handleDownloadPDF}
-            handleDownloadExcel={handleDownloadQuoteExcel}
-            handleDeleteQuote={handleDeleteQuote}
-            savedQuotes={savedQuotes}
-            setSavedQuotes={setSavedQuotes}
-            handleDuplicateQuote={handleDuplicateQuote}
-          />
-        )}
 
         {/* TAB: 오더 등록 (1페이지 구조 v3) */}
         {activeTab === 'orderWizard' && (
