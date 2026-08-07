@@ -51,9 +51,9 @@ export const QuotationPage = ({
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 w-full print:hidden">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+    <div className="max-w-7xl mx-auto space-y-4 w-full print:hidden">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
           {onBackToList && (
             <button onClick={onBackToList} title="견적 목록으로" className="text-slate-400 hover:text-indigo-600 hover:bg-slate-100 p-1.5 rounded-lg transition-colors">
               <ArrowLeft className="w-5 h-5" />
@@ -76,11 +76,12 @@ export const QuotationPage = ({
         </div>
       </div>
 
-      <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
-        <h3 className="text-sm font-bold text-slate-400 uppercase mb-4">Buyer Information & Currency</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 sm:gap-6">
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+        <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Buyer Information & Currency</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+          {/* 1행: 거래처 · 담당자 · 날짜 · 유효기간 */}
           <div className="lg:col-span-2">
-            <label className="block text-xs font-bold text-slate-500 mb-1">Buyer Name (거래처)</label>
+            <label className="block text-[11px] font-bold text-slate-500 mb-0.5">Buyer Name (거래처)</label>
             <PartnerSelectField
               value={quoteInput.buyerName || ''}
               onSelect={(p) => setQuoteInput({ ...quoteInput, buyerName: p.name })}
@@ -92,87 +93,85 @@ export const QuotationPage = ({
             />
           </div>
           <div className="lg:col-span-2">
-            <label className="block text-xs font-bold text-slate-500 mb-1">Attention (담당자)</label>
-            <input type="text" value={quoteInput.attention || ''} onChange={(e) => setQuoteInput({ ...quoteInput, attention: e.target.value.toUpperCase() })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 uppercase" placeholder="예: MR. JOHN" />
+            <label className="block text-[11px] font-bold text-slate-500 mb-0.5">Attention (담당자)</label>
+            <input type="text" value={quoteInput.attention || ''} onChange={(e) => setQuoteInput({ ...quoteInput, attention: e.target.value.toUpperCase() })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm uppercase" placeholder="예: MR. JOHN" />
           </div>
-          <div className="lg:col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">Quote Date</label><input type="date" value={quoteInput.date} onChange={(e) => setQuoteInput({ ...quoteInput, date: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2" /></div>
+          <div className="lg:col-span-1"><label className="block text-[11px] font-bold text-slate-500 mb-0.5">Quote Date</label><input type="date" value={quoteInput.date} onChange={(e) => setQuoteInput({ ...quoteInput, date: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm" /></div>
           <div className="lg:col-span-1">
-            <label className="block text-xs font-bold text-slate-500 mb-1">Valid (유효기간)</label>
+            <label className="block text-[11px] font-bold text-slate-500 mb-0.5">Valid (유효기간)</label>
             <select
               value={quoteInput.validityOption || '2weeks'}
               onChange={(e) => setQuoteInput({ ...quoteInput, validityOption: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 ring-blue-400"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:ring-1 ring-blue-400"
             >
               {QUOTE_VALIDITY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
-            <p className="text-[10px] text-slate-400 mt-1 truncate" title="견적서에 표기될 유효기간 만료일">~ {getQuoteValidUntil(quoteInput.date, quoteInput.validityOption || '2weeks')}</p>
           </div>
+
+          {/* 2행: 시장구분 · 환율 · Remarks (빈 칸 없이 채움) */}
           <div className="lg:col-span-1">
-            <label className="block text-xs font-bold text-slate-500 mb-1">시장 구분</label>
+            <label className="block text-[11px] font-bold text-slate-500 mb-0.5">시장 구분</label>
             <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
-              <button onClick={() => handleQuoteSettingChange('marketType', 'domestic')} className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${quoteInput.marketType === 'domestic' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Dom</button>
-              <button onClick={() => handleQuoteSettingChange('marketType', 'export')} className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${quoteInput.marketType === 'export' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Exp</button>
+              <button onClick={() => handleQuoteSettingChange('marketType', 'domestic')} className={`flex-1 py-1 rounded-md text-[10px] font-bold transition-all ${quoteInput.marketType === 'domestic' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>Dom</button>
+              <button onClick={() => handleQuoteSettingChange('marketType', 'export')} className={`flex-1 py-1 rounded-md text-[10px] font-bold transition-all ${quoteInput.marketType === 'export' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Exp</button>
             </div>
           </div>
-          <div className="lg:col-span-2 bg-slate-50 p-2 rounded-xl border border-slate-200 flex flex-col justify-center gap-1 relative" title="사이드바의 전역 환율 자동 적용중">
-            <label className="text-[10px] text-slate-500 font-bold flex items-center gap-1 uppercase tracking-wide"><DollarSign className="w-3 h-3 text-emerald-500" /> Global Rate (￦/$)</label>
-            <div className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-right font-mono font-bold text-slate-600 text-sm shadow-sm">￦{num(globalExchangeRate)}</div>
+          <div className="lg:col-span-1" title="사이드바의 전역 환율 자동 적용중">
+            <label className="block text-[11px] font-bold text-slate-500 mb-0.5 flex items-center gap-1"><DollarSign className="w-3 h-3 text-emerald-500" /> Rate (￦/$)</label>
+            <div className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-right font-mono font-bold text-slate-600 text-sm">￦{num(globalExchangeRate)}</div>
+          </div>
+          <div className="sm:col-span-2 lg:col-span-4">
+            <label className="block text-[11px] font-bold text-slate-500 mb-0.5 flex items-center gap-1"><FileText className="w-3 h-3" /> Remarks (내부 메모 · PDF 미표시)</label>
+            <input type="text" value={quoteInput.remarks || ''} onChange={(e) => setQuoteInput({ ...quoteInput, remarks: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:ring-1 ring-blue-400" placeholder="바이어 PDF에는 안 나오는 내부 기록용 (히스토리에서 확인)" />
           </div>
 
           {/* 마진 설정: 구간별 일괄 매출이익율(%) + 구간별 추가 영업마진(YD당 정액) */}
-          <div className="col-span-1 sm:col-span-2 lg:col-span-6 mt-1 grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="col-span-1 sm:col-span-2 lg:col-span-6 grid grid-cols-1 lg:grid-cols-2 gap-3 pt-2 mt-1 border-t border-slate-100">
             <div>
-              <label className="block text-xs font-bold text-indigo-500 mb-1">일괄 매출이익율 · 구간별 (%) — 전체 적용</label>
+              <label className="block text-[11px] font-bold text-indigo-500 mb-1">일괄 매출이익율 · 구간별 (%) — 전체 적용</label>
               <div className="grid grid-cols-3 gap-2">
                 {TIERS.map(t => (
-                  <div key={t.key}>
-                    <div className={`text-[10px] font-bold mb-0.5 ${t.main ? 'text-indigo-600' : 'text-slate-400'}`}>{t.label}</div>
-                    <div className="relative">
-                      <input type="number" step="any" value={getTierRate(quoteInput.bulkMarginRate, t.key)} onChange={(e) => handleBulkMarginRateChange(t.key, e.target.value)} className="w-full bg-indigo-50 border border-indigo-200 rounded px-2 py-2 text-right text-sm font-bold text-indigo-700 outline-none focus:border-indigo-400" placeholder="0" />
-                      <span className="absolute right-1.5 top-2.5 text-[10px] text-indigo-400 font-bold pointer-events-none">%</span>
+                  <div key={t.key} className="flex items-center gap-1.5">
+                    <span className={`text-[10px] font-bold shrink-0 w-9 ${t.main ? 'text-indigo-600' : 'text-slate-400'}`}>{t.label.replace(' YD', '')}</span>
+                    <div className="relative flex-1">
+                      <input type="number" step="any" value={getTierRate(quoteInput.bulkMarginRate, t.key)} onChange={(e) => handleBulkMarginRateChange(t.key, e.target.value)} className="w-full bg-indigo-50 border border-indigo-200 rounded px-2 py-1.5 pr-5 text-right text-sm font-bold text-indigo-700 outline-none focus:border-indigo-400" placeholder="0" />
+                      <span className="absolute right-1.5 top-2 text-[10px] text-indigo-400 font-bold pointer-events-none">%</span>
                     </div>
                   </div>
                 ))}
               </div>
-              <p className="text-[10px] text-slate-400 mt-1">구간별로 모든 원단에 일괄 적용. 아래 표에서 원단별로 따로 수정할 수 있고, 이 값을 다시 입력하면 해당 구간 전체가 재설정됩니다.</p>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">구간별 추가 영업마진 · YD당 정액 ({cSym}) — 전체 적용</label>
+              <label className="block text-[11px] font-bold text-slate-500 mb-1">구간별 추가 영업마진 · YD당 정액 ({cSym}) — 전체 적용</label>
               <div className="grid grid-cols-3 gap-2">
                 {TIERS.map(t => (
-                  <div key={t.key}>
-                    <div className={`text-[10px] font-bold mb-0.5 ${t.main ? 'text-indigo-600' : 'text-slate-400'}`}>{t.label}</div>
-                    <input type="number" value={quoteInput.marginAdd?.[t.key] ?? ''} onChange={(e) => handleQuoteMarginChange('add', t.key, e.target.value)} className="w-full bg-white border border-slate-200 rounded px-2 py-2 text-right text-sm font-bold text-slate-700 outline-none focus:border-indigo-400" placeholder="0" />
+                  <div key={t.key} className="flex items-center gap-1.5">
+                    <span className={`text-[10px] font-bold shrink-0 w-9 ${t.main ? 'text-indigo-600' : 'text-slate-400'}`}>{t.label.replace(' YD', '')}</span>
+                    <input type="number" value={quoteInput.marginAdd?.[t.key] ?? ''} onChange={(e) => handleQuoteMarginChange('add', t.key, e.target.value)} className="flex-1 bg-white border border-slate-200 rounded px-2 py-1.5 text-right text-sm font-bold text-slate-700 outline-none focus:border-indigo-400" placeholder="0" />
                   </div>
                 ))}
               </div>
-              <p className="text-[10px] text-slate-400 mt-1">판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액. 둘 다 0이면 영업 기준원가 그대로입니다.</p>
             </div>
-          </div>
-
-          <div className="col-span-1 sm:col-span-2 lg:col-span-6 mt-2">
-            <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1"><FileText className="w-3 h-3" /> Remarks (내부 참조용 메모)</label>
-            <textarea value={quoteInput.remarks || ''} onChange={(e) => setQuoteInput({ ...quoteInput, remarks: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 ring-blue-400" placeholder="바이어 PDF에는 표시되지 않는 내부 기록용 메모입니다. (히스토리에서 확인 가능)"></textarea>
+            <p className="col-span-1 lg:col-span-2 text-[10px] text-slate-400">판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액. 원단별로 아래 표에서 따로 조정 가능.</p>
           </div>
         </div>
       </div>
 
-      <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-200">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 border-b border-slate-100 pb-2 gap-2">
-          <h3 className="text-sm font-bold text-slate-400 uppercase">1. 단일 검색 추가</h3>
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
+          <h3 className="text-xs font-bold text-slate-400 uppercase">견적 품목 리스트 <span className="text-slate-300 normal-case">({(quoteInput.items || []).length})</span></h3>
           <button
             onClick={() => setIsFabricPickerOpen(true)}
-            className="w-full sm:w-max bg-indigo-50 text-indigo-600 px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-100 border border-indigo-200 flex items-center justify-center gap-2 shrink-0"
+            className="w-full sm:w-max bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg font-bold text-sm hover:bg-indigo-100 border border-indigo-200 flex items-center justify-center gap-1.5 shrink-0"
           >
             <Search className="w-4 h-4" /> 원단 검색·추가 (목록에서 선택)
           </button>
         </div>
 
-        <h3 className="text-sm font-bold text-slate-400 uppercase mb-2 mt-6">2. 견적서 리스트 및 일괄 추가</h3>
         <div className="overflow-hidden rounded-xl border border-slate-200 overflow-x-auto">
           <table className="w-full text-sm text-left min-w-[1000px]">
             <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
-              <tr><th className="p-3 w-10 text-center">No.</th><th className="p-3">Article</th><th className="p-3">Spec</th><th className="p-3 text-center">Cut</th><th className="p-3 text-center">Full</th><th className="p-3 text-right">GSM</th><th className="p-3 text-right">g/YD</th><th className="p-3 text-right text-orange-600 bg-orange-50/50">MCQ</th><th className="p-3 w-32 bg-slate-100 text-right">1,000 YD ({cSym})<span className="block text-[9px] font-normal text-slate-400 normal-case">판가 / 이익율%</span></th><th className="p-3 w-32 bg-indigo-50 text-indigo-900 text-right">3,000 YD ({cSym})<span className="block text-[9px] font-normal text-indigo-400 normal-case">판가 / 이익율%</span></th><th className="p-3 w-32 bg-slate-100 text-right">5,000 YD ({cSym})<span className="block text-[9px] font-normal text-slate-400 normal-case">판가 / 이익율%</span></th><th className="p-3 w-10 text-center"></th></tr>
+              <tr><th className="px-2 py-1.5 w-10 text-center">No.</th><th className="px-2 py-1.5">Article</th><th className="px-2 py-1.5">Spec</th><th className="px-2 py-1.5 text-center">Cut</th><th className="px-2 py-1.5 text-center">Full</th><th className="px-2 py-1.5 text-right">GSM</th><th className="px-2 py-1.5 text-right">g/YD</th><th className="px-2 py-1.5 text-right text-orange-600 bg-orange-50/50">MCQ</th><th className="px-2 py-1.5 w-32 bg-slate-100 text-right">1,000 YD ({cSym})<span className="block text-[9px] font-normal text-slate-400 normal-case">판가 / 이익율%</span></th><th className="px-2 py-1.5 w-32 bg-indigo-50 text-indigo-900 text-right">3,000 YD ({cSym})<span className="block text-[9px] font-normal text-indigo-400 normal-case">판가 / 이익율%</span></th><th className="px-2 py-1.5 w-32 bg-slate-100 text-right">5,000 YD ({cSym})<span className="block text-[9px] font-normal text-slate-400 normal-case">판가 / 이익율%</span></th><th className="px-2 py-1.5 w-10 text-center"></th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {(quoteInput.items || []).map((item, idx) => (
@@ -180,14 +179,14 @@ export const QuotationPage = ({
                   key={item.fabricId + '_' + idx}
                   className="group hover:bg-slate-50 transition-colors"
                 >
-                  <td className="p-3 text-slate-400 font-mono text-center text-xs">{idx + 1}</td>
-                  <td className="p-3 font-bold text-slate-800 text-xs uppercase">{item.article}</td>
-                  <td className="p-3 text-slate-600 text-xs">{item.itemName}</td>
-                  <td className="p-3 text-slate-500 text-center text-xs">{item.widthCut}"</td>
-                  <td className="p-3 text-slate-500 text-center text-xs">{item.widthFull}"</td>
-                  <td className="p-3 text-right text-slate-500 text-xs">{item.gsm}</td>
-                  <td className="p-3 text-right text-slate-500 font-mono text-xs">{num(item.gYd)}</td>
-                  <td className="p-3 text-right text-orange-600 font-bold font-mono bg-orange-50/30 text-xs">{num(item.mcqYd || 300)}</td>
+                  <td className="px-2 py-1.5 text-slate-400 font-mono text-center text-xs">{idx + 1}</td>
+                  <td className="px-2 py-1.5 font-bold text-slate-800 text-xs uppercase">{item.article}</td>
+                  <td className="px-2 py-1.5 text-slate-600 text-xs">{item.itemName}</td>
+                  <td className="px-2 py-1.5 text-slate-500 text-center text-xs">{item.widthCut}"</td>
+                  <td className="px-2 py-1.5 text-slate-500 text-center text-xs">{item.widthFull}"</td>
+                  <td className="px-2 py-1.5 text-right text-slate-500 text-xs">{item.gsm}</td>
+                  <td className="px-2 py-1.5 text-right text-slate-500 font-mono text-xs">{num(item.gYd)}</td>
+                  <td className="px-2 py-1.5 text-right text-orange-600 font-bold font-mono bg-orange-50/30 text-xs">{num(item.mcqYd || 300)}</td>
 
                   {/* 구간별 판가 + 원가, 그 아래 작게 원단별 매출이익율(%) 개별 입력 */}
                   {TIERS.map(t => {
