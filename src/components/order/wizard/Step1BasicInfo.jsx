@@ -10,8 +10,6 @@ export const Step1BasicInfo = ({
   editingOrderId,
   handleOrderChange,
   setOrderType,
-  buyers = [],
-  setIsBuyerModalOpen,
   savedFabrics = [],
   onApplyFabric,
   onDetachFabric,
@@ -19,7 +17,6 @@ export const Step1BasicInfo = ({
 }) => {
   const [orderTypeModalOpen, setOrderTypeModalOpen] = useState(false);
 
-  const buyerOptions = (buyers || []).map(b => ({ id: b, name: b }));
   const fabricOptions = (savedFabrics || []).map(f => ({
     id: f.id,
     name: `${f.article || ''}${f.itemName ? ` — ${f.itemName}` : ''}`.trim() || '(이름없음)',

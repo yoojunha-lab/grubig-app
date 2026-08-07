@@ -30,15 +30,17 @@ export const PartnerSelectField = ({
         <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
       </button>
 
-      <PartnerPickerModal
-        isOpen={open}
-        onClose={() => setOpen(false)}
-        partners={partners}
-        onSelect={onSelect}
-        savePartner={savePartner}
-        deletePartner={deletePartner}
-        makeEmptyPartner={makeEmptyPartner}
-      />
+      {/* open일 때만 마운트 → 열 때마다 초기 상태(목록/검색초기화)로 시작 */}
+      {open && (
+        <PartnerPickerModal
+          onClose={() => setOpen(false)}
+          partners={partners}
+          onSelect={onSelect}
+          savePartner={savePartner}
+          deletePartner={deletePartner}
+          makeEmptyPartner={makeEmptyPartner}
+        />
+      )}
     </>
   );
 };

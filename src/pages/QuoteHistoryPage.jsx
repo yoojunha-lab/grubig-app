@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Calendar, Search, X, Eye, Trash2, AlertCircle, Copy, ChevronDown, ChevronRight, CheckCircle2, FileText, FileSpreadsheet, FilePlus } from 'lucide-react';
-import { num, getQuoteValidUntil, calcQuotePrice, formatQuotePrice, getBasePrice, normalizeQuoteMargins } from '../utils/helpers';
+import { Search, X, Trash2, AlertCircle, Copy, ChevronDown, ChevronRight, CheckCircle2, FileText, FileSpreadsheet, FilePlus } from 'lucide-react';
+import { num, getQuoteValidUntil, calcQuotePrice, formatQuotePrice, normalizeQuoteMargins } from '../utils/helpers';
 
 export const QuoteHistoryPage = ({
   quoteBuyerFilter,

@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { FileText, Save, Download, X, Plus, ClipboardPaste, FileSpreadsheet, FilePlus, DollarSign, Search, ArrowLeft } from 'lucide-react';
-import { SearchableSelect } from '../components/common/SearchableSelect';
 import { PartnerSelectField } from '../components/common/PartnerSelectField';
-import { num, calcQuotePrice, formatQuotePrice, getBasePrice, getQuoteValidUntil, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
+import { num, calcQuotePrice, formatQuotePrice, getBasePrice, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
 import { FabricPickerModal } from '../components/quote/FabricPickerModal';
 
 // 견적 구간(오더 수량)
@@ -32,8 +31,6 @@ export const QuotationPage = ({
   showToast,
   handleGridPaste,
   globalExchangeRate,
-  buyers = [],
-  setIsBuyerModalOpen,
   yarnLibrary = [],
   onBackToList,           // 병합 화면(견적서 workspace)에서 목록으로 돌아가기 (없으면 버튼 미표시)
   partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택

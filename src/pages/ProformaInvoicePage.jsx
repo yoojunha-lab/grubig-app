@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   FileText, Save, Download, FileSpreadsheet, FilePlus, Trash2, Plus,
-  Copy, Globe, Home, Users, Search, Package, Pencil, X, RefreshCw,
+  Copy, Globe, Home, Search, Package, Pencil, X, RefreshCw,
 } from 'lucide-react';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { PartnerSelectField } from '../components/common/PartnerSelectField';
@@ -44,7 +44,6 @@ export const ProformaInvoicePage = ({
   handleSavePI, handleEditPI, handleDuplicatePI, handleDeletePI,
   handlePrintPI, handleDownloadPIExcel,
   proformaInvoices = [], savedFabrics = [], yarnLibrary = [],
-  buyers = [], setIsBuyerModalOpen,
   partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
 }) => {
   const isExport = piInput.marketType !== 'domestic';

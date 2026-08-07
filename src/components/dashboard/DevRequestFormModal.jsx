@@ -1,6 +1,5 @@
 import React from 'react';
 import { Edit2, Plus, X, Check } from 'lucide-react';
-import { SearchableSelect } from '../common/SearchableSelect';
 import { PartnerSelectField } from '../common/PartnerSelectField';
 
 /**
@@ -26,8 +25,6 @@ export const DevRequestFormModal = ({
   handleDevChange,
   handleSpecChange,
   onSave,
-  buyers,
-  setIsBuyerModalOpen,
   generateDevOrderNo,
   partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
 }) => {

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { X, Search, Plus, Pencil, Trash2, Check, ArrowLeft, Building2 } from 'lucide-react';
 
 // ============================================================
@@ -8,8 +8,10 @@ import { X, Search, Plus, Pencil, Trash2, Check, ArrowLeft, Building2 } from 'lu
 //  - onSelect(partner) 로 선택 결과 전달
 //  견적/PI/개발/오더 등 모든 거래처 선택에서 공통 사용
 // ============================================================
+// 항상 "열린 상태"로만 마운트됨(PartnerSelectField가 open일 때만 조건부 렌더).
+// → 열 때마다 새로 마운트되어 view/draft/search가 자동 초기화되므로 별도 리셋 effect가 필요 없음.
 export const PartnerPickerModal = ({
-  isOpen, onClose, partners = [], onSelect,
+  onClose, partners = [], onSelect,
   savePartner, deletePartner, makeEmptyPartner,
 }) => {
   const [search, setSearch] = useState('');
@@ -25,14 +27,6 @@ export const PartnerPickerModal = ({
         .some(v => String(v || '').toLowerCase().includes(t))
     );
   }, [partners, search]);
-
-  // 열릴 때마다 목록 뷰로 초기화 (직전 등록/수정 폼 상태가 남지 않게)
-  useEffect(() => {
-    if (isOpen) { setView('list'); setDraft(null); setSearch(''); }
-  }, [isOpen]);
-
-  // 모든 Hook 호출 이후에 조기 반환 (Hook 순서 고정)
-  if (!isOpen) return null;
 
   const openCreate = () => { setDraft(makeEmptyPartner()); setView('form'); };
   const openEdit = (p) => { setDraft({ ...p }); setView('form'); };
@@ -52,7 +46,8 @@ export const PartnerPickerModal = ({
 
   const handlePick = (p) => { onSelect && onSelect(p); onClose && onClose(); };
 
-  const F = ({ label, name, placeholder = '', required = false, className = '' }) => (
+  // 입력 필드 렌더 (컴포넌트가 아닌 함수 호출 → 매 렌더 remount/포커스 손실 방지)
+  const field = (label, name, { placeholder = '', required = false, className = '' } = {}) => (
     <div className={className}>
       <label className="block text-[11px] font-bold text-slate-500 mb-1">{label}{required && ' *'}</label>
       <input
@@ -140,14 +135,14 @@ export const PartnerPickerModal = ({
           /* 등록/수정 폼 */
           <div className="p-5">
             <div className="grid grid-cols-2 gap-3">
-              <F label="회사명(상호)" name="name" required placeholder="예: (주)그루빅통상" className="col-span-2" />
-              <F label="사업자등록번호" name="bizNo" placeholder="000-00-00000" />
-              <F label="담당자" name="contact" placeholder="예: 홍길동 대표님" />
-              <F label="전화" name="tel" placeholder="02-000-0000" />
-              <F label="휴대폰" name="mobile" placeholder="010-0000-0000" />
-              <F label="이메일" name="email" placeholder="name@company.com" />
-              <F label="주소" name="address" placeholder="주소" className="col-span-2" />
-              <F label="메모" name="memo" placeholder="비고" className="col-span-2" />
+              {field('회사명(상호)', 'name', { required: true, placeholder: '예: (주)그루빅통상', className: 'col-span-2' })}
+              {field('사업자등록번호', 'bizNo', { placeholder: '000-00-00000' })}
+              {field('담당자', 'contact', { placeholder: '예: 홍길동 대표님' })}
+              {field('전화', 'tel', { placeholder: '02-000-0000' })}
+              {field('휴대폰', 'mobile', { placeholder: '010-0000-0000' })}
+              {field('이메일', 'email', { placeholder: 'name@company.com' })}
+              {field('주소', 'address', { placeholder: '주소', className: 'col-span-2' })}
+              {field('메모', 'memo', { placeholder: '비고', className: 'col-span-2' })}
             </div>
             <div className="flex items-center justify-between mt-5">
               <button onClick={backToList} className="text-slate-500 hover:text-slate-700 text-sm font-bold flex items-center gap-1.5">
