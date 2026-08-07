@@ -190,11 +190,12 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
   // [신규] 현재 작성 중인 견적서를 비우고 새 견적서 시작
   // 작성 중 내용이 있으면 확인 후 초기화 (수정/복제 모드의 id·createdAt 도 함께 제거됨 → 신규 저장으로 동작)
-  const handleNewQuote = () => {
+  // skipConfirm=true : 워크스페이스의 변경사항 가드가 이미 처리했을 때 훅 자체 confirm 생략
+  const handleNewQuote = (skipConfirm = false) => {
     const hasContent =
       (quoteInput.items && quoteInput.items.length > 0) ||
       quoteInput.buyerName || quoteInput.attention || quoteInput.remarks;
-    if (hasContent && !window.confirm("현재 작성 중인 견적서를 비우고 새 견적서를 시작할까요?\n저장하지 않은 내용은 사라집니다.")) return;
+    if (!skipConfirm && hasContent && !window.confirm("현재 작성 중인 견적서를 비우고 새 견적서를 시작할까요?\n저장하지 않은 내용은 사라집니다.")) return;
     setQuoteInput(makeBlankQuote());
     showToast("새 견적서를 시작합니다.", 'success');
   };

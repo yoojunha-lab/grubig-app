@@ -35,8 +35,8 @@ export const QuoteHistoryPage = ({
 
   return (
     <>
-      <div className="max-w-[1600px] mx-auto space-y-6 print:hidden w-full">
-        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-4 border-b border-slate-200 pb-4">
+      <div className="max-w-[1600px] mx-auto space-y-4 print:hidden w-full">
+        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-3 border-b border-slate-200 pb-3">
           <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><FileText className="w-6 h-6 text-indigo-600" /> 견적서 <span className="text-base font-bold text-slate-400">({(savedQuotes || []).length})</span></h2>
 
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full xl:w-auto">
@@ -70,7 +70,7 @@ export const QuoteHistoryPage = ({
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-x-auto">
           <table className="w-full text-sm text-left min-w-[700px]">
             <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
-              <tr><th className="p-4 w-32">Date</th><th className="p-4">Buyer</th><th className="p-4 w-32">Type</th><th className="p-4 w-24 text-center">Items</th><th className="p-4 w-32">Author</th><th className="p-4 w-72 text-center">Action</th></tr>
+              <tr className="text-[11px] uppercase tracking-wide"><th className="py-2 px-3 w-24">Date</th><th className="py-2 px-3">Buyer</th><th className="py-2 px-3 w-36">Type</th><th className="py-2 px-3 w-16 text-center">Items</th><th className="py-2 px-3 w-24">Author</th><th className="py-2 px-3 w-72 text-center">Action</th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {[...filteredQuotesList]
@@ -80,36 +80,34 @@ export const QuoteHistoryPage = ({
                 return (
                 <React.Fragment key={quote.id}>
                 <tr className={`group cursor-pointer transition-colors ${isExpanded ? 'bg-slate-50' : 'bg-white hover:bg-slate-50'}`} onClick={(e) => toggleExpand(quote.id, e)}>
-                  <td className="p-4 font-mono text-slate-500">{quote.date}</td>
-                  <td className="p-4">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-800 text-base uppercase">{quote.buyerName}</span>
-                        {quote.remarks && <span className="text-[11px] text-slate-500 bg-yellow-50 px-2 py-0.5 rounded border border-yellow-100 max-w-[200px] truncate" title={quote.remarks}>{quote.remarks}</span>}
-                      </div>
-                      {quote.attention && <div className="text-[11px] text-indigo-500 font-bold uppercase tracking-tight">ATTN: {quote.attention}</div>}
+                  <td className="py-1.5 px-3 font-mono text-slate-500 whitespace-nowrap">{quote.date}</td>
+                  <td className="py-1.5 px-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-slate-800 text-sm uppercase">{quote.buyerName}</span>
+                      {quote.attention && <span className="text-[10px] text-indigo-500 font-bold uppercase tracking-tight">ATTN: {quote.attention}</span>}
+                      {quote.remarks && <span className="text-[10px] text-slate-500 bg-yellow-50 px-1.5 py-0.5 rounded border border-yellow-100 max-w-[180px] truncate" title={quote.remarks}>{quote.remarks}</span>}
                     </div>
                   </td>
-                  <td className="p-4">
-                    <div className="flex flex-col gap-1">
-                      {quote.buyerType && <span className={`text-[10px] w-max px-2 py-0.5 rounded font-bold uppercase ${quote.buyerType === 'converter' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>{quote.buyerType}</span>}
-                      <span className={`text-[10px] w-max px-2 py-0.5 rounded font-bold uppercase border ${quote.marketType === 'domestic' ? 'border-blue-200 text-blue-600' : 'border-emerald-200 text-emerald-600'}`}>{quote.marketType === 'domestic' ? 'DOM' : 'EXP'} ({quote.currency})</span>
+                  <td className="py-1.5 px-3 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      {quote.buyerType && <span className={`text-[9px] px-1 py-0.5 rounded font-bold uppercase ${quote.buyerType === 'converter' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>{quote.buyerType}</span>}
+                      <span className={`text-[9px] px-1 py-0.5 rounded font-bold uppercase border ${quote.marketType === 'domestic' ? 'border-blue-200 text-blue-600' : 'border-emerald-200 text-emerald-600'}`}>{quote.marketType === 'domestic' ? 'DOM' : 'EXP'} ({quote.currency})</span>
                     </div>
                   </td>
-                  <td className="p-4 text-center">
-                    <div className={`px-3 py-1 rounded-full font-bold flex items-center justify-center gap-1 w-max mx-auto shadow-sm select-none transition-colors ${isExpanded ? 'bg-slate-200 text-slate-700' : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'}`}>
-                      {quote.items?.length || 0} items
-                      {isExpanded ? <ChevronDown className="w-4 h-4 opacity-70" /> : <ChevronRight className="w-4 h-4 opacity-70" />}
+                  <td className="py-1.5 px-3 text-center">
+                    <div className={`px-2 py-0.5 text-xs rounded-full font-bold flex items-center justify-center gap-0.5 w-max mx-auto select-none transition-colors ${isExpanded ? 'bg-slate-200 text-slate-700' : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'}`}>
+                      {quote.items?.length || 0}
+                      {isExpanded ? <ChevronDown className="w-3.5 h-3.5 opacity-70" /> : <ChevronRight className="w-3.5 h-3.5 opacity-70" />}
                     </div>
                   </td>
-                  <td className="p-4 text-slate-500 font-medium">{quote.authorName}</td>
-                  <td className="p-4">
-                    <div className="flex gap-1.5 justify-center">
-                      <button onClick={(e) => { e.stopPropagation(); handleDuplicateQuote(quote, () => setActiveTab('quotation')); }} className="bg-emerald-50 text-emerald-600 px-2 py-1.5 rounded text-xs font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1" title="이 견적서를 복사하여 새 견적서 작성하기"><Copy className="w-3.5 h-3.5" /> <span className="hidden sm:inline">복제</span></button>
-                      <button onClick={(e) => { e.stopPropagation(); setQuoteInput(normalizeQuoteMargins(quote)); setActiveTab('quotation'); }} className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-200 transition-colors">수정</button>
-                      <button onClick={(e) => { e.stopPropagation(); handleDownloadPDF(quote); }} className="bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-100 transition-colors">PDF</button>
-                      <button onClick={(e) => { e.stopPropagation(); handleDownloadExcel(quote); }} className="bg-emerald-50 text-emerald-700 px-2.5 py-1.5 rounded text-xs font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1" title="엑셀로 다운로드"><FileSpreadsheet className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Excel</span></button>
-                      <button onClick={(e) => { e.stopPropagation(); handleDeleteQuote(quote.id, (id) => setSavedQuotes(savedQuotes.filter(q => q.id !== id))); }} className="text-slate-300 hover:text-red-500 p-1.5 rounded hover:bg-red-50 transition-colors" title="삭제"><Trash2 className="w-4 h-4" /></button>
+                  <td className="py-1.5 px-3 text-slate-500 text-xs">{quote.authorName}</td>
+                  <td className="py-1 px-3">
+                    <div className="flex gap-1 justify-center flex-nowrap">
+                      <button onClick={(e) => { e.stopPropagation(); handleDuplicateQuote(quote, () => setActiveTab('quotation')); }} className="shrink-0 whitespace-nowrap bg-emerald-50 text-emerald-600 px-2 py-1 rounded text-[11px] font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1" title="이 견적서를 복사하여 새 견적서 작성하기"><Copy className="w-3 h-3" /> <span className="hidden sm:inline">복제</span></button>
+                      <button onClick={(e) => { e.stopPropagation(); setQuoteInput(normalizeQuoteMargins(quote)); setActiveTab('quotation'); }} className="shrink-0 whitespace-nowrap bg-slate-100 text-slate-600 px-2.5 py-1 rounded text-[11px] font-bold hover:bg-slate-200 transition-colors">수정</button>
+                      <button onClick={(e) => { e.stopPropagation(); handleDownloadPDF(quote); }} className="shrink-0 whitespace-nowrap bg-indigo-50 text-indigo-600 px-2.5 py-1 rounded text-[11px] font-bold hover:bg-indigo-100 transition-colors">PDF</button>
+                      <button onClick={(e) => { e.stopPropagation(); handleDownloadExcel(quote); }} className="shrink-0 whitespace-nowrap bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-[11px] font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1" title="엑셀로 다운로드"><FileSpreadsheet className="w-3 h-3" /> <span className="hidden sm:inline">Excel</span></button>
+                      <button onClick={(e) => { e.stopPropagation(); handleDeleteQuote(quote.id, (id) => setSavedQuotes(savedQuotes.filter(q => q.id !== id))); }} className="shrink-0 text-slate-300 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors" title="삭제"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </td>
                 </tr>
@@ -134,17 +132,17 @@ export const QuoteHistoryPage = ({
                               </thead>
                               <tbody className="divide-y divide-slate-100">
                                 {(quote.items || []).map((item, idx) => {
-                                  // [R1] base price 조회는 헬퍼로 일원화 (legacy/신규 필드 양쪽 호환)
-                                  // 아코디언 미리보기는 base price만 노출 (extraMargin 미적용 의도 유지)
+                                  // 실제 나간 단가로 표시: calcQuotePrice = 기준원가 + 매출이익율(%) + YD당 정액.
+                                  // (기존엔 getBasePrice=마진 미포함 기준원가만 보여 PDF/실제 견적가와 달랐음 → 버그 수정)
                                   const cur = quote.currency;
                                   return (
                                     <tr key={idx} className="hover:bg-slate-50">
                                       <td className="py-2 px-3 font-bold text-slate-800 uppercase">{item.article}</td>
                                       <td className="py-2 px-3 text-slate-600 truncate max-w-[150px]" title={item.itemName}>{item.itemName}</td>
                                       <td className="py-2 px-3 text-right text-orange-600 font-bold">{num(item.mcqYd || 300)} YD</td>
-                                      <td className="py-2 px-3 text-right text-slate-500 font-mono">{formatQuotePrice(getBasePrice(item, '1k'), cur)}</td>
-                                      <td className="py-2 px-3 text-right text-blue-700 font-bold font-mono">{formatQuotePrice(getBasePrice(item, '3k'), cur)}</td>
-                                      <td className="py-2 px-3 text-right text-slate-500 font-mono">{formatQuotePrice(getBasePrice(item, '5k'), cur)}</td>
+                                      <td className="py-2 px-3 text-right text-slate-500 font-mono">{formatQuotePrice(calcQuotePrice(item, '1k', quote, cur), cur)}</td>
+                                      <td className="py-2 px-3 text-right text-blue-700 font-bold font-mono">{formatQuotePrice(calcQuotePrice(item, '3k', quote, cur), cur)}</td>
+                                      <td className="py-2 px-3 text-right text-slate-500 font-mono">{formatQuotePrice(calcQuotePrice(item, '5k', quote, cur), cur)}</td>
                                     </tr>
                                   );
                                 })}
