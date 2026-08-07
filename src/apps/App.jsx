@@ -28,6 +28,7 @@ import { useMainDetail } from '../hooks/domains/useMainDetail';
 import { useTempDesignSheet } from '../hooks/domains/useTempDesignSheet';
 import { useOrder } from '../hooks/domains/useOrder';
 import { useCollection } from '../hooks/domains/useCollection';
+import { useProformaInvoice } from '../hooks/domains/useProformaInvoice';
 import { makeChangeLogEntry, appendChangeLog, summarizeBatchDiff } from '../utils/auditLog';
 import { PROCESS_TYPES } from '../constants/production';
 import { calcQuotePrice, getQuoteValidUntil } from '../utils/helpers';
@@ -57,6 +58,8 @@ import { OrderListPage } from '../pages/OrderListPage';
 import { ReportPage } from '../pages/ReportPage';
 import { CollectionPage } from '../pages/CollectionPage';
 import { OrderDetailModal } from '../components/order/OrderDetailModal';
+import { ProformaInvoicePage } from '../pages/ProformaInvoicePage';
+import { PIPrintSheet } from '../components/pi/PIPrintSheet';
 
 const App = () => {
   const [user, setUser] = useState(null);
@@ -82,6 +85,8 @@ const App = () => {
   const [tempDesignSheets, setTempDesignSheets] = useState([]);
   const [orders, setOrders] = useState([]);
   const [collections, setCollections] = useState([]);
+  const [proformaInvoices, setProformaInvoices] = useState([]);
+  const [selectedPIForPrint, setSelectedPIForPrint] = useState(null);
 
   // 마스터 데이터 (settings/general에 배열로 저장)
   const [knittingFactories, setKnittingFactories] = useState([]);
@@ -196,7 +201,9 @@ const App = () => {
     const unsubOrders = onSnapshot(collection(db, 'orders'), (snapshot) => setOrders(snapshot.docs.map(doc => doc.data())));
     // 영업 컬렉션(아티클 묶음) 구독
     const unsubCollections = onSnapshot(collection(db, 'collections'), (snapshot) => setCollections(snapshot.docs.map(doc => doc.data())));
-    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); };
+    // 영업 PI/거래확인서 구독
+    const unsubPIs = onSnapshot(collection(db, 'proformaInvoices'), (snapshot) => setProformaInvoices(snapshot.docs.map(doc => doc.data())));
+    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); unsubPIs(); };
   }, [user]);
 
   // DEV 우회 시 Firestore 대신 로컬 state만 갱신하기 위한 컬렉션명 → setter 매핑
@@ -204,6 +211,7 @@ const App = () => {
     collections: setCollections, fabrics: setSavedFabrics, yarns: setYarnLibrary,
     quotes: setSavedQuotes, devRequests: setDevRequests, designSheets: setDesignSheets,
     mainDetails: setMainDetails, tempDesignSheets: setTempDesignSheets, orders: setOrders,
+    proformaInvoices: setProformaInvoices,
   };
   const saveDocToCloud = async (colName, item) => {
     if (DEV_BYPASS) {
@@ -370,6 +378,72 @@ const App = () => {
     addArticlesToCollection, removeArticleFromCollection,
     updateArticleMemo, moveArticle,
   } = useCollection(collections, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast);
+
+  // ⚓️ PI/거래확인서(영업) 훅
+  const {
+    piInput, setPIInput, editingPIId,
+    resetPIForm, handlePIChange, setMarketType,
+    generatePINo, handleNewPI,
+    addPIItem, removePIItem, handleItemChange, addItemFromFabric,
+    handleSavePI, handleEditPI, handleDuplicatePI, handleDeletePI,
+  } = useProformaInvoice(proformaInvoices, saveDocToCloud, deleteDocFromCloud, showToast, user);
+
+  // PI 인쇄 (견적/컬렉션과 동일한 native window.print() 방식, body.printing-pi 토글)
+  const handlePrintPI = (targetPI = null) => {
+    const pi = (targetPI && targetPI.id) ? targetPI : piInput;
+    if (!pi || !(pi.items || []).some(it => String(it.article).trim() || String(it.description).trim() || Number(it.qty) > 0)) {
+      showToast('인쇄할 품목이 없습니다.', 'error');
+      return;
+    }
+    setSelectedPIForPrint(pi); // 인쇄 대상 확정 (PIPrintSheet 렌더)
+    showToast("인쇄 다이얼로그에서 '대상 = PDF로 저장'을 선택해 주세요.", 'info');
+    const oldTitle = document.title;
+    const safeNo = String(pi.piNo || 'PI').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim() || 'PI';
+    document.body.classList.add('printing-pi');
+    setTimeout(() => {
+      try {
+        document.title = safeNo;
+        window.print();
+      } finally {
+        document.title = oldTitle;
+        document.body.classList.remove('printing-pi');
+      }
+    }, 200);
+  };
+
+  // PI 엑셀 내보내기 (품목표 중심 — 화면 폼 또는 보관함 문서)
+  const handleDownloadPIExcel = (targetPI = null) => {
+    if (!isXlsxReady || !window.XLSX) { showToast('엑셀 모듈을 불러오는 중입니다. 잠시 후 다시 시도해주세요.', 'error'); return; }
+    const pi = (targetPI && targetPI.id) ? targetPI : piInput;
+    const items = (pi.items || []).filter(it => String(it.article).trim() || String(it.description).trim() || Number(it.qty) > 0);
+    if (items.length === 0) { showToast('내용이 없습니다.', 'error'); return; }
+    const isExport = pi.marketType !== 'domestic';
+    const cur = isExport ? 'USD' : 'KRW';
+    const rows = items.map((it, idx) => ({
+      'No': idx + 1,
+      '품번': it.article || '',
+      '사양': it.description || '',
+      '컬러': it.color || '',
+      '수량': Number(it.qty) || 0,
+      '단위': it.unit || '',
+      [`단가(${cur})`]: Number(it.unitPrice) || 0,
+      [`금액(${cur})`]: (Number(it.qty) || 0) * (Number(it.unitPrice) || 0),
+    }));
+    const meta = [
+      [isExport ? 'GRUBIG PROFORMA INVOICE' : 'GRUBIG 거래확인서'],
+      [`${isExport ? 'P/I No.' : '문서번호'}: ${pi.piNo || ''}    ${isExport ? 'Buyer' : '바이어'}: ${pi.buyerCompany || ''}`],
+      [`${isExport ? 'Date' : '발행일'}: ${pi.date || ''}    ${isExport ? 'Currency' : '통화'}: ${cur}`],
+      [],
+    ];
+    const ws = window.XLSX.utils.aoa_to_sheet(meta);
+    window.XLSX.utils.sheet_add_json(ws, rows, { origin: 'A5' });
+    ws['!cols'] = [{ wch: 5 }, { wch: 16 }, { wch: 40 }, { wch: 16 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 16 }];
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, isExport ? 'PI' : '거래확인서');
+    const safeNo = String(pi.piNo || 'PI').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim() || 'PI';
+    window.XLSX.writeFile(wb, `${safeNo}.xlsx`);
+    showToast(`${rows.length}개 품목을 엑셀로 내보냈습니다.`, 'success');
+  };
 
   // 오더 상세 모달 열 때 특정 차수에 포커스 (펼침/스크롤/하이라이트)
   const [orderModalFocus, setOrderModalFocus] = useState(null); // { processType, batchId } | null
@@ -1185,6 +1259,34 @@ const App = () => {
           />
         )}
 
+        {/* TAB: PI / 거래확인서 (영업) */}
+        {activeTab === 'proformaInvoice' && (
+          <ProformaInvoicePage
+            piInput={piInput}
+            setPIInput={setPIInput}
+            editingPIId={editingPIId}
+            handlePIChange={handlePIChange}
+            setMarketType={setMarketType}
+            handleNewPI={handleNewPI}
+            resetPIForm={resetPIForm}
+            addPIItem={addPIItem}
+            removePIItem={removePIItem}
+            handleItemChange={handleItemChange}
+            addItemFromFabric={addItemFromFabric}
+            handleSavePI={handleSavePI}
+            handleEditPI={handleEditPI}
+            handleDuplicatePI={handleDuplicatePI}
+            handleDeletePI={handleDeletePI}
+            handlePrintPI={handlePrintPI}
+            handleDownloadPIExcel={handleDownloadPIExcel}
+            proformaInvoices={proformaInvoices}
+            savedFabrics={savedFabrics}
+            yarnLibrary={yarnLibrary}
+            buyers={buyers}
+            setIsBuyerModalOpen={setIsBuyerModalOpen}
+          />
+        )}
+
         {/* TAB: 개발 현황 (의뢰 등록 + 진행현황 통합) */}
         {activeTab === 'devStatus' && (
           <DevStatusPage
@@ -1476,6 +1578,9 @@ const App = () => {
           printRef={printRef}
           quoteInput={quoteInput}
         />
+
+        {/* PI / 거래확인서 인쇄 문서 (off-screen, body.printing-pi 일 때만 노출) */}
+        <PIPrintSheet pi={selectedPIForPrint} />
       </div>
     </div>
   );

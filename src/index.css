@@ -142,3 +142,30 @@
     background: #ffffff !important;
   }
 }
+
+/* ========================================================== */
+/* [PI / 거래확인서 인쇄 모드]                                 */
+/* body.printing-pi 일 때만 PI 문서(.pi-print-root)만 노출하고 */
+/* 견적 PDF(.pdf-render-root) 등 나머지는 숨김                */
+/* ========================================================== */
+@media print {
+  body.printing-pi > .pdf-render-root { display: none !important; }
+  body.printing-pi > *:not(.pi-print-root) { display: none !important; }
+  body.printing-pi > .pi-print-root {
+    display: block !important;
+    position: static !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  body.printing-pi > .pi-print-root .pdf-render-inner {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+}
