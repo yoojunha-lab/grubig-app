@@ -1,5 +1,9 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { PI_DEFAULT_TERMS } from '../../constants/proformaInvoice';
+
+// 품목 임시 id 생성용 (모듈 로드 시 1회 세션값 + 증가 카운터 → render 중 Date.now/Math.random 호출 회피)
+const PI_ITEM_SESSION = Date.now().toString(36);
+let piItemSeq = 0;
 
 // ============================================================
 // PI(수출용 Proforma Invoice) / 거래확인서(내수) 로직 훅
@@ -11,12 +15,13 @@ import { PI_DEFAULT_TERMS } from '../../constants/proformaInvoice';
 // ============================================================
 export const useProformaInvoice = (proformaInvoices, saveDocToCloud, deleteDocFromCloud, showToast, user) => {
   const [editingPIId, setEditingPIId] = useState(null);
+  const savingRef = useRef(false); // 저장 in-flight 가드 (빠른 더블클릭 중복 저장 방지)
 
   const today = () => new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
   // 새 품목 빈 행
   const makeEmptyItem = () => ({
-    id: `piitem_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+    id: `piitem_${PI_ITEM_SESSION}_${piItemSeq++}`,
     article: '',
     description: '',
     color: '',
@@ -186,6 +191,7 @@ export const useProformaInvoice = (proformaInvoices, saveDocToCloud, deleteDocFr
 
   // ── 저장 (중복 문서번호 검사) ───────────────────────────────
   const handleSavePI = async () => {
+    if (savingRef.current) return false; // 저장 진행 중이면 무시 (빠른 더블클릭 중복 방지)
     const piNo = String(piInput.piNo || '').trim();
     if (!piNo) { showToast('문서번호를 입력하거나 자동 채번해주세요.', 'error'); return false; }
     if (!String(piInput.buyerCompany || '').trim()) { showToast('매수인(바이어) 상호를 입력해주세요.', 'error'); return false; }
@@ -204,23 +210,28 @@ export const useProformaInvoice = (proformaInvoices, saveDocToCloud, deleteDocFr
       return false;
     }
 
-    const idToSave = editingPIId || `pi_${Date.now()}`;
-    const dataToSave = {
-      ...piInput,
-      id: idToSave,
-      piNo,
-      items: validItems,
-      authorName: piInput.authorName || user?.displayName || user?.email || '',
-      createdAt: piInput.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    savingRef.current = true; // 검증 통과 → 저장 시작 (가드 잠금)
+    try {
+      const idToSave = editingPIId || `pi_${Date.now()}`;
+      const dataToSave = {
+        ...piInput,
+        id: idToSave,
+        piNo,
+        items: validItems,
+        authorName: piInput.authorName || user?.displayName || user?.email || '',
+        createdAt: piInput.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
 
-    const ok = await saveDocToCloud('proformaInvoices', dataToSave);
-    if (ok === false) return false;
-    showToast(editingPIId ? '문서가 수정되었습니다.' : `새 문서(${piNo})가 저장되었습니다.`, 'success');
-    setEditingPIId(idToSave);
-    setPIInput(dataToSave);
-    return idToSave;
+      const ok = await saveDocToCloud('proformaInvoices', dataToSave);
+      if (ok === false) return false;
+      showToast(editingPIId ? '문서가 수정되었습니다.' : `새 문서(${piNo})가 저장되었습니다.`, 'success');
+      setEditingPIId(idToSave);
+      setPIInput(dataToSave);
+      return idToSave;
+    } finally {
+      savingRef.current = false;
+    }
   };
 
   const handleEditPI = (id) => {

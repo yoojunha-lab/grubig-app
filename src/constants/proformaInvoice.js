@@ -187,16 +187,17 @@ export const numberToKoreanWords = (num) => {
 
 // 수출용 금액 문자표기: US DOLLARS ... ONLY (센트는 AND XX/100)
 export const sayTotalUSD = (amount) => {
-  const val = Number(amount) || 0;
-  const int = Math.floor(val);
-  const cents = Math.round((val - int) * 100);
+  const val = Math.max(0, Number(amount) || 0);   // 인보이스 금액은 음수 없음(방어)
+  let int = Math.floor(val);
+  let cents = Math.round((val - int) * 100);
+  if (cents >= 100) { int += Math.floor(cents / 100); cents = cents % 100; } // 반올림으로 100센트 → 1달러 올림
   const words = numberToEnglishWords(int);
   const centPart = cents > 0 ? ` AND ${String(cents).padStart(2, '0')}/100` : '';
   return `US DOLLARS ${words}${centPart} ONLY`;
 };
 
 // 내수용 금액 문자표기: 일금 ... 원정
-export const sayTotalKRW = (amount) => `일금 ${numberToKoreanWords(amount)}원정`;
+export const sayTotalKRW = (amount) => `일금 ${numberToKoreanWords(Math.max(0, Number(amount) || 0))}원정`;
 
 // ── 품목 Description 자동생성 (게이지 제외: 혼용률 · 품명 · 중량 · 폭) ──
 //  composition: getComposition(fabric) 결과 문자열 (예: "CM 30S 100%")

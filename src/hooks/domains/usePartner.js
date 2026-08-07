@@ -7,28 +7,34 @@ import { useEffect, useRef } from 'react';
 //    partners 컬렉션이 비어있을 때 최초 1회 상호명만 있는 거래처로 자동 이관(seed)
 //  - 견적/PI/개발/오더 등 모든 거래처 선택에서 공통 사용
 // ============================================================
-export const usePartner = (partners, buyers, saveDocToCloud, saveBatchToCloud, deleteDocFromCloud, showToast) => {
+export const usePartner = (partners, buyers, saveDocToCloud, saveBatchToCloud, deleteDocFromCloud, showToast, partnersLoaded) => {
   const seededRef = useRef(false);
 
-  // ── 최초 1회 이관(seed): partners가 비어있고 기존 buyers(상호명)가 있으면 이름만 등록 ──
-  //  기존 settings.buyers는 그대로 보존(비파괴). DEV 우회 등 buyers 없으면 아무 것도 안 함.
+  // ── 최초 1회 이관(seed): 기존 buyers(상호명)를 partners 컬렉션으로 이름만 등록 ──
+  //  기존 settings.buyers는 그대로 보존(비파괴).
+  //  경쟁 조건 방지: partners 스냅샷이 실제로 도착(partnersLoaded)한 뒤에만 판단
+  //    → 두 onSnapshot(설정/partners) 도착 순서와 무관하게 partners.length가 실제 컬렉션을 반영.
+  //  중복 방지: 이미 partners에 있는 상호는 제외하고 없는 이름만 등록.
   useEffect(() => {
     if (seededRef.current) return;
+    if (!partnersLoaded) return;                                    // partners 스냅샷 아직 미도착 → 대기
     if (!Array.isArray(partners) || !Array.isArray(buyers)) return;
-    if (partners.length > 0) { seededRef.current = true; return; } // 이미 거래처 있으면 이관 불필요
     if (buyers.length === 0) return;                                // 이관할 이름 없음
-    seededRef.current = true;
+    const existing = new Set((partners || []).map(p => String(p.name || '').trim().toUpperCase()));
+    const toSeed = buyers
+      .map(n => String(n).trim())
+      .filter(n => n && !existing.has(n.toUpperCase()));
+    seededRef.current = true;                                       // 세션당 1회만 시도
+    if (toSeed.length === 0) return;                               // 이미 모두 등록됨
     const now = new Date().toISOString();
-    const seeded = buyers.map((name, idx) => ({
+    const seeded = toSeed.map((name, idx) => ({
       id: `ptn_seed_${Date.now()}_${idx}`,
-      name: String(name).trim(),
+      name,
       bizNo: '', address: '', tel: '', contact: '', mobile: '', email: '', memo: '',
       createdAt: now, updatedAt: now,
-    })).filter(p => p.name);
-    if (seeded.length === 0) return;
-    // 일괄 저장 (실패해도 조용히 — 다음 로드에서 재시도되진 않지만 수동 등록 가능)
+    }));
     saveBatchToCloud && saveBatchToCloud('partners', seeded);
-  }, [partners, buyers, saveBatchToCloud]);
+  }, [partners, buyers, partnersLoaded, saveBatchToCloud]);
 
   // 빈 거래처 폼 기본값
   const makeEmptyPartner = () => ({

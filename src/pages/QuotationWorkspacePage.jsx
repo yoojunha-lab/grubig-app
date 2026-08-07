@@ -32,21 +32,19 @@ export const QuotationWorkspacePage = (props) => {
 
   const enterForm = () => { setMode('form'); captureBaseline(); };
 
-  // 실제 저장 (QuotationPage의 Save와 동일한 후처리)
-  const persistQuote = () => {
-    const willSave = quoteInput.buyerName && (quoteInput.items || []).length > 0;
-    handleSaveQuote((item) => {
+  // 실제 저장 (QuotationPage의 Save와 동일한 후처리). 클라우드 저장 성공 여부(boolean) 반환.
+  const persistQuote = async () => {
+    const savedId = await handleSaveQuote((item) => {
       if (item.id && savedQuotes.some(q => q.id === item.id)) setSavedQuotes(savedQuotes.map(q => q.id === item.id ? item : q));
       else setSavedQuotes([item, ...savedQuotes]);
     });
-    if (willSave) captureBaseline();
-    return willSave;
+    if (savedId) captureBaseline();   // 성공 시에만 기준 스냅샷 갱신
+    return !!savedId;
   };
-  // QuotationPage에 넘길 저장 핸들러: 저장 후 기준 스냅샷 갱신(저장 직후 나가면 재확인 안 뜨게)
-  const guardedSave = (cb) => {
-    const willSave = quoteInput.buyerName && (quoteInput.items || []).length > 0;
-    handleSaveQuote(cb);
-    if (willSave) captureBaseline();
+  // QuotationPage에 넘길 저장 핸들러: 저장 성공 후에만 기준 스냅샷 갱신(저장 직후 나가면 재확인 안 뜨게)
+  const guardedSave = async (cb) => {
+    const savedId = await handleSaveQuote(cb);
+    if (savedId) captureBaseline();
   };
 
   // 나가기/이동 가드: 폼에서 변경사항이 있으면 확인 모달, 없으면 즉시 실행
@@ -78,12 +76,13 @@ export const QuotationWorkspacePage = (props) => {
 
   // 확인 모달 액션들
   const closeGuard = () => setPendingLeave(null);
-  const guardSaveAndLeave = () => {
+  const guardSaveAndLeave = async () => {
     if (!quoteInput.buyerName || !(quoteInput.items || []).length) {
       showToast && showToast('바이어 이름과 품목이 있어야 저장할 수 있어요.', 'error');
       return;
     }
-    persistQuote();
+    const ok = await persistQuote();
+    if (!ok) return;   // 저장 실패 → 나가지 않고 모달 유지(데이터 유실 방지)
     const act = pendingLeave;
     setPendingLeave(null);
     act && act();

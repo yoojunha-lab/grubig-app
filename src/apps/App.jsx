@@ -95,6 +95,7 @@ const App = () => {
   const [proformaInvoices, setProformaInvoices] = useState([]);
   const [selectedPIForPrint, setSelectedPIForPrint] = useState(null);
   const [partners, setPartners] = useState([]);
+  const [partnersLoaded, setPartnersLoaded] = useState(false); // partners 스냅샷 최초 도착 여부 (seed 경쟁 조건 방지)
 
   // 마스터 데이터 (settings/general에 배열로 저장)
   const [knittingFactories, setKnittingFactories] = useState([]);
@@ -212,7 +213,7 @@ const App = () => {
     // 영업 PI/거래확인서 구독
     const unsubPIs = onSnapshot(collection(db, 'proformaInvoices'), (snapshot) => setProformaInvoices(snapshot.docs.map(doc => doc.data())));
     // 거래처(Partner) 구독
-    const unsubPartners = onSnapshot(collection(db, 'partners'), (snapshot) => setPartners(snapshot.docs.map(doc => doc.data())));
+    const unsubPartners = onSnapshot(collection(db, 'partners'), (snapshot) => { setPartners(snapshot.docs.map(doc => doc.data())); setPartnersLoaded(true); });
     return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); unsubPIs(); unsubPartners(); };
   }, [user]);
 
@@ -400,7 +401,7 @@ const App = () => {
 
   // ⚓️ 거래처(Partner) 훅 — 모든 거래처 선택/등록 공통
   const { makeEmptyPartner, savePartner, deletePartner } =
-    usePartner(partners, buyers, saveDocToCloud, saveBatchToCloud, deleteDocFromCloud, showToast);
+    usePartner(partners, buyers, saveDocToCloud, saveBatchToCloud, deleteDocFromCloud, showToast, partnersLoaded);
   // 거래처 선택 필드/모달에 넘길 공통 묶음 (견적/PI/개발/오더 공용)
   const partnerBag = { partners, savePartner, deletePartner, makeEmptyPartner };
 

@@ -21,6 +21,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   // 글로벌 환율 변동 감지 및 재계산 (기준원가만 재계산, 원단별 매출이익율은 보존)
   const isMountedRef = useRef(false);
   const prevExchangeRateRef = useRef(globalExchangeRate);
+  const savingRef = useRef(false); // 저장 in-flight 가드 (빠른 더블클릭 중복 방지)
   useEffect(() => {
     if (!isMountedRef.current) {
       isMountedRef.current = true;
@@ -200,24 +201,35 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     showToast("새 견적서를 시작합니다.", 'success');
   };
 
-  const handleSaveQuote = (savedQuotesCallback) => {
-    if (!quoteInput.buyerName) { showToast("바이어 이름을 입력해주세요.", 'error'); return; }
-    if (!quoteInput.items || quoteInput.items.length === 0) { showToast("원단을 추가해주세요.", 'error'); return; }
-    
+  // 저장: 클라우드 저장 성공 시 itemToSave.id 반환, 검증 실패/중복호출/저장실패 시 false.
+  //  - async로 saveDocToCloud 결과를 관찰 → 실패 시 성공 토스트/로컬 목록 반영 안 함(거짓 성공 방지)
+  //  - savingRef로 빠른 더블클릭 중복 저장 차단
+  const handleSaveQuote = async (savedQuotesCallback) => {
+    if (savingRef.current) return false; // 저장 진행 중이면 무시
+    if (!quoteInput.buyerName) { showToast("바이어 이름을 입력해주세요.", 'error'); return false; }
+    if (!quoteInput.items || quoteInput.items.length === 0) { showToast("원단을 추가해주세요.", 'error'); return false; }
+
     // [기획 요구사항 3] 저장(Save) 시 자동 정렬 (Article 기반 가나다/오름차순)
     const sortedItems = [...quoteInput.items].sort((a, b) => String(a.article).localeCompare(String(b.article)));
-    
+
     const authorName = user?.displayName || user?.email?.split('@')[0] || 'Unknown';
     // 기존 id가 있으면 유지(수정 모드) → 중복 생성 방지, 없으면 새 ID 부여 (스냅샷 정렬 배열 포함)
     // exchangeRate: 이 견적을 계산할 때 적용된 전역 환율을 스냅샷으로 저장 (수출 USD 환산 근거)
     const itemToSave = { id: quoteInput.id || Date.now(), createdAt: quoteInput.createdAt || new Date().toLocaleString(), authorName, ...quoteInput, items: sortedItems, exchangeRate: globalExchangeRate };
 
-    // UI 상태에 저장된 id/생성일/환율도 반영 → 다시 Save 눌러도 같은 문서를 덮어써 중복 저장 방지
+    // id/생성일/환율/정렬을 즉시 반영 → 다시 Save 눌러도 같은 문서를 덮어써 중복 저장 방지(저장 실패해도 id는 고정)
     setQuoteInput(prev => ({ ...prev, id: itemToSave.id, createdAt: itemToSave.createdAt, exchangeRate: globalExchangeRate, items: sortedItems }));
 
-    if(savedQuotesCallback) savedQuotesCallback(itemToSave);
-    saveDocToCloud('quotes', itemToSave); 
-    showToast("견적 관리: 품목 코드(가나다) 순으로 자동 정렬되어 저장되었습니다.", 'success');
+    savingRef.current = true;
+    try {
+      const ok = await saveDocToCloud('quotes', itemToSave);
+      if (ok === false) return false; // 클라우드 저장 실패 → 성공 토스트/로컬 목록 반영 안 함(saveDocToCloud가 실패 토스트 표시)
+      if (savedQuotesCallback) savedQuotesCallback(itemToSave);
+      showToast("견적 관리: 품목 코드(가나다) 순으로 자동 정렬되어 저장되었습니다.", 'success');
+      return itemToSave.id;
+    } finally {
+      savingRef.current = false;
+    }
   };
 
   const handleDeleteQuote = async (id, syncQuoteCallback) => {
