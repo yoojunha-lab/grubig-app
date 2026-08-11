@@ -481,13 +481,13 @@ export const DevStatusPage = ({
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left border-collapse min-w-[900px]">
                   <thead>
-                    <tr className="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
-                      <th className="p-3 w-[120px]">O/D No.</th>
-                      <th className="p-3 w-[140px]">바이어</th>
-                      <th className="p-3">품목명</th>
-                      <th className="p-3 w-[200px]">현재 단계</th>
-                      <th className="p-3 w-[120px]">납기(경과)</th>
-                      <th className="p-3 w-[320px] text-right">관리</th>
+                    <tr className="bg-slate-100/70 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
+                      <th className="px-2 py-1.5 border-r border-slate-200 w-[110px]">O/D No.</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 w-[130px]">바이어</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200">품목명</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 w-[185px]">현재 단계</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 w-[115px]">납기(경과)</th>
+                      <th className="px-2 py-1.5 w-[300px] text-right">관리</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -501,20 +501,20 @@ export const DevStatusPage = ({
                       const nextAction = nextStatusAction(d.status);
                       return (
                         <tr key={d.id} className={`border-b border-slate-100 hover:bg-slate-50/50 transition-colors ${rowBg(urgency)}`}>
-                          <td className="p-3 text-xs font-mono font-extrabold text-violet-700">{d.devOrderNo || '-'}</td>
-                          <td className="p-3 text-xs font-bold text-slate-700 truncate">{d.buyerName || '-'}</td>
-                          <td className="p-3 text-sm font-bold text-slate-800 truncate">
+                          <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-mono font-extrabold text-violet-700">{d.devOrderNo || '-'}</td>
+                          <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-bold text-slate-700 truncate">{d.buyerName || '-'}</td>
+                          <td className="px-2 py-1.5 border-r border-slate-100 text-xs font-bold text-slate-800 truncate">
                             {d.devItem || d.targetSpec?.composition || '품목명 미입력'}
                             {stageEntry && <div className="text-[9px] text-slate-400 font-medium mt-0.5">📅 {stageEntry}</div>}
                           </td>
-                          <td className="p-3">
-                            <div className="flex flex-col gap-1.5">
+                          <td className="px-2 py-1.5 border-r border-slate-100">
+                            <div className="flex flex-col gap-1">
                               <PendingProgressBar stageKey={devStageKey(d)} />
                               <select
                                 value={d.status}
                                 onChange={(e) => updateDevStatus && updateDevStatus(d.id, e.target.value)}
                                 title="단계를 변경하려면 선택하세요"
-                                className="w-full max-w-[180px] text-[10px] font-bold border border-slate-300 rounded px-1.5 py-1 bg-white hover:border-purple-300 focus:ring-2 ring-purple-200 outline-none cursor-pointer"
+                                className="w-full max-w-[170px] text-[10px] font-bold border border-slate-300 rounded px-1.5 py-0.5 bg-white hover:border-purple-300 focus:ring-2 ring-purple-200 outline-none cursor-pointer"
                               >
                                 {DEV_REQ_STAGE_GUIDE.map(s => (
                                   <option key={s.key} value={s.key} title={s.desc}>{s.label}</option>
@@ -523,9 +523,9 @@ export const DevStatusPage = ({
                               </select>
                             </div>
                           </td>
-                          <td className="p-3 text-xs">
+                          <td className="px-2 py-1.5 border-r border-slate-100 text-xs">
                             {devDl ? (
-                              <div className="flex flex-col gap-1">
+                              <div className="flex flex-col gap-0.5">
                                 <span className="font-mono font-bold text-slate-700">{devDl}</span>
                                 {db
                                   ? <span className={`inline-block w-fit text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>
@@ -535,24 +535,24 @@ export const DevStatusPage = ({
                               <span className="text-slate-400">{enteredDays != null ? `${enteredDays}일째` : '-'}</span>
                             )}
                           </td>
-                          <td className="p-3">
-                            <div className="flex gap-1 justify-end">
+                          <td className="px-2 py-1.5">
+                            <div className="flex gap-1 justify-end flex-wrap items-center">
                               {d.status === 'confirmed' ? (
                                 <button onClick={() => handleGoToSheet(d)}
-                                  className="flex items-center gap-1 px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded shadow-sm"
+                                  className="flex items-center gap-1 px-2 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded shadow-sm"
                                   title="설계서 작성 시작">
                                   <ArrowRight className="w-3 h-3"/> 설계 시작
                                 </button>
                               ) : nextAction && (
                                 <button onClick={() => updateDevStatus(d.id, nextAction.next)}
-                                  className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded shadow-sm"
+                                  className="flex items-center gap-1 px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded shadow-sm"
                                   title={`다음 단계: ${nextAction.label}`}>
                                   <ArrowRight className="w-3 h-3"/> {nextAction.label}
                                 </button>
                               )}
                               <div className="relative">
                                 <button onClick={() => setPrintMenuId(printMenuId === d.id ? null : d.id)}
-                                  className="flex items-center gap-1 px-2 py-1 bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-bold rounded border border-slate-200"
+                                  className="flex items-center gap-1 px-2 py-0.5 bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-bold rounded border border-slate-200"
                                   title="의뢰서 인쇄 (편직처용 / 내부용)">
                                   <Printer className="w-3 h-3"/>
                                   <ChevronDown className="w-2.5 h-2.5"/>
@@ -565,12 +565,12 @@ export const DevStatusPage = ({
                                 )}
                               </div>
                               <button onClick={() => openEditModal(d)}
-                                className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10px] font-bold rounded border border-blue-200"
+                                className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10px] font-bold rounded border border-blue-200"
                                 title="의뢰 수정">
                                 <Edit2 className="w-3 h-3"/> 수정
                               </button>
                               <button onClick={() => handleDropDev(d)}
-                                className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 hover:bg-red-100 text-[10px] font-bold rounded border border-red-200"
+                                className="flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 hover:bg-red-100 text-[10px] font-bold rounded border border-red-200"
                                 title="의뢰 Drop">
                                 <XCircle className="w-3 h-3"/> Drop
                               </button>
@@ -681,15 +681,15 @@ export const DevStatusPage = ({
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left border-collapse min-w-[1020px]">
                   <thead>
-                    <tr className="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
-                      <th className="p-3 w-[110px]">EZ-Tex No.</th>
-                      <th className="p-3 w-[110px]">개발번호</th>
-                      <th className="p-3 w-[130px]">바이어</th>
-                      <th className="p-3 w-[100px]">등록 날짜</th>
-                      <th className="p-3">원단명</th>
-                      <th className="p-3 w-[190px]">현재 단계</th>
-                      <th className="p-3 w-[120px]">납기(경과)</th>
-                      <th className="p-3 w-[300px] text-right">관리</th>
+                    <tr className="bg-slate-100/70 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
+                      <th className="px-2 py-1.5 border-r border-slate-200 w-[105px]">EZ-Tex No.</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 w-[100px]">개발번호</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 w-[120px]">바이어</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 w-[95px]">등록 날짜</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200">원단명</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 w-[180px]">현재 단계</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 w-[115px]">납기(경과)</th>
+                      <th className="px-2 py-1.5 w-[290px] text-right">관리</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -703,28 +703,28 @@ export const DevStatusPage = ({
                       const regDate = s.registeredDate || (s.createdAt || '').slice(0, 10) || '-';
                       return (
                         <tr key={s.id} className={`border-b border-slate-100 hover:bg-slate-50/50 transition-colors ${rowBg(urgency)}`}>
-                          <td className="p-3 text-xs font-mono font-bold text-violet-700">
+                          <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-mono font-bold text-violet-700">
                             {s.eztexOrderNo || <span className="text-slate-300 font-sans">-</span>}
                           </td>
-                          <td className="p-3 text-xs font-mono font-extrabold text-slate-600">{s.devOrderNo || '자체'}</td>
-                          <td className="p-3 text-xs font-bold text-slate-700 truncate">
+                          <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-mono font-extrabold text-slate-600">{s.devOrderNo || '자체'}</td>
+                          <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-bold text-slate-700 truncate">
                             {isSelfDev
-                              ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-500 border-slate-200">자체개발</span>
+                              ? <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-slate-100 text-slate-500 border-slate-200">자체개발</span>
                               : (dev?.buyerName || '-')}
                           </td>
-                          <td className="p-3 text-xs font-mono text-blue-700 font-bold">{regDate}</td>
-                          <td className="p-3 text-sm font-bold text-slate-800 truncate">
+                          <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-mono text-blue-700 font-bold">{regDate}</td>
+                          <td className="px-2 py-1.5 border-r border-slate-100 text-xs font-bold text-slate-800 truncate">
                             {s.fabricName || '원단명 미입력'}
                             {stageEntry && <div className="text-[9px] text-slate-400 font-medium mt-0.5">📅 {stageEntry}</div>}
                           </td>
-                          <td className="p-3">
-                            <div className="flex flex-col gap-1.5">
+                          <td className="px-2 py-1.5 border-r border-slate-100">
+                            <div className="flex flex-col gap-1">
                               <PendingProgressBar stageKey={s.stage} />
                               <select
                                 value={s.stage}
                                 onChange={(e) => setStage && setStage(s.id, e.target.value)}
                                 title="단계를 변경하려면 선택하세요"
-                                className="w-full max-w-[180px] text-[10px] font-bold border border-slate-300 rounded px-1.5 py-1 bg-white hover:border-indigo-300 focus:ring-2 ring-indigo-200 outline-none cursor-pointer"
+                                className="w-full max-w-[170px] text-[10px] font-bold border border-slate-300 rounded px-1.5 py-0.5 bg-white hover:border-indigo-300 focus:ring-2 ring-indigo-200 outline-none cursor-pointer"
                               >
                                 {DESIGN_STAGE_GUIDE.map(stage => (
                                   <option key={stage.key} value={stage.key} title={stage.desc}>{stage.label}</option>
@@ -736,7 +736,7 @@ export const DevStatusPage = ({
                                   value={s.samplingSub || 'yarn'}
                                   onChange={(e) => setSamplingSub && setSamplingSub(s.id, e.target.value)}
                                   title="샘플 세부 진행단계 변경 (원사발주 → 편직 → 염가공 / 중단)"
-                                  className={`w-full max-w-[180px] text-[10px] font-bold border rounded px-1.5 py-1 outline-none cursor-pointer focus:ring-2 ${subOf(s).cls} ring-amber-200`}
+                                  className={`w-full max-w-[170px] text-[10px] font-bold border rounded px-1.5 py-0.5 outline-none cursor-pointer focus:ring-2 ${subOf(s).cls} ring-amber-200`}
                                 >
                                   {SAMPLING_SUBSTAGES.map(sub => (
                                     <option key={sub.key} value={sub.key}>└ {sub.label}</option>
@@ -745,8 +745,8 @@ export const DevStatusPage = ({
                               )}
                             </div>
                           </td>
-                          <td className="p-3 text-xs">
-                            <div className="flex flex-col gap-1">
+                          <td className="px-2 py-1.5 border-r border-slate-100 text-xs">
+                            <div className="flex flex-col gap-0.5">
                               {s.deadline ? (
                                 <>
                                   <span className="font-mono font-bold text-slate-700">{s.deadline}</span>
@@ -766,8 +766,8 @@ export const DevStatusPage = ({
                               )}
                             </div>
                           </td>
-                          <td className="p-3">
-                            <div className="flex gap-1 justify-end items-center">
+                          <td className="px-2 py-1.5">
+                            <div className="flex gap-1 justify-end items-center flex-wrap">
                               {s.stage === 'eztex' && (
                                 <>
                                   <input
@@ -776,34 +776,34 @@ export const DevStatusPage = ({
                                     placeholder="EZ-TEX O/D"
                                     defaultValue={s.eztexOrderNo || ''}
                                     onKeyDown={e => { if (e.key === 'Enter') handleEztexSubmit(s); }}
-                                    className="w-[110px] border border-violet-200 bg-violet-50/40 rounded px-2 py-1 text-[10px] font-mono focus:bg-white focus:ring-2 ring-violet-200 outline-none placeholder:text-slate-300"
+                                    className="w-[100px] border border-violet-200 bg-violet-50/40 rounded px-2 py-0.5 text-[10px] font-mono focus:bg-white focus:ring-2 ring-violet-200 outline-none placeholder:text-slate-300"
                                   />
                                   <button onClick={() => handleEztexSubmit(s)}
-                                    className="flex items-center gap-1 px-2 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[10px] font-bold rounded shadow-sm">
+                                    className="flex items-center gap-1 px-2 py-0.5 bg-violet-600 hover:bg-violet-700 text-white text-[10px] font-bold rounded shadow-sm">
                                     등록
                                   </button>
                                 </>
                               )}
                               {isSelfDev ? (
                                 <button onClick={() => { setLinkSearch(''); setLinkTargetSheet(s); }}
-                                  className="flex items-center gap-1 px-2 py-1 bg-violet-50 text-violet-600 hover:bg-violet-100 text-[10px] font-bold rounded border border-violet-200"
+                                  className="flex items-center gap-1 px-2 py-0.5 bg-violet-50 text-violet-600 hover:bg-violet-100 text-[10px] font-bold rounded border border-violet-200"
                                   title="기존 개발 의뢰와 수동 연결">
-                                  <Link2 className="w-3 h-3"/> 의뢰 연결
+                                  <Link2 className="w-3 h-3"/> 연결
                                 </button>
                               ) : (
                                 <button onClick={() => unlinkSheetFromDevRequest?.(s.id)}
-                                  className="flex items-center gap-1 px-2 py-1 bg-slate-50 text-slate-500 hover:bg-slate-100 text-[10px] font-bold rounded border border-slate-200"
+                                  className="flex items-center gap-1 px-2 py-0.5 bg-slate-50 text-slate-500 hover:bg-slate-100 text-[10px] font-bold rounded border border-slate-200"
                                   title="개발 의뢰 연결 해제 (자체개발로 전환)">
-                                  <Unlink className="w-3 h-3"/> 연결해제
+                                  <Unlink className="w-3 h-3"/> 해제
                                 </button>
                               )}
                               <button onClick={() => handleEditSheet?.(s)}
-                                className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10px] font-bold rounded border border-blue-200"
+                                className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10px] font-bold rounded border border-blue-200"
                                 title="설계서 수정">
                                 <Edit2 className="w-3 h-3"/> 수정
                               </button>
                               <button onClick={() => handleDropSheet(s.id)}
-                                className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 hover:bg-red-100 text-[10px] font-bold rounded border border-red-200"
+                                className="flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 hover:bg-red-100 text-[10px] font-bold rounded border border-red-200"
                                 title="설계서 Drop">
                                 <XCircle className="w-3 h-3"/> Drop
                               </button>
