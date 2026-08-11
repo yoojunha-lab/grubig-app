@@ -218,6 +218,21 @@ export const DesignSheetPage = ({
   const quoteSym = viewMode === 'export' ? '$' : '₩';
   const quoteSellPrice = (tierKey) => computeSellPrice(costData, sheetInput, viewMode, tierKey);
 
+  // [가설계서] 구간별 매출이익율/정액 — 레거시 단일값·빈값도 안전하게 읽고, 항상 구간별 객체로 기록
+  const readQuoteTier = (field, tier) => {
+    const v = sheetInput?.[field];
+    if (v && typeof v === 'object') return v[tier] ?? '';
+    return v ?? ''; // 레거시 단일값 → 세 구간 동일 표시
+  };
+  const setQuoteTier = (field, tier, value) => setSheetInput?.(prev => {
+    const cur = prev[field];
+    const obj = (cur && typeof cur === 'object')
+      ? { ...cur }
+      : { '1k': cur ?? '', '3k': cur ?? '', '5k': cur ?? '' }; // 레거시 단일 → 펼친 뒤 편집
+    obj[tier] = value;
+    return { ...prev, [field]: obj };
+  });
+
   const handleSaveAndGo = async () => {
     // [REF-2] 가설계서 모드에서는 의뢰 연결(onLink) 불필요
     // 저장이 실제로 성공(truthy id 반환)했을 때만 모달을 닫는다. (실패 시 입력값 유지)
@@ -597,29 +612,38 @@ export const DesignSheetPage = ({
         {/* [가설계서 전용] 영업 견적 시뮬레이션 — 매출이익율 넣으면 최종 판매가 */}
         {isTempMode && (
           <div className="mt-3 border-2 border-emerald-300 bg-emerald-50/40 rounded-lg p-3">
-            <h3 className="text-xs font-extrabold text-emerald-800 mb-2 flex items-center gap-1.5">
-              <DollarSign className="w-3.5 h-3.5" /> 영업 견적 시뮬레이션 — 마진 넣으면 최종 판매가
-            </h3>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-2.5">
-              <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
-                매출이익율(%)
-                <input type="number" value={sheetInput.quoteMarginRate ?? ''} onChange={e => setSheetInput?.(prev => ({ ...prev, quoteMarginRate: e.target.value }))} placeholder="0" className="w-20 border border-emerald-300 rounded px-2 py-1 text-center font-mono text-xs outline-none focus:ring-2 ring-emerald-200 bg-white" />
-              </label>
-              <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
-                YD당 정액 ({quoteSym})
-                <input type="number" value={sheetInput.quoteMarginAdd ?? ''} onChange={e => setSheetInput?.(prev => ({ ...prev, quoteMarginAdd: e.target.value }))} placeholder="0" className="w-24 border border-emerald-300 rounded px-2 py-1 text-center font-mono text-xs outline-none focus:ring-2 ring-emerald-200 bg-white" />
-              </label>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-extrabold text-emerald-800 flex items-center gap-1.5">
+                <DollarSign className="w-3.5 h-3.5" /> 영업 견적 시뮬레이션 — 구간별 마진 → 최종 판매가
+              </h3>
               <span className="text-[10px] text-slate-400">판매가 = 영업기준원가 ÷ (1 − 매출이익율%) + YD당 정액</span>
             </div>
             <div className="grid grid-cols-4 gap-px bg-slate-200 border border-slate-200 rounded-lg overflow-hidden text-center">
+              {/* 헤더 */}
               <div className="bg-slate-100 py-1 text-[10px] font-bold text-slate-500 flex items-center justify-center">구분</div>
-              {[['tier1k', '1,000'], ['tier3k', '3,000'], ['tier5k', '5,000']].map(([tk, lbl], i) => (
+              {[['1k', '1,000'], ['3k', '3,000'], ['5k', '5,000']].map(([tk, lbl], i) => (
                 <div key={tk} className={`py-1 text-[10px] font-bold ${i === 1 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{lbl} YD</div>
               ))}
+              {/* 영업 기준원가 */}
               <div className="bg-white py-1 text-[10px] font-bold text-slate-500 flex items-center justify-center">영업 기준원가</div>
               {['tier1k', 'tier3k', 'tier5k'].map((tk, i) => (
                 <div key={tk} className={`py-1 text-[11px] font-mono text-slate-600 ${i === 1 ? 'bg-emerald-50/50' : 'bg-white'}`}>{quoteSym}{num(costData?.[tk]?.[viewMode]?.finalCostYd || 0, viewMode)}</div>
               ))}
+              {/* 매출이익율(%) 입력 — 구간별 */}
+              <div className="bg-white py-1 text-[10px] font-bold text-slate-500 flex items-center justify-center">매출이익율(%)</div>
+              {['1k', '3k', '5k'].map((tk, i) => (
+                <div key={tk} className={`py-0.5 flex items-center justify-center ${i === 1 ? 'bg-emerald-50/50' : 'bg-white'}`}>
+                  <input type="number" min="0" max="99" value={readQuoteTier('quoteMarginRate', tk)} onChange={e => setQuoteTier('quoteMarginRate', tk, e.target.value)} placeholder="0" className="w-16 border border-emerald-300 rounded px-1 py-0.5 text-center font-mono text-[11px] outline-none focus:ring-2 ring-emerald-200 bg-white" />
+                </div>
+              ))}
+              {/* YD당 정액 입력 — 구간별 */}
+              <div className="bg-white py-1 text-[10px] font-bold text-slate-500 flex items-center justify-center">YD당 정액({quoteSym})</div>
+              {['1k', '3k', '5k'].map((tk, i) => (
+                <div key={tk} className={`py-0.5 flex items-center justify-center ${i === 1 ? 'bg-emerald-50/50' : 'bg-white'}`}>
+                  <input type="number" value={readQuoteTier('quoteMarginAdd', tk)} onChange={e => setQuoteTier('quoteMarginAdd', tk, e.target.value)} placeholder="0" className="w-16 border border-emerald-300 rounded px-1 py-0.5 text-center font-mono text-[11px] outline-none focus:ring-2 ring-emerald-200 bg-white" />
+                </div>
+              ))}
+              {/* 최종 판매가 */}
               <div className="bg-emerald-600 py-1.5 text-[10px] font-extrabold text-white flex items-center justify-center">최종 판매가</div>
               {['tier1k', 'tier3k', 'tier5k'].map((tk, i) => (
                 <div key={tk} className={`py-1.5 text-xs font-mono font-black ${i === 1 ? 'bg-emerald-100 text-emerald-900' : 'bg-emerald-50 text-emerald-700'}`}>{quoteSym}{num(quoteSellPrice(tk), viewMode)}</div>

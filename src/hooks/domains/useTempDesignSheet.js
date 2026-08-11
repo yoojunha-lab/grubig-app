@@ -16,8 +16,8 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
 
     // === 영업 견적 시뮬레이션 (가설계서 전용) ===
     // 판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액
-    quoteMarginRate: '', // 매출이익율(%) — 전 구간 공통
-    quoteMarginAdd: '',  // YD당 정액(원/$) — 화면 통화 기준
+    quoteMarginRate: { '1k': 22, '3k': 20, '5k': 18 }, // 매출이익율(%) — 구간별 (신규 가설계서 기본값)
+    quoteMarginAdd: { '1k': 0, '3k': 0, '5k': 0 },     // YD당 정액(원/$) — 구간별, 화면 통화 기준
 
     // (1) 원사 정보 (가설계서 전용: priceOverride 추가)
     // priceOverride: 가설계서에서만 사용하는 슬롯별 단가(KRW/kg) override.

@@ -72,14 +72,15 @@ export const applyGrossMargin = (cost, margin) =>
  * 가설계서 영업견적 판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액.
  * DesignSheetPage(isTempMode)·TempDesignSheetListPage 공용 (중복 제거).
  * @param {Object} cost   calculateCost 결과
- * @param {Object} sheet  quoteMarginRate·quoteMarginAdd 보유 시트
+ * @param {Object} sheet  quoteMarginRate·quoteMarginAdd 보유 시트 (구간별 {'1k','3k','5k'} 또는 레거시 단일값)
  * @param {string} viewMode 'domestic' | 'export'
  * @param {string} tierKey 'tier1k' | 'tier3k' | 'tier5k'
  */
 export const computeSellPrice = (cost, sheet, viewMode, tierKey) => {
   const base = cost?.[tierKey]?.[viewMode]?.finalCostYd || 0;
-  const rate = Number(sheet?.quoteMarginRate) || 0;
-  const add = Number(sheet?.quoteMarginAdd) || 0;
+  const t = tierKey.replace('tier', '');                   // 'tier1k' → '1k'
+  const rate = toTierRate(sheet?.quoteMarginRate)[t] || 0; // 구간별 매출이익율(%)
+  const add = toTierAdd(sheet?.quoteMarginAdd)[t] || 0;    // 구간별 YD당 정액
   return smartRound(applyGrossMargin(base, rate) + add, viewMode === 'export' ? 'USD' : 'KRW');
 };
 
@@ -95,6 +96,21 @@ export const toTierRate = (val) => {
     return { '1k': clamp(val['1k']), '3k': clamp(val['3k']), '5k': clamp(val['5k']) };
   }
   const v = clamp(val);
+  return { '1k': v, '3k': v, '5k': v };
+};
+
+/**
+ * YD당 정액을 구간별 객체 { '1k', '3k', '5k' } 로 정규화합니다. (정액이므로 상한 clamp 없음)
+ *  - 숫자(레거시 단일값) → 세 구간 모두 같은 값으로 펼침
+ *  - 객체(신규 구간별) → 각 구간값을 숫자화
+ *  - null/undefined/빈값 → { '1k':0, '3k':0, '5k':0 }
+ */
+export const toTierAdd = (val) => {
+  const n = (x) => Number(x) || 0;
+  if (val && typeof val === 'object') {
+    return { '1k': n(val['1k']), '3k': n(val['3k']), '5k': n(val['5k']) };
+  }
+  const v = n(val);
   return { '1k': v, '3k': v, '5k': v };
 };
 

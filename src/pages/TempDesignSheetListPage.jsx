@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Search, Plus, Edit2, Trash2, FlaskConical, Calendar, User, FileText, X, Save, ArrowRight } from 'lucide-react';
-import { num, computeSellPrice } from '../utils/helpers';
+import { num, computeSellPrice, toTierRate } from '../utils/helpers';
 
 /**
  * 가설계서(레시피) 관리 페이지
@@ -163,7 +163,10 @@ export const TempDesignSheetListPage = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {rows.map(({ sheet, p1, p3, p5 }) => {
-                    const margin = Number(sheet.quoteMarginRate) || 0;
+                    const mr = toTierRate(sheet.quoteMarginRate);
+                    const mLo = Math.min(mr['1k'], mr['3k'], mr['5k']);
+                    const mHi = Math.max(mr['1k'], mr['3k'], mr['5k']);
+                    const marginLabel = mLo === mHi ? `${mHi}%` : `${mLo}~${mHi}%`;
                     return (
                       <tr key={sheet.id} className="divide-x divide-slate-100 bg-white hover:bg-amber-50/30 transition-colors group">
                         <td className="py-1.5 px-3 whitespace-nowrap">
@@ -172,7 +175,7 @@ export const TempDesignSheetListPage = ({
                         </td>
                         <td className="py-1.5 px-3">
                           <span className="text-[13px] font-extrabold text-slate-800">{sheet.fabricName || '(이름없음)'}</span>
-                          {margin > 0 && <span className="ml-1.5 text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 whitespace-nowrap">마진 {margin}%</span>}
+                          {mHi > 0 && <span className="ml-1.5 text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 whitespace-nowrap">마진 {marginLabel}</span>}
                         </td>
                         <td className="py-1.5 px-3 text-xs text-slate-600 uppercase">{sheet.buyerName || <span className="text-slate-300">-</span>}</td>
                         <td className="py-1.5 px-3 text-center whitespace-nowrap">
@@ -210,12 +213,15 @@ export const TempDesignSheetListPage = ({
           {/* 모바일 카드 */}
           <div className="block md:hidden space-y-3">
             {rows.map(({ sheet, p1, p3, p5 }) => {
-              const margin = Number(sheet.quoteMarginRate) || 0;
+              const mr = toTierRate(sheet.quoteMarginRate);
+              const mLo = Math.min(mr['1k'], mr['3k'], mr['5k']);
+              const mHi = Math.max(mr['1k'], mr['3k'], mr['5k']);
+              const marginLabel = mLo === mHi ? `${mHi}%` : `${mLo}~${mHi}%`;
               return (
                 <div key={sheet.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-amber-300 transition-colors">
                   <div className="flex justify-between items-start mb-2">
                     <div>
-                      <h4 className="text-sm font-extrabold text-slate-800 flex items-center gap-1.5 flex-wrap">{sheet.fabricName || '(이름없음)'}{margin > 0 && <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1">마진 {margin}%</span>}</h4>
+                      <h4 className="text-sm font-extrabold text-slate-800 flex items-center gap-1.5 flex-wrap">{sheet.fabricName || '(이름없음)'}{mHi > 0 && <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1">마진 {marginLabel}</span>}</h4>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-[10px] text-slate-500 flex items-center gap-1">
                           <User className="w-3 h-3" /> {sheet.buyerName || '-'}
