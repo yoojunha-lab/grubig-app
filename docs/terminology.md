@@ -39,8 +39,11 @@
 - **구간별 추가 영업마진**: 1k/3k/5k YD당 정액(`marginAdd`), 전체 적용
 - **공식**: 판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액
 - **사용 위치**: `src/pages/QuotationPage.jsx`, `src/hooks/domains/useQuotation.js`
-- **가설계서 영업견적 시뮬레이션(2026-08 추가)**: 단일 `quoteMarginRate`(%) + `quoteMarginAdd`(YD당 정액)로
-  최종 판매가를 미리 계산. 편집화면(`DesignSheetPage.jsx` isTempMode) 하단 + 목록 1K/3K/5K 판매가
+- **가설계서 영업견적 시뮬레이션(2026-08 추가, 구간별 개편)**: `quoteMarginRate`·`quoteMarginAdd`를
+  **구간별 객체 `{'1k','3k','5k'}`** 로 보유 — 매출이익율·YD당 정액을 1K/3K/5K 각각 개별 입력.
+  신규 가설계서 기본값: 이익율 22/20/18%, 정액 0 (**기존 시트·정식 설계서는 불변**).
+  `toTierRate`/`toTierAdd`로 정규화(레거시 단일값은 세 구간에 자동 펼침 → 하위호환), 최종 판매가는 `computeSellPrice()`.
+  편집화면(`DesignSheetPage.jsx` isTempMode) 시뮬레이션 그리드 + 목록 1K/3K/5K 판매가·마진 범위 배지
   (`TempDesignSheetListPage.jsx`, `useTempDesignSheet.js`). base = `calculateCost().finalCostYd`(영업 기준원가).
 
 > ⚠️ **원가모델 참고**: `calculateCost`의 `priceConverter`/`priceBrand`는 판매가가 아니라 **`finalCostYd`(영업 기준원가) 별칭**이다.
