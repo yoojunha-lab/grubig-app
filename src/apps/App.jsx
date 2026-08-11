@@ -375,7 +375,7 @@ const App = () => {
     handleTempChange, handleTempSectionChange,
     handleTempYarnChange, handleTempCostInputChange, handleTempCostNestedChange,
     handleSaveTemp, handleEditTemp, handleDeleteTemp,
-    resetTempForm, getTempDesignCost, loadTempToSheet
+    resetTempForm, getTempDesignCost, loadTempToSheet, loadSheetToTemp
   } = useTempDesignSheet(tempDesignSheets, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost);
 
   // ⚓️ 생산 오더(스케줄) 훅 — v3
@@ -1512,6 +1512,8 @@ const App = () => {
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
             setSheetInput={setSheetInput}
             loadTempToSheet={loadTempToSheet}
+            designSheets={designSheets}
+            loadSheetToTemp={loadSheetToTemp}
           />
         )}
 

@@ -1,6 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Plus, Edit2, Trash2, FlaskConical, Calendar, User, FileText, X, Save, ArrowRight } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, FlaskConical, Calendar, User, FileText, X, Save, ArrowRight, Download } from 'lucide-react';
 import { num, computeSellPrice, toTierRate } from '../utils/helpers';
+import { DESIGN_STAGES, STAGE_COLORS } from '../constants/common';
+
+// 단계 key → 한국어 라벨 (설계서 화면과 용어 통일)
+const STAGE_LABEL = Object.fromEntries(DESIGN_STAGES.map(s => [s.key, s.label]));
 
 /**
  * 가설계서(레시피) 관리 페이지
@@ -42,12 +46,36 @@ export const TempDesignSheetListPage = ({
   resetSheetForm,
   setIsDesignSheetModalOpen,
   setSheetInput,
-  loadTempToSheet
+  loadTempToSheet,
+  // [불러오기] 정식 설계서 → 가설계서 costing
+  designSheets,
+  loadSheetToTemp
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('created'); // created(기본) | name | buyer | price
 
+  // [불러오기] 정식 설계서 선택 팝업
+  const [importPickerOpen, setImportPickerOpen] = useState(false);
+  const [importSearch, setImportSearch] = useState('');
+
   const quoteSym = viewMode === 'export' ? '$' : '₩';
+
+  // 불러오기 후보: 정식 설계서 검색(원단명·관리번호) → 최신 등록순
+  const importCandidates = useMemo(() => {
+    const q = importSearch.trim().toLowerCase();
+    return (designSheets || [])
+      .filter(s => !q || [s.fabricName, s.articleNo, s.eztexOrderNo, s.devOrderNo].some(v => String(v || '').toLowerCase().includes(q)))
+      .sort((a, b) => String(b.registeredDate || b.createdAt || '').localeCompare(String(a.registeredDate || a.createdAt || '')));
+  }, [designSheets, importSearch]);
+
+  // 정식 설계서 하나를 새 가설계서로 불러와 편집기 열기
+  const handleImportSheet = (sheet) => {
+    if (!loadSheetToTemp) return;
+    loadSheetToTemp(sheet);
+    setImportPickerOpen(false);
+    setImportSearch('');
+    setIsTempModalOpen(true);
+  };
 
   // 검색 → 판매가 계산(시트당 1회, 공용 computeSellPrice) → 정렬
   const rows = useMemo(() => {
@@ -103,6 +131,10 @@ export const TempDesignSheetListPage = ({
         </div>
 
         <div className="flex items-center gap-2">
+          <button onClick={() => { setImportSearch(''); setImportPickerOpen(true); }}
+            className="flex items-center gap-1.5 px-4 py-2 bg-white border border-indigo-300 text-indigo-700 text-xs font-bold rounded-lg shadow-sm hover:bg-indigo-50 transition-colors active:scale-95">
+            <Download className="w-3.5 h-3.5" /> 설계서 불러오기
+          </button>
           <button onClick={() => { resetTempForm(); setIsTempModalOpen(true); }}
             className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 text-white text-xs font-bold rounded-lg shadow-md hover:bg-amber-700 transition-colors active:scale-95">
             <Plus className="w-3.5 h-3.5" /> 새 가설계서 작성
@@ -255,6 +287,68 @@ export const TempDesignSheetListPage = ({
             })}
           </div>
         </>
+      )}
+
+      {/* [불러오기] 정식 설계서 선택 팝업 — 선택 시 새 가설계서로 복제 후 편집기 오픈 */}
+      {importPickerOpen && (
+        <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4 md:p-8"
+          onClick={() => setImportPickerOpen(false)}>
+          <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl mt-4 md:mt-10 overflow-hidden" onClick={e => e.stopPropagation()}>
+            {/* 헤더 */}
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 bg-gradient-to-r from-indigo-50 to-white">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                  <Download className="w-4 h-4 text-indigo-600" /> 설계서 불러오기
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">등록된 정식 설계서를 골라 새 가설계서로 복제 → costing 시뮬레이션</p>
+              </div>
+              <button onClick={() => setImportPickerOpen(false)} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg"><X className="w-4 h-4" /></button>
+            </div>
+            {/* 검색 */}
+            <div className="p-3 border-b border-slate-100">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input autoFocus type="text" placeholder="원단명, 관리번호(개발/EZ-TEX/Article)로 검색..." value={importSearch} onChange={e => setImportSearch(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 ring-indigo-200 outline-none" />
+              </div>
+            </div>
+            {/* 목록 */}
+            <div className="max-h-[55vh] overflow-y-auto divide-y divide-slate-100">
+              {importCandidates.length === 0 ? (
+                <div className="p-10 text-center">
+                  <FileText className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                  <p className="text-sm text-slate-400 font-bold">{importSearch ? '검색된 설계서가 없습니다.' : '등록된 정식 설계서가 없습니다.'}</p>
+                </div>
+              ) : importCandidates.map(sheet => {
+                const no = sheet.articleNo || sheet.eztexOrderNo || sheet.devOrderNo || '번호미정';
+                const sc = STAGE_COLORS[sheet.stage] || STAGE_COLORS.draft;
+                return (
+                  <button key={sheet.id} onClick={() => handleImportSheet(sheet)}
+                    className="w-full text-left px-4 py-2.5 hover:bg-indigo-50/60 transition-colors flex items-center justify-between gap-3 group">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] font-extrabold text-slate-800 truncate">{sheet.fabricName || '(이름없음)'}</span>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${sc.bg} ${sc.text} ${sc.border} whitespace-nowrap`}>{STAGE_LABEL[sheet.stage] || sheet.stage || '-'}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5 font-mono truncate">{no}</div>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="text-right">
+                        <div className="text-[11px] font-mono font-bold text-indigo-700">{sheet.costInput?.gsm || '-'}g</div>
+                        <div className="text-[9px] text-slate-400">{sheet.costInput?.widthCut || '-'}/{sheet.costInput?.widthFull || '-'}"</div>
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-indigo-600 transition-colors" />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {/* 푸터 */}
+            <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-[10px] text-slate-400 text-center">
+              총 {importCandidates.length}건 · 선택하면 원본은 그대로 두고 새 가설계서로 복제됩니다
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 4. 가설계서 작성/편집 모달 (DesignSheetPage 재사용, isTempMode=true) */}

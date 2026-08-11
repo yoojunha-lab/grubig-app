@@ -320,12 +320,51 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
     return true;
   };
 
+  // --- 정식 설계서 → 가설계서로 불러오기 (loadTempToSheet의 반대 방향) ---
+  // 등록된 정식 설계서의 스펙·원가 데이터를 '새 가설계서'로 복제하여 costing 시뮬레이션에 사용.
+  // ⚠️ 정식 설계서·원단 원본은 절대 수정하지 않음 (읽어서 새 가설계서로 복사만).
+  //  - 추적 필드(관리번호·단계·이력·연결정보)는 제외 (getInitialTempInput 기본값 사용)
+  //  - 원사 슬롯엔 가설계서 전용 priceOverride('')를 부여 (라이브러리 단가로 계산, 필요시 직접 입력)
+  //  - 영업견적 마진(quoteMarginRate/Add)은 신규 가설계서 기본값(22/20/18%) 사용
+  const loadSheetToTemp = (designSheet) => {
+    if (!designSheet) return false;
+    const initial = getInitialTempInput();
+    setTempInput({
+      ...initial,
+      fabricName: designSheet.fabricName || '',
+      // buyerName: 정식 설계서엔 바이어가 직접 없음(의뢰 참조) → 빈칸(사용자 입력)
+      knitting: { ...initial.knitting, ...(designSheet.knitting || {}) },
+      dyeing: { ...initial.dyeing, ...(designSheet.dyeing || {}) },
+      finishing: { ...initial.finishing, ...(designSheet.finishing || {}) },
+      costInput: {
+        ...initial.costInput,
+        ...(designSheet.costInput || {}),
+        losses: {
+          tier1k: { ...initial.costInput.losses.tier1k, ...(designSheet.costInput?.losses?.tier1k || {}) },
+          tier3k: { ...initial.costInput.losses.tier3k, ...(designSheet.costInput?.losses?.tier3k || {}) },
+          tier5k: { ...initial.costInput.losses.tier5k, ...(designSheet.costInput?.losses?.tier5k || {}) }
+        },
+        brandExtra: { ...initial.costInput.brandExtra, ...(designSheet.costInput?.brandExtra || {}) }
+      },
+      // 원사 배합을 가져오되 가설계서 전용 priceOverride('')를 부여
+      yarns: ((designSheet.yarns && designSheet.yarns.length) ? designSheet.yarns : initial.yarns).map((s, i) => ({
+        yarnId: '',
+        ratio: i === 0 ? 100 : 0,
+        ...(s || {}),
+        priceOverride: ''
+      }))
+    });
+    setEditingTempId(null); // 새 가설계서로 생성 (저장 시 새 id 부여)
+    showToast(`설계서 "${designSheet.fabricName || ''}"를 가설계서로 불러왔습니다.`, 'success');
+    return true;
+  };
+
   return {
     tempInput, setTempInput,
     editingTempId,
     handleTempChange, handleTempSectionChange,
     handleTempYarnChange, handleTempCostInputChange, handleTempCostNestedChange,
     handleSaveTemp, handleEditTemp, handleDeleteTemp,
-    resetTempForm, getTempDesignCost, loadTempToSheet
+    resetTempForm, getTempDesignCost, loadTempToSheet, loadSheetToTemp
   };
 };
