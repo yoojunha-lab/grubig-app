@@ -16,6 +16,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     stage: 'draft',
     changeHistory: [],       // 변경 이력 [{date, fields:{필드: 이전값}, reason}]
     changeReason: '',        // 변경사유 (저장 시 이력에 기록 후 제거)
+    fieldConfirm: {},        // [요청5] 편직/염색 칸별 확인 여부 { 'knitting.gauge': true }
+    fieldMeta: {},           // [요청5] 편직/염색 칸별 최근 변경 감사 { key: {by, byName, at, from, to} }
     status: 'active',        // active | dropped
     devRequestId: null,      // 연결된 개발의뢰 ID
     deadline: '',            // 납기 (설계서 전체 납기 관리)
@@ -424,6 +426,10 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
           changedFields[key] = existing[key] || '';
         }
       });
+      // [요청5] 칸별 감사 정보 — 기존 fieldMeta 유지하며 변경된 칸만 갱신
+      const fieldMeta = { ...(existing.fieldMeta || {}) };
+      const editorEmail = user?.email || '';
+      const editorName = user?.displayName || user?.email || '';
       // 중첩 섹션 비교 (knitting, dyeing, finishing, actualData)
       ['knitting', 'dyeing', 'finishing', 'actualData'].forEach(section => {
         Object.keys(finalInput[section] || {}).forEach(field => {
@@ -432,9 +438,14 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
           const oldVal = String(existing[section]?.[field] || '');
           if (newVal !== oldVal) {
             changedFields[`${section}.${field}`] = oldVal;
+            // 편직/염색/후가공 칸은 '누가·언제·무엇→무엇'을 칸별로 기록 (마우스오버 툴팁용)
+            if (section === 'knitting' || section === 'dyeing' || section === 'finishing') {
+              fieldMeta[`${section}.${field}`] = { by: editorEmail, byName: editorName, at: now, from: oldVal, to: newVal };
+            }
           }
         });
       });
+      itemToSave.fieldMeta = fieldMeta;
       // costInput 주요 필드 비교
       ['widthFull', 'widthCut', 'gsm', 'costGYd', 'knittingFee1k', 'knittingFee3k', 'knittingFee5k',
        'dyeingFee', 'extraFee1k', 'extraFee3k', 'extraFee5k', 'marginTier'].forEach(key => {

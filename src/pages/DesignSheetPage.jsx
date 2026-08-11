@@ -10,7 +10,7 @@ const KNIT_SYMBOLS = ['︹', '︺', '︿', '﹀', '━', '┃', '╋', '○', '�
 
 // 서식용 컴포넌트
 const Th = ({ children, className = "", span = 1 }) => (
-  <div className={`bg-slate-100/80 border-r border-b border-slate-300 px-2 py-1.5 font-extrabold text-slate-700 text-[10px] uppercase flex items-center ${className}`} style={{ gridColumn: `span ${span}` }}>
+  <div className={`bg-slate-100 border-r border-b border-slate-300 px-2 py-1.5 font-bold text-slate-600 text-[10px] tracking-tight flex items-center ${className}`} style={{ gridColumn: `span ${span}` }}>
     {children}
   </div>
 );
@@ -30,6 +30,57 @@ const TSelect = ({ children, ...props }) => (
     {children}
   </select>
 );
+
+// 변경 감사 툴팁 텍스트 만들기 (누가·언제·무엇→무엇)
+const buildAuditTip = (meta) => {
+  if (!meta) return '';
+  let when = '';
+  try {
+    when = new Date(meta.at).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch { when = ''; }
+  const who = meta.byName || meta.by || '작성자';
+  const from = meta.from ? meta.from : '(비어있음)';
+  const to = meta.to ? meta.to : '(비어있음)';
+  return `✏ ${who} · ${when}\n${from} → ${to}`;
+};
+
+/**
+ * [요청5] 담당자 작성 칸 — 편직 사양 / 염색·가공에서 사용
+ * - 확인(초록) / 미확인(노랑) 색상 표시, 우상단 토글 버튼으로 전환
+ * - 마우스오버 시 '누가·언제·무엇을 무엇으로' 변경했는지 감사 툴팁 표시
+ */
+const SpecCell = ({ fieldKey, span = 1, className = "", confirmed, meta, onToggle, locked, plain, children }) => {
+  // 가설계서(plain) 모드: 확인 개념 없이 일반 칸(Td)처럼 렌더
+  if (plain) {
+    return (
+      <div className={`bg-white border-r border-b border-slate-300 relative ${className}`} style={{ gridColumn: `span ${span}` }}>
+        {children}
+      </div>
+    );
+  }
+  const audit = buildAuditTip(meta);
+  const stateTip = confirmed ? '✔ 확인됨' : '미확인 (담당자 확인 필요)';
+  const title = audit ? `${stateTip}\n──────────\n${audit}` : stateTip;
+  return (
+    <div
+      className={`relative border-r border-b border-slate-300 group/spec ${confirmed ? 'bg-emerald-50/70' : 'bg-amber-50/40'} ${className}`}
+      style={{ gridColumn: `span ${span}` }}
+      title={title}
+    >
+      {children}
+      {!locked && (
+        <button
+          type="button"
+          onClick={onToggle}
+          title={confirmed ? '확인 해제하기' : '확인 표시하기'}
+          className={`absolute top-0.5 right-0.5 z-20 w-4 h-4 rounded-full flex items-center justify-center border shadow-sm transition-colors ${confirmed ? 'bg-emerald-500 border-emerald-600 text-white' : 'bg-white border-amber-300 text-amber-300 hover:border-emerald-400 hover:text-emerald-500'}`}
+        >
+          <Check className="w-2.5 h-2.5" strokeWidth={3} />
+        </button>
+      )}
+    </div>
+  );
+};
 
 /**
  * 원단 설계서 작성 문서형 페이지 (A4 명세서 레이아웃)
@@ -105,6 +156,27 @@ export const DesignSheetPage = ({
     handleFeederChange(safeIdx, 'symbol', (feeders[safeIdx]?.symbol || '') + symbol);
   };
   const toggleBool = (section, field) => handleSectionChange(section, field, !sheetInput[section]?.[field]);
+
+  // [요청5] 담당자 확인 칸 — 칸별 확인 여부 토글 + 공통 props 생성기
+  const fieldConfirm = sheetInput.fieldConfirm || {};
+  const fieldMeta = sheetInput.fieldMeta || {};
+  const toggleFieldConfirm = (key) => {
+    if (isFullyLocked) return;
+    setSheetInput?.(prev => ({
+      ...prev,
+      fieldConfirm: { ...(prev.fieldConfirm || {}), [key]: !(prev.fieldConfirm?.[key]) }
+    }));
+  };
+  const specProps = (key, span = 1, className = '') => ({
+    fieldKey: key,
+    span,
+    className,
+    confirmed: !!fieldConfirm[key],
+    meta: fieldMeta[key],
+    onToggle: () => toggleFieldConfirm(key),
+    locked: isFullyLocked,
+    plain: isTempMode   // 가설계서에서는 확인 색/토글 비활성 (일반 칸으로 표시)
+  });
 
   const costData = getDesignCost?.(sheetInput) || null;
   // 이론 G/YD = GSM × 외폭 × 변환계수
@@ -293,55 +365,57 @@ export const DesignSheetPage = ({
         {/* ------------------------------------------- */}
         {/* 3. 편직 사양 Grid */}
         {/* ------------------------------------------- */}
-        <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 편직 사양 (Knitting Specification)</h3>
+        <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5 flex-wrap"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 편직 사양 (Knitting Specification) {!isTempMode && <span className="ml-1 inline-flex items-center gap-1 text-[9px] font-bold text-slate-500 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5">담당자 확인칸 · 우상단 <span className="inline-flex w-3 h-3 items-center justify-center rounded-full bg-emerald-500 text-white"><Check className="w-2 h-2" strokeWidth={3} /></span> 클릭 · 마우스오버 시 변경이력</span>}</h3>
         <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 grid grid-cols-6 md:grid-cols-12 mb-2">
           <Th span={2}>편직처 (Factory)</Th>
-          <Td span={4}>
-            <div className="flex items-center gap-1">
+          <SpecCell {...specProps('knitting.factory', 4)}>
+            <div className="flex items-center gap-1 pr-5">
               <TSelect value={sheetInput.knitting?.factory || ''} onChange={e => handleSectionChange('knitting', 'factory', e.target.value)} disabled={isFullyLocked}>
                 <option value="">-- 선택 --</option>
                 {(knittingFactories || []).map(f => <option key={f} value={f}>{f}</option>)}
               </TSelect>
               {!isFullyLocked && <button type="button" onClick={() => setActiveMasterModal?.({ key: 'knittingFactories', title: '편직처 사전 등록 관리', description: '자주 거래하는 편직처를 등록해 두면 목록에서 간편하게 선택할 수 있습니다.', icon: Factory })} className="shrink-0 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 bg-violet-50 border border-violet-200 rounded hover:bg-violet-100">+ 등록</button>}
             </div>
-          </Td>
+          </SpecCell>
           <Th span={2}>조직 (Structure)</Th>
-          <Td span={4}>
-            <div className="flex flex-wrap gap-1 p-1">
+          <SpecCell {...specProps('knitting.structure', 4)}>
+            <div className="flex flex-wrap gap-1 p-1 pr-5">
               {(structuresList || []).map(s => (
                 <button type="button" key={s} onClick={() => !isFullyLocked && handleSectionChange('knitting', 'structure', s)} className={`px-2 py-0.5 text-[10px] rounded border ${sheetInput.knitting?.structure === s ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{s}</button>
               ))}
               {!isFullyLocked && <button type="button" onClick={() => setActiveMasterModal?.({ key: 'structures', title: '편직 조직 등록 관리', description: '자주 쓰이는 기본 조직 항목을 관리합니다. (예: 싱글, 쭈리, 양면 등)', icon: Layers })} className="px-2 py-0.5 text-[10px] rounded border border-dashed border-violet-300 text-violet-500 hover:bg-violet-50">+ 추가</button>}
               <TInput value={sheetInput.knitting?.structure || ''} onChange={e => handleSectionChange('knitting', 'structure', e.target.value)} readOnly={isFullyLocked} placeholder="기타 입력" className="w-[80px] border-b border-slate-300 ml-1 !py-0 !min-h-5" />
             </div>
-          </Td>
+          </SpecCell>
 
           <Th span={2}>기종 (Machine)</Th>
-          <Td span={4}>
-            <div className="flex flex-wrap gap-1 p-1">
+          <SpecCell {...specProps('knitting.machineType', 4)}>
+            <div className="flex flex-wrap gap-1 p-1 pr-5">
               {(machineTypesList || []).map(m => (
                 <button type="button" key={m} onClick={() => !isFullyLocked && handleSectionChange('knitting', 'machineType', m)} className={`px-2 py-0.5 text-[10px] rounded border ${sheetInput.knitting?.machineType === m ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{m}</button>
               ))}
               {!isFullyLocked && <button type="button" onClick={() => setActiveMasterModal?.({ key: 'machineTypes', title: '편직 기종 등록 관리', description: '자주 쓰는 편직 기종(게이지/타입 등)을 등록하세요.', icon: Cpu })} className="px-2 py-0.5 text-[10px] rounded border border-dashed border-violet-300 text-violet-500 hover:bg-violet-50">+ 추가</button>}
             </div>
-          </Td>
+          </SpecCell>
           <Th span={2}>게이지 (Gauge)</Th>
-          <Td span={4}><TInput type="number" value={sheetInput.knitting?.gauge || ''} onChange={e => handleSectionChange('knitting', 'gauge', e.target.value)} readOnly={isFullyLocked} placeholder="28" className="font-mono" /></Td>
+          <SpecCell {...specProps('knitting.gauge', 4)}><TInput type="number" value={sheetInput.knitting?.gauge || ''} onChange={e => handleSectionChange('knitting', 'gauge', e.target.value)} readOnly={isFullyLocked} placeholder="28" className="font-mono pr-5" /></SpecCell>
 
           <Th span={2}>인치 (Inch)</Th>
-          <Td span={2}><TInput type="number" value={sheetInput.knitting?.machineInch || ''} onChange={e => handleSectionChange('knitting', 'machineInch', e.target.value)} readOnly={isFullyLocked} placeholder="30" className="font-mono" /></Td>
+          <SpecCell {...specProps('knitting.machineInch', 2)}><TInput type="number" value={sheetInput.knitting?.machineInch || ''} onChange={e => handleSectionChange('knitting', 'machineInch', e.target.value)} readOnly={isFullyLocked} placeholder="30" className="font-mono pr-5" /></SpecCell>
           <Th span={2}>침수 (Needle)</Th>
-          <Td span={2}><TInput type="number" value={sheetInput.knitting?.needleCount || ''} onChange={e => handleSectionChange('knitting', 'needleCount', e.target.value)} readOnly={isFullyLocked} placeholder="2640" className="font-mono" /></Td>
+          <SpecCell {...specProps('knitting.needleCount', 2)}><TInput type="number" value={sheetInput.knitting?.needleCount || ''} onChange={e => handleSectionChange('knitting', 'needleCount', e.target.value)} readOnly={isFullyLocked} placeholder="2640" className="font-mono pr-5" /></SpecCell>
           <Th span={2}>피더 (Feeder)</Th>
-          <Td span={2}><TInput type="number" value={sheetInput.knitting?.feederCount || ''} onChange={e => handleSectionChange('knitting', 'feederCount', e.target.value)} readOnly={isFullyLocked} placeholder="96" className="font-mono" /></Td>
+          <SpecCell {...specProps('knitting.feederCount', 2)}><TInput type="number" value={sheetInput.knitting?.feederCount || ''} onChange={e => handleSectionChange('knitting', 'feederCount', e.target.value)} readOnly={isFullyLocked} placeholder="96" className="font-mono pr-5" /></SpecCell>
 
           <Th span={2}>개폭 설정</Th>
-          <Td span={10} className="flex items-center gap-4 px-3 py-1 bg-slate-50 border-r-0">
-            <label className="flex items-center gap-1.5 text-[10px] font-bold cursor-pointer"><input type="checkbox" checked={sheetInput.knitting?.hasOpenWidth || false} onChange={() => !isFullyLocked && toggleBool('knitting', 'hasOpenWidth')} disabled={isFullyLocked} /> 개폭선</label>
-            <label className="flex items-center gap-1.5 text-[10px] font-bold cursor-pointer"><input type="checkbox" checked={sheetInput.knitting?.isOpenWidth || false} onChange={() => !isFullyLocked && toggleBool('knitting', 'isOpenWidth')} disabled={isFullyLocked} /> 오픈개폭</label>
-          </Td>
+          <SpecCell {...specProps('knitting.openWidth', 10, '!border-r-0')}>
+            <div className="flex items-center gap-4 px-3 py-1 pr-6">
+              <label className="flex items-center gap-1.5 text-[10px] font-bold cursor-pointer"><input type="checkbox" checked={sheetInput.knitting?.hasOpenWidth || false} onChange={() => !isFullyLocked && toggleBool('knitting', 'hasOpenWidth')} disabled={isFullyLocked} /> 개폭선</label>
+              <label className="flex items-center gap-1.5 text-[10px] font-bold cursor-pointer"><input type="checkbox" checked={sheetInput.knitting?.isOpenWidth || false} onChange={() => !isFullyLocked && toggleBool('knitting', 'isOpenWidth')} disabled={isFullyLocked} /> 오픈개폭</label>
+            </div>
+          </SpecCell>
           <Th span={2}>편직 특이사항</Th>
-          <Td span={10} className="border-r-0"><TTextarea value={sheetInput.knitting?.remarks || ''} onChange={e => handleSectionChange('knitting', 'remarks', e.target.value)} readOnly={isFullyLocked} placeholder="특이사항 메모 (두 줄 이상 입력 가능)..." /></Td>
+          <SpecCell {...specProps('knitting.remarks', 10, '!border-r-0')}><TTextarea value={sheetInput.knitting?.remarks || ''} onChange={e => handleSectionChange('knitting', 'remarks', e.target.value)} readOnly={isFullyLocked} placeholder="특이사항 메모 (두 줄 이상 입력 가능)..." className="pr-5" /></SpecCell>
         </div>
 
         {/* 편직 조직도 구조표 */}
@@ -385,42 +459,44 @@ export const DesignSheetPage = ({
         {/* ------------------------------------------- */}
         {/* 4. 염색 & 후가공 Grid */}
         {/* ------------------------------------------- */}
-        <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 염색 및 가공 (Dyeing & Finishing)</h3>
+        <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5 flex-wrap"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 염색 및 가공 (Dyeing & Finishing) {!isTempMode && <span className="ml-1 inline-flex items-center gap-1 text-[9px] font-bold text-slate-500 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5">담당자 확인칸 · 우상단 <span className="inline-flex w-3 h-3 items-center justify-center rounded-full bg-emerald-500 text-white"><Check className="w-2 h-2" strokeWidth={3} /></span> 클릭 · 마우스오버 시 변경이력</span>}</h3>
         <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 grid grid-cols-4 md:grid-cols-8 mb-6">
           <Th span={1}>염가공처</Th>
-          <Td span={3}>
-            <div className="flex items-center gap-1">
+          <SpecCell {...specProps('dyeing.factory', 3)}>
+            <div className="flex items-center gap-1 pr-5">
               <TSelect value={sheetInput.dyeing?.factory || ''} onChange={e => handleSectionChange('dyeing', 'factory', e.target.value)} disabled={isFullyLocked}>
                 <option value="">-- 선택 --</option>
                 {(dyeingFactories || []).map(f => <option key={f} value={f}>{f}</option>)}
               </TSelect>
               {!isFullyLocked && <button type="button" onClick={() => setActiveMasterModal?.({ key: 'dyeingFactories', title: '염가공처 사전 등록 관리', description: '자주 거래하는 염색소 및 후가공 업체를 미리 등록해 관리할 수 있습니다.', icon: Droplets })} className="shrink-0 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 bg-violet-50 border border-violet-200 rounded hover:bg-violet-100">+ 등록</button>}
             </div>
-          </Td>
+          </SpecCell>
           <Th span={1}>가공방법</Th>
-          <Td span={3}><TInput value={sheetInput.dyeing?.processMethod || ''} onChange={e => handleSectionChange('dyeing', 'processMethod', e.target.value)} readOnly={isFullyLocked} placeholder="릴렉스 → 텐타" /></Td>
+          <SpecCell {...specProps('dyeing.processMethod', 3)}><TInput value={sheetInput.dyeing?.processMethod || ''} onChange={e => handleSectionChange('dyeing', 'processMethod', e.target.value)} readOnly={isFullyLocked} placeholder="릴렉스 → 텐타" className="pr-5" /></SpecCell>
 
           <Th span={1}>염색 후 폭</Th>
-          <Td span={1}><TInput value={sheetInput.dyeing?.dyedWidth || ''} onChange={e => handleSectionChange('dyeing', 'dyedWidth', e.target.value)} readOnly={isFullyLocked} placeholder="56인치" /></Td>
+          <SpecCell {...specProps('dyeing.dyedWidth', 1)}><TInput value={sheetInput.dyeing?.dyedWidth || ''} onChange={e => handleSectionChange('dyeing', 'dyedWidth', e.target.value)} readOnly={isFullyLocked} placeholder="56인치" className="pr-5" /></SpecCell>
           <Th span={1}>텐타 기계폭</Th>
-          <Td span={1}><TInput value={sheetInput.dyeing?.tenterWidth || ''} onChange={e => handleSectionChange('dyeing', 'tenterWidth', e.target.value)} readOnly={isFullyLocked} placeholder="60인치" /></Td>
+          <SpecCell {...specProps('dyeing.tenterWidth', 1)}><TInput value={sheetInput.dyeing?.tenterWidth || ''} onChange={e => handleSectionChange('dyeing', 'tenterWidth', e.target.value)} readOnly={isFullyLocked} placeholder="60인치" className="pr-5" /></SpecCell>
           <Th span={1}>텐타 온도</Th>
-          <Td span={1}><TInput value={sheetInput.dyeing?.tenterTemp || ''} onChange={e => handleSectionChange('dyeing', 'tenterTemp', e.target.value)} readOnly={isFullyLocked} placeholder="180℃" /></Td>
+          <SpecCell {...specProps('dyeing.tenterTemp', 1)}><TInput value={sheetInput.dyeing?.tenterTemp || ''} onChange={e => handleSectionChange('dyeing', 'tenterTemp', e.target.value)} readOnly={isFullyLocked} placeholder="180℃" className="pr-5" /></SpecCell>
           <Th span={1}>포속 / 오버피더</Th>
-          <Td span={1} className="flex divide-x divide-slate-300">
-            <TInput value={sheetInput.dyeing?.fabricSpeed || ''} onChange={e => handleSectionChange('dyeing', 'fabricSpeed', e.target.value)} readOnly={isFullyLocked} placeholder="20m/m" className="text-center w-1/2" />
-            <TInput value={sheetInput.dyeing?.overFeeder || ''} onChange={e => handleSectionChange('dyeing', 'overFeeder', e.target.value)} readOnly={isFullyLocked} placeholder="+5%" className="text-center w-1/2 bg-slate-50" />
-          </Td>
+          <SpecCell {...specProps('dyeing.fabricSpeed', 1)}>
+            <div className="flex divide-x divide-slate-300 pr-4">
+              <TInput value={sheetInput.dyeing?.fabricSpeed || ''} onChange={e => handleSectionChange('dyeing', 'fabricSpeed', e.target.value)} readOnly={isFullyLocked} placeholder="20m/m" className="text-center w-1/2" />
+              <TInput value={sheetInput.dyeing?.overFeeder || ''} onChange={e => handleSectionChange('dyeing', 'overFeeder', e.target.value)} readOnly={isFullyLocked} placeholder="+5%" className="text-center w-1/2" />
+            </div>
+          </SpecCell>
 
-          <Th span={1} className="bg-slate-200">후가공 업체</Th>
-          <Td span={1} className="bg-slate-50"><TInput value={sheetInput.finishing?.factory || ''} onChange={e => handleSectionChange('finishing', 'factory', e.target.value)} readOnly={isFullyLocked} placeholder="업체명" /></Td>
-          <Th span={1} className="bg-slate-200">후가공 종류</Th>
-          <Td span={1} className="bg-slate-50"><TInput value={sheetInput.finishing?.type || ''} onChange={e => handleSectionChange('finishing', 'type', e.target.value)} readOnly={isFullyLocked} placeholder="기모, 가공..." /></Td>
-          <Th span={1} className="bg-slate-200">후가공 방법</Th>
-          <Td span={3} className="bg-slate-50"><TInput value={sheetInput.finishing?.method || ''} onChange={e => handleSectionChange('finishing', 'method', e.target.value)} readOnly={isFullyLocked} placeholder="세부방법 기재" /></Td>
+          <Th span={1}>후가공 업체</Th>
+          <SpecCell {...specProps('finishing.factory', 1)}><TInput value={sheetInput.finishing?.factory || ''} onChange={e => handleSectionChange('finishing', 'factory', e.target.value)} readOnly={isFullyLocked} placeholder="업체명" className="pr-5" /></SpecCell>
+          <Th span={1}>후가공 종류</Th>
+          <SpecCell {...specProps('finishing.type', 1)}><TInput value={sheetInput.finishing?.type || ''} onChange={e => handleSectionChange('finishing', 'type', e.target.value)} readOnly={isFullyLocked} placeholder="기모, 가공..." className="pr-5" /></SpecCell>
+          <Th span={1}>후가공 방법</Th>
+          <SpecCell {...specProps('finishing.method', 3)}><TInput value={sheetInput.finishing?.method || ''} onChange={e => handleSectionChange('finishing', 'method', e.target.value)} readOnly={isFullyLocked} placeholder="세부방법 기재" className="pr-5" /></SpecCell>
 
           <Th span={1}>염가공 메모</Th>
-          <Td span={7}><TInput value={sheetInput.dyeing?.remarks || ''} onChange={e => handleSectionChange('dyeing', 'remarks', e.target.value)} readOnly={isFullyLocked} placeholder="특이사항 메모..." /></Td>
+          <SpecCell {...specProps('dyeing.remarks', 7)}><TInput value={sheetInput.dyeing?.remarks || ''} onChange={e => handleSectionChange('dyeing', 'remarks', e.target.value)} readOnly={isFullyLocked} placeholder="특이사항 메모..." className="pr-5" /></SpecCell>
         </div>
 
         {/* =========================================== */}
@@ -429,8 +505,8 @@ export const DesignSheetPage = ({
         <div className="mt-auto opacity-0 h-4"></div>
         </div>
 
-        {/* --- 2 PAGE (원가 및 QC 연동) --- */}
-        <div className={`bg-white shadow-xl border border-slate-300 mx-auto w-full transition-colors flex flex-col border-t-[20px] border-t-slate-300 pb-6 ${isFullyLocked ? 'bg-slate-50/50 grayscale-[20%]' : ''}`} style={{ minHeight: '297mm', padding: '10mm 15mm' }}>
+        {/* --- 2 PAGE (원가 및 QC 연동) — 1페이지와 동일한 검정 프레임으로 서식 통일 --- */}
+        <div className={`bg-white shadow-xl border border-slate-800 mx-auto w-full transition-colors flex flex-col border-t-[20px] pb-6 ${isFullyLocked ? 'bg-slate-50/50 grayscale-[20%]' : ''}`} style={{ minHeight: '297mm', padding: '10mm 15mm' }}>
 
         {/* ------------------------------------------- */}
         {/* 5. 최종 실측 & 원가 계산 (하이라이트 구역) */}
