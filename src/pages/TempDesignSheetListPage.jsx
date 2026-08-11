@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Search, Plus, Edit2, Trash2, FlaskConical, Calendar, User, FileText, X, Save, ArrowRight } from 'lucide-react';
-import { num } from '../utils/helpers';
+import { num, applyGrossMargin, smartRound } from '../utils/helpers';
 
 /**
  * 가설계서(레시피) 관리 페이지
@@ -45,19 +45,34 @@ export const TempDesignSheetListPage = ({
   loadTempToSheet
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState('created'); // created(기본) | name | buyer | price
 
-  // 검색 필터링
-  const filteredSheets = useMemo(() =>
-    (tempDesignSheets || [])
-      .filter(s => {
-        if (!searchTerm.trim()) return true;
-        const q = searchTerm.toLowerCase();
-        return String(s.fabricName || '').toLowerCase().includes(q) ||
-          String(s.buyerName || '').toLowerCase().includes(q);
-      })
-      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')),
-    [tempDesignSheets, searchTerm]
-  );
+  const quoteSym = viewMode === 'export' ? '$' : '₩';
+  // 최종 판매가 = 영업기준원가 ÷ (1 − 매출이익율%) + YD당 정액 (화면 통화 기준)
+  const sellFrom = (cost, sheet, tierKey) => {
+    const base = cost?.[tierKey]?.[viewMode]?.finalCostYd || 0;
+    const rate = Number(sheet.quoteMarginRate) || 0;
+    const add = Number(sheet.quoteMarginAdd) || 0;
+    return smartRound(applyGrossMargin(base, rate) + add, viewMode === 'export' ? 'USD' : 'KRW');
+  };
+
+  // 검색 → 판매가 계산(시트당 1회) → 정렬
+  const rows = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    const list = (tempDesignSheets || [])
+      .filter(s => !q || String(s.fabricName || '').toLowerCase().includes(q) || String(s.buyerName || '').toLowerCase().includes(q))
+      .map(sheet => {
+        const cost = getTempDesignCost?.(sheet);
+        return { sheet, p1: sellFrom(cost, sheet, 'tier1k'), p3: sellFrom(cost, sheet, 'tier3k'), p5: sellFrom(cost, sheet, 'tier5k') };
+      });
+    list.sort((a, b) => {
+      if (sortBy === 'name') return String(a.sheet.fabricName || '').localeCompare(String(b.sheet.fabricName || ''), 'ko');
+      if (sortBy === 'buyer') return String(a.sheet.buyerName || '').localeCompare(String(b.sheet.buyerName || ''), 'ko');
+      if (sortBy === 'price') return (b.p3 || 0) - (a.p3 || 0);
+      return (b.sheet.createdAt || '').localeCompare(a.sheet.createdAt || ''); // 생성날짜 최신순 (기본)
+    });
+    return list;
+  }, [tempDesignSheets, searchTerm, sortBy, viewMode, getTempDesignCost]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 날짜 포맷
   const formatDate = (isoStr) => {
@@ -112,7 +127,7 @@ export const TempDesignSheetListPage = ({
       </div>
 
       {/* 3. 가설계서 목록 */}
-      {filteredSheets.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-xl p-12 text-center shadow-sm">
           <FlaskConical className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <p className="text-sm text-slate-400 font-bold">
@@ -122,99 +137,92 @@ export const TempDesignSheetListPage = ({
         </div>
       ) : (
         <>
-          {/* 데스크톱 테이블 */}
-          <div className="hidden md:block bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-            <div className="bg-amber-50 px-4 py-3 border-b border-amber-100 flex items-center justify-between">
+          {/* 데스크톱 테이블 (견적서 목록 스타일 — 구분선/폰트/사이즈 통일) */}
+          <div className="hidden md:block bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="bg-amber-50 px-4 py-2.5 border-b border-amber-100 flex items-center justify-between gap-2 flex-wrap">
               <h3 className="text-sm font-extrabold text-amber-800 flex items-center gap-2">
                 <FlaskConical className="w-4 h-4 text-amber-600" />
                 가설계서 목록
-                <span className="text-[11px] font-normal text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">{filteredSheets.length}건</span>
+                <span className="text-[11px] font-normal text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">{rows.length}건</span>
               </h3>
+              {/* 정렬 버튼 (기본: 생성날짜) */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold text-amber-700/70 mr-0.5">정렬</span>
+                {[['created', '생성날짜'], ['name', '원단명'], ['buyer', '바이어'], ['price', '판매가']].map(([key, lbl]) => (
+                  <button key={key} onClick={() => setSortBy(key)}
+                    className={`px-2 py-1 text-[11px] font-bold rounded border transition-colors ${sortBy === key ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-amber-50'}`}>{lbl}</button>
+                ))}
+              </div>
             </div>
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-100 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
-                  <th className="p-3 w-[130px]">생성 날짜</th>
-                  <th className="p-3 w-[180px]">원단명</th>
-                  <th className="p-3 w-[130px]">바이어명</th>
-                  <th className="p-3 w-[100px] text-center">GSM / 폭</th>
-                  <th className="p-3 w-[120px] text-right">3K 도매가 (미리보기)</th>
-                  <th className="p-3 w-[180px] text-right">관리</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredSheets.map(sheet => {
-                  const costData = getTempDesignCost?.(sheet);
-                  const domestic3k = costData?.tier3k?.domestic;
-                  return (
-                    <tr key={sheet.id} className="border-b border-slate-100 hover:bg-amber-50/30 transition-colors group">
-                      <td className="p-3">
-                        <div className="flex items-center gap-1.5">
-                          <Calendar className="w-3 h-3 text-slate-400" />
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left min-w-[880px] border-collapse">
+                <thead className="bg-slate-50 text-slate-400 font-bold border-b-2 border-slate-200">
+                  <tr className="text-[10px] uppercase tracking-wide divide-x divide-slate-200">
+                    <th className="py-2 px-3 w-[120px]">생성 날짜</th>
+                    <th className="py-2 px-3">원단명</th>
+                    <th className="py-2 px-3 w-[120px]">바이어명</th>
+                    <th className="py-2 px-3 w-[110px] text-center">GSM / 폭</th>
+                    <th className="py-2 px-3 w-[90px] text-right">1K 판매가</th>
+                    <th className="py-2 px-3 w-[95px] text-right text-emerald-600">3K 판매가</th>
+                    <th className="py-2 px-3 w-[90px] text-right">5K 판매가</th>
+                    <th className="py-2 px-3 w-[130px] text-center">관리</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {rows.map(({ sheet, p1, p3, p5 }) => {
+                    const margin = Number(sheet.quoteMarginRate) || 0;
+                    return (
+                      <tr key={sheet.id} className="divide-x divide-slate-100 bg-white hover:bg-amber-50/30 transition-colors group">
+                        <td className="py-1.5 px-3 whitespace-nowrap">
                           <span className="text-xs font-mono text-slate-600">{formatDate(sheet.createdAt)}</span>
-                        </div>
-                        <div className="text-[9px] text-slate-400 mt-0.5">{formatDate(sheet.updatedAt)} 수정</div>
-                      </td>
-                      <td className="p-3">
-                        <div className="text-sm font-extrabold text-slate-800">{sheet.fabricName || '(이름없음)'}</div>
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-1">
-                          <User className="w-3 h-3 text-slate-400" />
-                          <span className="text-xs text-slate-600">{sheet.buyerName || '-'}</span>
-                        </div>
-                      </td>
-                      <td className="p-3 text-center">
-                        <span className="text-xs font-mono font-bold text-indigo-700">
-                          {sheet.costInput?.gsm || '-'}g
-                        </span>
-                        <span className="text-[10px] text-slate-400 ml-1">
-                          {sheet.costInput?.widthCut || '-'}" / {sheet.costInput?.widthFull || '-'}"
-                        </span>
-                      </td>
-                      <td className="p-3 text-right">
-                        {domestic3k ? (
-                          <span className="text-sm font-mono font-black text-indigo-800">
-                            ₩{num(domestic3k.priceConverter || 0)}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-slate-400">-</span>
-                        )}
-                      </td>
-                      <td className="p-3 text-right">
-                        <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => handleSendToFullSheet(sheet)}
-                            className="flex items-center gap-1 px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded shadow-sm"
-                            title="이 가설계서의 스펙으로 정식 설계서를 작성합니다">
-                            <ArrowRight className="w-3 h-3" /> 정식
-                          </button>
-                          <button onClick={() => { handleEditTemp(sheet); setIsTempModalOpen(true); }}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="수정">
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => handleDeleteTemp(sheet.id)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="삭제">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          <div className="text-[9px] text-slate-400">{formatDate(sheet.updatedAt)} 수정</div>
+                        </td>
+                        <td className="py-1.5 px-3">
+                          <span className="text-[13px] font-extrabold text-slate-800">{sheet.fabricName || '(이름없음)'}</span>
+                          {margin > 0 && <span className="ml-1.5 text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 whitespace-nowrap">마진 {margin}%</span>}
+                        </td>
+                        <td className="py-1.5 px-3 text-xs text-slate-600 uppercase">{sheet.buyerName || <span className="text-slate-300">-</span>}</td>
+                        <td className="py-1.5 px-3 text-center whitespace-nowrap">
+                          <span className="text-xs font-mono font-bold text-indigo-700">{sheet.costInput?.gsm || '-'}g</span>
+                          <div className="text-[9px] text-slate-400">{sheet.costInput?.widthCut || '-'}/{sheet.costInput?.widthFull || '-'}"</div>
+                        </td>
+                        <td className="py-1.5 px-3 text-right font-mono text-slate-500 whitespace-nowrap">{quoteSym}{num(p1, viewMode)}</td>
+                        <td className="py-1.5 px-3 text-right font-mono font-black text-emerald-800 bg-emerald-50/40 whitespace-nowrap">{quoteSym}{num(p3, viewMode)}</td>
+                        <td className="py-1.5 px-3 text-right font-mono text-slate-500 whitespace-nowrap">{quoteSym}{num(p5, viewMode)}</td>
+                        <td className="py-1.5 px-3">
+                          <div className="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => handleSendToFullSheet(sheet)}
+                              className="flex items-center gap-1 px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded shadow-sm"
+                              title="이 가설계서의 스펙으로 정식 설계서를 작성합니다">
+                              <ArrowRight className="w-3 h-3" /> 정식
+                            </button>
+                            <button onClick={() => { handleEditTemp(sheet); setIsTempModalOpen(true); }}
+                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="수정">
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => handleDeleteTemp(sheet.id)}
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="삭제">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* 모바일 카드 */}
           <div className="block md:hidden space-y-3">
-            {filteredSheets.map(sheet => {
-              const costData = getTempDesignCost?.(sheet);
-              const domestic3k = costData?.tier3k?.domestic;
+            {rows.map(({ sheet, p1, p3, p5 }) => {
+              const margin = Number(sheet.quoteMarginRate) || 0;
               return (
                 <div key={sheet.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-amber-300 transition-colors">
                   <div className="flex justify-between items-start mb-2">
                     <div>
-                      <h4 className="text-sm font-extrabold text-slate-800">{sheet.fabricName || '(이름없음)'}</h4>
+                      <h4 className="text-sm font-extrabold text-slate-800 flex items-center gap-1.5 flex-wrap">{sheet.fabricName || '(이름없음)'}{margin > 0 && <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1">마진 {margin}%</span>}</h4>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-[10px] text-slate-500 flex items-center gap-1">
                           <User className="w-3 h-3" /> {sheet.buyerName || '-'}
@@ -234,15 +242,14 @@ export const TempDesignSheetListPage = ({
                         className="p-1.5 text-red-500 bg-red-50 rounded-lg"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between bg-slate-50 rounded-lg p-2 mt-2">
-                    <span className="text-xs text-slate-500">
-                      {sheet.costInput?.gsm || '-'}g / {sheet.costInput?.widthCut || '-'}" / {sheet.costInput?.widthFull || '-'}"
-                    </span>
-                    {domestic3k ? (
-                      <span className="text-sm font-mono font-black text-indigo-800">₩{num(domestic3k.priceConverter || 0)}</span>
-                    ) : (
-                      <span className="text-xs text-slate-400">-</span>
-                    )}
+                  <div className="text-[11px] text-slate-500 mb-2">{sheet.costInput?.gsm || '-'}g / {sheet.costInput?.widthCut || '-'}" / {sheet.costInput?.widthFull || '-'}"</div>
+                  <div className="grid grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-lg overflow-hidden text-center">
+                    {[['1K', p1], ['3K', p3], ['5K', p5]].map(([lbl, p], i) => (
+                      <div key={lbl} className={`py-1 ${i === 1 ? 'bg-emerald-50' : 'bg-white'}`}>
+                        <div className="text-[9px] font-bold text-slate-400">{lbl} 판매가</div>
+                        <div className={`text-xs font-mono font-black ${i === 1 ? 'text-emerald-800' : 'text-slate-600'}`}>{quoteSym}{num(p, viewMode)}</div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               );

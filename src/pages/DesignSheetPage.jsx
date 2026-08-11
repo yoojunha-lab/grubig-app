@@ -1,10 +1,10 @@
 import React from 'react';
-import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download, ChevronDown } from 'lucide-react';
+import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download, ChevronDown, DollarSign } from 'lucide-react';
 import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
 import { MainDetailFormModal } from '../components/main-detail/MainDetailFormModal';
-import { num, calculateGYd } from '../utils/helpers';
+import { num, calculateGYd, applyGrossMargin, smartRound } from '../utils/helpers';
 
 // 편직 조직도 관련 부호
 const KNIT_SYMBOLS = ['︹', '︺', '︿', '﹀', '━', '┃', '╋', '○', '●', '◎', '△', '▽'];
@@ -213,6 +213,15 @@ export const DesignSheetPage = ({
   const calcKg = (Number(calcYd) > 0 && calcGYd > 0)
     ? (calcGYd * Number(calcYd) / 1000) * (1 + calcLoss1k / 100)
     : null;
+
+  // [가설계서 영업견적] 최종 판매가 = 영업기준원가 ÷ (1 − 매출이익율%) + YD당 정액 (화면 통화 기준)
+  const quoteSym = viewMode === 'export' ? '$' : '₩';
+  const quoteSellPrice = (tierKey) => {
+    const base = costData?.[tierKey]?.[viewMode]?.finalCostYd || 0;
+    const rate = Number(sheetInput.quoteMarginRate) || 0;
+    const add = Number(sheetInput.quoteMarginAdd) || 0;
+    return smartRound(applyGrossMargin(base, rate) + add, viewMode === 'export' ? 'USD' : 'KRW');
+  };
 
   const handleSaveAndGo = async () => {
     // [REF-2] 가설계서 모드에서는 의뢰 연결(onLink) 불필요
@@ -590,6 +599,39 @@ export const DesignSheetPage = ({
           setYarns={(fn) => setSheetInput?.(prev => ({ ...prev, yarns: fn(prev.yarns || []) }))}
         />
 
+        {/* [가설계서 전용] 영업 견적 시뮬레이션 — 매출이익율 넣으면 최종 판매가 */}
+        {isTempMode && (
+          <div className="mt-3 border-2 border-emerald-300 bg-emerald-50/40 rounded-lg p-3">
+            <h3 className="text-xs font-extrabold text-emerald-800 mb-2 flex items-center gap-1.5">
+              <DollarSign className="w-3.5 h-3.5" /> 영업 견적 시뮬레이션 — 마진 넣으면 최종 판매가
+            </h3>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-2.5">
+              <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
+                매출이익율(%)
+                <input type="number" value={sheetInput.quoteMarginRate ?? ''} onChange={e => setSheetInput?.(prev => ({ ...prev, quoteMarginRate: e.target.value }))} placeholder="0" className="w-20 border border-emerald-300 rounded px-2 py-1 text-center font-mono text-xs outline-none focus:ring-2 ring-emerald-200 bg-white" />
+              </label>
+              <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
+                YD당 정액 ({quoteSym})
+                <input type="number" value={sheetInput.quoteMarginAdd ?? ''} onChange={e => setSheetInput?.(prev => ({ ...prev, quoteMarginAdd: e.target.value }))} placeholder="0" className="w-24 border border-emerald-300 rounded px-2 py-1 text-center font-mono text-xs outline-none focus:ring-2 ring-emerald-200 bg-white" />
+              </label>
+              <span className="text-[10px] text-slate-400">판매가 = 영업기준원가 ÷ (1 − 매출이익율%) + YD당 정액</span>
+            </div>
+            <div className="grid grid-cols-4 gap-px bg-slate-200 border border-slate-200 rounded-lg overflow-hidden text-center">
+              <div className="bg-slate-100 py-1 text-[10px] font-bold text-slate-500 flex items-center justify-center">구분</div>
+              {[['tier1k', '1,000'], ['tier3k', '3,000'], ['tier5k', '5,000']].map(([tk, lbl], i) => (
+                <div key={tk} className={`py-1 text-[10px] font-bold ${i === 1 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{lbl} YD</div>
+              ))}
+              <div className="bg-white py-1 text-[10px] font-bold text-slate-500 flex items-center justify-center">영업 기준원가</div>
+              {['tier1k', 'tier3k', 'tier5k'].map((tk, i) => (
+                <div key={tk} className={`py-1 text-[11px] font-mono text-slate-600 ${i === 1 ? 'bg-emerald-50/50' : 'bg-white'}`}>{quoteSym}{num(costData?.[tk]?.[viewMode]?.finalCostYd || 0, viewMode)}</div>
+              ))}
+              <div className="bg-emerald-600 py-1.5 text-[10px] font-extrabold text-white flex items-center justify-center">최종 판매가</div>
+              {['tier1k', 'tier3k', 'tier5k'].map((tk, i) => (
+                <div key={tk} className={`py-1.5 text-xs font-mono font-black ${i === 1 ? 'bg-emerald-100 text-emerald-900' : 'bg-emerald-50 text-emerald-700'}`}>{quoteSym}{num(quoteSellPrice(tk), viewMode)}</div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 메모 및 서명 영역 — [BUG-2] 가설계서 모드에서는 이력 관리 불필요하므로 숨김 */}
         {editingSheetId && !isTempMode && (

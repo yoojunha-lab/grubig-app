@@ -14,6 +14,11 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
     buyerName: '',       // 가설계서 전용 바이어명 (정식에서는 의뢰 참조)
     fabricName: '',      // 원단명
 
+    // === 영업 견적 시뮬레이션 (가설계서 전용) ===
+    // 판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액
+    quoteMarginRate: '', // 매출이익율(%) — 전 구간 공통
+    quoteMarginAdd: '',  // YD당 정액(원/$) — 화면 통화 기준
+
     // (1) 원사 정보 (가설계서 전용: priceOverride 추가)
     // priceOverride: 가설계서에서만 사용하는 슬롯별 단가(KRW/kg) override.
     // 빈 문자열이면 yarn library 기본 공급처 가격 사용. 정식 변환 시 폐기됨.

@@ -33,12 +33,18 @@
 | 원단 설계서 / 가설계서 | `src/pages/DesignSheetPage.jsx` | 드롭다운(선택) |
 | 설계서 변경 이력 라벨 | `src/components/design-sheet/constants.js` (`FIELD_LABELS`) | 표시(읽기) |
 
-### 1-C. 매출이익율 + 추가 영업마진 — 견적서 전용
-견적서에서 '영업 기준원가'에 적용하는 **판매마진**.
+### 1-C. 매출이익율 + 추가 영업마진 — 견적서 · 가설계서
+'영업 기준원가'에 적용하는 **판매마진**.
 - **일괄 매출이익율(%)**: 전 품목 일괄 적용 + 원단별 개별 수정(`marginRate`)
 - **구간별 추가 영업마진**: 1k/3k/5k YD당 정액(`marginAdd`), 전체 적용
 - **공식**: 판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액
 - **사용 위치**: `src/pages/QuotationPage.jsx`, `src/hooks/domains/useQuotation.js`
+- **가설계서 영업견적 시뮬레이션(2026-08 추가)**: 단일 `quoteMarginRate`(%) + `quoteMarginAdd`(YD당 정액)로
+  최종 판매가를 미리 계산. 편집화면(`DesignSheetPage.jsx` isTempMode) 하단 + 목록 1K/3K/5K 판매가
+  (`TempDesignSheetListPage.jsx`, `useTempDesignSheet.js`). base = `calculateCost().finalCostYd`(영업 기준원가).
+
+> ⚠️ **원가모델 참고**: `calculateCost`의 `priceConverter`/`priceBrand`는 판매가가 아니라 **`finalCostYd`(영업 기준원가) 별칭**이다.
+> `costInput.marginTier`(도매 마진 단계, 1-B)는 저장·이력추적만 되고 현재 원가계산에는 미사용(판매마진은 견적/1-C로 이관됨).
 
 > ⚠️ 과거 용어(쓰지 말 것): `통합 적용 상수`, `1급~5급`, `마진등급`, `지정 마진율`, `도매 마진`. → 설계서 마진은 `도매(Conv) 마진 단계`, 원단 원가는 `위험마진`, 견적 판매마진은 `매출이익율`로 명확히 구분.
 
