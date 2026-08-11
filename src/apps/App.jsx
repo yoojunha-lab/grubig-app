@@ -352,8 +352,7 @@ const App = () => {
   const {
     sheetInput, setSheetInput, editingSheetId,
     handleSheetChange, handleSectionChange,
-    handleSheetYarnChange, handleCostInputChange, handleCostNestedChange,
-    handleActualDataChange,
+    handleSheetYarnChange, handleCostInputChange,
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
     resetSheetForm, getStageIndex, setStage, setSamplingSub,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
@@ -1396,7 +1395,6 @@ const App = () => {
             initFromDevRequest={initFromDevRequest}
             updateDevStatus={updateDevStatus}
             handleEditSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
-            handleDeleteSheet={handleDeleteSheet}
             setSamplingSub={setSamplingSub}
             linkSheetToDevRequest={linkSheetToDevRequest}
             unlinkSheetFromDevRequest={unlinkSheetFromDevRequest}
@@ -1406,9 +1404,6 @@ const App = () => {
             setActiveTab={setActiveTab}
             user={user}
             buyers={buyers}
-            yarnLibrary={yarnLibrary}
-            viewMode={viewMode}
-            addMasterItem={addMasterItem}
             generateDevOrderNo={generateDevOrderNo}
             setIsBuyerModalOpen={setIsBuyerModalOpen}
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
@@ -1428,8 +1423,6 @@ const App = () => {
                 handleSectionChange={handleSectionChange}
                 handleSheetYarnChange={handleSheetYarnChange}
                 handleCostInputChange={handleCostInputChange}
-                handleCostNestedChange={handleCostNestedChange}
-                handleActualDataChange={handleActualDataChange}
                 handleSaveSheet={handleSaveSheet}
                 handleDeleteSheet={handleDeleteSheet}
                 resetSheetForm={resetSheetForm}
@@ -1449,7 +1442,6 @@ const App = () => {
                 dyeingFactories={dyeingFactories}
                 machineTypes={machineTypes}
                 structures={structures}
-                addMasterItem={addMasterItem}
                 setActiveMasterModal={setActiveMasterModal}
                 savedFabrics={savedFabrics}
                 registerFabricFromSheet={registerFabricFromSheet}

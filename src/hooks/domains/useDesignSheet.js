@@ -463,6 +463,15 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
           if (key === 'widthCut' || key === 'widthFull' || key === 'gsm') stampMeta(`costInput.${key}`, oldVal, newVal);
         }
       });
+      // [원사 배합] 비율 확인칸 — 원사별 비율 변경 감사 기록
+      (finalInput.yarns || []).forEach((y, idx) => {
+        const newVal = String(y?.ratio ?? '');
+        const oldVal = String(existing.yarns?.[idx]?.ratio ?? '');
+        if (newVal !== oldVal) {
+          changedFields[`yarns.${idx}.ratio`] = oldVal;
+          stampMeta(`yarns.${idx}.ratio`, oldVal, newVal);
+        }
+      });
       itemToSave.fieldMeta = fieldMeta;
       // 변경사항이 있으면 이력에 추가
       if (Object.keys(changedFields).length > 0) {

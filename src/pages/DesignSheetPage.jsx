@@ -99,8 +99,6 @@ export const DesignSheetPage = ({
   handleSectionChange,
   handleSheetYarnChange,
   handleCostInputChange,
-  handleCostNestedChange,
-  handleActualDataChange,
   handleSaveSheet,
   handleDeleteSheet,
   resetSheetForm,
@@ -122,7 +120,6 @@ export const DesignSheetPage = ({
   dyeingFactories,
   machineTypes: machineTypesList,
   structures: structuresList,
-  addMasterItem,
   setActiveMasterModal,
   savedFabrics,
   registerFabricFromSheet,
@@ -367,9 +364,9 @@ export const DesignSheetPage = ({
               <Td span={isTempMode ? 6 : 8} className="p-1">
                 <SearchableSelect size="small" options={yarnSelectOptions} value={sheetInput.yarns?.[idx]?.yarnId || ''} onChange={(val) => handleSheetYarnChange(idx, 'yarnId', val)} placeholder="원사 검색..." disabled={isFullyLocked} />
               </Td>
-              <Td span={2}>
-                <TInput type="number" value={sheetInput.yarns?.[idx]?.ratio || ''} onChange={(e) => handleSheetYarnChange(idx, 'ratio', e.target.value)} readOnly={isFullyLocked} min="0" max="100" className="text-center font-bold font-mono text-blue-700 text-sm bg-blue-50/30" placeholder="0" />
-              </Td>
+              <SpecCell {...specProps(`yarns.${idx}.ratio`, 2)}>
+                <TInput type="number" value={sheetInput.yarns?.[idx]?.ratio || ''} onChange={(e) => handleSheetYarnChange(idx, 'ratio', e.target.value)} readOnly={isFullyLocked} min="0" max="100" className="text-center font-bold font-mono text-blue-700 text-sm" placeholder="0" />
+              </SpecCell>
               {isTempMode && (
                 <Td span={2} className="bg-amber-50/40">
                   <TInput
@@ -539,7 +536,7 @@ export const DesignSheetPage = ({
         {/* 5. 최종 실측 & 원가 계산 (하이라이트 구역) */}
         {/* ------------------------------------------- */}
         <div className="mt-0 flex items-end justify-between mb-1.5">
-          <h3 className="text-sm font-black text-slate-800 flex items-center gap-1.5"><span className="w-2 h-2 bg-indigo-600 block" /> 최종 스펙 및 원가 (Actual & Cost)</h3>
+          <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 최종 스펙 및 원가 (Actual & Cost)</h3>
           <p className="text-[9px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200">※ 색칠된 칸이 최종 거래 스펙 및 가격의 기준이 됩니다.</p>
         </div>
 

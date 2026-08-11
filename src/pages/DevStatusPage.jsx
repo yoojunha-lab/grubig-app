@@ -42,10 +42,10 @@ export const DevStatusPage = ({
   handleDevChange, handleSpecChange, handleSaveDevRequest,
   handleEditDevRequest, handleDeleteDevRequest, resetDevForm,
   createDesignSheetFromDev, initFromDevRequest, updateDevStatus,
-  handleEditSheet, handleDeleteSheet, saveDocToCloud, setStage, dropDesignSheet,
+  handleEditSheet, saveDocToCloud, setStage, dropDesignSheet,
   setSamplingSub, linkSheetToDevRequest, unlinkSheetFromDevRequest,
-  setActiveTab, user, buyers, yarnLibrary, viewMode,
-  addMasterItem, generateDevOrderNo, setIsBuyerModalOpen,
+  setActiveTab, user, buyers,
+  generateDevOrderNo, setIsBuyerModalOpen,
   setIsDesignSheetModalOpen,
   partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
 }) => {
