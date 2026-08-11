@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Search, Plus, Edit2, Trash2, FlaskConical, Calendar, User, FileText, X, Save, ArrowRight } from 'lucide-react';
-import { num, applyGrossMargin, smartRound } from '../utils/helpers';
+import { num, computeSellPrice } from '../utils/helpers';
 
 /**
  * 가설계서(레시피) 관리 페이지
@@ -48,22 +48,15 @@ export const TempDesignSheetListPage = ({
   const [sortBy, setSortBy] = useState('created'); // created(기본) | name | buyer | price
 
   const quoteSym = viewMode === 'export' ? '$' : '₩';
-  // 최종 판매가 = 영업기준원가 ÷ (1 − 매출이익율%) + YD당 정액 (화면 통화 기준)
-  const sellFrom = (cost, sheet, tierKey) => {
-    const base = cost?.[tierKey]?.[viewMode]?.finalCostYd || 0;
-    const rate = Number(sheet.quoteMarginRate) || 0;
-    const add = Number(sheet.quoteMarginAdd) || 0;
-    return smartRound(applyGrossMargin(base, rate) + add, viewMode === 'export' ? 'USD' : 'KRW');
-  };
 
-  // 검색 → 판매가 계산(시트당 1회) → 정렬
+  // 검색 → 판매가 계산(시트당 1회, 공용 computeSellPrice) → 정렬
   const rows = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     const list = (tempDesignSheets || [])
       .filter(s => !q || String(s.fabricName || '').toLowerCase().includes(q) || String(s.buyerName || '').toLowerCase().includes(q))
       .map(sheet => {
         const cost = getTempDesignCost?.(sheet);
-        return { sheet, p1: sellFrom(cost, sheet, 'tier1k'), p3: sellFrom(cost, sheet, 'tier3k'), p5: sellFrom(cost, sheet, 'tier5k') };
+        return { sheet, p1: computeSellPrice(cost, sheet, viewMode, 'tier1k'), p3: computeSellPrice(cost, sheet, viewMode, 'tier3k'), p5: computeSellPrice(cost, sheet, viewMode, 'tier5k') };
       });
     list.sort((a, b) => {
       if (sortBy === 'name') return String(a.sheet.fabricName || '').localeCompare(String(b.sheet.fabricName || ''), 'ko');
@@ -72,7 +65,7 @@ export const TempDesignSheetListPage = ({
       return (b.sheet.createdAt || '').localeCompare(a.sheet.createdAt || ''); // 생성날짜 최신순 (기본)
     });
     return list;
-  }, [tempDesignSheets, searchTerm, sortBy, viewMode, getTempDesignCost]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tempDesignSheets, searchTerm, sortBy, viewMode, getTempDesignCost]);
 
   // 날짜 포맷
   const formatDate = (isoStr) => {

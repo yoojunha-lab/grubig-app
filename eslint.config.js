@@ -23,7 +23,9 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // 대문자로 시작하는 식별자(React 컴포넌트·상수)는 JSX 전용 사용/컴포넌트 prop이어도 미사용 오탐하지 않도록 무시
+      // (vars=import·선언, args=구조분해 prop 파라미터 — 예: props로 받은 <DesignSheetPage/>)
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]' }],
     },
   },
 ])

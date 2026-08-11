@@ -69,6 +69,21 @@ export const applyGrossMargin = (cost, margin) =>
   margin >= 100 ? 0 : cost / (1 - (margin / 100));
 
 /**
+ * 가설계서 영업견적 판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액.
+ * DesignSheetPage(isTempMode)·TempDesignSheetListPage 공용 (중복 제거).
+ * @param {Object} cost   calculateCost 결과
+ * @param {Object} sheet  quoteMarginRate·quoteMarginAdd 보유 시트
+ * @param {string} viewMode 'domestic' | 'export'
+ * @param {string} tierKey 'tier1k' | 'tier3k' | 'tier5k'
+ */
+export const computeSellPrice = (cost, sheet, viewMode, tierKey) => {
+  const base = cost?.[tierKey]?.[viewMode]?.finalCostYd || 0;
+  const rate = Number(sheet?.quoteMarginRate) || 0;
+  const add = Number(sheet?.quoteMarginAdd) || 0;
+  return smartRound(applyGrossMargin(base, rate) + add, viewMode === 'export' ? 'USD' : 'KRW');
+};
+
+/**
  * 매출이익율(%) 값을 구간별 객체 { '1k', '3k', '5k' } 로 정규화합니다. (0~99 clamp)
  *  - 숫자(레거시 단일값) → 세 구간 모두 같은 값으로 펼침
  *  - 객체(신규 구간별) → 각 구간값을 clamp

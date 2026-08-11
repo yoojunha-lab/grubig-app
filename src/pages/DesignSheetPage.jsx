@@ -4,7 +4,7 @@ import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
 import { MainDetailFormModal } from '../components/main-detail/MainDetailFormModal';
-import { num, calculateGYd, applyGrossMargin, smartRound } from '../utils/helpers';
+import { num, calculateGYd, computeSellPrice } from '../utils/helpers';
 
 // 편직 조직도 관련 부호
 const KNIT_SYMBOLS = ['︹', '︺', '︿', '﹀', '━', '┃', '╋', '○', '●', '◎', '△', '▽'];
@@ -214,14 +214,9 @@ export const DesignSheetPage = ({
     ? (calcGYd * Number(calcYd) / 1000) * (1 + calcLoss1k / 100)
     : null;
 
-  // [가설계서 영업견적] 최종 판매가 = 영업기준원가 ÷ (1 − 매출이익율%) + YD당 정액 (화면 통화 기준)
+  // [가설계서 영업견적] 최종 판매가 — 공용 헬퍼 computeSellPrice (화면 통화 기준)
   const quoteSym = viewMode === 'export' ? '$' : '₩';
-  const quoteSellPrice = (tierKey) => {
-    const base = costData?.[tierKey]?.[viewMode]?.finalCostYd || 0;
-    const rate = Number(sheetInput.quoteMarginRate) || 0;
-    const add = Number(sheetInput.quoteMarginAdd) || 0;
-    return smartRound(applyGrossMargin(base, rate) + add, viewMode === 'export' ? 'USD' : 'KRW');
-  };
+  const quoteSellPrice = (tierKey) => computeSellPrice(costData, sheetInput, viewMode, tierKey);
 
   const handleSaveAndGo = async () => {
     // [REF-2] 가설계서 모드에서는 의뢰 연결(onLink) 불필요
@@ -365,7 +360,7 @@ export const DesignSheetPage = ({
         </div>
 
         {/* [요청3] 소요 중량(kg) 간이 계산기 — 생산 G/YD 기준 (LOSS 포함, 1,000YD 기준) */}
-        <div className="mb-3 flex justify-end">
+        <div className="-mt-2 mb-1 flex justify-end">
           <div className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
             <span className="text-[10px] font-extrabold text-slate-600 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-blue-500 rounded-full" /> 소요 중량 계산</span>
             <input type="number" min="0" value={calcYd} onChange={e => setCalcYd(e.target.value)} placeholder="YD수" className="w-[72px] border border-slate-300 rounded px-1.5 py-0.5 text-center font-mono text-[11px] outline-none focus:ring-2 ring-blue-200 placeholder:text-slate-300" />

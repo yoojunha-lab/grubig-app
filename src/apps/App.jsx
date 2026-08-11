@@ -354,7 +354,7 @@ const App = () => {
     handleSheetChange, handleSectionChange,
     handleSheetYarnChange, handleCostInputChange,
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
-    resetSheetForm, getStageIndex, setStage, setSamplingSub,
+    resetSheetForm, setStage, setSamplingSub,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
     addOrderNumber, removeOrderNumber,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,

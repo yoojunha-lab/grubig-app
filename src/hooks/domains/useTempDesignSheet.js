@@ -290,7 +290,7 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
       // 정식 설계서로 승급할 때는 폐기하여 yarn library 가격으로 자동 재계산되게 한다.
       const cleanYarns = (tempSheet.yarns || prev.yarns || []).map(slot => {
         if (!slot) return slot;
-        const { priceOverride, ...rest } = slot;
+        const { priceOverride: _priceOverride, ...rest } = slot; // priceOverride 폐기 (승급 시 라이브러리 단가로 재계산)
         return rest;
       });
 
