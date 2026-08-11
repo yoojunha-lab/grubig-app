@@ -3,6 +3,7 @@ import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory
 import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
+import { MainDetailFormModal } from '../components/main-detail/MainDetailFormModal';
 import { num, calculateGYd } from '../utils/helpers';
 
 // 편직 조직도 관련 부호
@@ -115,6 +116,10 @@ export const DesignSheetPage = ({
   designSheets,
   setSheetInput,
   mainDetails,
+  // 메인 디테일 시트 작성 팝업 (useMainDetail 핸들러 주입)
+  detailInput, setDetailInput, editingDetailId,
+  handleDetailChange, handleTestChange, addTest, removeTest,
+  handleSaveDetail, resetDetailForm,
   // 마스터 데이터 프롭스
   knittingFactories,
   dyeingFactories,
@@ -142,6 +147,17 @@ export const DesignSheetPage = ({
   const [isTempLoadModalOpen, setIsTempLoadModalOpen] = React.useState(false);
   // [요청3] 소요 중량(kg) 간이 계산기 — 입력 YD수 (저장 안 함, 화면 계산용)
   const [calcYd, setCalcYd] = React.useState('');
+  // 메인 디테일 시트 팝업 상태 (작성 / 연동현황 보기) — 설계서 길이 축소용
+  const [mdFormOpen, setMdFormOpen] = React.useState(false);
+  const [mdViewOpen, setMdViewOpen] = React.useState(false);
+  // 이 설계서 Article과 연동된 메인 디테일 시트 목록
+  const linkedMainDetails = (mainDetails || []).filter(d => d.articleNo === sheetInput.articleNo);
+  // '작성' 클릭: 현재 Article을 기본값으로 세팅해 작성 팝업 오픈
+  const openMainDetailForm = () => {
+    resetDetailForm?.();
+    setDetailInput?.(prev => ({ ...prev, articleNo: sheetInput.articleNo || '', type: 'main' }));
+    setMdFormOpen(true);
+  };
 
   const linkedDevReq = sheetInput.devRequestId ? (devRequests || []).find(d => d.id === sheetInput.devRequestId) : null;
   const feeders = sheetInput.knitting?.feeders || [{ symbol: '', loopLength: '', yarnSlot: '' }];
@@ -686,49 +702,22 @@ export const DesignSheetPage = ({
         {/* MAIN DETAIL 연동 섹션 (QC 연동 — 가설계서 모드에서는 숨김) */}
         {/* ------------------------------------------- */}
         {!isTempMode && sheetInput.articleNo && (
-          <div className="mt-6 border-[2px] border-slate-800 p-3 bg-white rounded-none">
-            <h3 className="text-xs font-bold text-slate-800 mb-3 flex items-center gap-1.5">
+          <div className="mt-6 border-[2px] border-slate-800 p-3 bg-white rounded-none flex items-center justify-between gap-2 flex-wrap">
+            <h3 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
               <FileCheck className="w-4 h-4 text-emerald-600" />
-              메인 디테일 시트 (Quality Control) 연동 현황
-              <span className="ml-2 text-[9px] font-normal text-slate-500">[{sheetInput.articleNo}] 연동됨</span>
+              메인 디테일 시트 (QC)
+              <span className="ml-1 text-[9px] font-normal text-slate-500">[{sheetInput.articleNo}]</span>
             </h3>
-            
-            <div className="flex flex-col gap-2">
-              {(mainDetails || []).filter(d => d.articleNo === sheetInput.articleNo).map(d => {
-                const latestTest = d.tests?.length ? d.tests[d.tests.length - 1] : null;
-                const isPass = latestTest?.status === 'Pass';
-                const isFail = latestTest?.status === 'Fail';
-
-                return (
-                  <div key={d.id} className="flex bg-slate-50/50 items-center p-2 border border-slate-400 shadow-sm gap-3 shrink-0">
-                    <div className="w-1.5 h-full min-h-[40px] bg-slate-800" />
-                    
-                    <div className="w-[120px] shrink-0">
-                       <span className="text-[9px] bg-slate-200 text-slate-800 px-1.5 py-0.5 rounded-none font-bold">{d.orderNo}</span>
-                       <div className="text-xs font-black text-slate-800 mt-1 truncate">{d.colorInfo || '-'}</div>
-                       <div className="text-[9px] font-mono text-slate-500">LOT: {d.lotNo || '-'}</div>
-                    </div>
-
-                    <div className="flex-1 border-l border-slate-400 pl-3 min-w-[150px]">
-                       <div className="text-[9px] font-bold text-slate-500 mb-0.5">최종 수축 QC (폭 / 장 / 토킹 / GSM)</div>
-                       <div className="flex gap-2 text-[10px] font-mono whitespace-nowrap">
-                         <span className="text-red-600 font-bold">{latestTest?.shrinkWidth || '-'}</span> / 
-                         <span className="text-red-600 font-bold">{latestTest?.shrinkLength || '-'}</span> / 
-                         <span className="text-amber-600 font-bold">{latestTest?.torque || '-'}</span> / 
-                         <span className="text-blue-600 font-bold">{latestTest?.gsm || '-'}</span>
-                       </div>
-                    </div>
-
-                    <div className="shrink-0 flex justify-end">
-                       {latestTest ? (
-                         isPass ? <span className="flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 by-1 text-[10px] font-bold whitespace-nowrap border border-emerald-300"><CheckCircle2 className="w-3.5 h-3.5"/> PASS <span className="text-[9px] font-normal">({d.tests.length}차)</span></span>
-                                : isFail ? <span className="flex items-center gap-1 text-red-700 bg-red-50 px-2 py-1 text-[10px] font-bold whitespace-nowrap border border-red-300"><XCircle className="w-3.5 h-3.5"/> FAIL <span className="text-[9px] font-normal">({d.tests.length}차)</span></span>
-                                         : <span className="text-[10px] text-slate-400">결과 대기</span>
-                       ) : <span className="text-[10px] text-slate-400">테스트 없음</span>}
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="flex gap-2">
+              <button type="button" onClick={openMainDetailForm}
+                className="flex items-center gap-1 px-3 py-1.5 bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-[11px] font-bold rounded shadow-sm active:scale-95 transition-all">
+                <Plus className="w-3.5 h-3.5" /> 작성
+              </button>
+              <button type="button" onClick={() => setMdViewOpen(true)}
+                className="flex items-center gap-1 px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 text-[11px] font-bold rounded transition-colors">
+                <FileCheck className="w-3.5 h-3.5" /> 연동 현황 보기
+                <span className="ml-0.5 bg-emerald-600 text-white rounded-full px-1.5 text-[9px]">{linkedMainDetails.length}</span>
+              </button>
             </div>
           </div>
         )}
@@ -749,6 +738,77 @@ export const DesignSheetPage = ({
 
       {/* Grid 컨테이너 닫기 */}
       </div>
+
+      {/* === 메인 디테일 시트 작성 팝업 (공용 컴포넌트 재사용) === */}
+      {!isTempMode && (
+        <MainDetailFormModal
+          isOpen={mdFormOpen}
+          onClose={() => setMdFormOpen(false)}
+          detailInput={detailInput}
+          setDetailInput={setDetailInput}
+          editingDetailId={editingDetailId}
+          handleDetailChange={handleDetailChange}
+          handleTestChange={handleTestChange}
+          addTest={addTest}
+          removeTest={removeTest}
+          handleSaveDetail={handleSaveDetail}
+          resetDetailForm={resetDetailForm}
+          savedFabrics={savedFabrics}
+        />
+      )}
+
+      {/* === 메인 디테일 시트 연동 현황 보기 팝업 === */}
+      {mdViewOpen && (
+        <div className="fixed inset-0 z-[130] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setMdViewOpen(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+              <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                <FileCheck className="w-4 h-4 text-emerald-600" /> 메인 디테일 시트 연동 현황
+                <span className="text-[10px] font-normal text-slate-500">[{sheetInput.articleNo}]</span>
+              </h3>
+              <button onClick={() => setMdViewOpen(false)} className="p-1.5 hover:bg-slate-100 rounded-lg"><X className="w-5 h-5 text-slate-400" /></button>
+            </div>
+            <div className="p-4 overflow-y-auto flex flex-col gap-2">
+              {linkedMainDetails.length === 0 ? (
+                <div className="py-10 text-center text-xs text-slate-400">
+                  연동된 메인 디테일 시트가 없습니다.<br />
+                  <span className="text-[10px]">상단 [작성] 버튼으로 이 Article의 QC 시트를 등록하세요.</span>
+                </div>
+              ) : linkedMainDetails.map(d => {
+                const latestTest = d.tests?.length ? d.tests[d.tests.length - 1] : null;
+                const isPass = latestTest?.status === 'Pass';
+                const isFail = latestTest?.status === 'Fail';
+                return (
+                  <div key={d.id} className="flex bg-slate-50/50 items-center p-2 border border-slate-400 shadow-sm gap-3 shrink-0">
+                    <div className="w-1.5 self-stretch bg-slate-800" />
+                    <div className="w-[120px] shrink-0">
+                      <span className="text-[9px] bg-slate-200 text-slate-800 px-1.5 py-0.5 font-bold">{d.orderNo || '-'}</span>
+                      <div className="text-xs font-black text-slate-800 mt-1 truncate">{d.colorInfo || '-'}</div>
+                      <div className="text-[9px] font-mono text-slate-500">LOT: {d.lotNo || '-'}</div>
+                    </div>
+                    <div className="flex-1 border-l border-slate-400 pl-3 min-w-[150px]">
+                      <div className="text-[9px] font-bold text-slate-500 mb-0.5">최종 수축 QC (폭 / 장 / 토킹 / GSM)</div>
+                      <div className="flex gap-2 text-[10px] font-mono whitespace-nowrap">
+                        <span className="text-red-600 font-bold">{latestTest?.shrinkWidth || '-'}</span> /
+                        <span className="text-red-600 font-bold">{latestTest?.shrinkLength || '-'}</span> /
+                        <span className="text-amber-600 font-bold">{latestTest?.torque || '-'}</span> /
+                        <span className="text-blue-600 font-bold">{latestTest?.gsm || '-'}</span>
+                      </div>
+                    </div>
+                    <div className="shrink-0 flex justify-end">
+                      {latestTest ? (
+                        isPass ? <span className="flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-1 text-[10px] font-bold whitespace-nowrap border border-emerald-300"><CheckCircle2 className="w-3.5 h-3.5" /> PASS <span className="text-[9px] font-normal">({d.tests.length}차)</span></span>
+                          : isFail ? <span className="flex items-center gap-1 text-red-700 bg-red-50 px-2 py-1 text-[10px] font-bold whitespace-nowrap border border-red-300"><XCircle className="w-3.5 h-3.5" /> FAIL <span className="text-[9px] font-normal">({d.tests.length}차)</span></span>
+                            : <span className="text-[10px] text-slate-400">결과 대기</span>
+                      ) : <span className="text-[10px] text-slate-400">테스트 없음</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* === 가설계서 불러오기 모달 (정식 모드 전용) === */}
       {!isTempMode && isTempLoadModalOpen && (

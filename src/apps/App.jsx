@@ -1447,6 +1447,15 @@ const App = () => {
                 registerFabricFromSheet={registerFabricFromSheet}
                 tempDesignSheets={tempDesignSheets}
                 onLoadTempSheet={loadTempToSheet}
+                detailInput={detailInput}
+                setDetailInput={setDetailInput}
+                editingDetailId={editingDetailId}
+                handleDetailChange={handleDetailChange}
+                handleTestChange={handleTestChange}
+                addTest={addTest}
+                removeTest={removeTest}
+                handleSaveDetail={handleSaveDetail}
+                resetDetailForm={resetDetailForm}
               />
             </div>
           </div>
