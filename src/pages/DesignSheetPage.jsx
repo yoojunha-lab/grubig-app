@@ -49,7 +49,7 @@ const buildAuditTip = (meta) => {
  * - 확인(초록) / 미확인(노랑) 색상 표시, 우상단 토글 버튼으로 전환
  * - 마우스오버 시 '누가·언제·무엇을 무엇으로' 변경했는지 감사 툴팁 표시
  */
-const SpecCell = ({ fieldKey, span = 1, className = "", confirmed, meta, onToggle, locked, plain, children }) => {
+const SpecCell = ({ span = 1, className = "", confirmed, meta, onToggle, locked, plain, children }) => {
   // 가설계서(plain) 모드: 확인 개념 없이 일반 칸(Td)처럼 렌더
   if (plain) {
     return (
@@ -81,6 +81,13 @@ const SpecCell = ({ fieldKey, span = 1, className = "", confirmed, meta, onToggl
     </div>
   );
 };
+
+// 편직/염색 섹션 제목 옆 '담당자 확인칸' 사용 안내 배지 (편직·염색 공용)
+const SpecHint = () => (
+  <span className="ml-1 inline-flex items-center gap-1 text-[9px] font-bold text-slate-500 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5">
+    담당자 확인칸 · 우상단 <span className="inline-flex w-3 h-3 items-center justify-center rounded-full bg-emerald-500 text-white"><Check className="w-2 h-2" strokeWidth={3} /></span> 클릭 · 마우스오버 시 변경이력
+  </span>
+);
 
 /**
  * 원단 설계서 작성 문서형 페이지 (A4 명세서 레이아웃)
@@ -170,7 +177,6 @@ export const DesignSheetPage = ({
     }));
   };
   const specProps = (key, span = 1, className = '') => ({
-    fieldKey: key,
     span,
     className,
     confirmed: !!fieldConfirm[key],
@@ -386,7 +392,7 @@ export const DesignSheetPage = ({
         {/* ------------------------------------------- */}
         {/* 3. 편직 사양 Grid */}
         {/* ------------------------------------------- */}
-        <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5 flex-wrap"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 편직 사양 (Knitting Specification) {!isTempMode && <span className="ml-1 inline-flex items-center gap-1 text-[9px] font-bold text-slate-500 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5">담당자 확인칸 · 우상단 <span className="inline-flex w-3 h-3 items-center justify-center rounded-full bg-emerald-500 text-white"><Check className="w-2 h-2" strokeWidth={3} /></span> 클릭 · 마우스오버 시 변경이력</span>}</h3>
+        <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5 flex-wrap"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 편직 사양 (Knitting Specification) {!isTempMode && <SpecHint />}</h3>
         <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 grid grid-cols-6 md:grid-cols-12 mb-2">
           <Th span={2}>편직처 (Factory)</Th>
           <SpecCell {...specProps('knitting.factory', 4)}>
@@ -480,7 +486,7 @@ export const DesignSheetPage = ({
         {/* ------------------------------------------- */}
         {/* 4. 염색 & 후가공 Grid */}
         {/* ------------------------------------------- */}
-        <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5 flex-wrap"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 염색 및 가공 (Dyeing & Finishing) {!isTempMode && <span className="ml-1 inline-flex items-center gap-1 text-[9px] font-bold text-slate-500 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5">담당자 확인칸 · 우상단 <span className="inline-flex w-3 h-3 items-center justify-center rounded-full bg-emerald-500 text-white"><Check className="w-2 h-2" strokeWidth={3} /></span> 클릭 · 마우스오버 시 변경이력</span>}</h3>
+        <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5 flex-wrap"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 염색 및 가공 (Dyeing & Finishing) {!isTempMode && <SpecHint />}</h3>
         <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 grid grid-cols-4 md:grid-cols-8 mb-6">
           <Th span={1}>염가공처</Th>
           <SpecCell {...specProps('dyeing.factory', 3)}>

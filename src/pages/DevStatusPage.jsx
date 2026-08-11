@@ -512,7 +512,6 @@ export const DevStatusPage = ({
                   </thead>
                   <tbody>
                     {visibleDevReqs.map(d => {
-                      const days = daysSince(d.updatedAt || d.createdAt);
                       const urgency = getDevReqUrgency(d);
                       const stageEntry = formatStageEntry(d.statusEnteredAt?.[d.status] || d.updatedAt || d.createdAt);
                       const devDl = getDevReqDeadline(d);
