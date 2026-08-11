@@ -1,5 +1,5 @@
 import React from 'react';
-import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download } from 'lucide-react';
+import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download, ChevronDown } from 'lucide-react';
 import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
@@ -147,11 +147,14 @@ export const DesignSheetPage = ({
   const [isTempLoadModalOpen, setIsTempLoadModalOpen] = React.useState(false);
   // [요청3] 소요 중량(kg) 간이 계산기 — 입력 YD수 (저장 안 함, 화면 계산용)
   const [calcYd, setCalcYd] = React.useState('');
+  // [편직 사양] 조직/기종 선택 모달 — 칩 나열 대신 버튼 클릭 → 창에서 선택
+  //  { field: 'structure'|'machineType', title, options[], allowCustom, master{key,title,description,icon} }
+  const [optionPicker, setOptionPicker] = React.useState(null);
   // 메인 디테일 시트 팝업 상태 (작성 / 연동현황 보기) — 설계서 길이 축소용
   const [mdFormOpen, setMdFormOpen] = React.useState(false);
   const [mdViewOpen, setMdViewOpen] = React.useState(false);
   // 이 설계서 Article과 연동된 메인 디테일 시트 목록
-  const linkedMainDetails = (mainDetails || []).filter(d => d.articleNo === sheetInput.articleNo);
+  const linkedMainDetails = sheetInput.articleNo ? (mainDetails || []).filter(d => d.articleNo === sheetInput.articleNo) : [];
   // '작성' 클릭: 현재 Article을 기본값으로 세팅해 작성 팝업 오픈
   const openMainDetailForm = () => {
     resetDetailForm?.();
@@ -353,7 +356,7 @@ export const DesignSheetPage = ({
         </div>
 
         {/* [요청3] 소요 중량(kg) 간이 계산기 — 생산 G/YD 기준 (LOSS 포함, 1,000YD 기준) */}
-        <div className="-mt-4 mb-3 flex justify-end">
+        <div className="mb-3 flex justify-end">
           <div className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
             <span className="text-[10px] font-extrabold text-slate-600 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-blue-500 rounded-full" /> 소요 중량 계산</span>
             <input type="number" min="0" value={calcYd} onChange={e => setCalcYd(e.target.value)} placeholder="YD수" className="w-[72px] border border-slate-300 rounded px-1.5 py-0.5 text-center font-mono text-[11px] outline-none focus:ring-2 ring-blue-200 placeholder:text-slate-300" />
@@ -419,23 +422,22 @@ export const DesignSheetPage = ({
           </SpecCell>
           <Th span={2}>조직 (Structure)</Th>
           <SpecCell {...specProps('knitting.structure', 4)}>
-            <div className="flex flex-wrap gap-1 p-1 pr-5">
-              {(structuresList || []).map(s => (
-                <button type="button" key={s} onClick={() => !isFullyLocked && handleSectionChange('knitting', 'structure', s)} className={`px-2 py-0.5 text-[10px] rounded border ${sheetInput.knitting?.structure === s ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{s}</button>
-              ))}
-              {!isFullyLocked && <button type="button" onClick={() => setActiveMasterModal?.({ key: 'structures', title: '편직 조직 등록 관리', description: '자주 쓰이는 기본 조직 항목을 관리합니다. (예: 싱글, 쭈리, 양면 등)', icon: Layers })} className="px-2 py-0.5 text-[10px] rounded border border-dashed border-violet-300 text-violet-500 hover:bg-violet-50">+ 추가</button>}
-              <TInput value={sheetInput.knitting?.structure || ''} onChange={e => handleSectionChange('knitting', 'structure', e.target.value)} readOnly={isFullyLocked} placeholder="기타 입력" className="w-[80px] border-b border-slate-300 ml-1 !py-0 !min-h-5" />
-            </div>
+            <button type="button" disabled={isFullyLocked}
+              onClick={() => setOptionPicker({ field: 'structure', title: '조직 (Structure) 선택', options: structuresList || [], allowCustom: true, master: { key: 'structures', title: '편직 조직 등록 관리', description: '자주 쓰이는 기본 조직 항목을 관리합니다. (예: 싱글, 쭈리, 양면 등)', icon: Layers } })}
+              className="w-full h-full min-h-[28px] flex items-center justify-between gap-1 px-2 py-1 pr-6 text-[11px] disabled:cursor-not-allowed hover:bg-blue-50/40 transition-colors">
+              <span className={`truncate ${sheetInput.knitting?.structure ? 'font-bold text-slate-800' : 'text-slate-300'}`}>{sheetInput.knitting?.structure || '클릭하여 선택'}</span>
+              {!isFullyLocked && <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+            </button>
           </SpecCell>
 
           <Th span={2}>기종 (Machine)</Th>
           <SpecCell {...specProps('knitting.machineType', 4)}>
-            <div className="flex flex-wrap gap-1 p-1 pr-5">
-              {(machineTypesList || []).map(m => (
-                <button type="button" key={m} onClick={() => !isFullyLocked && handleSectionChange('knitting', 'machineType', m)} className={`px-2 py-0.5 text-[10px] rounded border ${sheetInput.knitting?.machineType === m ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>{m}</button>
-              ))}
-              {!isFullyLocked && <button type="button" onClick={() => setActiveMasterModal?.({ key: 'machineTypes', title: '편직 기종 등록 관리', description: '자주 쓰는 편직 기종(게이지/타입 등)을 등록하세요.', icon: Cpu })} className="px-2 py-0.5 text-[10px] rounded border border-dashed border-violet-300 text-violet-500 hover:bg-violet-50">+ 추가</button>}
-            </div>
+            <button type="button" disabled={isFullyLocked}
+              onClick={() => setOptionPicker({ field: 'machineType', title: '기종 (Machine) 선택', options: machineTypesList || [], allowCustom: true, master: { key: 'machineTypes', title: '편직 기종 등록 관리', description: '자주 쓰는 편직 기종(게이지/타입 등)을 등록하세요.', icon: Cpu } })}
+              className="w-full h-full min-h-[28px] flex items-center justify-between gap-1 px-2 py-1 pr-6 text-[11px] disabled:cursor-not-allowed hover:bg-blue-50/40 transition-colors">
+              <span className={`truncate ${sheetInput.knitting?.machineType ? 'font-bold text-slate-800' : 'text-slate-300'}`}>{sheetInput.knitting?.machineType || '클릭하여 선택'}</span>
+              {!isFullyLocked && <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+            </button>
           </SpecCell>
           <Th span={2}>게이지 (Gauge)</Th>
           <SpecCell {...specProps('knitting.gauge', 4)}><TInput type="number" value={sheetInput.knitting?.gauge || ''} onChange={e => handleSectionChange('knitting', 'gauge', e.target.value)} readOnly={isFullyLocked} placeholder="28" className="font-mono pr-5" /></SpecCell>
@@ -550,13 +552,13 @@ export const DesignSheetPage = ({
         {/* ------------------------------------------- */}
         {/* 5. 최종 실측 & 원가 계산 (하이라이트 구역) */}
         {/* ------------------------------------------- */}
-        {/* 메인 디테일 시트 버튼 — 최종 스펙 및 원가 위에 배치 */}
-        {!isTempMode && sheetInput.articleNo && (
+        {/* 메인 디테일 시트 버튼 — 최종 스펙 및 원가 위에 배치 (Article 없어도 항상 표시) */}
+        {!isTempMode && (
           <div className="mb-1.5 border border-slate-300 rounded px-2 py-1 bg-slate-50 flex items-center justify-between gap-2 flex-wrap">
             <h3 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
               <FileCheck className="w-4 h-4 text-emerald-600" />
               메인 디테일 시트 (QC)
-              <span className="ml-1 text-[9px] font-normal text-slate-500">[{sheetInput.articleNo}]</span>
+              <span className="ml-1 text-[9px] font-normal text-slate-500">{sheetInput.articleNo ? `[${sheetInput.articleNo}]` : '(Article 미입력 — 작성 시 지정)'}</span>
             </h3>
             <div className="flex gap-2">
               <button type="button" onClick={openMainDetailForm}
@@ -739,6 +741,50 @@ export const DesignSheetPage = ({
 
       {/* Grid 컨테이너 닫기 */}
       </div>
+
+      {/* === 편직 사양 조직/기종 선택 모달 (칩 나열 대신 클릭→창에서 선택) === */}
+      {optionPicker && (
+        <div className="fixed inset-0 z-[140] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setOptionPicker(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+              <h3 className="text-sm font-extrabold text-slate-800">{optionPicker.title}</h3>
+              <button onClick={() => setOptionPicker(null)} className="p-1.5 hover:bg-slate-100 rounded-lg"><X className="w-5 h-5 text-slate-400" /></button>
+            </div>
+            <div className="p-4 overflow-y-auto">
+              <div className="flex flex-wrap gap-2">
+                {(optionPicker.options || []).length === 0 && (
+                  <span className="text-xs text-slate-400">등록된 항목이 없습니다. 아래 [항목 등록/관리]에서 추가하세요.</span>
+                )}
+                {(optionPicker.options || []).map(opt => {
+                  const selected = sheetInput.knitting?.[optionPicker.field] === opt;
+                  return (
+                    <button key={opt} type="button" onClick={() => { handleSectionChange('knitting', optionPicker.field, opt); setOptionPicker(null); }}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors ${selected ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-300 hover:border-indigo-400 hover:bg-indigo-50'}`}>
+                      {opt}{selected && ' ✓'}
+                    </button>
+                  );
+                })}
+              </div>
+              {optionPicker.allowCustom && (
+                <div className="mt-4 pt-3 border-t border-slate-100">
+                  <label className="block text-[10px] font-bold text-slate-500 mb-1">기타 직접 입력 (목록에 없을 때)</label>
+                  <input type="text" value={sheetInput.knitting?.[optionPicker.field] || ''} onChange={e => handleSectionChange('knitting', optionPicker.field, e.target.value)} placeholder="직접 입력" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-xs outline-none focus:ring-2 ring-indigo-200" />
+                </div>
+              )}
+            </div>
+            <div className="p-3 border-t border-slate-200 flex justify-between items-center shrink-0">
+              <button type="button" onClick={() => { const m = optionPicker.master; setOptionPicker(null); setActiveMasterModal?.(m); }}
+                className="text-[11px] font-bold text-violet-600 hover:text-violet-800 flex items-center gap-1"><Plus className="w-3 h-3" /> 항목 등록/관리</button>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => { handleSectionChange('knitting', optionPicker.field, ''); setOptionPicker(null); }}
+                  className="px-3 py-1.5 text-[11px] font-bold text-slate-500 bg-slate-100 rounded-lg hover:bg-slate-200">선택 해제</button>
+                <button type="button" onClick={() => setOptionPicker(null)}
+                  className="px-3 py-1.5 text-[11px] font-bold text-white bg-slate-800 rounded-lg hover:bg-slate-700">완료</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* === 메인 디테일 시트 작성 팝업 (공용 컴포넌트 재사용) === */}
       {!isTempMode && (
