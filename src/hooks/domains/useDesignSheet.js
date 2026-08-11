@@ -420,16 +420,23 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     // === 변경 이력 감지 (수정 모드에서만) ===
     if (!isNew && existing) {
       const changedFields = {};
-      // 최상위 필드 비교
-      ['fabricName', 'eztexOrderNo', 'articleNo', 'deadline', 'devOrderNo'].forEach(key => {
-        if (String(finalInput[key] || '') !== String(existing[key] || '')) {
-          changedFields[key] = existing[key] || '';
-        }
-      });
-      // [요청5] 칸별 감사 정보 — 기존 fieldMeta 유지하며 변경된 칸만 갱신
+      // [요청5·2] 칸별 감사 정보 — 기존 fieldMeta 유지하며 변경된 확인칸만 갱신
       const fieldMeta = { ...(existing.fieldMeta || {}) };
       const editorEmail = user?.email || '';
       const editorName = user?.displayName || user?.email || '';
+      const stampMeta = (key, oldVal, newVal) => {
+        fieldMeta[key] = { by: editorEmail, byName: editorName, at: now, from: oldVal, to: newVal };
+      };
+      // 최상위 필드 비교
+      ['fabricName', 'eztexOrderNo', 'articleNo', 'deadline', 'devOrderNo'].forEach(key => {
+        const newVal = String(finalInput[key] || '');
+        const oldVal = String(existing[key] || '');
+        if (newVal !== oldVal) {
+          changedFields[key] = existing[key] || '';
+          // [요청2] 원단명은 확인칸이므로 감사 기록
+          if (key === 'fabricName') stampMeta('fabricName', oldVal, newVal);
+        }
+      });
       // 중첩 섹션 비교 (knitting, dyeing, finishing, actualData)
       ['knitting', 'dyeing', 'finishing', 'actualData'].forEach(section => {
         Object.keys(finalInput[section] || {}).forEach(field => {
@@ -440,19 +447,23 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
             changedFields[`${section}.${field}`] = oldVal;
             // 편직/염색/후가공 칸은 '누가·언제·무엇→무엇'을 칸별로 기록 (마우스오버 툴팁용)
             if (section === 'knitting' || section === 'dyeing' || section === 'finishing') {
-              fieldMeta[`${section}.${field}`] = { by: editorEmail, byName: editorName, at: now, from: oldVal, to: newVal };
+              stampMeta(`${section}.${field}`, oldVal, newVal);
             }
           }
         });
       });
-      itemToSave.fieldMeta = fieldMeta;
       // costInput 주요 필드 비교
       ['widthFull', 'widthCut', 'gsm', 'costGYd', 'knittingFee1k', 'knittingFee3k', 'knittingFee5k',
        'dyeingFee', 'extraFee1k', 'extraFee3k', 'extraFee5k', 'marginTier'].forEach(key => {
-        if (String(finalInput.costInput?.[key] ?? '') !== String(existing.costInput?.[key] ?? '')) {
+        const newVal = String(finalInput.costInput?.[key] ?? '');
+        const oldVal = String(existing.costInput?.[key] ?? '');
+        if (newVal !== oldVal) {
           changedFields[`costInput.${key}`] = existing.costInput?.[key] ?? '';
+          // [요청2] 내폭·외폭·GSM은 확인칸이므로 감사 기록
+          if (key === 'widthCut' || key === 'widthFull' || key === 'gsm') stampMeta(`costInput.${key}`, oldVal, newVal);
         }
       });
+      itemToSave.fieldMeta = fieldMeta;
       // 변경사항이 있으면 이력에 추가
       if (Object.keys(changedFields).length > 0) {
         const historyEntry = {

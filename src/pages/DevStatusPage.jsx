@@ -57,8 +57,8 @@ export const DevStatusPage = ({
   const [isArchiveOpen, setIsArchiveOpen] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [showGuide, setShowGuide] = useState(false);
-  const [devSortBy, setDevSortBy] = useState('date');   // date | stage | buyer
-  const [sheetSortBy, setSheetSortBy] = useState('date'); // date | stage | buyer
+  const [devSortBy, setDevSortBy] = useState('odno');   // odno | date | stage | buyer
+  const [sheetSortBy, setSheetSortBy] = useState('eztex'); // eztex | date | stage | buyer
   const [linkTargetSheet, setLinkTargetSheet] = useState(null); // '의뢰 연결' 모달 대상 설계서
   const [linkSearch, setLinkSearch] = useState('');
   const eztexInputRefs = useRef({});
@@ -230,7 +230,15 @@ export const DevStatusPage = ({
   const visibleDevReqs = useMemo(() => {
     const filtered = filterSearchDev(devReqItems).filter(d => passesPriority(getDevReqUrgency(d), d));
     const sorted = [...filtered];
-    if (devSortBy === 'date') {
+    if (devSortBy === 'odno') {
+      // O/D No.(개발번호) 오름차순 — 번호 없는 건 뒤로
+      sorted.sort((a, b) => {
+        const na = String(a.devOrderNo || '').trim();
+        const nb = String(b.devOrderNo || '').trim();
+        if (!!na !== !!nb) return na ? -1 : 1;
+        return na.localeCompare(nb, 'ko');
+      });
+    } else if (devSortBy === 'date') {
       sorted.sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
     } else if (devSortBy === 'stage') {
       sorted.sort((a, b) => (devStageOrder[a.status] ?? 99) - (devStageOrder[b.status] ?? 99));
@@ -243,7 +251,18 @@ export const DevStatusPage = ({
   const visibleSheets = useMemo(() => {
     const filtered = filterSearchSheet(sheetItems).filter(s => passesPriority(getSheetUrgency(s), s));
     const sorted = [...filtered];
-    if (sheetSortBy === 'date') {
+    if (sheetSortBy === 'eztex') {
+      // EZ-TEX No. 오름차순 — 번호 있는 설계서 먼저, 없는 건 등록일 최신순으로 뒤에
+      sorted.sort((a, b) => {
+        const ea = (a.eztexOrderNo || '').trim();
+        const eb = (b.eztexOrderNo || '').trim();
+        if (!!ea !== !!eb) return ea ? -1 : 1;
+        if (ea && eb) { const c = ea.localeCompare(eb, 'ko'); if (c !== 0) return c; }
+        const ka = a.registeredDate || (a.createdAt || '').slice(0, 10);
+        const kb = b.registeredDate || (b.createdAt || '').slice(0, 10);
+        return kb.localeCompare(ka);
+      });
+    } else if (sheetSortBy === 'date') {
       // 등록 날짜(registeredDate) 우선, 없으면 createdAt 의 날짜 부분으로 폴백 (최신순)
       sorted.sort((a, b) => {
         const ka = a.registeredDate || (a.createdAt || '').slice(0, 10);
@@ -463,6 +482,7 @@ export const DevStatusPage = ({
                 onChange={(e) => setDevSortBy(e.target.value)}
                 className="text-[11px] font-bold border border-slate-300 rounded px-2 py-1 bg-white hover:border-purple-300 focus:ring-2 ring-purple-200 outline-none cursor-pointer"
               >
+                <option value="odno">O/D No.순 (기본)</option>
                 <option value="date">날짜순 (최신)</option>
                 <option value="stage">단계순</option>
                 <option value="buyer">바이어순</option>
@@ -664,6 +684,7 @@ export const DevStatusPage = ({
                 onChange={(e) => setSheetSortBy(e.target.value)}
                 className="text-[11px] font-bold border border-slate-300 rounded px-2 py-1 bg-white hover:border-indigo-300 focus:ring-2 ring-indigo-200 outline-none cursor-pointer"
               >
+                <option value="eztex">EZ-TEX No.순 (기본)</option>
                 <option value="date">등록 날짜순 (최신)</option>
                 <option value="stage">단계순</option>
                 <option value="buyer">바이어순</option>
@@ -720,29 +741,31 @@ export const DevStatusPage = ({
                           <td className="px-2 py-1.5 border-r border-slate-100">
                             <div className="flex flex-col gap-1">
                               <PendingProgressBar stageKey={s.stage} />
-                              <select
-                                value={s.stage}
-                                onChange={(e) => setStage && setStage(s.id, e.target.value)}
-                                title="단계를 변경하려면 선택하세요"
-                                className="w-full max-w-[170px] text-[10px] font-bold border border-slate-300 rounded px-1.5 py-0.5 bg-white hover:border-indigo-300 focus:ring-2 ring-indigo-200 outline-none cursor-pointer"
-                              >
-                                {DESIGN_STAGE_GUIDE.map(stage => (
-                                  <option key={stage.key} value={stage.key} title={stage.desc}>{stage.label}</option>
-                                ))}
-                              </select>
-                              {/* 샘플 진행 세부단계 (원사발주 → 편직 → 염가공 / 중단) */}
-                              {s.stage === 'sampling' && (
+                              <div className="flex items-center gap-1">
                                 <select
-                                  value={s.samplingSub || 'yarn'}
-                                  onChange={(e) => setSamplingSub && setSamplingSub(s.id, e.target.value)}
-                                  title="샘플 세부 진행단계 변경 (원사발주 → 편직 → 염가공 / 중단)"
-                                  className={`w-full max-w-[170px] text-[10px] font-bold border rounded px-1.5 py-0.5 outline-none cursor-pointer focus:ring-2 ${subOf(s).cls} ring-amber-200`}
+                                  value={s.stage}
+                                  onChange={(e) => setStage && setStage(s.id, e.target.value)}
+                                  title="단계를 변경하려면 선택하세요"
+                                  className="flex-1 min-w-0 text-[10px] font-bold border border-slate-300 rounded px-1.5 py-0.5 bg-white hover:border-indigo-300 focus:ring-2 ring-indigo-200 outline-none cursor-pointer"
                                 >
-                                  {SAMPLING_SUBSTAGES.map(sub => (
-                                    <option key={sub.key} value={sub.key}>└ {sub.label}</option>
+                                  {DESIGN_STAGE_GUIDE.map(stage => (
+                                    <option key={stage.key} value={stage.key} title={stage.desc}>{stage.label}</option>
                                   ))}
                                 </select>
-                              )}
+                                {/* 샘플 진행 세부단계 — 단계 셀렉트 옆으로 배치 (원사발주 → 편직 → 염가공 / 중단) */}
+                                {s.stage === 'sampling' && (
+                                  <select
+                                    value={s.samplingSub || 'yarn'}
+                                    onChange={(e) => setSamplingSub && setSamplingSub(s.id, e.target.value)}
+                                    title="샘플 세부 진행단계 변경 (원사발주 → 편직 → 염가공 / 중단)"
+                                    className={`flex-1 min-w-0 text-[10px] font-bold border rounded px-1.5 py-0.5 outline-none cursor-pointer focus:ring-2 ${subOf(s).cls} ring-amber-200`}
+                                  >
+                                    {SAMPLING_SUBSTAGES.map(sub => (
+                                      <option key={sub.key} value={sub.key}>{sub.label}</option>
+                                    ))}
+                                  </select>
+                                )}
+                              </div>
                             </div>
                           </td>
                           <td className="px-2 py-1.5 border-r border-slate-100 text-xs">

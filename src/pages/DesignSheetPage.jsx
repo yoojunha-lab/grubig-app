@@ -136,6 +136,8 @@ export const DesignSheetPage = ({
 
   // 가설계서 불러오기 모달 상태
   const [isTempLoadModalOpen, setIsTempLoadModalOpen] = React.useState(false);
+  // [요청3] 소요 중량(kg) 간이 계산기 — 입력 YD수 (저장 안 함, 화면 계산용)
+  const [calcYd, setCalcYd] = React.useState('');
 
   const linkedDevReq = sheetInput.devRequestId ? (devRequests || []).find(d => d.id === sheetInput.devRequestId) : null;
   const feeders = sheetInput.knitting?.feeders || [{ symbol: '', loopLength: '', yarnSlot: '' }];
@@ -181,6 +183,14 @@ export const DesignSheetPage = ({
   const costData = getDesignCost?.(sheetInput) || null;
   // 이론 G/YD = GSM × 외폭 × 변환계수
   const theoreticalGYd = calculateGYd(Number(sheetInput.costInput?.gsm || 0), Number(sheetInput.costInput?.widthFull || 0));
+
+  // [요청3] 소요 중량 계산 — 생산 G/YD(없으면 이론값) × YD ÷ 1000 × (1 + LOSS%)
+  //   LOSS = 1,000YD(tier1k) 기준 편직 LOSS + 염색 LOSS 합산 (원가모델 sumLossPct와 동일)
+  const calcGYd = Number(sheetInput.costInput?.costGYd) || theoreticalGYd || 0;
+  const calcLoss1k = (Number(sheetInput.costInput?.losses?.tier1k?.knit) || 0) + (Number(sheetInput.costInput?.losses?.tier1k?.dye) || 0);
+  const calcKg = (Number(calcYd) > 0 && calcGYd > 0)
+    ? (calcGYd * Number(calcYd) / 1000) * (1 + calcLoss1k / 100)
+    : null;
 
   const handleSaveAndGo = async () => {
     // [REF-2] 가설계서 모드에서는 의뢰 연결(onLink) 불필요
@@ -305,22 +315,33 @@ export const DesignSheetPage = ({
               <Td span={1}><TInput type="date" name="deadline" value={sheetInput.deadline || ''} onChange={handleSheetChange} readOnly={isFullyLocked} className="font-mono font-bold text-red-600" /></Td>
 
               <Th span={1}>원단명 (Name)</Th>
-              <Td span={5}><TInput name="fabricName" value={sheetInput.fabricName || ''} onChange={handleSheetChange} readOnly={isFullyLocked} placeholder="직관적인 원단명 (예: Wool Interlock)" className="text-sm font-extrabold text-slate-900 border-b-2 focus:border-blue-400" /></Td>
+              <SpecCell {...specProps('fabricName', 5)}><TInput name="fabricName" value={sheetInput.fabricName || ''} onChange={handleSheetChange} readOnly={isFullyLocked} placeholder="직관적인 원단명 (예: Wool Interlock)" className="text-sm font-extrabold text-slate-900 border-b-2 focus:border-blue-400 pr-5" /></SpecCell>
               <Th span={1} className="text-blue-700 bg-blue-50/50">등록 날짜</Th>
               <Td span={1}><TInput type="date" name="registeredDate" value={sheetInput.registeredDate || ''} onChange={handleSheetChange} readOnly={isFullyLocked} className="font-mono font-bold text-blue-700" /></Td>
             </>
           )}
 
           <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black">내폭 (")</Th>
-          <Td span={1} className="bg-indigo-50"><TInput type="number" name="widthCut" value={sheetInput.costInput?.widthCut ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder="56" className="text-center font-mono font-black text-indigo-800 text-sm" /></Td>
+          <SpecCell {...specProps('costInput.widthCut', 1)}><TInput type="number" name="widthCut" value={sheetInput.costInput?.widthCut ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder="56" className="text-center font-mono font-black text-indigo-800 text-sm" /></SpecCell>
           <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black">외폭 (")</Th>
-          <Td span={1} className="bg-indigo-50"><TInput type="number" name="widthFull" value={sheetInput.costInput?.widthFull ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder="58" className="text-center font-mono font-black text-indigo-800 text-sm" /></Td>
+          <SpecCell {...specProps('costInput.widthFull', 1)}><TInput type="number" name="widthFull" value={sheetInput.costInput?.widthFull ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder="58" className="text-center font-mono font-black text-indigo-800 text-sm" /></SpecCell>
           <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black">GSM</Th>
-          <Td span={1} className="bg-indigo-50"><TInput type="number" name="gsm" value={sheetInput.costInput?.gsm ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder="300" className="text-center font-mono font-black text-indigo-800 text-sm" /></Td>
+          <SpecCell {...specProps('costInput.gsm', 1)}><TInput type="number" name="gsm" value={sheetInput.costInput?.gsm ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder="300" className="text-center font-mono font-black text-indigo-800 text-sm" /></SpecCell>
           <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black">생산 G/YD</Th>
           <Td span={1} className="bg-indigo-50">
             <TInput type="number" name="costGYd" value={sheetInput.costInput?.costGYd ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder={theoreticalGYd > 0 ? num(theoreticalGYd) : ''} className="text-center font-mono font-black text-blue-700 text-sm placeholder:text-slate-400 placeholder:font-normal" />
           </Td>
+        </div>
+
+        {/* [요청3] 소요 중량(kg) 간이 계산기 — 생산 G/YD 기준 (LOSS 포함, 1,000YD 기준) */}
+        <div className="-mt-4 mb-6 flex justify-end">
+          <div className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
+            <span className="text-[10px] font-extrabold text-slate-600 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-blue-500 rounded-full" /> 소요 중량 계산</span>
+            <input type="number" min="0" value={calcYd} onChange={e => setCalcYd(e.target.value)} placeholder="YD수" className="w-[72px] border border-slate-300 rounded px-1.5 py-0.5 text-center font-mono text-[11px] outline-none focus:ring-2 ring-blue-200 placeholder:text-slate-300" />
+            <span className="text-[10px] text-slate-400 font-bold">YD →</span>
+            <span className="font-mono font-black text-blue-700 text-sm min-w-[56px] text-right">{calcKg != null ? calcKg.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'}<span className="text-[10px] font-bold text-slate-500 ml-0.5">kg</span></span>
+            <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 whitespace-nowrap">LOSS 포함 {calcLoss1k}% · 1,000YD 기준</span>
+          </div>
         </div>
 
 
