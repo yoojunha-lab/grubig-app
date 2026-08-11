@@ -59,6 +59,7 @@
   (진입: `src/pages/TempDesignSheetListPage.jsx` 의 모달)
 - 따라서 `DesignSheetPage`의 원사·원가·마진 UI를 수정하면 **정식 설계서와 가설계서 양쪽에 동시에 반영**됩니다.
 - 가설계서 전용 차이: 원사 슬롯에 `priceOverride`(단가 직접 입력) 칸이 추가됨. 정식 설계서로 승급(`loadTempToSheet`) 시 `priceOverride`는 폐기되고 원사 라이브러리 단가로 재계산됩니다.
+- **양방향 불러오기**: 정식→가설계서(`loadSheetToTemp`)는 목록의 `[설계서 불러오기]`로 등록된 정식 설계서의 스펙·원가를 **새 가설계서로 복제**(원본 불변, 추적 필드 제외, 원사엔 `priceOverride('')` 부여, 마진 기본값 22/20/18%). 가설계서→정식(`loadTempToSheet`)은 그 반대(승급).
 
 ---
 
