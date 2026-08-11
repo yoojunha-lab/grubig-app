@@ -26,6 +26,7 @@ export const CostBreakdownTable = ({
   yarnSelectOptions = [], yarnLibrary = [], globalExchangeRate = 1450,
   setCost, setYarns,
   showMaterial = true, // 설계서처럼 원사 배합이 별도로 있으면 false (표에선 재료비/yd만 읽기 표시)
+  compact = false,     // 설계서 A4 2장 압축용 — 패딩·폰트 축소 (계산기는 기본 off)
 }) => {
   const isExport = viewMode === 'export';
   const sym = isExport ? '$' : '₩';
@@ -85,14 +86,21 @@ export const CostBreakdownTable = ({
     return p.slice(2).reduce((s, l) => s + (l.amt || 0), 0);
   };
 
-  const inCls = "w-full text-center bg-white border border-slate-300 rounded px-1.5 py-1.5 text-sm font-mono focus:ring-1 ring-blue-400 outline-none";
+  const inCls = compact
+    ? "w-full text-center bg-white border border-slate-300 rounded px-1 py-0.5 text-[11px] font-mono focus:ring-1 ring-blue-400 outline-none"
+    : "w-full text-center bg-white border border-slate-300 rounded px-1.5 py-1.5 text-sm font-mono focus:ring-1 ring-blue-400 outline-none";
+  // 밀도 제어 (compact=설계서 A4 압축)
+  const secP = compact ? 'px-3 py-1' : 'px-4 py-3';         // 섹션 패딩
+  const cellP = compact ? 'px-2 py-0' : 'px-2.5 py-1.5';    // 값 셀 패딩
+  const lblF = compact ? 'text-[11px]' : 'text-[13px]';     // 행 라벨 폰트
+  const valF = compact ? 'text-[11px]' : 'text-sm';         // 값 폰트
 
   const kgOf = (t) => Math.round(t.qty * weightYd); // YD → 가공중량 기준 kg 환산
   const Head = () => (
     <div className="grid grid-cols-[1.6fr_1fr_1fr_1fr] bg-slate-200 text-xs font-extrabold text-slate-600">
-      <div className="p-2.5 text-left">항목 / 구간</div>
+      <div className={`${compact ? 'p-1.5' : 'p-2.5'} text-left`}>항목 / 구간</div>
       {TIERS.map(t => (
-        <div key={t.key} className={`p-2 text-center ${t.main ? 'text-blue-700 bg-blue-100/70' : ''}`}>
+        <div key={t.key} className={`${compact ? 'p-1' : 'p-2'} text-center ${t.main ? 'text-blue-700 bg-blue-100/70' : ''}`}>
           <div>{t.label}</div>
           <div className="text-[10px] font-normal text-slate-400">≈ {num(kgOf(t))} kg</div>
         </div>
@@ -101,9 +109,9 @@ export const CostBreakdownTable = ({
   );
   const InputRow = ({ label, get, set, red }) => (
     <div className="grid grid-cols-[1.6fr_1fr_1fr_1fr] items-center border-t border-slate-100">
-      <div className="px-2.5 py-1 text-left text-[13px] font-bold text-slate-600">{label}</div>
+      <div className={`px-2.5 ${compact ? 'py-0' : 'py-1'} text-left ${lblF} font-bold text-slate-600`}>{label}</div>
       {TIERS.map(t => (
-        <div key={t.key} className={`p-1 ${t.main ? 'bg-blue-50/40' : ''}`}>
+        <div key={t.key} className={`${compact ? 'p-0.5' : 'p-1'} ${t.main ? 'bg-blue-50/40' : ''}`}>
           <input type="number" value={get(t)} onChange={(e) => set(t, e.target.value)} className={`${inCls} ${red ? 'text-red-500' : ''} ${t.main ? 'font-bold text-blue-700' : ''}`} />
         </div>
       ))}
@@ -111,17 +119,17 @@ export const CostBreakdownTable = ({
   );
   const ValueRow = ({ label, get, strong, accent }) => (
     <div className={`grid grid-cols-[1.6fr_1fr_1fr_1fr] items-center border-t border-slate-100 ${strong ? 'bg-slate-100' : accent ? 'bg-indigo-50/40' : 'bg-slate-50/50'}`}>
-      <div className={`px-2.5 py-1.5 text-left text-[13px] ${strong ? 'font-extrabold text-slate-800' : 'font-bold text-slate-500'}`}>{label}</div>
+      <div className={`${cellP} text-left ${lblF} ${strong ? 'font-extrabold text-slate-800' : 'font-bold text-slate-500'}`}>{label}</div>
       {TIERS.map(t => (
-        <div key={t.key} className={`px-2.5 py-1.5 text-center text-sm font-mono ${t.main ? (strong ? 'bg-blue-100/70 font-extrabold text-blue-800' : 'bg-blue-50/40 font-bold text-slate-700') : 'text-slate-700'}`}>{sym}{fmt(get(t.key))}</div>
+        <div key={t.key} className={`${cellP} text-center ${valF} font-mono ${t.main ? (strong ? 'bg-blue-100/70 font-extrabold text-blue-800' : 'bg-blue-50/40 font-bold text-slate-700') : 'text-slate-700'}`}>{sym}{fmt(get(t.key))}</div>
       ))}
     </div>
   );
 
   return (
     <div className="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
-      <div className="bg-blue-600 text-white px-4 py-3 flex items-center justify-between">
-        <h3 className="text-base font-extrabold">₩ 가격정보 (원가 분해 · 3구간)</h3>
+      <div className={`bg-blue-600 text-white ${secP} flex items-center justify-between`}>
+        <h3 className={`${compact ? 'text-sm' : 'text-base'} font-extrabold`}>₩ 가격정보 (원가 분해 · 3구간)</h3>
         <span className="text-xs opacity-90">{isExport ? '수출($) · 관세제외' : '내수(₩) · 관세포함'}</span>
       </div>
 
@@ -149,17 +157,17 @@ export const CostBreakdownTable = ({
       )}
 
       {/* ② 염가공료 + ③ 후가공 (공통 입력) */}
-      <div className="px-4 py-3 border-b border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className={`${secP} border-b border-slate-200 grid grid-cols-1 md:grid-cols-2 ${compact ? 'gap-2' : 'gap-4'}`}>
         <div>
-          <div className="text-sm font-extrabold text-slate-700 mb-1.5">② 염가공료</div>
+          <div className={`${compact ? 'text-xs mb-0.5' : 'text-sm mb-1.5'} font-extrabold text-slate-700`}>② 염가공료</div>
           <div className="flex items-center gap-2">
-            <input type="number" value={cost.dyeingFee ?? ''} onChange={(e) => setField('dyeingFee', e.target.value)} className="w-36 text-right bg-white border border-slate-300 rounded px-2.5 py-1.5 text-sm font-mono outline-none focus:ring-1 ring-blue-400" placeholder="2500" />
+            <input type="number" value={cost.dyeingFee ?? ''} onChange={(e) => setField('dyeingFee', e.target.value)} className={`w-36 text-right bg-white border border-slate-300 rounded ${compact ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1.5 text-sm'} font-mono outline-none focus:ring-1 ring-blue-400`} placeholder="2500" />
             <span className="text-xs text-slate-400">₩/kg (전 구간 공통)</span>
           </div>
         </div>
         <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-sm font-extrabold text-slate-700">③ 후가공 (선택)</span>
+          <div className={`flex items-center justify-between ${compact ? 'mb-0.5' : 'mb-1.5'}`}>
+            <span className={`${compact ? 'text-xs' : 'text-sm'} font-extrabold text-slate-700`}>③ 후가공 (선택)</span>
             <button type="button" onClick={addFinishing} className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100"><Plus className="w-3.5 h-3.5" /> 후가공추가</button>
           </div>
           {finishing.length === 0 && <div className="text-xs text-slate-400">후가공 없음 (필요 시 추가)</div>}
@@ -175,8 +183,8 @@ export const CostBreakdownTable = ({
       </div>
 
       {/* ④ 구간별 산출 */}
-      <div className="px-4 py-3">
-        <div className="text-sm font-extrabold text-slate-700 mb-2">④ 구간별 산출 (입력 + 원가)</div>
+      <div className={secP}>
+        <div className={`${compact ? 'text-xs mb-1' : 'text-sm mb-2'} font-extrabold text-slate-700`}>④ 구간별 산출 (입력 + 원가)</div>
         <div className="border border-slate-300 rounded-lg overflow-hidden">
           {Head()}
           {!showMaterial && ValueRow({ label: '재료비 / yd', get: (tk) => tv(tk).yarnCostYd })}
@@ -218,19 +226,19 @@ export const CostBreakdownTable = ({
       </div>
 
       {/* ⑤ 위험마진 + 납품단위 */}
-      <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 space-y-3">
-        <div className="flex items-center gap-3 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2.5 flex-wrap">
+      <div className={`${secP} bg-slate-50 border-t border-slate-200 ${compact ? 'space-y-1.5' : 'space-y-3'}`}>
+        <div className={`flex items-center gap-3 bg-rose-50 border border-rose-200 rounded-lg px-3 ${compact ? 'py-1' : 'py-2.5'} flex-wrap`}>
           <span className="text-sm font-extrabold text-rose-700 whitespace-nowrap">⚠ 위험 마진 (%)</span>
           <input type="number" value={cost.riskMarginPct ?? ''} onChange={(e) => setField('riskMarginPct', e.target.value)} className="w-24 text-center bg-white border border-rose-300 rounded px-2 py-1.5 text-sm font-bold text-rose-700 outline-none" placeholder="0" />
           <span className="text-xs text-rose-500">메인 전·위험 원단 추가 마진 → 순원가에 가산 (판매마진은 견적에서)</span>
         </div>
         <div>
-          <div className="text-xs font-bold text-slate-400 mb-1.5">납품 단위 (영업 기준원가)</div>
+          <div className={`text-xs font-bold text-slate-400 ${compact ? 'mb-1' : 'mb-1.5'}`}>납품 단위 (영업 기준원가)</div>
           <div className="overflow-hidden rounded-lg border border-slate-300">
             <div className="grid grid-cols-[1.2fr_1fr_1fr_1fr] bg-slate-200 text-xs font-bold text-slate-600">
-              <div className="p-2">단위</div>
+              <div className={compact ? 'p-1' : 'p-2'}>단위</div>
               {TIERS.map(t => (
-                <div key={t.key} className={`p-2 text-center ${t.main ? 'text-blue-700' : ''}`}>
+                <div key={t.key} className={`${compact ? 'p-1' : 'p-2'} text-center ${t.main ? 'text-blue-700' : ''}`}>
                   <div>{t.label}</div>
                   <div className="text-[10px] font-normal text-slate-400">≈ {num(kgOf(t))} kg</div>
                 </div>
@@ -238,15 +246,15 @@ export const CostBreakdownTable = ({
             </div>
             {[{ k: 'finalCostYd', l: '원가 / yd' }, { k: 'pricePerM', l: '원가 / m' }, { k: 'pricePerKg', l: '원가 / kg' }].map(row => (
               <div key={row.k} className="grid grid-cols-[1.2fr_1fr_1fr_1fr] border-t border-slate-100 bg-white">
-                <div className="p-2 text-[13px] font-semibold text-slate-500">{row.l}</div>
-                {TIERS.map(t => <div key={t.key} className={`p-2 text-center text-sm font-mono ${t.main ? 'bg-emerald-50 font-extrabold text-emerald-700' : 'text-slate-600'}`}>{sym}{fmt(tv(t.key)[row.k])}</div>)}
+                <div className={`${compact ? 'px-2 py-0.5 text-[11px]' : 'p-2 text-[13px]'} font-semibold text-slate-500`}>{row.l}</div>
+                {TIERS.map(t => <div key={t.key} className={`${compact ? 'px-2 py-0.5 text-[11px]' : 'p-2 text-sm'} text-center font-mono ${t.main ? 'bg-emerald-50 font-extrabold text-emerald-700' : 'text-slate-600'}`}>{sym}{fmt(tv(t.key)[row.k])}</div>)}
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-3 gap-2 mt-2 text-center text-xs">
-            <div className="bg-white rounded p-2 border border-slate-200"><div className="text-slate-400 font-bold">가공폭</div><div className="font-bold text-slate-700 text-sm">{cost.widthCut || '-'}/{cost.widthFull || '-'}"</div></div>
-            <div className="bg-white rounded p-2 border border-slate-200"><div className="text-slate-400 font-bold">가공중량(g/yd)</div><div className="font-bold text-slate-700 text-sm">{num(gYd)}</div></div>
-            <div className="bg-white rounded p-2 border border-slate-200"><div className="text-slate-400 font-bold">길이(yd/kg)</div><div className="font-bold text-slate-700 text-sm">{weightYd > 0 ? (1 / weightYd).toFixed(2) : '-'}</div></div>
+          <div className={`grid grid-cols-3 gap-2 ${compact ? 'mt-1' : 'mt-2'} text-center text-xs`}>
+            <div className={`bg-white rounded ${compact ? 'p-1' : 'p-2'} border border-slate-200`}><div className="text-slate-400 font-bold">가공폭</div><div className={`font-bold text-slate-700 ${compact ? 'text-xs' : 'text-sm'}`}>{cost.widthCut || '-'}/{cost.widthFull || '-'}"</div></div>
+            <div className={`bg-white rounded ${compact ? 'p-1' : 'p-2'} border border-slate-200`}><div className="text-slate-400 font-bold">가공중량(g/yd)</div><div className={`font-bold text-slate-700 ${compact ? 'text-xs' : 'text-sm'}`}>{num(gYd)}</div></div>
+            <div className={`bg-white rounded ${compact ? 'p-1' : 'p-2'} border border-slate-200`}><div className="text-slate-400 font-bold">길이(yd/kg)</div><div className={`font-bold text-slate-700 ${compact ? 'text-xs' : 'text-sm'}`}>{weightYd > 0 ? (1 / weightYd).toFixed(2) : '-'}</div></div>
           </div>
         </div>
       </div>

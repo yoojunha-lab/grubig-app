@@ -238,7 +238,7 @@ export const DesignSheetPage = ({
     <div className="max-w-[1700px] xl:w-[98vw] mx-auto pb-20 px-4">
 
       {/* 액션 플로팅 버튼 (수정 완료용) */}
-      <div className={`sticky top-0 z-40 backdrop-blur-md border-b px-4 py-3 mb-6 flex justify-between items-center shadow-sm ${isTempMode ? 'bg-amber-50/80 border-amber-200' : 'bg-white/80 border-slate-200'}`}>
+      <div className={`sticky top-0 z-40 backdrop-blur-md border-b px-4 py-3 mb-3 flex justify-between items-center shadow-sm ${isTempMode ? 'bg-amber-50/80 border-amber-200' : 'bg-white/80 border-slate-200'}`}>
         <div className="flex items-center gap-3">
           {isTempMode ? <FlaskConical className="w-5 h-5 text-amber-600" /> : <FileText className="w-5 h-5 text-indigo-600" />}
           <div>
@@ -273,17 +273,17 @@ export const DesignSheetPage = ({
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start w-full">
 
         {/* --- 1 PAGE (생산 스펙) --- */}
-        <div className={`bg-white shadow-xl border border-slate-800 mx-auto w-full transition-colors flex flex-col border-t-[20px] pb-6 ${isFullyLocked ? 'bg-slate-50/50 grayscale-[20%]' : ''}`} style={{ minHeight: '297mm', padding: '10mm 15mm' }}>
+        <div className={`bg-white shadow-xl border border-slate-800 mx-auto w-full transition-colors flex flex-col border-t-[20px] pb-6 ${isFullyLocked ? 'bg-slate-50/50 grayscale-[20%]' : ''}`} style={{ minHeight: '297mm', padding: '6mm 11mm' }}>
 
         {/* 상단 제목부 */}
-        <div className="text-center mb-6 pb-4 border-b-2 border-slate-800">
-          <h1 className="text-3xl font-black tracking-[0.2em] text-slate-800">원단 설계서 (Circular knit fabric)</h1>
-          <p className="text-xs font-mono text-slate-500 mt-1 uppercase tracking-widest">Fabric Design & Production Specification</p>
+        <div className="text-center mb-2 pb-2 border-b-2 border-slate-800">
+          <h1 className="text-xl font-black tracking-[0.2em] text-slate-800">원단 설계서 (Circular knit fabric)</h1>
+          <p className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">Fabric Design &amp; Production Specification</p>
         </div>
 
         {/* 진행 상태 바 (가설계서 모드에서는 숨김) */}
         {!isTempMode && (
-        <div className="mb-6 -mx-2">
+        <div className="mb-3 -mx-2">
           <DesignStepper
             currentStage={sheetInput.stage || 'draft'}
             onStageClick={editingSheetId && typeof setStage === 'function' && !isFullyLocked
@@ -313,7 +313,7 @@ export const DesignSheetPage = ({
         {/* 1. 기본 식별 정보 Grid */}
         {/* ------------------------------------------- */}
         <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-slate-800 block" /> {isTempMode ? '가설계서 정보' : '문서 식별 정보'}</h3>
-        <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 grid grid-cols-4 md:grid-cols-8 mb-6">
+        <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 grid grid-cols-4 md:grid-cols-8 mb-3">
           {/* 가설계서 모드: 개발번호·EZ-TEX·Article·납기 숨기고 바이어명 표시 */}
           {isTempMode ? (
             <>
@@ -353,7 +353,7 @@ export const DesignSheetPage = ({
         </div>
 
         {/* [요청3] 소요 중량(kg) 간이 계산기 — 생산 G/YD 기준 (LOSS 포함, 1,000YD 기준) */}
-        <div className="-mt-4 mb-6 flex justify-end">
+        <div className="-mt-4 mb-3 flex justify-end">
           <div className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
             <span className="text-[10px] font-extrabold text-slate-600 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-blue-500 rounded-full" /> 소요 중량 계산</span>
             <input type="number" min="0" value={calcYd} onChange={e => setCalcYd(e.target.value)} placeholder="YD수" className="w-[72px] border border-slate-300 rounded px-1.5 py-0.5 text-center font-mono text-[11px] outline-none focus:ring-2 ring-blue-200 placeholder:text-slate-300" />
@@ -368,7 +368,7 @@ export const DesignSheetPage = ({
         {/* 2. 원사 혼용률 Grid */}
         {/* ------------------------------------------- */}
         <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 원사 배합 (Yarn & Composition) {getCompStatus()}{isTempMode && <span className="ml-2 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 bg-amber-100 border border-amber-200 rounded">단가 직접 입력 가능 (가설계서 전용)</span>}</h3>
-        <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 grid grid-cols-12 mb-6">
+        <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 grid grid-cols-12 mb-3">
           <Th span={2} className="justify-center">No.</Th>
           <Th span={isTempMode ? 6 : 8}>원사명 (Yarn Name / Count)</Th>
           <Th span={2} className="justify-center">비율(%)</Th>
@@ -459,7 +459,7 @@ export const DesignSheetPage = ({
         </div>
 
         {/* 편직 조직도 구조표 */}
-        <div className="bg-slate-50/50 border border-slate-300 p-2 md:p-3 mb-6">
+        <div className="bg-slate-50/50 border border-slate-300 p-2 md:p-3 mb-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-widest bg-slate-200 px-2 py-0.5">조직도 (Structure Diagram)</span>
             <div className="flex flex-wrap gap-0.5">
@@ -500,7 +500,7 @@ export const DesignSheetPage = ({
         {/* 4. 염색 & 후가공 Grid */}
         {/* ------------------------------------------- */}
         <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5 flex-wrap"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 염색 및 가공 (Dyeing & Finishing) {!isTempMode && <SpecHint />}</h3>
-        <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 grid grid-cols-4 md:grid-cols-8 mb-6">
+        <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 grid grid-cols-4 md:grid-cols-8 mb-3">
           <Th span={1}>염가공처</Th>
           <SpecCell {...specProps('dyeing.factory', 3)}>
             <div className="flex items-center gap-1 pr-5">
@@ -542,15 +542,35 @@ export const DesignSheetPage = ({
         {/* =========================================== */}
         {/* 1 PAGE 종료 */}
         {/* =========================================== */}
-        <div className="mt-auto opacity-0 h-4"></div>
         </div>
 
         {/* --- 2 PAGE (원가 및 QC 연동) — 1페이지와 동일한 검정 프레임으로 서식 통일 --- */}
-        <div className={`bg-white shadow-xl border border-slate-800 mx-auto w-full transition-colors flex flex-col border-t-[20px] pb-6 ${isFullyLocked ? 'bg-slate-50/50 grayscale-[20%]' : ''}`} style={{ minHeight: '297mm', padding: '10mm 15mm' }}>
+        <div className={`bg-white shadow-xl border border-slate-800 mx-auto w-full transition-colors flex flex-col border-t-[20px] pb-6 ${isFullyLocked ? 'bg-slate-50/50 grayscale-[20%]' : ''}`} style={{ minHeight: '297mm', padding: '6mm 11mm' }}>
 
         {/* ------------------------------------------- */}
         {/* 5. 최종 실측 & 원가 계산 (하이라이트 구역) */}
         {/* ------------------------------------------- */}
+        {/* 메인 디테일 시트 버튼 — 최종 스펙 및 원가 위에 배치 */}
+        {!isTempMode && sheetInput.articleNo && (
+          <div className="mb-1.5 border border-slate-300 rounded px-2 py-1 bg-slate-50 flex items-center justify-between gap-2 flex-wrap">
+            <h3 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+              <FileCheck className="w-4 h-4 text-emerald-600" />
+              메인 디테일 시트 (QC)
+              <span className="ml-1 text-[9px] font-normal text-slate-500">[{sheetInput.articleNo}]</span>
+            </h3>
+            <div className="flex gap-2">
+              <button type="button" onClick={openMainDetailForm}
+                className="flex items-center gap-1 px-3 py-1 bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-[11px] font-bold rounded shadow-sm active:scale-95 transition-all">
+                <Plus className="w-3.5 h-3.5" /> 작성
+              </button>
+              <button type="button" onClick={() => setMdViewOpen(true)}
+                className="flex items-center gap-1 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 text-[11px] font-bold rounded transition-colors">
+                <FileCheck className="w-3.5 h-3.5" /> 연동 현황 보기
+                <span className="ml-0.5 bg-emerald-600 text-white rounded-full px-1.5 text-[9px]">{linkedMainDetails.length}</span>
+              </button>
+            </div>
+          </div>
+        )}
         <div className="mt-0 flex items-end justify-between mb-1.5">
           <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 최종 스펙 및 원가 (Actual & Cost)</h3>
           <p className="text-[9px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200">※ 색칠된 칸이 최종 거래 스펙 및 가격의 기준이 됩니다.</p>
@@ -563,6 +583,7 @@ export const DesignSheetPage = ({
           viewMode={viewMode}
           globalExchangeRate={globalExchangeRate}
           showMaterial={false}
+          compact={true}
           setCost={(fn) => setSheetInput?.(prev => ({ ...prev, costInput: fn(prev.costInput || {}) }))}
           setYarns={(fn) => setSheetInput?.(prev => ({ ...prev, yarns: fn(prev.yarns || []) }))}
         />
@@ -570,16 +591,16 @@ export const DesignSheetPage = ({
 
         {/* 메모 및 서명 영역 — [BUG-2] 가설계서 모드에서는 이력 관리 불필요하므로 숨김 */}
         {editingSheetId && !isTempMode && (
-          <div className="mt-8 border-2 border-amber-300 bg-amber-50 p-4 relative mb-6">
+          <div className="mt-1.5 border-2 border-amber-300 bg-amber-50 px-3 py-1.5 relative mb-2">
             <h4 className="absolute -top-2 left-4 bg-amber-50 px-2 text-[10px] font-extrabold text-amber-700 tracking-wider">※ 설계 변경 사유</h4>
-            <textarea value={sheetInput.changeReason || ''} onChange={e => handleSheetChange({ target: { name: 'changeReason', value: e.target.value } })} placeholder="수정 사유를 기재해 주세요 (이력 보관 시 필요)" className="w-full bg-transparent border-none outline-none text-xs text-amber-900 placeholder-amber-400/50 resize-none h-10 mt-1" />
+            <textarea value={sheetInput.changeReason || ''} onChange={e => handleSheetChange({ target: { name: 'changeReason', value: e.target.value } })} placeholder="수정 사유를 기재해 주세요 (이력 보관 시 필요)" className="w-full bg-transparent border-none outline-none text-xs text-amber-900 placeholder-amber-400/50 resize-none h-7 mt-1" />
           </div>
         )}
 
         {/* 변경 이력 아코디언 — [PLAN-1] 가설계서 모드에서는 방어적 숨김 */}
         {!isTempMode && sheetInput.changeHistory && sheetInput.changeHistory.length > 0 && (
-          <details className="mb-6 group bg-slate-50 border border-slate-200 rounded-lg overflow-hidden cursor-pointer shadow-sm">
-            <summary className="p-3 text-xs font-bold text-slate-600 flex items-center justify-between hover:bg-slate-100 transition-colors list-none">
+          <details className="mb-2 group bg-slate-50 border border-slate-200 rounded-lg overflow-hidden cursor-pointer shadow-sm">
+            <summary className="px-3 py-1.5 text-xs font-bold text-slate-600 flex items-center justify-between hover:bg-slate-100 transition-colors list-none">
               <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-slate-400" /> 과거 변경 이력 열람 (총 {sheetInput.changeHistory.length}건)</span>
               <span className="text-[10px] text-slate-400 bg-white px-2 py-0.5 rounded border">자세히 보기 ▽</span>
             </summary>
@@ -613,8 +634,8 @@ export const DesignSheetPage = ({
 
         {/* 원단 리스트 연동 섹션 (가설계서 모드에서는 숨김 — 가설계서는 원단 연결 불필요) */}
         {!isTempMode && (
-        <div className="mb-6 p-4 bg-blue-50/50 rounded-lg border border-blue-200">
-          <h3 className="text-xs font-extrabold text-blue-800 mb-2 flex items-center gap-1.5">
+        <div className="mb-2 px-3 py-1.5 bg-blue-50/50 rounded-lg border border-blue-200">
+          <h3 className="text-xs font-extrabold text-blue-800 mb-1 flex items-center gap-1.5">
             <LinkIcon className="w-3.5 h-3.5" /> 원단 리스트 연동
           </h3>
           {sheetInput.linkedFabricId ? (
@@ -701,36 +722,16 @@ export const DesignSheetPage = ({
         {/* ------------------------------------------- */}
         {/* MAIN DETAIL 연동 섹션 (QC 연동 — 가설계서 모드에서는 숨김) */}
         {/* ------------------------------------------- */}
-        {!isTempMode && sheetInput.articleNo && (
-          <div className="mt-6 border-[2px] border-slate-800 p-3 bg-white rounded-none flex items-center justify-between gap-2 flex-wrap">
-            <h3 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-              <FileCheck className="w-4 h-4 text-emerald-600" />
-              메인 디테일 시트 (QC)
-              <span className="ml-1 text-[9px] font-normal text-slate-500">[{sheetInput.articleNo}]</span>
-            </h3>
-            <div className="flex gap-2">
-              <button type="button" onClick={openMainDetailForm}
-                className="flex items-center gap-1 px-3 py-1.5 bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-[11px] font-bold rounded shadow-sm active:scale-95 transition-all">
-                <Plus className="w-3.5 h-3.5" /> 작성
-              </button>
-              <button type="button" onClick={() => setMdViewOpen(true)}
-                className="flex items-center gap-1 px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 text-[11px] font-bold rounded transition-colors">
-                <FileCheck className="w-3.5 h-3.5" /> 연동 현황 보기
-                <span className="ml-0.5 bg-emerald-600 text-white rounded-full px-1.5 text-[9px]">{linkedMainDetails.length}</span>
-              </button>
-            </div>
-          </div>
-        )}
 
-        <div className="mt-auto flex items-end justify-between pt-4 border-t-2 border-slate-900">
+        <div className="mt-auto flex items-end justify-between pt-2 border-t-2 border-slate-900">
           <div>
             <p className="text-[10px] text-slate-500 mb-1">본 문서는 시스템에 의해 전자 기록됩니다.</p>
             <p className="text-[10px] text-slate-800 font-extrabold flex items-center gap-2">작성자: <span className="underline decoration-slate-300 underline-offset-4">{user?.displayName || '관리자'}</span></p>
           </div>
 
           {/* 문서 끝 */}
-          <div className="w-16 h-16 border-4 border-double border-red-500 rounded-full flex items-center justify-center opacity-70 transform -rotate-12">
-            <span className="text-xs font-black text-red-500 tracking-tighter">GRUBIG<br />APP.</span>
+          <div className="w-11 h-11 border-[3px] border-double border-red-500 rounded-full flex items-center justify-center opacity-70 transform -rotate-12">
+            <span className="text-[9px] font-black text-red-500 tracking-tighter leading-none text-center">GRUBIG<br />APP.</span>
           </div>
         </div>
         {/* --- 2 PAGE 종료 --- */}
