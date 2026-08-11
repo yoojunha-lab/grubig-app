@@ -77,3 +77,12 @@ export const UNIFIED_PENDING_STAGES = [
   { key: 'eztex',     label: 'EZ-TEX',     source: 'designSheet' },
   { key: 'sampling',  label: '샘플진행',   source: 'designSheet' }
 ];
+
+// '샘플 진행(sampling)' 단계의 세부 진행 상태
+// 원사 발주 → 편직 → 염가공 순으로 진행되며, '중단'은 일시 정지(보류) 상태
+export const SAMPLING_SUBSTAGES = [
+  { key: 'yarn',     label: '원사 발주', dot: 'bg-sky-400',    cls: 'bg-sky-100 text-sky-700 border-sky-300' },
+  { key: 'knitting', label: '편직',      dot: 'bg-indigo-400', cls: 'bg-indigo-100 text-indigo-700 border-indigo-300' },
+  { key: 'dyeing',   label: '염가공',    dot: 'bg-amber-400',  cls: 'bg-amber-100 text-amber-700 border-amber-300' },
+  { key: 'stopped',  label: '중단',      dot: 'bg-rose-400',   cls: 'bg-rose-100 text-rose-700 border-rose-300' }
+];

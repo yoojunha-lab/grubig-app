@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { Activity, Edit2, FileText, Plus, Search, Printer, Archive, ArrowRight, XCircle, Flame, Hourglass, Sparkles, ClipboardList, Info, ChevronDown, ChevronUp } from 'lucide-react';
-import { DEV_REQUEST_STATUS_LABELS, DEV_REQUEST_STATUS_BADGE_CLS } from '../constants/common';
+import { Activity, Edit2, FileText, Plus, Search, Printer, Archive, ArrowRight, XCircle, Flame, Hourglass, Sparkles, ClipboardList, Info, ChevronDown, ChevronUp, Link2, Unlink } from 'lucide-react';
+import { DEV_REQUEST_STATUS_LABELS, DEV_REQUEST_STATUS_BADGE_CLS, SAMPLING_SUBSTAGES } from '../constants/common';
 import { PendingProgressBar } from '../components/design-sheet/PendingProgressBar';
 import { DevRequestFormModal } from '../components/dashboard/DevRequestFormModal';
 import { DevArchiveModal } from '../components/dashboard/DevArchiveModal';
@@ -43,6 +43,7 @@ export const DevStatusPage = ({
   handleEditDevRequest, handleDeleteDevRequest, resetDevForm,
   createDesignSheetFromDev, initFromDevRequest, updateDevStatus,
   handleEditSheet, handleDeleteSheet, saveDocToCloud, setStage, dropDesignSheet,
+  setSamplingSub, linkSheetToDevRequest, unlinkSheetFromDevRequest,
   setActiveTab, user, buyers, yarnLibrary, viewMode,
   addMasterItem, generateDevOrderNo, setIsBuyerModalOpen,
   setIsDesignSheetModalOpen,
@@ -58,6 +59,8 @@ export const DevStatusPage = ({
   const [showGuide, setShowGuide] = useState(false);
   const [devSortBy, setDevSortBy] = useState('date');   // date | stage | buyer
   const [sheetSortBy, setSheetSortBy] = useState('date'); // date | stage | buyer
+  const [linkTargetSheet, setLinkTargetSheet] = useState(null); // '의뢰 연결' 모달 대상 설계서
+  const [linkSearch, setLinkSearch] = useState('');
   const eztexInputRefs = useRef({});
 
   const statusLabels = DEV_REQUEST_STATUS_LABELS;
@@ -79,6 +82,27 @@ export const DevStatusPage = ({
     const t = new Date(iso); const n = new Date();
     return Math.floor((n - t) / 86400000);
   };
+
+  // 샘플 진행 세부단계 헬퍼 (현재 세부단계 객체 + 진입 후 경과일)
+  const subOf = (s) => SAMPLING_SUBSTAGES.find(x => x.key === (s.samplingSub || 'yarn')) || SAMPLING_SUBSTAGES[0];
+  const subDaysOf = (s) => {
+    const key = s.samplingSub || 'yarn';
+    return daysSince(s.samplingSubEnteredAt?.[key] || s.stageEnteredAt?.sampling || s.updatedAt);
+  };
+
+  // 의뢰 수정 모달에서 삭제 (성공 시에만 모달 닫기 — 가드에 막히면 유지)
+  const handleModalDelete = async () => {
+    if (!editingDevId || !handleDeleteDevRequest) return;
+    const ok = await handleDeleteDevRequest(editingDevId);
+    if (ok) setShowDevModal(false);
+  };
+
+  // '의뢰 연결' 후보: 아직 진행중 설계서에 연결되지 않은 (Drop 제외) 의뢰
+  const linkCandidateDevs = useMemo(() =>
+    (devRequests || []).filter(d =>
+      d.status !== 'rejected' &&
+      !(designSheets || []).some(s => s.devRequestId === d.id && s.status !== 'dropped')
+    ), [devRequests, designSheets]);
 
   // 데이터 분류
   const confirmedDevReqs = useMemo(() => (devRequests||[]).filter(d=>d.status==='confirmed'), [devRequests]);
@@ -462,7 +486,7 @@ export const DevStatusPage = ({
                       <th className="p-3 w-[140px]">바이어</th>
                       <th className="p-3">품목명</th>
                       <th className="p-3 w-[200px]">현재 단계</th>
-                      <th className="p-3 w-[80px] text-right">경과</th>
+                      <th className="p-3 w-[120px]">납기(경과)</th>
                       <th className="p-3 w-[320px] text-right">관리</th>
                     </tr>
                   </thead>
@@ -471,7 +495,9 @@ export const DevStatusPage = ({
                       const days = daysSince(d.updatedAt || d.createdAt);
                       const urgency = getDevReqUrgency(d);
                       const stageEntry = formatStageEntry(d.statusEnteredAt?.[d.status] || d.updatedAt || d.createdAt);
-                      const db = deadlineBadge(getDevReqDeadline(d));
+                      const devDl = getDevReqDeadline(d);
+                      const db = deadlineBadge(devDl);
+                      const enteredDays = daysSince(d.statusEnteredAt?.[d.status] || d.updatedAt || d.createdAt);
                       const nextAction = nextStatusAction(d.status);
                       return (
                         <tr key={d.id} className={`border-b border-slate-100 hover:bg-slate-50/50 transition-colors ${rowBg(urgency)}`}>
@@ -483,10 +509,7 @@ export const DevStatusPage = ({
                           </td>
                           <td className="p-3">
                             <div className="flex flex-col gap-1.5">
-                              <div className="flex items-center gap-2">
-                                <PendingProgressBar stageKey={devStageKey(d)} />
-                                {db && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>}
-                              </div>
+                              <PendingProgressBar stageKey={devStageKey(d)} />
                               <select
                                 value={d.status}
                                 onChange={(e) => updateDevStatus && updateDevStatus(d.id, e.target.value)}
@@ -500,7 +523,18 @@ export const DevStatusPage = ({
                               </select>
                             </div>
                           </td>
-                          <td className="p-3 text-xs text-slate-500 text-right">{days != null ? `${days}일` : '-'}</td>
+                          <td className="p-3 text-xs">
+                            {devDl ? (
+                              <div className="flex flex-col gap-1">
+                                <span className="font-mono font-bold text-slate-700">{devDl}</span>
+                                {db
+                                  ? <span className={`inline-block w-fit text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>
+                                  : (enteredDays != null && <span className="text-[9px] text-slate-400">{enteredDays}일째</span>)}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">{enteredDays != null ? `${enteredDays}일째` : '-'}</span>
+                            )}
+                          </td>
                           <td className="p-3">
                             <div className="flex gap-1 justify-end">
                               {d.status === 'confirmed' ? (
@@ -696,19 +730,41 @@ export const DevStatusPage = ({
                                   <option key={stage.key} value={stage.key} title={stage.desc}>{stage.label}</option>
                                 ))}
                               </select>
+                              {/* 샘플 진행 세부단계 (원사발주 → 편직 → 염가공 / 중단) */}
+                              {s.stage === 'sampling' && (
+                                <select
+                                  value={s.samplingSub || 'yarn'}
+                                  onChange={(e) => setSamplingSub && setSamplingSub(s.id, e.target.value)}
+                                  title="샘플 세부 진행단계 변경 (원사발주 → 편직 → 염가공 / 중단)"
+                                  className={`w-full max-w-[180px] text-[10px] font-bold border rounded px-1.5 py-1 outline-none cursor-pointer focus:ring-2 ${subOf(s).cls} ring-amber-200`}
+                                >
+                                  {SAMPLING_SUBSTAGES.map(sub => (
+                                    <option key={sub.key} value={sub.key}>└ {sub.label}</option>
+                                  ))}
+                                </select>
+                              )}
                             </div>
                           </td>
                           <td className="p-3 text-xs">
-                            {s.deadline ? (
-                              <div className="flex flex-col gap-1">
-                                <span className="font-mono font-bold text-slate-700">{s.deadline}</span>
-                                {db
-                                  ? <span className={`inline-block w-fit text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>
-                                  : (days != null && <span className="text-[9px] text-slate-400">등록 {days}일째</span>)}
-                              </div>
-                            ) : (
-                              <span className="text-slate-400">{days != null ? `등록 ${days}일째` : '-'}</span>
-                            )}
+                            <div className="flex flex-col gap-1">
+                              {s.deadline ? (
+                                <>
+                                  <span className="font-mono font-bold text-slate-700">{s.deadline}</span>
+                                  {db
+                                    ? <span className={`inline-block w-fit text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>
+                                    : (days != null && <span className="text-[9px] text-slate-400">등록 {days}일째</span>)}
+                                </>
+                              ) : (
+                                <span className="text-slate-400">{days != null ? `등록 ${days}일째` : '-'}</span>
+                              )}
+                              {/* 샘플 진행 중이면 현재 세부단계 + 경과일 표시 */}
+                              {s.stage === 'sampling' && (
+                                <span className={`inline-flex w-fit items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${subOf(s).cls}`} title="현재 샘플 세부단계 진입 후 경과일">
+                                  <span className={`w-1.5 h-1.5 rounded-full ${subOf(s).dot}`} />
+                                  {subOf(s).label}{subDaysOf(s) != null ? ` · ${subDaysOf(s)}일째` : ''}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="p-3">
                             <div className="flex gap-1 justify-end items-center">
@@ -727,6 +783,19 @@ export const DevStatusPage = ({
                                     등록
                                   </button>
                                 </>
+                              )}
+                              {isSelfDev ? (
+                                <button onClick={() => { setLinkSearch(''); setLinkTargetSheet(s); }}
+                                  className="flex items-center gap-1 px-2 py-1 bg-violet-50 text-violet-600 hover:bg-violet-100 text-[10px] font-bold rounded border border-violet-200"
+                                  title="기존 개발 의뢰와 수동 연결">
+                                  <Link2 className="w-3 h-3"/> 의뢰 연결
+                                </button>
+                              ) : (
+                                <button onClick={() => unlinkSheetFromDevRequest?.(s.id)}
+                                  className="flex items-center gap-1 px-2 py-1 bg-slate-50 text-slate-500 hover:bg-slate-100 text-[10px] font-bold rounded border border-slate-200"
+                                  title="개발 의뢰 연결 해제 (자체개발로 전환)">
+                                  <Unlink className="w-3 h-3"/> 연결해제
+                                </button>
                               )}
                               <button onClick={() => handleEditSheet?.(s)}
                                 className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10px] font-bold rounded border border-blue-200"
@@ -771,9 +840,15 @@ export const DevStatusPage = ({
                           ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-500 border-slate-200">자체개발</span>
                           : (dev?.buyerName || '-')}
                       </p>
-                      <div className="mb-2 flex items-center gap-2">
+                      <div className="mb-2 flex items-center gap-2 flex-wrap">
                         <PendingProgressBar stageKey={s.stage} />
                         {db && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>}
+                        {s.stage === 'sampling' && (
+                          <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${subOf(s).cls}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${subOf(s).dot}`} />
+                            {subOf(s).label}{subDaysOf(s) != null ? ` · ${subDaysOf(s)}일째` : ''}
+                          </span>
+                        )}
                       </div>
                       <select
                         value={s.stage}
@@ -784,6 +859,18 @@ export const DevStatusPage = ({
                           <option key={stage.key} value={stage.key}>{stage.label}</option>
                         ))}
                       </select>
+                      {/* 샘플 진행 세부단계 (모바일) */}
+                      {s.stage === 'sampling' && (
+                        <select
+                          value={s.samplingSub || 'yarn'}
+                          onChange={(e) => setSamplingSub && setSamplingSub(s.id, e.target.value)}
+                          className={`mb-2 w-full text-[11px] font-bold border rounded px-2 py-1.5 outline-none ${subOf(s).cls}`}
+                        >
+                          {SAMPLING_SUBSTAGES.map(sub => (
+                            <option key={sub.key} value={sub.key}>└ {sub.label}</option>
+                          ))}
+                        </select>
+                      )}
                       {s.stage === 'eztex' && (
                         <div className="flex gap-1.5 mb-2">
                           <input
@@ -801,6 +888,17 @@ export const DevStatusPage = ({
                         </div>
                       )}
                       <div className="flex gap-1.5">
+                        {isSelfDev ? (
+                          <button onClick={() => { setLinkSearch(''); setLinkTargetSheet(s); }}
+                            className="flex items-center justify-center gap-1 px-2 py-1.5 bg-violet-50 text-violet-600 text-[11px] font-bold rounded border border-violet-200">
+                            <Link2 className="w-3 h-3"/> 연결
+                          </button>
+                        ) : (
+                          <button onClick={() => unlinkSheetFromDevRequest?.(s.id)}
+                            className="flex items-center justify-center gap-1 px-2 py-1.5 bg-slate-50 text-slate-500 text-[11px] font-bold rounded border border-slate-200">
+                            <Unlink className="w-3 h-3"/> 해제
+                          </button>
+                        )}
                         <button onClick={() => handleEditSheet?.(s)}
                           className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-blue-50 text-blue-600 text-[11px] font-bold rounded border border-blue-200">
                           <Edit2 className="w-3 h-3"/> 수정
@@ -827,6 +925,7 @@ export const DevStatusPage = ({
           handleDevChange={handleDevChange}
           handleSpecChange={handleSpecChange}
           onSave={handleModalSave}
+          onDelete={handleModalDelete}
           buyers={buyers}
           setIsBuyerModalOpen={setIsBuyerModalOpen}
           generateDevOrderNo={generateDevOrderNo}
@@ -849,6 +948,59 @@ export const DevStatusPage = ({
           statusLabels={statusLabels}
           statusCls={statusCls}
         />
+
+        {/* 개발 의뢰 수동 연결 모달 (설계서 → 기존 의뢰 선택) */}
+        {linkTargetSheet && (() => {
+          const q = linkSearch.trim().toLowerCase();
+          const list = linkCandidateDevs.filter(d => !q ||
+            String(d.devOrderNo || '').toLowerCase().includes(q) ||
+            String(d.buyerName || '').toLowerCase().includes(q) ||
+            String(d.devItem || '').toLowerCase().includes(q) ||
+            String(d.targetSpec?.composition || '').toLowerCase().includes(q)
+          );
+          return (
+            <div className="fixed inset-0 z-[120] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setLinkTargetSheet(null)}>
+              <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="p-4 border-b border-slate-200 flex items-center justify-between shrink-0">
+                  <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                    <Link2 className="w-4 h-4 text-violet-600"/> 개발 의뢰 연결
+                  </h3>
+                  <button onClick={() => setLinkTargetSheet(null)} className="p-1.5 hover:bg-slate-100 rounded-lg">
+                    <XCircle className="w-5 h-5 text-slate-400"/>
+                  </button>
+                </div>
+                <div className="p-4 pb-2 shrink-0">
+                  <p className="text-[11px] text-slate-500 mb-2 leading-relaxed">
+                    <span className="font-bold text-slate-700">{linkTargetSheet.fabricName || '이 설계서'}</span>에 연결할 개발 의뢰를 선택하세요.
+                    선택 시 해당 의뢰가 <span className="font-bold text-emerald-700">개발투입확정</span> 상태로 연결됩니다.
+                  </p>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                    <input value={linkSearch} onChange={e => setLinkSearch(e.target.value)} placeholder="개발번호/바이어/품목 검색..." className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                  </div>
+                </div>
+                <div className="px-4 pb-4 overflow-y-auto space-y-1.5">
+                  {list.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-slate-400">
+                      연결 가능한 개발 의뢰가 없습니다.<br/>
+                      <span className="text-[10px]">(이미 다른 설계서에 연결됐거나 Drop된 의뢰는 제외됩니다)</span>
+                    </div>
+                  ) : list.map(d => (
+                    <button key={d.id} onClick={() => { linkSheetToDevRequest?.(linkTargetSheet.id, d.id); setLinkTargetSheet(null); }}
+                      className="w-full text-left p-3 border border-slate-200 rounded-xl hover:border-violet-400 hover:bg-violet-50/50 transition-colors">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-mono font-extrabold text-violet-700">{d.devOrderNo || '-'}</span>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${statusCls[d.status] || ''}`}>{statusLabels[d.status] || d.status}</span>
+                      </div>
+                      <div className="text-sm font-bold text-slate-800 mt-0.5 truncate">{d.devItem || d.targetSpec?.composition || '품목명 미입력'}</div>
+                      <div className="text-[11px] text-slate-500">{d.buyerName || '-'}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* 인쇄 시트 — body 직속 포털 (편직처 전달용 / 내부 전달용) */}

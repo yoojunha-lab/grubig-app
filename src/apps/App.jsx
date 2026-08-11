@@ -344,20 +344,6 @@ const App = () => {
     updateDevStatus, linkAndConfirm
   } = useDevRequest(devRequests, saveDocToCloud, deleteDocFromCloud, showToast, designSheets);
 
-  // 의뢰 삭제 래퍼: 연결된 설계서의 devRequestId도 정리 (미아 방지)
-  const handleDeleteDevWithCleanup = (devReqId) => {
-    // 연결된 설계서 찾아서 devRequestId 해제
-    const linkedSheets = (designSheets || []).filter(s => s.devRequestId === devReqId);
-    linkedSheets.forEach(sheet => {
-      saveDocToCloud('designSheets', {
-        ...sheet,
-        devRequestId: null,
-        updatedAt: new Date().toISOString()
-      });
-    });
-    handleDeleteDevRequest(devReqId);
-  };
-
   // 아이템화 시 원단 자동 등록용 함수
   const saveFabricFromSheet = (fabricData) => {
     saveDocToCloud('fabrics', fabricData);
@@ -369,7 +355,8 @@ const App = () => {
     handleSheetYarnChange, handleCostInputChange, handleCostNestedChange,
     handleActualDataChange,
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
-    resetSheetForm, getStageIndex, setStage,
+    resetSheetForm, getStageIndex, setStage, setSamplingSub,
+    linkSheetToDevRequest, unlinkSheetFromDevRequest,
     addOrderNumber, removeOrderNumber,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
     registerFabricFromSheet
@@ -1403,13 +1390,16 @@ const App = () => {
             handleSpecChange={handleSpecChange}
             handleSaveDevRequest={handleSaveDevRequest}
             handleEditDevRequest={handleEditDevRequest}
-            handleDeleteDevRequest={handleDeleteDevWithCleanup}
+            handleDeleteDevRequest={handleDeleteDevRequest}
             resetDevForm={resetDevForm}
             createDesignSheetFromDev={createDesignSheetFromDev}
             initFromDevRequest={initFromDevRequest}
             updateDevStatus={updateDevStatus}
             handleEditSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
             handleDeleteSheet={handleDeleteSheet}
+            setSamplingSub={setSamplingSub}
+            linkSheetToDevRequest={linkSheetToDevRequest}
+            unlinkSheetFromDevRequest={unlinkSheetFromDevRequest}
             saveDocToCloud={saveDocToCloud}
             setStage={setStage}
             dropDesignSheet={dropDesignSheet}

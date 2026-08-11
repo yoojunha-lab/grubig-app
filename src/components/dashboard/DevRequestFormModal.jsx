@@ -1,5 +1,5 @@
 import React from 'react';
-import { Edit2, Plus, X, Check } from 'lucide-react';
+import { Edit2, Plus, X, Check, Trash2 } from 'lucide-react';
 import { PartnerSelectField } from '../common/PartnerSelectField';
 
 /**
@@ -25,6 +25,7 @@ export const DevRequestFormModal = ({
   handleDevChange,
   handleSpecChange,
   onSave,
+  onDelete,
   generateDevOrderNo,
   partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
 }) => {
@@ -190,6 +191,16 @@ export const DevRequestFormModal = ({
         </div>
 
         <div className="sticky bottom-0 bg-white border-t border-slate-200 p-3 rounded-b-2xl flex gap-2 justify-end">
+          {/* 수정 모드에서만 삭제 버튼 노출 (연결된 설계서가 있으면 핸들러가 차단) */}
+          {editingDevId && onDelete && (
+            <button
+              onClick={onDelete}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 mr-auto"
+              title="이 개발 의뢰를 영구 삭제합니다"
+            >
+              <Trash2 className="w-3.5 h-3.5"/> 삭제
+            </button>
+          )}
           <button
             onClick={onClose}
             className="px-3 py-2 text-xs font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200"

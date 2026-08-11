@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DESIGN_STAGES, makeDefaultEtcCosts } from '../../constants/common';
+import { DESIGN_STAGES, SAMPLING_SUBSTAGES, makeDefaultEtcCosts } from '../../constants/common';
 
 // GRUBIG ERP - 원단 설계서 도메인 로직 훅
 
@@ -221,6 +221,12 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       updatedAt: now
     };
 
+    // [샘플 세부단계] '샘플 진행'으로 처음 진입하면 세부단계를 '원사 발주'로 자동 초기화
+    if (targetStage === 'sampling' && !sheet.samplingSub) {
+      updatedSheet.samplingSub = 'yarn';
+      updatedSheet.samplingSubEnteredAt = { ...(sheet.samplingSubEnteredAt || {}), yarn: now };
+    }
+
     // articled 진입: 이미 원단이 연결돼 있으면 신규 등록 없이 stage만 복원
     // (사용자가 역방향으로 이동 후 다시 articled로 돌아오는 자연스러운 흐름 지원)
     if (targetStage === 'articled') {
@@ -239,6 +245,90 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
     saveDocToCloud('designSheets', updatedSheet);
     showToast(`'${DESIGN_STAGES.find(s => s.key === targetStage).label}' 단계로 이동했습니다.`, 'success');
+  };
+
+  // 샘플 진행 세부단계 변경 (원사발주 → 편직 → 염가공 / 중단)
+  // 세부단계 진입 시각을 누적 기록 → 현황에서 "N일째" 경과 표시에 사용
+  const setSamplingSub = (sheetId, subKey) => {
+    const sheet = designSheets.find(s => s.id === sheetId);
+    if (!sheet) return;
+    if (!SAMPLING_SUBSTAGES.some(s => s.key === subKey)) return;
+    if (sheet.samplingSub === subKey) return;
+
+    const now = new Date().toISOString();
+    saveDocToCloud('designSheets', {
+      ...sheet,
+      samplingSub: subKey,
+      samplingSubEnteredAt: { ...(sheet.samplingSubEnteredAt || {}), [subKey]: now },
+      updatedAt: now
+    });
+    const label = SAMPLING_SUBSTAGES.find(s => s.key === subKey)?.label || subKey;
+    showToast(`샘플 진행 세부단계가 '${label}'(으)로 변경되었습니다.`, 'success');
+  };
+
+  // --- 의뢰 ↔ 설계서 수동 연결 (설계서 쪽에서 진행) ---
+
+  // 자체개발(또는 미연결) 설계서에 기존 개발 의뢰를 수동으로 연결
+  const linkSheetToDevRequest = (sheetId, devReqId) => {
+    const sheet = designSheets.find(s => s.id === sheetId);
+    const dev = (devRequests || []).find(d => d.id === devReqId);
+    if (!sheet || !dev) return;
+
+    // 이미 다른 진행중 설계서가 이 의뢰에 연결돼 있으면 차단 (1:1 매핑 보호)
+    const other = (designSheets || []).find(
+      s => s.id !== sheetId && s.devRequestId === devReqId && s.status !== 'dropped'
+    );
+    if (other) {
+      showToast('이 의뢰에는 이미 연결된 설계서가 있습니다. 먼저 해제 후 다시 시도해주세요.', 'error');
+      return;
+    }
+
+    const now = new Date().toISOString();
+    // 설계서 쪽: 의뢰 ID + 개발번호 기록
+    saveDocToCloud('designSheets', {
+      ...sheet,
+      devRequestId: devReqId,
+      devOrderNo: dev.devOrderNo || sheet.devOrderNo || '',
+      updatedAt: now
+    });
+    // 의뢰 쪽: 설계서 ID 연결 + '개발투입확정' 승격 (confirmed 신규 진입 시에만 시점 기록)
+    const statusEnteredAt = dev.status === 'confirmed'
+      ? (dev.statusEnteredAt || {})
+      : { ...(dev.statusEnteredAt || {}), confirmed: now };
+    saveDocToCloud('devRequests', {
+      ...dev,
+      linkedDesignSheetId: sheetId,
+      status: 'confirmed',
+      statusEnteredAt,
+      updatedAt: now
+    });
+    showToast(`개발 의뢰 ${dev.devOrderNo || ''}와(과) 연결되었습니다.`, 'success');
+  };
+
+  // 설계서 ↔ 의뢰 연결 해제 (설계서는 자체개발로 전환, 의뢰는 유지)
+  const unlinkSheetFromDevRequest = (sheetId) => {
+    const sheet = designSheets.find(s => s.id === sheetId);
+    if (!sheet || !sheet.devRequestId) return;
+    if (!window.confirm('이 설계서와 개발 의뢰의 연결을 해제할까요?\n(설계서는 자체개발로 전환되고, 개발 의뢰 자체는 유지됩니다)')) return;
+
+    const now = new Date().toISOString();
+    const dev = (devRequests || []).find(d => d.id === sheet.devRequestId);
+    // 설계서 쪽: 의뢰 참조 제거 (자체개발화)
+    saveDocToCloud('designSheets', {
+      ...sheet,
+      devRequestId: null,
+      devOrderNo: '',
+      updatedAt: now
+    });
+    // 의뢰 쪽: soft-unlink — linkedDesignSheetId만 해제하고 status(confirmed)는 유지
+    if (dev && dev.linkedDesignSheetId === sheetId) {
+      saveDocToCloud('devRequests', {
+        ...dev,
+        linkedDesignSheetId: null,
+        updatedAt: now
+      });
+    }
+    showToast('개발 의뢰 연결이 해제되었습니다.', 'success');
   };
 
   // --- CRUD ---
@@ -702,7 +792,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     handleSheetYarnChange, handleCostInputChange, handleCostNestedChange,
     handleActualDataChange,
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
-    resetSheetForm, getStageIndex, setStage,
+    resetSheetForm, getStageIndex, setStage, setSamplingSub,
+    linkSheetToDevRequest, unlinkSheetFromDevRequest,
     addOrderNumber, removeOrderNumber,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
     registerFabricFromSheet

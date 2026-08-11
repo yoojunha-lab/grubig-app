@@ -121,6 +121,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     setEditingDevId(devReq.id);
   };
 
+  // 반환값: true=삭제 완료 / false=가드 차단·취소·실패 (호출부에서 모달 닫기 판단에 사용)
   const handleDeleteDevRequest = async (id) => {
     const devReq = (devRequests || []).find(d => d.id === id);
 
@@ -131,16 +132,18 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       s => s.devRequestId === id && s.status !== 'dropped'
     );
     if (devReq?.linkedDesignSheetId || hasActiveLinkedSheet) {
-      showToast('연결된 설계서가 있는 의뢰는 삭제할 수 없습니다. 설계서를 먼저 DROP/정리해주세요.', 'error');
-      return;
+      showToast('연결된 설계서가 있는 의뢰는 삭제할 수 없습니다. 설계서를 먼저 DROP/정리하거나 연결을 해제해주세요.', 'error');
+      return false;
     }
 
-    if (!window.confirm('정말로 이 개발 의뢰를 삭제하시겠습니까?')) return;
+    if (!window.confirm('정말로 이 개발 의뢰를 삭제하시겠습니까? (복구할 수 없습니다)')) return false;
     try {
       await deleteDocFromCloud('devRequests', id);
       showToast('삭제되었습니다.', 'success');
+      return true;
     } catch {
       // deleteDocFromCloud 내부에서 이미 에러 토스트 처리됨
+      return false;
     }
   };
 
