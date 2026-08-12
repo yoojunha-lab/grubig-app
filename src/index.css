@@ -169,3 +169,30 @@
     background: #ffffff !important;
   }
 }
+
+/* ========================================================== */
+/* [Lab-Dip 인쇄 모드]                                         */
+/* body.printing-labdip 일 때만 Lab-Dip 시트(.labdip-print-   */
+/* root)만 노출하고 견적 PDF(.pdf-render-root) 등은 숨김       */
+/* ========================================================== */
+@media print {
+  body.printing-labdip > .pdf-render-root { display: none !important; }
+  body.printing-labdip > *:not(.labdip-print-root) { display: none !important; }
+  body.printing-labdip > .labdip-print-root {
+    display: block !important;
+    position: static !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  body.printing-labdip > .labdip-print-root .pdf-render-inner {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+}

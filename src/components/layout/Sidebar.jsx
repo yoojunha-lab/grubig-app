@@ -3,6 +3,7 @@ import {
   Cloud, Menu, Layers, Home, Globe, Calculator, FileSpreadsheet, Box, FileText,
   Calendar, LogOut, DollarSign, Activity, Archive, FileCheck, FlaskConical,
   ClipboardEdit, LayoutDashboard, TrendingUp, ChevronDown, X, Boxes, FileSignature,
+  SwatchBook,
 } from 'lucide-react';
 
 // 그룹 정의: 활성 탭이 어느 그룹에 속하는지 판단 + 드롭다운 항목 렌더링
@@ -23,6 +24,7 @@ const NAV_GROUPS = [
     items: [
       { tab: 'quotation',    label: '견적서', icon: FileText },
       { tab: 'proformaInvoice', label: 'PI / 거래확인서', icon: FileSignature },
+      { tab: 'labdip',       label: 'Lab-Dip 발송', icon: SwatchBook },
       { tab: 'collection',   label: '컬렉션 관리', icon: Boxes },
     ],
   },

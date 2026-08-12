@@ -30,6 +30,7 @@ import { useOrder } from '../hooks/domains/useOrder';
 import { useCollection } from '../hooks/domains/useCollection';
 import { useProformaInvoice } from '../hooks/domains/useProformaInvoice';
 import { usePartner } from '../hooks/domains/usePartner';
+import { useLabdip } from '../hooks/domains/useLabdip';
 import { makeChangeLogEntry, appendChangeLog, summarizeBatchDiff } from '../utils/auditLog';
 import { PROCESS_TYPES } from '../constants/production';
 import { calcQuotePrice, getQuoteValidUntil } from '../utils/helpers';
@@ -59,6 +60,8 @@ import { CollectionPage } from '../pages/CollectionPage';
 import { OrderDetailModal } from '../components/order/OrderDetailModal';
 import { ProformaInvoicePage } from '../pages/ProformaInvoicePage';
 import { PIPrintSheet } from '../components/pi/PIPrintSheet';
+import { LabdipPage } from '../pages/LabdipPage';
+import { LabdipPrintSheet } from '../components/labdip/LabdipPrintSheet';
 
 const App = () => {
   const [user, setUser] = useState(null);
@@ -93,6 +96,8 @@ const App = () => {
   const [collections, setCollections] = useState([]);
   const [proformaInvoices, setProformaInvoices] = useState([]);
   const [selectedPIForPrint, setSelectedPIForPrint] = useState(null);
+  const [labdips, setLabdips] = useState([]);
+  const [selectedLabdipForPrint, setSelectedLabdipForPrint] = useState(null);
   const [partners, setPartners] = useState([]);
   const [partnersLoaded, setPartnersLoaded] = useState(false); // partners 스냅샷 최초 도착 여부 (seed 경쟁 조건 방지)
 
@@ -219,9 +224,11 @@ const App = () => {
     const unsubCollections = onSnapshot(collection(db, 'collections'), (snapshot) => setCollections(snapshot.docs.map(doc => doc.data())));
     // 영업 PI/거래확인서 구독
     const unsubPIs = onSnapshot(collection(db, 'proformaInvoices'), (snapshot) => setProformaInvoices(snapshot.docs.map(doc => doc.data())));
+    // Lab-Dip 발송 기록 구독
+    const unsubLabdips = onSnapshot(collection(db, 'labdips'), (snapshot) => setLabdips(snapshot.docs.map(doc => doc.data())));
     // 거래처(Partner) 구독
     const unsubPartners = onSnapshot(collection(db, 'partners'), (snapshot) => { setPartners(snapshot.docs.map(doc => doc.data())); setPartnersLoaded(true); });
-    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); unsubPIs(); unsubPartners(); };
+    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); unsubPIs(); unsubLabdips(); unsubPartners(); };
   }, [user]);
 
   // 원사 검색/필터가 바뀌면 목록을 1페이지로 되돌림
@@ -250,7 +257,7 @@ const App = () => {
     collections: setCollections, fabrics: setSavedFabrics, yarns: setYarnLibrary,
     quotes: setSavedQuotes, devRequests: setDevRequests, designSheets: setDesignSheets,
     mainDetails: setMainDetails, tempDesignSheets: setTempDesignSheets, orders: setOrders,
-    proformaInvoices: setProformaInvoices, partners: setPartners,
+    proformaInvoices: setProformaInvoices, labdips: setLabdips, partners: setPartners,
   };
   const saveDocToCloud = async (colName, item) => {
     if (DEV_BYPASS) {
@@ -413,6 +420,14 @@ const App = () => {
     handleSavePI, handleEditPI, handleDuplicatePI, handleDeletePI,
   } = useProformaInvoice(proformaInvoices, saveDocToCloud, deleteDocFromCloud, showToast, user);
 
+  // ⚓️ Lab-Dip(랩딥 발송) 훅  (addColor 등은 기존 설계서 훅과 이름이 겹쳐 별칭 사용)
+  const {
+    labdipInput, setLabdipInput, editingLabdipId,
+    resetLabdipForm, handleLabdipChange,
+    addColor: addLabdipColor, removeColor: removeLabdipColor, updateColor: updateLabdipColor,
+    handleSaveLabdip, handleEditLabdip, handleDuplicateLabdip, handleDeleteLabdip,
+  } = useLabdip(labdips, saveDocToCloud, deleteDocFromCloud, showToast, user);
+
   // ⚓️ 거래처(Partner) 훅 — 모든 거래처 선택/등록 공통
   const { makeEmptyPartner, savePartner, deletePartner } =
     usePartner(partners, buyers, saveDocToCloud, saveBatchToCloud, deleteDocFromCloud, showToast, partnersLoaded);
@@ -438,6 +453,27 @@ const App = () => {
       } finally {
         document.title = oldTitle;
         document.body.classList.remove('printing-pi');
+      }
+    }, 200);
+  };
+
+  // Lab-Dip 인쇄 (PI/컬렉션과 동일한 native window.print() 방식, body.printing-labdip 토글)
+  const handlePrintLabdip = (targetLabdip = null) => {
+    const t = (targetLabdip && (targetLabdip.id || targetLabdip.colors)) ? targetLabdip : labdipInput;
+    const hasColor = (t.colors || []).some(c => String(c.name || '').trim() || String(c.baseNo || '').trim());
+    if (!hasColor) { showToast('인쇄할 컬러가 없습니다.', 'error'); return; }
+    setSelectedLabdipForPrint(t); // 인쇄 대상 확정 (LabdipPrintSheet 렌더)
+    showToast("인쇄 다이얼로그에서 '대상 = PDF로 저장'을 선택해 주세요.", 'info');
+    const oldTitle = document.title;
+    const safeName = `LABDIP_${String(t.buyerName || '').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim()}_${String(t.article || '').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim()}`.replace(/_+$/,'') || 'LABDIP';
+    document.body.classList.add('printing-labdip');
+    setTimeout(() => {
+      try {
+        document.title = safeName;
+        window.print();
+      } finally {
+        document.title = oldTitle;
+        document.body.classList.remove('printing-labdip');
       }
     }, 200);
   };
@@ -1378,6 +1414,27 @@ const App = () => {
           />
         )}
 
+        {/* TAB: Lab-Dip 발송 (영업) */}
+        {activeTab === 'labdip' && (
+          <LabdipPage
+            labdipInput={labdipInput}
+            setLabdipInput={setLabdipInput}
+            editingLabdipId={editingLabdipId}
+            handleLabdipChange={handleLabdipChange}
+            resetLabdipForm={resetLabdipForm}
+            addColor={addLabdipColor}
+            removeColor={removeLabdipColor}
+            updateColor={updateLabdipColor}
+            handleSaveLabdip={handleSaveLabdip}
+            handleEditLabdip={handleEditLabdip}
+            handleDuplicateLabdip={handleDuplicateLabdip}
+            handleDeleteLabdip={handleDeleteLabdip}
+            handlePrintLabdip={handlePrintLabdip}
+            labdips={labdips}
+            {...partnerBag}
+          />
+        )}
+
         {/* TAB: 개발 현황 (의뢰 등록 + 진행현황 통합) */}
         {activeTab === 'devStatus' && (
           <DevStatusPage
@@ -1659,6 +1716,9 @@ const App = () => {
 
         {/* PI / 거래확인서 인쇄 문서 (off-screen, body.printing-pi 일 때만 노출) */}
         <PIPrintSheet pi={selectedPIForPrint} />
+
+        {/* Lab-Dip 인쇄 문서 (off-screen, body.printing-labdip 일 때만 노출) */}
+        <LabdipPrintSheet labdip={selectedLabdipForPrint} />
       </div>
     </div>
   );
