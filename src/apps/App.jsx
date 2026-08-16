@@ -60,6 +60,7 @@ import { CollectionPage } from '../pages/CollectionPage';
 import { OrderDetailModal } from '../components/order/OrderDetailModal';
 import { ProformaInvoicePage } from '../pages/ProformaInvoicePage';
 import { PIPrintSheet } from '../components/pi/PIPrintSheet';
+import { PISettingsModal } from '../components/pi/PISettingsModal';
 import { LabdipPage } from '../pages/LabdipPage';
 import { LabdipPrintSheet } from '../components/labdip/LabdipPrintSheet';
 
@@ -96,6 +97,8 @@ const App = () => {
   const [collections, setCollections] = useState([]);
   const [proformaInvoices, setProformaInvoices] = useState([]);
   const [selectedPIForPrint, setSelectedPIForPrint] = useState(null);
+  const [piSettings, setPiSettings] = useState(null);            // PI 은행정보/약관 설정 (settings/general.piSettings)
+  const [isPISettingsOpen, setIsPISettingsOpen] = useState(false);
   const [labdips, setLabdips] = useState([]);
   const [selectedLabdipForPrint, setSelectedLabdipForPrint] = useState(null);
   const [partners, setPartners] = useState([]);
@@ -197,6 +200,7 @@ const App = () => {
         setMachineTypes(Array.isArray(d.machineTypes) ? d.machineTypes : []);
         setStructures(Array.isArray(d.structures) ? d.structures : []);
         setYarnSuppliers(Array.isArray(d.yarnSuppliers) ? d.yarnSuppliers : []);
+        setPiSettings(d.piSettings || null);                     // PI 은행/약관 설정
       } else {
         // 문서가 없을 때만 yarnCategories만 시드 — 마스터 배열은 비워둠 (실제 추가될 때 자동 생성됨)
         // 빈 배열로 시드하면 만약 콘솔 등에서 doc 재삭제 후 이 코드가 다시 돌면 데이터 영구 손실 위험
@@ -476,6 +480,20 @@ const App = () => {
         document.body.classList.remove('printing-labdip');
       }
     }, 200);
+  };
+
+  // PI 설정(은행정보/약관) 저장 — settings/general.piSettings 에 merge (DEV 우회 시 로컬만)
+  const savePISettings = async (next) => {
+    setPiSettings(next); // 낙관적 반영 (DEV 우회 모드에서도 즉시 화면 반영)
+    if (DEV_BYPASS) { setSyncStatus('saved'); return; }
+    setSyncStatus('syncing');
+    try {
+      await setDoc(doc(db, 'settings', 'general'), { piSettings: next }, { merge: true });
+      setSyncStatus('saved');
+    } catch (e) {
+      setSyncStatus('error');
+      showToast(`PI 설정 저장 실패: ${e?.message || '네트워크 오류'}`, 'error');
+    }
   };
 
   // PI 엑셀 내보내기 (품목표 중심 — 화면 폼 또는 보관함 문서)
@@ -1407,9 +1425,9 @@ const App = () => {
             handleDownloadPIExcel={handleDownloadPIExcel}
             proformaInvoices={proformaInvoices}
             savedFabrics={savedFabrics}
-            yarnLibrary={yarnLibrary}
             buyers={buyers}
             setIsBuyerModalOpen={setIsBuyerModalOpen}
+            onOpenSettings={() => setIsPISettingsOpen(true)}
             {...partnerBag}
           />
         )}
@@ -1715,7 +1733,17 @@ const App = () => {
         />
 
         {/* PI / 거래확인서 인쇄 문서 (off-screen, body.printing-pi 일 때만 노출) */}
-        <PIPrintSheet pi={selectedPIForPrint} />
+        <PIPrintSheet pi={selectedPIForPrint} piSettings={piSettings} />
+
+        {/* PI 설정(은행정보/약관) 모달 — 열릴 때만 마운트해 설정값 재시드 */}
+        {isPISettingsOpen && (
+          <PISettingsModal
+            onClose={() => setIsPISettingsOpen(false)}
+            piSettings={piSettings}
+            onSave={savePISettings}
+            showToast={showToast}
+          />
+        )}
 
         {/* Lab-Dip 인쇄 문서 (off-screen, body.printing-labdip 일 때만 노출) */}
         <LabdipPrintSheet labdip={selectedLabdipForPrint} />

@@ -24,6 +24,7 @@ export const useProformaInvoice = (proformaInvoices, saveDocToCloud, deleteDocFr
     id: `piitem_${PI_ITEM_SESSION}_${piItemSeq++}`,
     article: '',
     description: '',
+    hsCode: '',          // HS Code (품목별) — 요구사항: 품목 옆에 표기
     color: '',
     qty: '',
     unit: 'YDS',
@@ -45,7 +46,8 @@ export const useProformaInvoice = (proformaInvoices, saveDocToCloud, deleteDocFr
       buyerCompany: '',
       buyerAddress: '',
       buyerTel: '',
-      buyerContact: '',
+      buyerContact: '',                    // 담당자 / Contact person
+      buyerEmail: '',                      // 이메일(수출) / 연락처(내수) — Contact와 분리된 별도 칸
       buyerBizNo: '',                      // 내수: 매수인 사업자등록번호
 
       // 통지처(수출) / 납품처(내수)
@@ -78,8 +80,8 @@ export const useProformaInvoice = (proformaInvoices, saveDocToCloud, deleteDocFr
       // 내수 원화계좌 (미입력 — 발행 전 채움)
       krwAccount: '',
 
-      // 품목 + 합계 조정
-      items: [makeEmptyItem()],
+      // 품목 + 합계 조정 (첫 행 HS Code는 기본값으로 시드)
+      items: [{ ...makeEmptyItem(), hsCode: t.hsCode || '' }],
       freightAmt: '',                      // 운반비/FREIGHT
       insuranceAmt: '',                    // 보험료 (수출만)
       discountAmt: '',                     // 할인/DISCOUNT
@@ -117,6 +119,7 @@ export const useProformaInvoice = (proformaInvoices, saveDocToCloud, deleteDocFr
         buyerAddress: prev.buyerAddress,
         buyerTel: prev.buyerTel,
         buyerContact: prev.buyerContact,
+        buyerEmail: prev.buyerEmail,
         buyerBizNo: prev.buyerBizNo,
         notifyAddress: prev.notifyAddress,
         notifyTel: prev.notifyTel,
@@ -155,8 +158,12 @@ export const useProformaInvoice = (proformaInvoices, saveDocToCloud, deleteDocFr
   };
 
   // ── 품목 조작 ──────────────────────────────────────────────
+  // 새 행의 HS Code는 직전 품목 값을 상속(대개 같은 HS) — 없으면 빈칸
   const addPIItem = () => {
-    setPIInput(prev => ({ ...prev, items: [...(prev.items || []), makeEmptyItem()] }));
+    setPIInput(prev => {
+      const lastHs = (prev.items || []).slice(-1)[0]?.hsCode || '';
+      return { ...prev, items: [...(prev.items || []), { ...makeEmptyItem(), hsCode: lastHs }] };
+    });
   };
 
   const removePIItem = (itemId) => {
@@ -179,7 +186,8 @@ export const useProformaInvoice = (proformaInvoices, saveDocToCloud, deleteDocFr
         !String(it.article).trim() && !String(it.description).trim() &&
         !String(it.color).trim() && !String(it.qty).trim() && !String(it.unitPrice).trim()
       );
-      const newItem = { ...makeEmptyItem(), article, description, unit };
+      const lastHs = items.slice(-1)[0]?.hsCode || '';
+      const newItem = { ...makeEmptyItem(), article, description, unit, hsCode: lastHs };
       if (firstEmptyIdx >= 0) {
         const copy = [...items];
         copy[firstEmptyIdx] = { ...copy[firstEmptyIdx], article, description, unit };

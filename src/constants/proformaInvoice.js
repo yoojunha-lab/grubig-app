@@ -199,9 +199,9 @@ export const sayTotalUSD = (amount) => {
 // 내수용 금액 문자표기: 일금 ... 원정
 export const sayTotalKRW = (amount) => `일금 ${numberToKoreanWords(Math.max(0, Number(amount) || 0))}원정`;
 
-// ── 품목 Description 자동생성 (게이지 제외: 혼용률 · 품명 · 중량 · 폭) ──
-//  composition: getComposition(fabric) 결과 문자열 (예: "CM 30S 100%")
-export const buildPIDescription = (fabric, composition, isExport) => {
+// ── 품목 Description 자동생성 (Item Name · 폭 · 중량만 — 혼용률/조직 제외) ──
+//  요구사항: '사양'칸은 품명(Item Name)과 폭/중량만 가져온다.
+export const buildPIDescription = (fabric, isExport) => {
   if (!fabric) return '';
   const full = Number(fabric.widthFull) || 0;
   const cut = Number(fabric.widthCut) || 0;
@@ -211,10 +211,55 @@ export const buildPIDescription = (fabric, composition, isExport) => {
         : `${full}"${cut ? `(재단폭 ${cut}")` : ''}`)
     : '';
   const parts = [
-    composition,
     fabric.itemName || '',
-    fabric.gsm ? `${fabric.gsm} g/m²` : '',
     width,
+    fabric.gsm ? `${fabric.gsm} g/m²` : '',
   ].filter(p => String(p).trim() !== '');
   return parts.join(', ');
+};
+
+// ============================================================
+// PI 설정(은행정보 + 약관) — settings/general.piSettings 에 저장
+//  · 저장값이 없으면 위의 상수(PI_BANK, PI_TERMS_EN/KR)를 기본값으로 사용
+//  · 약관은 {title, body} 배열로 저장 (번호는 렌더 시 자동 부여)
+// ============================================================
+
+// 상수 약관({no,title,body})을 편집용({title,body})으로 변환
+export const defaultPITerms = (isExport) =>
+  (isExport ? PI_TERMS_EN : PI_TERMS_KR).map(t => ({ title: t.title, body: t.body }));
+
+// 저장된 설정 + 기본값 병합 → 화면/PDF/모달이 사용할 유효 설정 반환
+export const getEffectivePISettings = (piSettings) => {
+  const s = piSettings || {};
+  const exp = s.export || {};
+  const dom = s.domestic || {};
+  return {
+    export: {
+      bank: { ...PI_BANK.export, ...(exp.bank || {}) },
+      terms: (Array.isArray(exp.terms) && exp.terms.length) ? exp.terms : defaultPITerms(true),
+    },
+    domestic: {
+      bank: { ...PI_BANK.domestic, ...(dom.bank || {}) },
+      terms: (Array.isArray(dom.terms) && dom.terms.length) ? dom.terms : defaultPITerms(false),
+    },
+  };
+};
+
+// 은행정보 편집 필드 정의 (모달이 이 정의로 입력칸을 렌더)
+export const PI_BANK_FIELDS = {
+  export: [
+    { key: 'beneficiary', label: 'Beneficiary (수취인)' },
+    { key: 'beneficiaryAddress', label: 'Beneficiary Address' },
+    { key: 'accountNo', label: 'Account No. (USD 계좌)' },
+    { key: 'accountCurrency', label: 'Account Currency' },
+    { key: 'bankName', label: 'Bank Name' },
+    { key: 'branch', label: 'Branch' },
+    { key: 'swift', label: 'SWIFT Code' },
+  ],
+  domestic: [
+    { key: 'accountHolder', label: '예금주' },
+    { key: 'krwAccount', label: '원화 계좌번호' },
+    { key: 'bankBranch', label: '은행명 / 지점' },
+    { key: 'accountType', label: '예금 종류' },
+  ],
 };

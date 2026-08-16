@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   FileText, Save, Download, FileSpreadsheet, FilePlus, Trash2, Plus,
-  Copy, Globe, Home, Search, Package, Pencil, X, RefreshCw,
+  Copy, Globe, Home, Search, Package, Pencil, X, RefreshCw, Settings,
 } from 'lucide-react';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { PartnerSelectField } from '../components/common/PartnerSelectField';
@@ -43,8 +43,9 @@ export const ProformaInvoicePage = ({
   addPIItem, removePIItem, handleItemChange, addItemFromFabric,
   handleSavePI, handleEditPI, handleDuplicatePI, handleDeletePI,
   handlePrintPI, handleDownloadPIExcel,
-  proformaInvoices = [], savedFabrics = [], yarnLibrary = [],
+  proformaInvoices = [], savedFabrics = [],
   partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
+  onOpenSettings,                                                // PI 설정(은행/약관) 모달 열기
 }) => {
   const isExport = piInput.marketType !== 'domestic';
   const symbol = isExport ? '$' : '₩';
@@ -61,18 +62,6 @@ export const ProformaInvoicePage = ({
   const backToList = () => { setMode('list'); resetPIForm && resetPIForm(); };
   const onSave = async () => { await handleSavePI(); /* 저장 후 폼 유지 (인쇄/추가편집 가능) */ };
 
-  // 원단 혼용률 문자열 (컬렉션 getComposition 과 동일 로직)
-  const getComposition = (fabric) =>
-    (fabric?.yarns || [])
-      .filter(y => y.yarnId && Number(y.ratio) > 0)
-      .map(y => {
-        const realYarnId = String(y.yarnId).split('::')[0];
-        const realYarn = (yarnLibrary || []).find(yl => String(yl.id) === String(realYarnId));
-        const name = realYarn?.name || y.tempName || '미등록';
-        return `${name} ${y.ratio}%`;
-      })
-      .join(' / ');
-
   const fabricOptions = useMemo(
     () => (savedFabrics || []).map(f => ({ id: f.id, name: `${f.article || '(품번없음)'} · ${f.itemName || ''}` })),
     [savedFabrics]
@@ -82,8 +71,8 @@ export const ProformaInvoicePage = ({
     if (!fabricId) { setFabricPick(''); return; }
     const fabric = (savedFabrics || []).find(f => String(f.id) === String(fabricId));
     if (!fabric) return;
-    const composition = getComposition(fabric);
-    const description = buildPIDescription(fabric, composition, isExport);
+    // 사양(Description) = Item Name · 폭 · 중량 (혼용률 제외)
+    const description = buildPIDescription(fabric, isExport);
     addItemFromFabric({ article: fabric.article || '', description });
     setFabricPick('');
   };
@@ -132,6 +121,11 @@ export const ProformaInvoicePage = ({
           <input value={listSearch} onChange={e => setListSearch(e.target.value)} placeholder="번호·바이어 검색"
             className="border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-sm w-44 focus:ring-2 focus:ring-indigo-500 outline-none" />
         </div>
+        {onOpenSettings && (
+          <button onClick={onOpenSettings} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-100 flex items-center justify-center gap-1.5 text-sm font-bold">
+            <Settings className="w-4 h-4" /> PI 설정
+          </button>
+        )}
         <button onClick={openNew} className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-1.5 text-sm font-bold shadow-lg shadow-indigo-200">
           <FilePlus className="w-4 h-4" /> PI 등록
         </button>
@@ -215,7 +209,8 @@ export const ProformaInvoicePage = ({
                   buyerBizNo: p.bizNo || prev.buyerBizNo,
                   buyerAddress: p.address || prev.buyerAddress,
                   buyerTel: p.tel || prev.buyerTel,
-                  buyerContact: p.contact || p.mobile || prev.buyerContact,
+                  buyerContact: p.contact || prev.buyerContact,                          // 담당자
+                  buyerEmail: (isExport ? p.email : (p.mobile || p.email)) || prev.buyerEmail, // 이메일(수출)/연락처(내수)
                 }))}
                 partners={partners}
                 savePartner={savePartner}
@@ -226,8 +221,9 @@ export const ProformaInvoicePage = ({
             </div>
             {!isExport && <Field label="사업자등록번호" name="buyerBizNo" value={piInput.buyerBizNo} onChange={handlePIChange} />}
             <Field label={isExport ? 'Tel' : '전화'} name="buyerTel" value={piInput.buyerTel} onChange={handlePIChange} />
-            <Field label={isExport ? 'Contact / E-mail' : '담당자 / 연락처'} name="buyerContact" value={piInput.buyerContact} onChange={handlePIChange} />
-            <Field label={isExport ? 'Address' : '주소'} name="buyerAddress" value={piInput.buyerAddress} onChange={handlePIChange} className={isExport ? 'md:col-span-2' : 'md:col-span-4'} />
+            <Field label={isExport ? 'Contact (담당자)' : '담당자'} name="buyerContact" value={piInput.buyerContact} onChange={handlePIChange} />
+            <Field label={isExport ? 'E-mail' : '연락처'} name="buyerEmail" value={piInput.buyerEmail} onChange={handlePIChange} />
+            <Field label={isExport ? 'Address' : '주소'} name="buyerAddress" value={piInput.buyerAddress} onChange={handlePIChange} className="md:col-span-4" />
           </div>
         </section>
 
@@ -258,7 +254,6 @@ export const ProformaInvoicePage = ({
               <Field label="Partial Shipment" name="partialShipment" value={piInput.partialShipment} onChange={handlePIChange} />
               <Field label="Transhipment" name="transhipment" value={piInput.transhipment} onChange={handlePIChange} />
               <Field label="Mode of Transport" name="transport" value={piInput.transport} onChange={handlePIChange} />
-              <Field label="HS Code" name="hsCode" value={piInput.hsCode} onChange={handlePIChange} />
               <Field label="Packing" name="packing" value={piInput.packing} onChange={handlePIChange} />
               <Field label="Insurance" name="insurance" value={piInput.insurance} onChange={handlePIChange} />
             </div>
@@ -269,10 +264,8 @@ export const ProformaInvoicePage = ({
               <Field label="납기 / 리드타임" name="leadTime" value={piInput.leadTime} onChange={handlePIChange} />
               <Field label="납품 방법" name="deliveryMethod" value={piInput.deliveryMethod} onChange={handlePIChange} />
               <Field label="운반비 부담" name="freightBearer" value={piInput.freightBearer} onChange={handlePIChange} />
-              <Field label="최소 발주 수량" name="moq" value={piInput.moq} onChange={handlePIChange} />
               <Field label="수량 허용오차" name="qtyTolerance" value={piInput.qtyTolerance} onChange={handlePIChange} />
               <Field label="부가가치세" name="vatNote" value={piInput.vatNote} onChange={handlePIChange} />
-              <Field label="원화 계좌번호 (발행 전 입력)" name="krwAccount" value={piInput.krwAccount} onChange={handlePIChange} placeholder="비워두면 PDF에 공란" />
             </div>
           )}
         </section>
@@ -299,13 +292,14 @@ export const ProformaInvoicePage = ({
           </div>
 
           <div className="overflow-x-auto border border-slate-200 rounded-xl">
-            <table className="w-full text-sm min-w-[760px]">
+            <table className="w-full text-sm min-w-[880px]">
               <thead>
                 <tr className="bg-slate-50 text-slate-500 text-[11px] uppercase">
                   <th className="py-2 px-2 w-8 text-center font-bold">No</th>
-                  <th className="py-2 px-2 text-left font-bold w-32">품번</th>
-                  <th className="py-2 px-2 text-left font-bold">사양 (Description)</th>
-                  <th className="py-2 px-2 text-left font-bold w-32">컬러 / 컬러번호</th>
+                  <th className="py-2 px-2 text-left font-bold w-28">품번</th>
+                  <th className="py-2 px-2 text-left font-bold">사양 (Item Name·폭·중량)</th>
+                  <th className="py-2 px-2 text-left font-bold w-28">HS Code</th>
+                  <th className="py-2 px-2 text-left font-bold w-28">컬러 / 컬러번호</th>
                   <th className="py-2 px-2 text-right font-bold w-24">수량</th>
                   <th className="py-2 px-2 text-center font-bold w-20">단위</th>
                   <th className="py-2 px-2 text-right font-bold w-28">단가 ({symbol})</th>
@@ -326,6 +320,10 @@ export const ProformaInvoicePage = ({
                       <td className="py-1.5 px-2">
                         <textarea value={it.description ?? ''} onChange={e => handleItemChange(it.id, 'description', e.target.value)} rows={2}
                           className="w-full border border-slate-200 rounded px-2 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500 outline-none resize-none leading-snug" />
+                      </td>
+                      <td className="py-1.5 px-2">
+                        <input value={it.hsCode ?? ''} onChange={e => handleItemChange(it.id, 'hsCode', e.target.value)} placeholder="6006.10-0000"
+                          className="w-full border border-slate-200 rounded px-2 py-1.5 text-sm font-mono focus:ring-1 focus:ring-indigo-500 outline-none" />
                       </td>
                       <td className="py-1.5 px-2">
                         <input value={it.color ?? ''} onChange={e => handleItemChange(it.id, 'color', e.target.value)} placeholder="NAVY / #1102"
@@ -355,7 +353,7 @@ export const ProformaInvoicePage = ({
                   );
                 })}
                 {(piInput.items || []).length === 0 && (
-                  <tr><td colSpan={9} className="py-8 text-center text-slate-400 text-sm">‘원단에서 불러오기’ 또는 ‘행 추가’로 품목을 넣어주세요.</td></tr>
+                  <tr><td colSpan={10} className="py-8 text-center text-slate-400 text-sm">‘원단에서 불러오기’ 또는 ‘행 추가’로 품목을 넣어주세요.</td></tr>
                 )}
               </tbody>
             </table>
