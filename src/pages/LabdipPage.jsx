@@ -34,6 +34,59 @@ const sentBadge = (labdip) =>
     ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700"><Send className="w-3 h-3" /> 발송 {labdip.sentDate}</span>
     : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500">미발송</span>;
 
+// ── 컬러 한 행 (모듈 레벨 컴포넌트) ─────────────────────────
+//  ⚠️ 반드시 컴포넌트 밖(모듈 레벨)에 둘 것. LabdipPage 안에 정의하면
+//     렌더마다 새 함수가 되어 매 글자 입력 시 input이 리마운트→포커스 유실됨.
+const ColorRow = ({ c, updateColor, removeColor }) => {
+  const letters = labdipLetters(c.letters);
+  const preview = (c.baseNo || c.name)
+    ? `${c.baseNo || '(넘버)'} ${letters.map(L => `"${L}"`).join(', ')}`
+    : '';
+  return (
+    <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/60">
+      <div className="grid grid-cols-12 gap-2 items-end">
+        <div className="col-span-6 sm:col-span-3">
+          <label className="block text-[10px] font-bold text-slate-500 mb-1">컬러명</label>
+          <input value={c.name ?? ''} onChange={e => updateColor(c.id, 'name', e.target.value)} placeholder="CHARCOAL"
+            className="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm font-bold uppercase focus:ring-2 focus:ring-indigo-500 outline-none" />
+        </div>
+        <div className="col-span-6 sm:col-span-3">
+          <label className="block text-[10px] font-bold text-slate-500 mb-1">베이스 넘버</label>
+          <input value={c.baseNo ?? ''} onChange={e => updateColor(c.id, 'baseNo', e.target.value)} placeholder="25S038"
+            className="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm font-mono font-bold uppercase focus:ring-2 focus:ring-indigo-500 outline-none" />
+        </div>
+        <div className="col-span-5 sm:col-span-2">
+          <label className="block text-[10px] font-bold text-slate-500 mb-1">낱장 수</label>
+          <select value={c.letters ?? 2} onChange={e => updateColor(c.id, 'letters', e.target.value)}
+            className="w-full border border-slate-200 rounded-lg px-2 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
+            {Array.from({ length: 8 }, (_, i) => i + 1).map(n => {
+              const ls = labdipLetters(n);
+              return <option key={n} value={n}>{n === 1 ? 'A' : `A~${ls[ls.length - 1]}`} ({n}장)</option>;
+            })}
+          </select>
+        </div>
+        <div className="col-span-6 sm:col-span-3">
+          <label className="block text-[10px] font-bold text-slate-500 mb-1">컬러 코멘트</label>
+          <input value={c.comment ?? ''} onChange={e => updateColor(c.id, 'comment', e.target.value)} placeholder="예: A안 채택 요망"
+            className="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
+        </div>
+        <div className="col-span-1 flex justify-end">
+          <button onClick={() => removeColor(c.id)} title="컬러 삭제"
+            className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+      {/* 자동 생성 미리보기 */}
+      <div className="mt-2 flex items-center gap-1.5 text-[11px] text-indigo-600">
+        <SwatchBook className="w-3.5 h-3.5 shrink-0" />
+        <span className="font-bold">생성:</span>
+        <span className="font-mono truncate">{preview || <span className="text-slate-400 font-sans">컬러명 또는 넘버를 입력하면 자동 생성됩니다</span>}</span>
+      </div>
+    </div>
+  );
+};
+
 export const LabdipPage = ({
   labdipInput, setLabdipInput, editingLabdipId,
   handleLabdipChange, resetLabdipForm,
@@ -87,59 +140,6 @@ export const LabdipPage = ({
       </div>
     </div>
   );
-
-  // ════════════════════════════════════════════════════════
-  // 컬러 한 행
-  // ════════════════════════════════════════════════════════
-  const ColorRow = ({ c }) => {
-    const letters = labdipLetters(c.letters);
-    const preview = (c.baseNo || c.name)
-      ? `${c.baseNo || '(넘버)'} ${letters.map(L => `"${L}"`).join(', ')}`
-      : '';
-    return (
-      <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/60">
-        <div className="grid grid-cols-12 gap-2 items-end">
-          <div className="col-span-6 sm:col-span-3">
-            <label className="block text-[10px] font-bold text-slate-500 mb-1">컬러명</label>
-            <input value={c.name ?? ''} onChange={e => updateColor(c.id, 'name', e.target.value)} placeholder="CHARCOAL"
-              className="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm font-bold uppercase focus:ring-2 focus:ring-indigo-500 outline-none" />
-          </div>
-          <div className="col-span-6 sm:col-span-3">
-            <label className="block text-[10px] font-bold text-slate-500 mb-1">베이스 넘버</label>
-            <input value={c.baseNo ?? ''} onChange={e => updateColor(c.id, 'baseNo', e.target.value)} placeholder="25S038"
-              className="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm font-mono font-bold uppercase focus:ring-2 focus:ring-indigo-500 outline-none" />
-          </div>
-          <div className="col-span-5 sm:col-span-2">
-            <label className="block text-[10px] font-bold text-slate-500 mb-1">낱장 수</label>
-            <select value={c.letters ?? 2} onChange={e => updateColor(c.id, 'letters', e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-2 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
-              {Array.from({ length: 8 }, (_, i) => i + 1).map(n => {
-                const ls = labdipLetters(n);
-                return <option key={n} value={n}>{n === 1 ? 'A' : `A~${ls[ls.length - 1]}`} ({n}장)</option>;
-              })}
-            </select>
-          </div>
-          <div className="col-span-6 sm:col-span-3">
-            <label className="block text-[10px] font-bold text-slate-500 mb-1">컬러 코멘트</label>
-            <input value={c.comment ?? ''} onChange={e => updateColor(c.id, 'comment', e.target.value)} placeholder="예: A안 채택 요망"
-              className="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
-          </div>
-          <div className="col-span-1 flex justify-end">
-            <button onClick={() => removeColor(c.id)} title="컬러 삭제"
-              className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg">
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-        {/* 자동 생성 미리보기 */}
-        <div className="mt-2 flex items-center gap-1.5 text-[11px] text-indigo-600">
-          <SwatchBook className="w-3.5 h-3.5 shrink-0" />
-          <span className="font-bold">생성:</span>
-          <span className="font-mono truncate">{preview || <span className="text-slate-400 font-sans">컬러명 또는 넘버를 입력하면 자동 생성됩니다</span>}</span>
-        </div>
-      </div>
-    );
-  };
 
   // ════════════════════════════════════════════════════════
   // 작성/편집 폼
@@ -199,7 +199,7 @@ export const LabdipPage = ({
             </button>
           </div>
           <div className="space-y-2.5">
-            {(labdipInput.colors || []).map((c) => <ColorRow key={c.id} c={c} />)}
+            {(labdipInput.colors || []).map((c) => <ColorRow key={c.id} c={c} updateColor={updateColor} removeColor={removeColor} />)}
             {(labdipInput.colors || []).length === 0 && (
               <div className="py-6 text-center text-slate-400 text-sm border border-dashed border-slate-200 rounded-xl">
                 ‘컬러 추가’로 컬러를 넣어주세요.
@@ -260,6 +260,7 @@ export const LabdipPage = ({
               <span>{t.date}</span>
               <span>{(t.colors || []).length}컬러 · {swatchCount(t)}장</span>
             </div>
+            {t.remarks ? <div className="text-[10px] text-amber-600 truncate mt-0.5" title={t.remarks}>※ {t.remarks}</div> : null}
           </button>
         ))}
       </div>
@@ -281,7 +282,7 @@ export const LabdipPage = ({
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[840px]">
+          <table className="w-full text-sm min-w-[1000px]">
             <thead>
               <tr className="text-left text-[11px] text-slate-400 uppercase bg-slate-50 border-b border-slate-200">
                 <th className="py-2.5 px-3 font-bold">작성일</th>
@@ -289,6 +290,7 @@ export const LabdipPage = ({
                 <th className="py-2.5 px-3 font-bold">ARTICLE / STYLE</th>
                 <th className="py-2.5 px-3 font-bold text-center">컬러 · 낱장</th>
                 <th className="py-2.5 px-3 font-bold">발송 상태</th>
+                <th className="py-2.5 px-3 font-bold">특이사항</th>
                 <th className="py-2.5 px-3 font-bold">작성자</th>
                 <th className="py-2.5 px-3 font-bold text-center">작업</th>
               </tr>
@@ -308,6 +310,9 @@ export const LabdipPage = ({
                   <td className="py-2.5 px-3 whitespace-nowrap">
                     {sentBadge(t)}
                     {t.sentMethod ? <span className="ml-1 text-[10px] text-slate-400">{t.sentMethod}</span> : null}
+                  </td>
+                  <td className="py-2.5 px-3 text-slate-500 text-xs max-w-[220px]">
+                    <span className="block truncate" title={t.remarks || ''}>{t.remarks || <span className="text-slate-300">—</span>}</span>
                   </td>
                   <td className="py-2.5 px-3 text-slate-500 text-xs">{t.authorName || '-'}</td>
                   <td className="py-2.5 px-3" onClick={e => e.stopPropagation()}>

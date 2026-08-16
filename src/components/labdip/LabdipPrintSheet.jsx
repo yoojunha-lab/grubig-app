@@ -98,18 +98,22 @@ export const LabdipPrintSheet = ({ labdip }) => {
             </div>
           )}
 
-          {/* ── 푸터: 회사 정보 (원본 양식 유지) ── */}
-          <div className="avoid-break mt-8 pt-4 border-t-2 border-slate-800 grid grid-cols-3 items-center gap-3">
-            <div className="text-[10px] text-slate-600 font-bold leading-relaxed">
-              <p>Email: info@grubig.kr</p>
-              <p>TEL: 031-389-2301</p>
-              <p>FAX: 031-389-2315</p>
+          {/* ── 푸터: 회사 정보 + 브랜드 문구 (TEL/FAX 제외) ── */}
+          <div className="avoid-break mt-8 pt-4 border-t-2 border-slate-800">
+            <div className="grid grid-cols-3 items-center gap-3">
+              <div className="text-[10px] text-slate-600 font-bold leading-relaxed">
+                <p>Email: info@grubig.kr</p>
+              </div>
+              <div className="text-center">
+                <img src="/logo.png" alt="GRUBIG" className="h-[46px] object-contain mx-auto" onError={(e) => (e.target.style.display = 'none')} />
+              </div>
+              <div className="text-right text-[11px] font-extrabold text-slate-800">
+                www.grubig.kr
+              </div>
             </div>
-            <div className="text-center">
-              <img src="/logo.png" alt="GRUBIG" className="h-[46px] object-contain mx-auto" onError={(e) => (e.target.style.display = 'none')} />
-            </div>
-            <div className="text-right text-[11px] font-extrabold text-slate-800">
-              www.grubig.kr
+            <div className="mt-3 pt-2 border-t border-slate-200 text-center">
+              <p className="text-[12px] font-extrabold text-slate-800 uppercase tracking-[0.25em]">Made in Korea</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.3em] mt-1">Crafted by GRUBIG — Engineered to Excel</p>
             </div>
           </div>
         </div>
