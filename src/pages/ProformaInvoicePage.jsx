@@ -249,13 +249,8 @@ export const ProformaInvoicePage = ({
               <Field label="Payment Terms" name="paymentTerms" value={piInput.paymentTerms} onChange={handlePIChange} placeholder="예: 30% T/T deposit, 70% before shipment" />
               <Field label="Shipment / Lead Time" name="leadTime" value={piInput.leadTime} onChange={handlePIChange} />
               <Field label="Port of Loading" name="portLoading" value={piInput.portLoading} onChange={handlePIChange} />
-              <Field label="Port of Discharge" name="portDischarge" value={piInput.portDischarge} onChange={handlePIChange} />
               <Field label="Final Destination" name="finalDest" value={piInput.finalDest} onChange={handlePIChange} />
-              <Field label="Partial Shipment" name="partialShipment" value={piInput.partialShipment} onChange={handlePIChange} />
-              <Field label="Transhipment" name="transhipment" value={piInput.transhipment} onChange={handlePIChange} />
-              <Field label="Mode of Transport" name="transport" value={piInput.transport} onChange={handlePIChange} />
-              <Field label="Packing" name="packing" value={piInput.packing} onChange={handlePIChange} />
-              <Field label="Insurance" name="insurance" value={piInput.insurance} onChange={handlePIChange} />
+              <Field label="Quantity Tolerance (수량 허용오차)" name="qtyTolerance" value={piInput.qtyTolerance} onChange={handlePIChange} />
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">

@@ -166,17 +166,12 @@ export const PIPrintSheet = ({ pi, piSettings }) => {
                 <div className="border-r border-slate-300">
                   <Cell label="Price Term (Incoterms 2020)" value={pi.priceTerm} />
                   <Cell label="Payment Terms" value={pi.paymentTerms} />
-                  <Cell label="Shipment / Lead Time" value={pi.leadTime} />
-                  <Cell label="Partial Shipment" value={pi.partialShipment} />
-                  <Cell label="Transhipment" value={pi.transhipment} />
-                  <Cell label="Packing" value={pi.packing} className="border-b-0" />
+                  <Cell label="Shipment / Lead Time" value={pi.leadTime} className="border-b-0" />
                 </div>
                 <div>
                   <Cell label="Port of Loading" value={pi.portLoading} />
-                  <Cell label="Port of Discharge" value={pi.portDischarge} />
                   <Cell label="Final Destination" value={pi.finalDest} />
-                  <Cell label="Mode of Transport" value={pi.transport} />
-                  <Cell label="Insurance" value={pi.insurance} className="border-b-0" />
+                  <Cell label="Quantity Tolerance" value={pi.qtyTolerance} className="border-b-0" />
                 </div>
               </>
             ) : (
