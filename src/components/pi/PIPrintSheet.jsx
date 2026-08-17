@@ -318,17 +318,21 @@ export const PIPrintSheet = ({ pi, piSettings }) => {
             )}
           </div>
 
-          {/* ─── 약관 (설정값) ─── */}
-          <SectionBar>{isExport ? 'Terms & Conditions' : '거래 조건 및 면책 사항'}</SectionBar>
-          <div className="border border-slate-300 border-t-0 px-3 py-1.5">
-            <ol className="space-y-[2px]">
-              {terms.map((t, i) => (
-                <li key={i} className="text-[8px] text-slate-600 leading-[1.3] break-words">
-                  <span className="font-bold text-slate-800">{i + 1}. {t.title}{t.title ? ' — ' : ''}</span>{t.body}
-                </li>
-              ))}
-            </ol>
-          </div>
+          {/* ─── 약관 (설정값) — 설정에서 전부 삭제한 경우 섹션 자체를 숨김 ─── */}
+          {terms.length > 0 && (
+            <>
+              <SectionBar>{isExport ? 'Terms & Conditions' : '거래 조건 및 면책 사항'}</SectionBar>
+              <div className="border border-slate-300 border-t-0 px-3 py-1.5">
+                <ol className="space-y-[2px]">
+                  {terms.map((t, i) => (
+                    <li key={i} className="text-[8px] text-slate-600 leading-[1.3] break-words">
+                      <span className="font-bold text-slate-800">{i + 1}. {t.title}{t.title ? ' — ' : ''}</span>{t.body}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </>
+          )}
 
           {/* ─── 서명란 ─── */}
           <div className="grid grid-cols-2 gap-3 mt-3 avoid-break">

@@ -100,7 +100,8 @@ export const useLabdip = (labdips, saveDocToCloud, deleteDocFromCloud, showToast
       return false;
     }
 
-    const authorName = user?.displayName || user?.email?.split('@')[0] || 'Unknown';
+    // 작성자 보존: 최초 저장자를 유지 (편집자가 바뀌어도 목록의 '작성자'는 원 작성자 — PI와 동일 규칙)
+    const authorName = labdipInput.authorName || user?.displayName || user?.email?.split('@')[0] || 'Unknown';
     const id = labdipInput.id || editingLabdipId || `labdip_${Date.now()}`;
     const existing = (labdips || []).find(x => String(x.id) === String(id));
 
@@ -155,6 +156,7 @@ export const useLabdip = (labdips, saveDocToCloud, deleteDocFromCloud, showToast
       date: now.toISOString().split('T')[0],
       sentDate: '',        // 복제본은 '미발송' 상태로 시작
       sentMethod: '',
+      authorName: '',      // 복제본의 작성자는 (저장 시) 현재 사용자 — 원본 작성자를 물려받지 않음
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       colors: (src.colors || []).map((c, i) => ({

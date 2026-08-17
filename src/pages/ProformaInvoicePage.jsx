@@ -39,7 +39,7 @@ const fmtAmt = (pi, t) => {
 
 export const ProformaInvoicePage = ({
   piInput, setPIInput, editingPIId,
-  handlePIChange, setMarketType, handleNewPI, resetPIForm,
+  handlePIChange, setMarketType, handleNewPI, handleRegeneratePINo, resetPIForm,
   addPIItem, removePIItem, handleItemChange, addItemFromFabric,
   handleSavePI, handleEditPI, handleDuplicatePI, handleDeletePI,
   handlePrintPI, handleDownloadPIExcel,
@@ -181,7 +181,7 @@ export const ProformaInvoicePage = ({
               <div className="flex gap-1">
                 <input name="piNo" value={piInput.piNo ?? ''} onChange={handlePIChange} placeholder="GB-PI-2026-001"
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none" />
-                <button onClick={openNew} title="번호 자동 채번(새 문서)" className="shrink-0 px-2 border border-slate-200 rounded-lg text-slate-400 hover:text-indigo-600 hover:border-indigo-300">
+                <button onClick={handleRegeneratePINo} title="문서번호만 다시 채번 (다른 입력값은 유지)" className="shrink-0 px-2 border border-slate-200 rounded-lg text-slate-400 hover:text-indigo-600 hover:border-indigo-300">
                   <RefreshCw className="w-4 h-4" />
                 </button>
               </div>

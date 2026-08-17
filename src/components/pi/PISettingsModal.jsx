@@ -15,9 +15,8 @@ import { getEffectivePISettings, defaultPITerms, PI_BANK_FIELDS } from '../../co
 export const PISettingsModal = ({ onClose, piSettings, onSave, showToast }) => {
   const [tab, setTab] = useState('export');   // 'export' | 'domestic'
   // 마운트 시점(=열릴 때)의 설정을 깊은 복제해 편집 상태로 시드
+  // (App에서 열릴 때만 마운트하므로 initializer가 항상 최신 설정을 가짐)
   const [local, setLocal] = useState(() => JSON.parse(JSON.stringify(getEffectivePISettings(piSettings))));
-
-  if (!local) return null;
 
   const isExport = tab === 'export';
   const cur = local[tab];

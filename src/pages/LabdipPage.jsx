@@ -114,6 +114,8 @@ export const LabdipPage = ({
         String(t.buyerName || '').toLowerCase().includes(term) ||
         String(t.article || '').toLowerCase().includes(term) ||
         String(t.style || '').toLowerCase().includes(term) ||
+        String(t.remarks || '').toLowerCase().includes(term) ||
+        String(t.sentMethod || '').toLowerCase().includes(term) ||
         (t.colors || []).some(c => String(c.name || '').toLowerCase().includes(term) || String(c.baseNo || '').toLowerCase().includes(term))
       )
       .sort((a, b) => String(b.updatedAt || b.date || '').localeCompare(String(a.updatedAt || a.date || '')));
@@ -149,7 +151,8 @@ export const LabdipPage = ({
       {/* 폼 헤더 */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 border-b border-slate-200 px-4 sm:px-5 py-3">
         <h3 className="text-base font-bold text-slate-800 shrink-0">
-          {(editingLabdipId || labdipInput.id) ? 'Lab-Dip 편집' : 'Lab-Dip 작성'}
+          {/* editingLabdipId 기준: 복제 직후(미저장 신규)는 '작성'으로 표시 */}
+          {editingLabdipId ? 'Lab-Dip 편집' : 'Lab-Dip 작성'}
         </h3>
         <div className="flex flex-wrap gap-1.5">
           <button onClick={() => handlePrintLabdip(labdipInput)} className="bg-white border border-slate-300 text-indigo-700 px-3 py-2 rounded-lg hover:bg-indigo-50 flex items-center gap-1.5 text-sm font-bold">

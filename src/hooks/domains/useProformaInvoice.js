@@ -57,28 +57,20 @@ export const useProformaInvoice = (proformaInvoices, saveDocToCloud, deleteDocFr
       notifyContact: '',
 
       // 거래조건 (기본값 시드 — 편집 가능)
+      //  · HS Code는 문서가 아닌 "품목별" 필드 → items 시드에서 t.hsCode 사용
+      //  · 물류 필드(분할선적/환적/포장/양륙항/운송방법/보험)와 내수 MOQ·원화계좌는 화면에서 제거됨 → 더 이상 저장하지 않음
+      //    (구 문서의 값은 handleEditPI 의 ...pi 스프레드로 보존되므로 데이터 손실 없음)
       priceTerm: t.priceTerm || '',
       paymentTerms: t.paymentTerms || '',
       leadTime: t.leadTime || '',
-      partialShipment: t.partialShipment || '',
-      transhipment: t.transhipment || '',
-      packing: t.packing || '',
       portLoading: t.portLoading || '',
-      portDischarge: t.portDischarge || '',
       finalDest: t.finalDest || '',
-      transport: t.transport || '',
-      hsCode: t.hsCode || '',
-      insurance: t.insurance || '',
+      qtyTolerance: t.qtyTolerance || '',    // 수량 허용오차 (수출·내수 공통)
       // 내수 전용
       taxInvoice: t.taxInvoice || '',
       deliveryMethod: t.deliveryMethod || '',
       freightBearer: t.freightBearer || '',
-      moq: t.moq || '',
-      qtyTolerance: t.qtyTolerance || '',
       vatNote: t.vatNote || '',
-      domRemark: t.domRemark || '',
-      // 내수 원화계좌 (미입력 — 발행 전 채움)
-      krwAccount: '',
 
       // 품목 + 합계 조정 (첫 행 HS Code는 기본값으로 시드)
       items: [{ ...makeEmptyItem(), hsCode: t.hsCode || '' }],
@@ -155,6 +147,12 @@ export const useProformaInvoice = (proformaInvoices, saveDocToCloud, deleteDocFr
     fresh.piNo = generatePINo(fresh.date);
     setPIInput(fresh);
     setEditingPIId(null);
+  };
+
+  // 문서번호만 다시 채번 — 작성 중인 나머지 입력값은 그대로 유지
+  //  (기존에는 이 자리에 handleNewPI가 연결되어 있어 🔄 클릭 시 폼 전체가 초기화되는 사고가 있었음)
+  const handleRegeneratePINo = () => {
+    setPIInput(prev => ({ ...prev, piNo: generatePINo(prev.date) }));
   };
 
   // ── 품목 조작 ──────────────────────────────────────────────
@@ -285,7 +283,7 @@ export const useProformaInvoice = (proformaInvoices, saveDocToCloud, deleteDocFr
     piInput, setPIInput, editingPIId,
     getInitialPIInput,
     resetPIForm, handlePIChange, setMarketType,
-    generatePINo, handleNewPI,
+    handleNewPI, handleRegeneratePINo,
     addPIItem, removePIItem, handleItemChange, addItemFromFabric,
     handleSavePI, handleEditPI, handleDuplicatePI, handleDeletePI,
   };

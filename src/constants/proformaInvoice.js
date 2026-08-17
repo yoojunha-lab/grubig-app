@@ -43,8 +43,7 @@ export const PI_BANK = {
   },
   domestic: {
     accountHolder: '(주)그루빅통상  (GRUBIG TRADING CO., LTD.)',
-    krwAccount: '',                                    // 원화 계좌번호 (미입력 — 발행 전 채움)
-    foreignAccount: '568-008794-56-00017   /   SWIFT IBKOKRSEXXX',
+    krwAccount: '',                                    // 원화 계좌번호 — PI 설정에서 입력
     bankBranch: 'IBK기업은행 독산역지점',
     accountType: '보통예금',
   },
@@ -59,15 +58,8 @@ export const PI_DEFAULT_TERMS = {
     portLoading: 'BUSAN, KOREA',
     finalDest: '',
     qtyTolerance: '±3% (based on shipped quantity)',
-    hsCode: '6006.10-0000',
+    hsCode: '6006.10-0000',                 // 품목별 HS Code 자동 시드값
     notifyCompany: 'SAME AS CONSIGNEE',
-    // (미사용) 아래는 구 문서 호환용으로만 남겨둔 값 — 폼/PDF에는 표시하지 않음
-    partialShipment: 'ALLOWED',
-    transhipment: 'ALLOWED',
-    packing: 'ROLL, POLY BAG IN CARTON',
-    portDischarge: '',
-    transport: 'BY SEA',
-    insurance: "For Buyer's account (FOB)",
   },
   domestic: {
     paymentTerms: '',
@@ -75,10 +67,9 @@ export const PI_DEFAULT_TERMS = {
     leadTime: '70 ~ 110일',
     deliveryMethod: '직송 / 인수도',
     freightBearer: '매수인 부담',
-    moq: '1,000y 이상 (색당 400y)',
     qtyTolerance: '±3% (실납품 수량 기준 청구)',
     vatNote: '별도 (공급가액의 10%)',
-    domRemark: '',
+    hsCode: '6006.10-0000',                 // 품목별 HS Code 자동 시드값 (수출·내수 공통)
     deliverToCompany: '상동',
   },
 };
@@ -231,6 +222,8 @@ export const defaultPITerms = (isExport) =>
   (isExport ? PI_TERMS_EN : PI_TERMS_KR).map(t => ({ title: t.title, body: t.body }));
 
 // 저장된 설정 + 기본값 병합 → 화면/PDF/모달이 사용할 유효 설정 반환
+//  · 약관: 저장된 배열이 있으면 "빈 배열이어도" 그대로 존중 (전부 삭제 = 약관 없이 발행하겠다는 의도)
+//         배열 자체가 없을 때(최초 사용)만 기본값 시드
 export const getEffectivePISettings = (piSettings) => {
   const s = piSettings || {};
   const exp = s.export || {};
@@ -238,11 +231,11 @@ export const getEffectivePISettings = (piSettings) => {
   return {
     export: {
       bank: { ...PI_BANK.export, ...(exp.bank || {}) },
-      terms: (Array.isArray(exp.terms) && exp.terms.length) ? exp.terms : defaultPITerms(true),
+      terms: Array.isArray(exp.terms) ? exp.terms : defaultPITerms(true),
     },
     domestic: {
       bank: { ...PI_BANK.domestic, ...(dom.bank || {}) },
-      terms: (Array.isArray(dom.terms) && dom.terms.length) ? dom.terms : defaultPITerms(false),
+      terms: Array.isArray(dom.terms) ? dom.terms : defaultPITerms(false),
     },
   };
 };

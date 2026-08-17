@@ -419,7 +419,7 @@ const App = () => {
   const {
     piInput, setPIInput, editingPIId,
     resetPIForm, handlePIChange, setMarketType,
-    generatePINo, handleNewPI,
+    handleNewPI, handleRegeneratePINo,
     addPIItem, removePIItem, handleItemChange, addItemFromFabric,
     handleSavePI, handleEditPI, handleDuplicatePI, handleDeletePI,
   } = useProformaInvoice(proformaInvoices, saveDocToCloud, deleteDocFromCloud, showToast, user);
@@ -508,6 +508,7 @@ const App = () => {
       'No': idx + 1,
       '품번': it.article || '',
       '사양': it.description || '',
+      'HS Code': it.hsCode || '',
       '컬러': it.color || '',
       '수량': Number(it.qty) || 0,
       '단위': it.unit || '',
@@ -522,7 +523,7 @@ const App = () => {
     ];
     const ws = window.XLSX.utils.aoa_to_sheet(meta);
     window.XLSX.utils.sheet_add_json(ws, rows, { origin: 'A5' });
-    ws['!cols'] = [{ wch: 5 }, { wch: 16 }, { wch: 40 }, { wch: 16 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 16 }];
+    ws['!cols'] = [{ wch: 5 }, { wch: 16 }, { wch: 40 }, { wch: 14 }, { wch: 16 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 16 }];
     const wb = window.XLSX.utils.book_new();
     window.XLSX.utils.book_append_sheet(wb, ws, isExport ? 'PI' : '거래확인서');
     const safeNo = String(pi.piNo || 'PI').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim() || 'PI';
@@ -1412,6 +1413,7 @@ const App = () => {
             handlePIChange={handlePIChange}
             setMarketType={setMarketType}
             handleNewPI={handleNewPI}
+            handleRegeneratePINo={handleRegeneratePINo}
             resetPIForm={resetPIForm}
             addPIItem={addPIItem}
             removePIItem={removePIItem}
