@@ -19,10 +19,86 @@
 | **v5~v7: 차수 편집 UX 진화** (모달→펼침→엑셀 스타일 표) | ✅ **완료** | - |
 | **2단계 3차 (2-B)**: 간트 차트 1차 버전 | ✅ **완료** | - |
 | **3단계**: 대시보드 + 칸반 + Risk Scanner (1차) | ✅ **완료** | - |
-| **4단계**: 감사 로그 + 리포트 (1차) | ✅ **완료** | (이번 작업) |
+| **4단계**: 감사 로그 + 리포트 (1차) | ✅ **완료** | - |
+| **v8 개편 1·2단계**: 대시보드·칸반·오더등록 삭제 + 차수 폐기 데이터 구조 + 엑셀형 현황표 | ✅ **완료** | `e14b9c4` |
+| **v8 개편 3단계**: 염가공 컬러별 LOT 계획 | ✅ **완료** | `0443244` |
+| **v8 개편 4단계**: 오더별 간트 + 날짜 메모 | ✅ **완료** | (4단계 커밋) |
 
 > **🎉 Phase 1 운영 가능 상태 도달** — 등록/편집/시각화/모니터링 모두 1차 완성. 이제 사용해보면서 세부 다듬기.
 > 알람/확인게이트는 개발하지 않기로 결정 (대표님 지시).
+>
+> **⚠️ 2026-09 v8 개편으로 아래 1단계~v7 의 데이터 구조(차수·입고차수·시작점·활성 공정)와 화면(대시보드·칸반·오더 등록 마법사·공정별 간트)은 폐기됐다.**
+> 현재 구조는 바로 아래 "v8 개편" 절이 기준이다. 그 아래 절들은 이력으로만 남겨둔다.
+
+---
+
+## v8 개편 — 엑셀형 현황표 (2026-09, 현재 기준)
+
+### 배경 (대표님 요청 6가지)
+1. 생산 현황의 대시보드·칸반 삭제
+2. 간트를 **오더별**로 (엑셀 현황표의 날짜별 status 칸 느낌)
+3. 별도 오더 등록 화면 없이 **현황표에서 바로 추가/수정** (엑셀처럼)
+4. 오더를 1차·2차(차수)로 나누지 않고 **전체 일정만** 관리
+5. 염가공은 **LOT(염색탕)별 계획**
+6. 대표님 피드백으로 계속 업그레이드
+
+### 확정 결정 (질의응답)
+| 항목 | 결정 |
+|-----|-----|
+| 수량 단위 | **KG** (오더수량·작지수량). YD 입력/환산 폐기 |
+| 작지수량 | 오더수량 × (1 + 로스율). 로스율 기본 10%(엑셀 실측), 오더마다 수정. 작지수량 직접 입력도 가능(↺로 자동 복귀) |
+| 원사 | 사종별 발주·입고차수 폐기 → 다른 공정처럼 외주처·시작·종료·상태·메모 한 세트 |
+| 간트 | 공정 막대 + **날짜 칸 메모**(엑셀의 일일 status) 둘 다 |
+| 기존 오더 | 읽을 때 자동 변환(차수 날짜 합침: 가장 빠른 시작~가장 늦은 종료). 원래 필드는 문서에 보존 |
+| 오더 타입/시작점/공정 활성화 | 폐기. 칸을 채운 공정 = 사용하는 공정 |
+| 구분(메인/샘플) | order# 의 S/M 으로 자동 (F-26**S**046 → 샘플, F-26**M**020 → 메인), 수정 가능 |
+| article# | 자유 입력 + 원단 보관함 자동완성(선택 시 detail·gsm·폭 채움). 엑셀처럼 "###" 도 허용 |
+| 편직 | 오더 단위(편직처·기간·일일생산량 → 예상 종료일 계산) / **생지 출고일은 컬러별** |
+| 컬러 줄 상태 | 입력한 일정·상태로 자동 표시 (편직대기→편직중→생지출고대기→염색대기→염색중→컨펌중→출고대기→출고완료, 문제/보류/완료) |
+
+### 데이터 구조 (orders 컬렉션, `schemaVersion: 8`)
+- 정의·변환·계산은 전부 `src/utils/orderModel.js` (순수 함수). 상수는 `src/constants/production.js`.
+```
+order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, finalDueDate, lossRate, status(active|on_hold|completed),
+        notes, linkedFabricId, linkedFabricArticle, dyeVendor,
+        steps: { yarn, yarn_processing, knitting, finishing, physical_test, visual_inspection }  // {vendor,startDate,endDate,status,doneDate,notes} (+knitting.dailyKg)
+        colors: [{ id, name, orderKg, workKg(null=자동), greigeOutDate, greigeOutDone,
+                   lots: [{ id, no, machineKg(탕 용량), qtyKg, startDate(투입), endDate(완료예정), status, rolls, notes }],
+                   confirmRounds: [{ round, sentDate, resultDate, result }], shipDate, shipDone, notes }]
+        dailyNotes: [{ id, date, colorId(''=오더 줄), text, tone }], changeLog, createdAt, updatedAt ... }
+```
+- 새 오더 문서 ID는 `ord_…` 자동 생성 (order# 는 일반 필드 → 나중에 수정 가능). 옛 오더는 기존 ID(=옛 order#) 유지.
+- 상태는 모든 공정·LOT 공통 4단계: 대기 / 진행중 / 문제 / 완료.
+
+### 저장 방식 (`src/hooks/domains/useOrder.js`)
+- 칸 하나 확정(blur/Enter, 날짜·체크는 즉시) → orderModel 의 변경 함수로 새 오더 생성 → 문서 통째 저장 + 변경 이력 자동 요약(`summarizeOrderChange`).
+- 저장 완료 전에도 화면에 바로 반영(낙관적 반영). 연속 수정은 직전 수정본 위에 이어서 적용(앞 수정 유실 방지). 저장 실패 시 서버 값으로 되돌림.
+- 새 줄(초안)은 **order# 를 입력하는 순간** 등록 저장. order# 중복·빈값은 거절.
+
+### 화면 / 파일
+| 화면 | 파일 |
+|-----|-----|
+| 생산 현황 페이지 (툴바·필터·상세창·LOT 편집 띄우기) | `src/pages/OrderListPage.jsx` |
+| 엑셀형 현황표 | `src/components/order/sheet/ProductionSheet.jsx` (+ `SheetCells.jsx`, `OrderMenuPopover.jsx`) |
+| 공정 편집 / 브랜드 컨펌 팝오버 | `src/components/order/sheet/ProcessPopover.jsx`, `ColorPopovers.jsx` |
+| 염가공 LOT 편집 | `src/components/order/sheet/LotEditor.jsx` |
+| 오더별 간트 + 날짜 메모 | `src/components/order/gantt/OrderGantt.jsx` |
+| 상세창(모바일 편집 겸용) / 모바일 카드 | `src/components/order/OrderDetailModal.jsx`, `MobileOrderList.jsx` |
+| 공용 팝오버 틀 | `src/components/order/common/PopoverShell.jsx` |
+| 리포트 | `src/pages/ReportPage.jsx` |
+
+### 삭제된 것
+- 화면: 대시보드, 칸반, 오더 등록 마법사(메뉴 포함), 공정별 간트
+- 파일: `DashboardPage`, `OrderKanbanPage`, `OrderWizardPage`, `OrderGanttPage`, `components/order/{wizard,modals,list,editing}/*`, `gantt/{GanttChart,MultiOrderGanttChart,utils}`, `DesktopOrderRow`, `MobileOrderCard`, `utils/riskScanner.js`
+- 로직: 차수·원사 입고차수, 시작점/활성 공정, 위험 감지(Risk Scanner)·Daily Briefing
+
+### 개발용 샘플
+- DEV 우회 로그인(`docs/dev-login.md`) 시 `DEV_SAMPLE_ORDERS`(`src/constants/devSamples.js`) 주입 — 엑셀 행을 본뜬 v8 오더 3건 + 옛 형식 1건(자동 변환 확인용).
+
+### 다음 후보 (대표님 피드백 대기)
+- 현황표 엑셀 내보내기(SheetJS), 인쇄
+- 외주처(편직소·염색소)별 보기, 염색소 LOT 일정표
+- 납기 임박/지연 강조 규칙 조정
 
 ---
 

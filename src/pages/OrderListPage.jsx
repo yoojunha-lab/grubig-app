@@ -1,19 +1,31 @@
 import React, { useMemo, useState } from 'react';
-import { PackageCheck, Search, Plus, X } from 'lucide-react';
+import { PackageCheck, Search, Plus, X, FileSpreadsheet, ChartGantt } from 'lucide-react';
 import { ProductionSheet } from '../components/order/sheet/ProductionSheet';
 import { LotEditor } from '../components/order/sheet/LotEditor';
+import { OrderGantt } from '../components/order/gantt/OrderGantt';
 import { OrderDetailModal } from '../components/order/OrderDetailModal';
 import { MobileOrderList } from '../components/order/MobileOrderList';
 import { getDday } from '../utils/orderModel';
 import { todayYmd } from '../utils/orderCalculations';
 
 // ============================================================
-// 생산 현황 (v8) — 엑셀형 현황표
+// 생산 현황 (v8) — 엑셀형 현황표 / 오더별 간트
 // ------------------------------------------------------------
 // - 오더 등록 화면 없이 표에서 바로 [+ 오더 추가] → order# 입력하면 저장
 // - 칸을 누르면 바로 수정, 다른 칸으로 넘어가면 자동 저장 (저장 로직은 useOrder 훅)
-// - 상세창 / 염가공 LOT 편집창은 이 페이지가 띄운다 (표·모바일·상세창 공용)
+// - 간트: 줄 = 오더·컬러, 칸 = 날짜 (공정 막대 + 날짜 메모). 데스크탑 전용
+// - 상세창 / 염가공 LOT 편집창은 이 페이지가 띄운다 (표·간트·모바일·상세창 공용)
 // ============================================================
+
+// 데스크탑 보기 (현황표 / 간트) — 마지막 선택을 기억
+const VIEWS = [
+  { key: 'sheet', label: '현황표', Icon: FileSpreadsheet },
+  { key: 'gantt', label: '간트',   Icon: ChartGantt },
+];
+const LS_VIEW = 'grubig.production.view';
+const loadView = () => {
+  try { return localStorage.getItem(LS_VIEW) === 'gantt' ? 'gantt' : 'sheet'; } catch { return 'sheet'; }
+};
 
 const STATUS_TABS = [
   { key: 'open',      label: '진행 중', match: o => o.status !== 'completed' },
@@ -58,6 +70,7 @@ export const OrderListPage = ({
   savedFabrics = [],
   partners = [], savePartner, deletePartner, makeEmptyPartner,
 }) => {
+  const [view, setView] = useState(loadView);
   const [search, setSearch] = useState('');
   const [statusTab, setStatusTab] = useState('open');
   const [sortKey, setSortKey] = useState('created');
@@ -103,8 +116,14 @@ export const OrderListPage = ({
     setSearch('');
     if (statusTab === 'completed') setStatusTab('open');
   };
+  const changeView = (v) => {
+    setView(v);
+    try { localStorage.setItem(LS_VIEW, v); } catch { /* 저장 불가 환경은 무시 */ }
+  };
+  // 간트에는 새 줄(초안)이 안 보이므로 현황표로 돌아가서 추가
   const handleAddDesktop = () => {
     revealNewRow();
+    if (view !== 'sheet') changeView('sheet');
     setPendingFocusOrderId(actions.addDraftOrder());
   };
   const handleAddMobile = () => {
@@ -174,6 +193,19 @@ export const OrderListPage = ({
           )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <div className="hidden md:flex bg-slate-100 rounded-lg p-0.5">
+            {VIEWS.map(({ key, label, Icon }) => (
+              <button
+                key={key}
+                onClick={() => changeView(key)}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                  view === key ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" /> {label}
+              </button>
+            ))}
+          </div>
           <div className="flex bg-slate-100 rounded-lg p-0.5">
             {STATUS_TABS.map(t => (
               <button
@@ -204,21 +236,31 @@ export const OrderListPage = ({
         </div>
       </div>
 
-      {/* 본문: 데스크탑 = 엑셀형 현황표 */}
+      {/* 본문: 데스크탑 = 엑셀형 현황표 또는 오더별 간트 */}
       <div className="hidden md:block">
-        <ProductionSheet
-          orders={visibleOrders}
-          allOrders={orders}
-          drafts={drafts}
-          actions={sheetActions}
-          masters={masters}
-          savedFabrics={savedFabrics}
-          {...partnerProps}
-          onOpenDetail={setDetailOrderId}
-          onOpenLots={openLots}
-          pendingFocusOrderId={pendingFocusOrderId}
-          onPendingFocusDone={() => setPendingFocusOrderId(null)}
-        />
+        {view === 'gantt' ? (
+          <OrderGantt
+            orders={visibleOrders}
+            actions={actions}
+            masters={masters}
+            onOpenDetail={setDetailOrderId}
+            onOpenLots={openLots}
+          />
+        ) : (
+          <ProductionSheet
+            orders={visibleOrders}
+            allOrders={orders}
+            drafts={drafts}
+            actions={sheetActions}
+            masters={masters}
+            savedFabrics={savedFabrics}
+            {...partnerProps}
+            onOpenDetail={setDetailOrderId}
+            onOpenLots={openLots}
+            pendingFocusOrderId={pendingFocusOrderId}
+            onPendingFocusDone={() => setPendingFocusOrderId(null)}
+          />
+        )}
         {search && visibleOrders.length === 0 && orders.length > 0 && (
           <p className="text-center text-xs text-slate-400 mt-3">'{search}' 검색 결과가 없어요.</p>
         )}
