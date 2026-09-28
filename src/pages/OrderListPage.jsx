@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { PackageCheck, Search, Plus, X } from 'lucide-react';
 import { ProductionSheet } from '../components/order/sheet/ProductionSheet';
+import { LotEditor } from '../components/order/sheet/LotEditor';
 import { OrderDetailModal } from '../components/order/OrderDetailModal';
 import { MobileOrderList } from '../components/order/MobileOrderList';
 import { getDday } from '../utils/orderModel';
@@ -11,7 +12,7 @@ import { todayYmd } from '../utils/orderCalculations';
 // ------------------------------------------------------------
 // - 오더 등록 화면 없이 표에서 바로 [+ 오더 추가] → order# 입력하면 저장
 // - 칸을 누르면 바로 수정, 다른 칸으로 넘어가면 자동 저장 (저장 로직은 useOrder 훅)
-// - 상세창은 이 페이지가 띄운다 (표·모바일 공용)
+// - 상세창 / 염가공 LOT 편집창은 이 페이지가 띄운다 (표·모바일·상세창 공용)
 // ============================================================
 
 const STATUS_TABS = [
@@ -25,6 +26,8 @@ const SORTS = [
   { key: 'due',     label: '납기순' },
   { key: 'number',  label: 'order#순' },
 ];
+
+const uniq = (list) => [...new Set(list.map(v => String(v || '').trim()).filter(Boolean))];
 
 // 검색 대상: order#·article#·detail·buyer·메모·컬러명·외주처
 const searchText = (o) => [
@@ -59,6 +62,7 @@ export const OrderListPage = ({
   const [statusTab, setStatusTab] = useState('open');
   const [sortKey, setSortKey] = useState('created');
   const [detailOrderId, setDetailOrderId] = useState(null);
+  const [lotTarget, setLotTarget] = useState(null);          // { orderId, colorId, rect }
   const [pendingFocusOrderId, setPendingFocusOrderId] = useState(null);
 
   // ---------- 필터 / 정렬 ----------
@@ -87,6 +91,12 @@ export const OrderListPage = ({
     return { active, onHold, dueSoon, overdue };
   }, [orders]);
 
+  // ---------- 외주처 자동완성 (마스터 + 다른 오더에서 쓴 값) ----------
+  const dyeVendorOptions = useMemo(
+    () => uniq([...(masters.dyeingFactories || []), ...orders.map(o => o.dyeVendor)]),
+    [masters.dyeingFactories, orders]
+  );
+
   // ---------- 오더 추가 ----------
   // 새 줄이 필터에 가려지지 않도록 검색어를 비우고 '진행 중' 탭으로 전환
   const revealNewRow = () => {
@@ -111,10 +121,15 @@ export const OrderListPage = ({
     },
   };
 
-  // ---------- 상세창 대상 ----------
+  // ---------- 상세창 / LOT 편집 대상 ----------
   const findAny = (id) => orders.find(o => o.id === id) || drafts.find(d => d.id === id) || null;
   const detailOrder = detailOrderId ? findAny(detailOrderId) : null;
   const detailIsDraft = !!detailOrder && drafts.some(d => d.id === detailOrder.id);
+
+  const lotOrder = lotTarget ? findAny(lotTarget.orderId) : null;
+  const lotColor = lotOrder ? (lotOrder.colors || []).find(c => c.id === lotTarget.colorId) : null;
+
+  const openLots = (orderId, colorId, rect = null) => setLotTarget({ orderId, colorId, rect });
 
   const partnerProps = { partners, savePartner, deletePartner, makeEmptyPartner };
 
@@ -200,6 +215,7 @@ export const OrderListPage = ({
           savedFabrics={savedFabrics}
           {...partnerProps}
           onOpenDetail={setDetailOrderId}
+          onOpenLots={openLots}
           pendingFocusOrderId={pendingFocusOrderId}
           onPendingFocusDone={() => setPendingFocusOrderId(null)}
         />
@@ -228,9 +244,23 @@ export const OrderListPage = ({
           masters={masters}
           savedFabrics={savedFabrics}
           {...partnerProps}
+          onOpenLots={openLots}
         />
       )}
 
+      {/* 염가공 LOT 편집 */}
+      {lotOrder && lotColor && (
+        <LotEditor
+          key={`${lotOrder.id}_${lotColor.id}`}
+          order={lotOrder}
+          color={lotColor}
+          anchorRect={lotTarget.rect}
+          onClose={() => setLotTarget(null)}
+          onSaveLots={(lots) => actions.setLots(lotOrder.id, lotColor.id, lots)}
+          onSaveDyeVendor={(vendor) => actions.setOrderField(lotOrder.id, 'dyeVendor', vendor)}
+          dyeVendorOptions={dyeVendorOptions}
+        />
+      )}
     </div>
   );
 };
