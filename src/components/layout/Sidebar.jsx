@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Cloud, Menu, Layers, Home, Globe, Calculator, FileSpreadsheet, Box, FileText,
   Calendar, LogOut, DollarSign, Activity, Archive, FileCheck, FlaskConical,
-  ClipboardEdit, LayoutDashboard, TrendingUp, ChevronDown, X, Boxes, FileSignature,
+  LayoutDashboard, TrendingUp, ChevronDown, X, Boxes, FileSignature,
   SwatchBook,
 } from 'lucide-react';
 
@@ -45,7 +45,6 @@ const NAV_GROUPS = [
     color: 'teal',
     items: [
       { tab: 'orderList',   label: '생산 현황', icon: LayoutDashboard },
-      { tab: 'orderWizard', label: '오더 등록', icon: ClipboardEdit },
       { tab: 'orderReport', label: '리포트', icon: TrendingUp },
     ],
   },

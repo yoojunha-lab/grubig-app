@@ -116,3 +116,143 @@ export const DEV_SAMPLE_DESIGN_SHEETS = [
     createdAt: '2026-04-03T00:00:00.000Z', updatedAt: '2026-05-25T00:00:00.000Z',
   },
 ];
+
+// ── [DEV 검증 전용] 생산 오더 샘플 (생산 현황 v8 현황표·간트 확인용) ─────────────
+//   대표님 엑셀 생산 현황표의 실제 행을 본뜸. 기준일(테스트 가정) ≈ 2026-09-28.
+//   - F-26M020 : 컬러 5개, 편직 진행 + 컬러별 LOT(300/500kg 탕) + 날짜 메모
+//   - F-26M016 : 컨펌 합격 → 출고 완료/대기
+//   - F-26S055 : 샘플, 생지출고 완료 + LOT 1개 진행
+//   - O-LEGACY-01 : v7(차수 구조) 옛 형식 → 화면에서 v8로 자동 변환되는지 확인용
+const devStep = (patch = {}) => ({ vendor: '', startDate: '', endDate: '', status: 'pending', doneDate: '', notes: '', ...patch });
+const devSteps = (patch = {}) => ({
+  yarn: devStep(), yarn_processing: devStep(), knitting: { ...devStep(), dailyKg: null },
+  finishing: devStep(), physical_test: devStep(), visual_inspection: devStep(), ...patch,
+});
+const devLot = (id, no, machineKg, qtyKg, startDate, endDate, status, rolls = null) =>
+  ({ id, no, machineKg, qtyKg, startDate, endDate, status, rolls, notes: '' });
+const devColor = (id, name, orderKg, patch = {}) => ({
+  id, name, orderKg, workKg: null, greigeOutDate: '', greigeOutDone: false, lots: [], confirmRounds: [],
+  shipDate: '', shipDone: false, notes: '', ...patch,
+});
+
+export const DEV_SAMPLE_ORDERS = [
+  {
+    id: 'ord_dev_m020', schemaVersion: 8, orderNumber: 'F-26M020', articleNo: 'PW1024A', detail: 'SW/PES=37/63 GRID',
+    customer: '네셔널 지오그래픽', type: 'main', finalDueDate: '2026-10-16', lossRate: 10, status: 'active',
+    notes: 'BLACK 기계 대수 재확인 필요', linkedFabricId: null, linkedFabricArticle: '', dyeVendor: '킹텍스',
+    steps: devSteps({
+      knitting: { ...devStep({ vendor: '한성섬유', startDate: '2026-08-27', status: 'in_progress', notes: '75kg/일' }), dailyKg: 75 },
+    }),
+    colors: [
+      devColor('c_m020_or', 'ORANGE', 38.9, {
+        greigeOutDate: '2026-08-26', greigeOutDone: true,
+        lots: [devLot('l_m020_or1', 1, 300, 42.8, '2026-09-10', '2026-09-15', 'done', 6)],
+        confirmRounds: [{ round: 1, sentDate: '2026-09-22', resultDate: '', result: '' }],
+      }),
+      devColor('c_m020_wh', 'WHITE', 484.5, {
+        greigeOutDate: '2026-09-03', greigeOutDone: true,
+        lots: [
+          devLot('l_m020_wh1', 1, 300, 266.5, '2026-09-15', '2026-09-18', 'done', 3),
+          devLot('l_m020_wh2', 2, 300, 266.5, '2026-09-24', '2026-09-30', 'in_progress'),
+        ],
+      }),
+      devColor('c_m020_dg', 'DARK GREY', 270.2, {
+        greigeOutDate: '2026-09-09', greigeOutDone: true,
+        lots: [devLot('l_m020_dg1', 1, 300, 297.2, '2026-10-01', '2026-10-06', 'pending')],
+      }),
+      devColor('c_m020_kh', 'KHAKI', 508.3, { greigeOutDate: '2026-09-30' }),
+      devColor('c_m020_bk', 'BLACK', 1119.3, {
+        greigeOutDate: '2026-09-12', greigeOutDone: true,
+        lots: [
+          devLot('l_m020_bk1', 1, 500, 410.4, '2026-09-15', '2026-09-19', 'done', 3),
+          devLot('l_m020_bk2', 2, 500, 410.4, '2026-09-25', '2026-09-30', 'in_progress'),
+          devLot('l_m020_bk3', 3, 500, 410.4, '2026-10-02', '2026-10-07', 'pending'),
+        ],
+      }),
+    ],
+    dailyNotes: [
+      { id: 'n_m020_1', date: '2026-09-15', colorId: 'c_m020_bk', text: '염색 12시 오후 가공예정', tone: 'dyeing' },
+      { id: 'n_m020_2', date: '2026-09-16', colorId: 'c_m020_bk', text: 'black x 3 roll', tone: 'dyeing' },
+      { id: 'n_m020_3', date: '2026-09-18', colorId: 'c_m020_or', text: 'orange x 3 roll 추가 배색요청', tone: 'dyeing' },
+      { id: 'n_m020_4', date: '2026-09-21', colorId: 'c_m020_kh', text: '편직대기', tone: 'knitting' },
+    ],
+    changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-08-20T00:00:00.000Z', updatedAt: '2026-09-25T00:00:00.000Z',
+  },
+  {
+    id: 'ord_dev_m016', schemaVersion: 8, orderNumber: 'F-26M016', articleNo: 'PW1037', detail: 'SW/PES=48/52 AIR STRIPE',
+    customer: '케일', type: 'main', finalDueDate: '2026-09-30', lossRate: 10, status: 'active',
+    notes: '', linkedFabricId: null, linkedFabricArticle: '', dyeVendor: '킹텍스',
+    steps: devSteps({
+      knitting: { ...devStep({ vendor: '한성섬유', startDate: '2026-08-18', endDate: '2026-08-29', status: 'done', doneDate: '2026-08-29' }), dailyKg: null },
+    }),
+    colors: [
+      devColor('c_m016_bk', 'BLACK', 92.5, {
+        greigeOutDate: '2026-09-01', greigeOutDone: true,
+        lots: [devLot('l_m016_bk1', 1, 300, 101.8, '2026-09-03', '2026-09-08', 'done')],
+        confirmRounds: [{ round: 1, sentDate: '2026-09-10', resultDate: '2026-09-15', result: 'pass' }],
+        shipDate: '2026-09-21', shipDone: true,
+      }),
+      devColor('c_m016_gg', 'GOLD GREEN', 37, {
+        greigeOutDate: '2026-09-01', greigeOutDone: true,
+        lots: [devLot('l_m016_gg1', 1, 300, 40.7, '2026-09-03', '2026-09-08', 'done')],
+        confirmRounds: [
+          { round: 1, sentDate: '2026-09-10', resultDate: '2026-09-15', result: 'fail' },
+          { round: 2, sentDate: '2026-09-22', resultDate: '', result: '' },
+        ],
+        shipDate: '2026-09-30',
+      }),
+      devColor('c_m016_br', 'BROWN', 55.5, {
+        greigeOutDate: '2026-09-01', greigeOutDone: true,
+        lots: [devLot('l_m016_br1', 1, 300, 61.1, '2026-09-03', '2026-09-08', 'done')],
+        confirmRounds: [{ round: 1, sentDate: '2026-09-10', resultDate: '2026-09-15', result: 'pass' }],
+        shipDate: '2026-09-29',
+      }),
+    ],
+    dailyNotes: [
+      { id: 'n_m016_1', date: '2026-09-17', colorId: 'c_m016_bk', text: '9/17 라인 출고 요청', tone: 'ship' },
+      { id: 'n_m016_2', date: '2026-09-18', colorId: 'c_m016_bk', text: '라인 택배 발송', tone: 'ship' },
+    ],
+    changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-08-10T00:00:00.000Z', updatedAt: '2026-09-22T00:00:00.000Z',
+  },
+  {
+    id: 'ord_dev_s055', schemaVersion: 8, orderNumber: 'F-26S055', articleNo: '', detail: 'F/50 SINGLE 이중지 2',
+    customer: '그루빅', type: 'sample', finalDueDate: '2026-10-05', lossRate: 10, status: 'active',
+    notes: '', linkedFabricId: null, linkedFabricArticle: '', dyeVendor: '킹텍스',
+    steps: devSteps({
+      knitting: { ...devStep({ vendor: '대성니트', startDate: '2026-09-08', endDate: '2026-09-15', status: 'done', doneDate: '2026-09-15' }), dailyKg: null },
+    }),
+    colors: [
+      devColor('c_s055_1', '', 30, {
+        greigeOutDate: '2026-09-16', greigeOutDone: true,
+        lots: [devLot('l_s055_1', 1, 300, 33, '2026-09-18', '2026-09-29', 'in_progress')],
+      }),
+    ],
+    dailyNotes: [
+      { id: 'n_s055_1', date: '2026-09-16', colorId: 'c_s055_1', text: '킹텍스 생지 전달', tone: 'greige' },
+      { id: 'n_s055_2', date: '2026-09-18', colorId: 'c_s055_1', text: '9/18 배색', tone: 'greige' },
+    ],
+    changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-09-05T00:00:00.000Z', updatedAt: '2026-09-18T00:00:00.000Z',
+  },
+  // v7 옛 형식 (차수 구조) — 자동 변환 확인용. schemaVersion 없음
+  {
+    id: 'O-LEGACY-01', orderNumber: 'O-LEGACY-01', articleNo: 'GB-2402', customer: '세웅상사', type: 'main',
+    startStage: 'knitting', quantityYd: 1000, quantityKg: 0, gsm: 320, widthFull: 44,
+    finalDueDate: '2026-10-20', status: 'delayed_risk', notes: '옛 형식 오더 (차수 구조)',
+    colors: [{ name: 'NAVY', quantity: 600 }, { name: 'IVORY', quantity: 400 }],
+    processes: [
+      { id: 'p_k', processType: 'knitting', isActive: true, sequenceOrder: 3, startDate: '2026-09-20', durationDays: 10,
+        batches: [
+          { id: 'b_k1', batchNumber: 1, status: 'done', plannedStartDate: '2026-09-20', plannedEndDate: '2026-09-25', actualEndDate: '2026-09-25', notes: '1차 편직' },
+          { id: 'b_k2', batchNumber: 2, status: 'in_progress', plannedStartDate: '2026-09-26', plannedEndDate: '2026-09-30' },
+        ] },
+      { id: 'p_d', processType: 'dyeing', isActive: true, sequenceOrder: 4, durationDays: 8,
+        batches: [
+          { id: 'b_d1', batchNumber: 1, status: 'pending', colors: [
+            { color: 'NAVY', quantity: 180, plannedStartDate: '2026-10-01', plannedEndDate: '2026-10-05', brandConfirms: [{ round: 1, sentDate: '', resultDate: '', result: '' }], shippingSample: { sentDate: '', yards: 0 } },
+            { color: 'IVORY', quantity: 120, plannedStartDate: '2026-10-03', plannedEndDate: '2026-10-07' },
+          ] },
+        ] },
+    ],
+    changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-09-18T00:00:00.000Z', updatedAt: '2026-09-18T00:00:00.000Z',
+  },
+];
