@@ -13,6 +13,17 @@ export const num = (v, viewMode = 'domestic') => {
 };
 
 /**
+ * 큰 원화 금액을 '만' 단위로 짧게 표기합니다. (예: 739,020 → '73.9만', 600,000 → '60만')
+ * 1만 미만은 그대로 천 단위 콤마.
+ */
+export const fmtMan = (v) => {
+  const n = Number(v) || 0;
+  return Math.abs(n) >= 10000
+    ? `${(n / 10000).toLocaleString(undefined, { maximumFractionDigits: 1 })}만`
+    : num(n);
+};
+
+/**
  * 숫자를 USD(미국 달러) 표기법으로 소수점 둘째 자리까지 포맷팅합니다.
  */
 export const usd = (v) => Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -24,11 +35,11 @@ export const calculateGYd = (gsm, widthFull) => Math.round(gsm * widthFull * 0.0
 
 /**
  * MCQ(Minimum Color Quantity)를 100kg(=100,000g) 기준 야드(YD)로 계산합니다.
- * 공식: 100,000g ÷ (G/YD × (1 + 염색 LOSS%))
+ * 공식: 100,000g ÷ (G/YD × (1 + 가공 LOSS%))   ← 가공 LOSS는 품목 가공 유형별 (원가 설정)
  * 결과는 100단위 올림(Math.ceil) 처리하여 실무 단위(100yd 묶음)에 맞춥니다.
  *
  * @param {number} gYd - 야드당 중량 (g/yd)
- * @param {number} dyeLossPct - 염색 LOSS 백분율 (예: 10 = 10%)
+ * @param {number} dyeLossPct - 가공 LOSS 백분율 (예: 10 = 10%)
  * @returns {number} 100단위 올림된 MCQ 야드 (계산 불가 시 0)
  */
 export const calculateMcqYd = (gYd, dyeLossPct) => {

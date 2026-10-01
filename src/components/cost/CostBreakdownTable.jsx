@@ -1,25 +1,22 @@
 import React from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Settings } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
-import { num, calculateGYd, clampNum } from '../../utils/helpers';
+import { num, calculateGYd, clampNum, fmtMan as man } from '../../utils/helpers';
+import { normalizeExtraCosts, findKnitGrade, findProcessType } from '../../utils/costModel';
+import { COST_DISPLAY_TIERS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, KNIT_FEE_MODE_LABEL } from '../../constants/costing';
 
 /**
- * 첨부 "가격정보" 표 방식의 원가 분해 — 1,000 / 3,000 / 5,000 YD 3구간 동시 표시.
- * 원단 계산기 / 설계서 / 가설계서 공유.
+ * 원가 분해 표 — 1,000 / 3,000 / 5,000 YD 3구간 동시 표시. 원단 계산기 / 설계서 / 가설계서 공유.
+ * 계산식은 utils/costModel.js (docs/costing-model.md):
+ * · 생지 kg = 가공지 kg × (1 + 가공 LOSS%) → 편직 LOSS% = 생지 kg 구간 → 원사 kg = 생지 kg × (1 + 편직 LOSS%)
+ * · 재료비 = 원사 kg × 원사 단가,  편직비 = max(난이도 정액, 생지 kg × kg단가)
+ * · 염가공·후가공 = 가공지 kg × 원/kg,  이화학·운임 = 오더 총액 ÷ 수량,  외관검사 = YD당 (원가 설정)
+ * · 판매마진/Brand 없음(영업/견적에서 결정). '위험 마진(%)'만 가산 → 영업 기준원가. 반올림은 최종에서만.
  *
- * · 재료비 = Σ(원사 landed단가 × 혼용률) × 가공중량  (원사 단가 = 라이브러리 자동, 손실 부풀림 없음)
- * · 편직 Loss = 재료비 × %,  가공/후가공 Loss = (재료비+편직비) × %
- * · 기타비용(외관/이화학/운임 등) = 항목별·구간별 원/yd
- * · 판매마진/Brand 제거(영업/견적에서 결정). '위험 마진(%)'만 가산 → 영업 기준원가.
- * · 중간 반올림 없음 — 반올림은 최종(영업 기준원가)에서만.
- *
- * props: cost, yarns, calc, viewMode, yarnSelectOptions, yarnLibrary, globalExchangeRate, setCost(fn), setYarns(fn)
+ * props: cost, yarns, calc, viewMode, yarnSelectOptions, yarnLibrary, globalExchangeRate, setCost(fn), setYarns(fn),
+ *        costSettings(원가 설정), onOpenCostSettings(⚙ 원가 설정 열기)
  */
-const TIERS = [
-  { key: 'tier1k', label: '1,000 YD', qty: 1000, feeKey: 'knittingFee1k' },
-  { key: 'tier3k', label: '3,000 YD', qty: 3000, feeKey: 'knittingFee3k', main: true },
-  { key: 'tier5k', label: '5,000 YD', qty: 5000, feeKey: 'knittingFee5k' },
-];
+const TIERS = COST_DISPLAY_TIERS;
 
 export const CostBreakdownTable = ({
   cost, yarns, calc, viewMode = 'domestic',
@@ -27,6 +24,7 @@ export const CostBreakdownTable = ({
   setCost, setYarns,
   showMaterial = true, // 설계서처럼 원사 배합이 별도로 있으면 false (표에선 재료비/yd만 읽기 표시)
   compact = false,     // 설계서 A4 2장 압축용 — 패딩·폰트 축소 (계산기는 기본 off)
+  costSettings = null, onOpenCostSettings,
 }) => {
   const isExport = viewMode === 'export';
   const sym = isExport ? '$' : '₩';
@@ -50,8 +48,8 @@ export const CostBreakdownTable = ({
     return priceKRW + tariff + (Number(sup.freight) || 0);
   };
   const toView = (krw) => isExport ? (krw / rate) : krw;
-  // 공급금액/yd = 단가 × 혼용률 × 가공중량 (반올림 없이 정확값)
-  const rowAmt = (slot) => toView(unitLandedKRW(slot) * (Number(slot?.ratio) || 0) / 100 * weightYd);
+  // 혼용 금액/kg = 단가 × 혼용률 (LOSS 전). 수량별 LOSS는 아래 구간별 표에서 원사 kg로 반영
+  const rowAmt = (slot) => toView(unitLandedKRW(slot) * (Number(slot?.ratio) || 0) / 100);
 
   // ---- mutators ----
   const addYarn = () => setYarns(prev => [...(prev || []), { yarnId: '', ratio: 0 }]);
@@ -59,10 +57,20 @@ export const CostBreakdownTable = ({
   // [입력 검증] 혼용률 0~100. (음수/100 초과 차단)
   const setYarn = (i, field, value) => setYarns(prev => (prev || []).map((y, idx) => idx === i ? { ...y, [field]: field === 'ratio' ? clampNum(value, 0, 100) : value } : y));
 
-  // [입력 검증] 편직료/염가공료/위험마진(%) 등은 음수 차단(0 이상)
+  // [입력 검증] kg단가/염가공료/위험마진(%) 등은 음수 차단(0 이상)
   const setField = (name, value) => setCost(prev => ({ ...prev, [name]: clampNum(value, 0) }));
-  // [입력 검증] Loss%는 0~99 (분모 0 방지)
-  const setLoss = (tier, field, value) => setCost(prev => ({ ...prev, losses: { ...prev.losses, [tier]: { ...prev.losses?.[tier], [field]: clampNum(value, 0, 99) } } }));
+  const setChoice = (name, value) => setCost(prev => ({ ...prev, [name]: value }));
+
+  // 편직 kg단가 구간 (품목별, 선택) — 예: 1,000kg 이상 1,800원
+  const knitTiers = Array.isArray(cost.knitKgRateTiers) ? cost.knitKgRateTiers : [];
+  const baseKgRate = cost.knitKgRate ?? calc?.knitKgRate ?? '';
+  const addKnitTier = () => setCost(prev => {
+    const list = Array.isArray(prev.knitKgRateTiers) ? prev.knitKgRateTiers : [];
+    const lastKg = Number(list[list.length - 1]?.fromKg) || 0;
+    return { ...prev, knitKgRateTiers: [...list, { fromKg: lastKg > 0 ? lastKg * 2 : 1000, rate: Number(prev.knitKgRate ?? calc?.knitKgRate) || 0 }] };
+  });
+  const removeKnitTier = (i) => setCost(prev => ({ ...prev, knitKgRateTiers: (prev.knitKgRateTiers || []).filter((_, idx) => idx !== i) }));
+  const setKnitTier = (i, field, value) => setCost(prev => ({ ...prev, knitKgRateTiers: (prev.knitKgRateTiers || []).map((t, idx) => idx === i ? { ...t, [field]: clampNum(value, 0) } : t) }));
 
   const finishing = Array.isArray(cost.finishing) ? cost.finishing : [];
   const addFinishing = () => setCost(prev => ({ ...prev, finishing: [...(prev.finishing || []), { id: `fin_${(prev.finishing || []).length}_${(prev.finishing || []).length + 1}`, name: '', fee: 0, lossPct: 0 }] }));
@@ -70,70 +78,87 @@ export const CostBreakdownTable = ({
   // [입력 검증] 후가공 fee 0 이상, lossPct 0~99
   const setFinishing = (i, field, value) => setCost(prev => ({ ...prev, finishing: (prev.finishing || []).map((f, idx) => idx === i ? { ...f, [field]: field === 'name' ? value : (field === 'lossPct' ? clampNum(value, 0, 99) : clampNum(value, 0)) } : f) }));
 
-  const etcCosts = Array.isArray(cost.etcCosts) ? cost.etcCosts : [];
-  const addEtc = () => setCost(prev => ({ ...prev, etcCosts: [...(prev.etcCosts || []), { id: `etc_${(prev.etcCosts || []).length}_x`, name: '', vals: { tier1k: 0, tier3k: 0, tier5k: 0 } }] }));
-  const removeEtc = (i) => setCost(prev => ({ ...prev, etcCosts: (prev.etcCosts || []).filter((_, idx) => idx !== i) }));
-  const setEtcName = (i, value) => setCost(prev => ({ ...prev, etcCosts: (prev.etcCosts || []).map((e, idx) => idx === i ? { ...e, name: value } : e) }));
-  // [입력 검증] 기타비용 원/yd 0 이상
-  const setEtcVal = (i, tier, value) => setCost(prev => ({ ...prev, etcCosts: (prev.etcCosts || []).map((e, idx) => idx === i ? { ...e, vals: { ...(e.vals || {}), [tier]: clampNum(value, 0) } } : e) }));
+  // 품목별 추가비용 (YD당) — 예전 외관검사·이화학·운임 기본 3항목은 원가 설정으로 옮겨져 여기선 제외
+  const extras = normalizeExtraCosts(cost.etcCosts);
+  const addExtra = () => setCost(prev => ({ ...prev, etcCosts: [...normalizeExtraCosts(prev.etcCosts), { id: `etc_${Date.now()}`, name: '', perYd: 0 }] }));
+  const removeExtra = (i) => setCost(prev => ({ ...prev, etcCosts: normalizeExtraCosts(prev.etcCosts).filter((_, idx) => idx !== i) }));
+  // [입력 검증] 추가비용 원/yd 0 이상
+  const setExtra = (i, field, value) => setCost(prev => ({ ...prev, etcCosts: normalizeExtraCosts(prev.etcCosts).map((e, idx) => idx === i ? { ...e, [field]: field === 'name' ? value : clampNum(value, 0) } : e) }));
 
-  const tv = (tierKey) => (calc?.[tierKey]?.[viewMode]) || {};
-  const matSub = tv('tier3k').yarnCostYd || 0; // 재료비는 구간 무관
-  // 가공비(염가공) = proc[0]+proc[1], 후가공 = 나머지
-  const procPart = (tierKey, kind) => {
-    const p = tv(tierKey).lines?.proc || [];
-    if (kind === 'dye') return (p[0]?.amt || 0) + (p[1]?.amt || 0);
-    return p.slice(2).reduce((s, l) => s + (l.amt || 0), 0);
-  };
+  // ---- 설정 (편직 난이도 / 가공 유형) ----
+  const grades = costSettings?.knitGrades || [];
+  const types = costSettings?.processTypes || [];
+  const gradeId = cost.knitGrade || DEFAULT_KNIT_GRADE_ID;
+  const typeId = cost.processType || DEFAULT_PROCESS_TYPE_ID;
+  const grade = findKnitGrade(costSettings, gradeId);
+  const ptype = findProcessType(costSettings, typeId);
+  const gradeKnown = grades.some(g => g.id === gradeId);
+  const typeKnown = types.some(t => t.id === typeId);
+  const crossKg = Number(baseKgRate) > 0 ? grade.fixedFee / Number(baseKgRate) : 0; // 정액 → kg 계산 전환 생지 kg
+
+  // ---- 계산 결과 읽기 ----
+  const tier = (tk) => calc?.[tk] || {};
+  const tv = (tk) => tier(tk)[viewMode] || {};
+  const lineSum = (tk, group, key) => (tv(tk).lines?.[group] || []).filter(l => l.key === key).reduce((s, l) => s + (l.amt || 0), 0);
+  const perKgYarn = (yarns || []).reduce((s, slot) => s + rowAmt(slot), 0);
 
   const inCls = compact
     ? "w-full text-center bg-white border border-slate-300 rounded px-1 py-0.5 text-[11px] font-mono focus:ring-1 ring-blue-400 outline-none"
     : "w-full text-center bg-white border border-slate-300 rounded px-1.5 py-1.5 text-sm font-mono focus:ring-1 ring-blue-400 outline-none";
+  const selCls = compact
+    ? "w-full bg-white border border-slate-300 rounded px-1 py-0.5 text-[11px] font-bold outline-none focus:ring-1 ring-blue-400"
+    : "w-full bg-white border border-slate-300 rounded px-2 py-1.5 text-sm font-bold outline-none focus:ring-1 ring-blue-400";
   // 밀도 제어 (compact=설계서 A4 압축)
   const secP = compact ? 'px-3 py-1' : 'px-4 py-3';         // 섹션 패딩
   const cellP = compact ? 'px-2 py-0' : 'px-2.5 py-1.5';    // 값 셀 패딩
   const lblF = compact ? 'text-[11px]' : 'text-[13px]';     // 행 라벨 폰트
   const valF = compact ? 'text-[11px]' : 'text-sm';         // 값 폰트
+  const subLbl = `${compact ? 'text-[10px]' : 'text-[11px]'} font-bold text-slate-500 mb-0.5`;
+  const addBtn = "flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded border print:hidden";
 
-  const kgOf = (t) => Math.round(t.qty * weightYd); // YD → 가공중량 기준 kg 환산
   const Head = () => (
     <div className="grid grid-cols-[1.6fr_1fr_1fr_1fr] bg-slate-200 text-xs font-extrabold text-slate-600">
       <div className={`${compact ? 'p-1.5' : 'p-2.5'} text-left`}>항목 / 구간</div>
       {TIERS.map(t => (
         <div key={t.key} className={`${compact ? 'p-1' : 'p-2'} text-center ${t.main ? 'text-blue-700 bg-blue-100/70' : ''}`}>
           <div>{t.label}</div>
-          <div className="text-[10px] font-normal text-slate-400">≈ {num(kgOf(t))} kg</div>
+          <div className="text-[10px] font-normal text-slate-400">가공지 ≈ {num(tier(t.key).kg?.finished)} kg</div>
         </div>
       ))}
     </div>
   );
-  const InputRow = ({ label, get, set, red }) => (
-    <div className="grid grid-cols-[1.6fr_1fr_1fr_1fr] items-center border-t border-slate-100">
-      <div className={`px-2.5 ${compact ? 'py-0' : 'py-1'} text-left ${lblF} font-bold text-slate-600`}>{label}</div>
+  // 값 행. render(tk) → 셀 내용, sub(tk) → 작은 보조문구, title(tk) → 마우스오버 설명
+  const ValueRow = ({ label, get, strong, accent, info, render, sub, title }) => (
+    <div className={`grid grid-cols-[1.6fr_1fr_1fr_1fr] items-center border-t border-slate-100 ${strong ? 'bg-slate-100' : accent ? 'bg-indigo-50/40' : info ? 'bg-white' : 'bg-slate-50/50'}`}>
+      <div className={`${cellP} text-left ${lblF} ${strong ? 'font-extrabold text-slate-800' : info ? 'font-semibold text-slate-400' : 'font-bold text-slate-500'}`}>{label}</div>
       {TIERS.map(t => (
-        <div key={t.key} className={`${compact ? 'p-0.5' : 'p-1'} ${t.main ? 'bg-blue-50/40' : ''}`}>
-          <input type="number" value={get(t)} onChange={(e) => set(t, e.target.value)} className={`${inCls} ${red ? 'text-red-500' : ''} ${t.main ? 'font-bold text-blue-700' : ''}`} />
+        <div key={t.key} title={title ? title(t.key, t) : undefined} className={`${cellP} text-center ${valF} font-mono ${t.main ? (strong ? 'bg-blue-100/70 font-extrabold text-blue-800' : 'bg-blue-50/40 font-bold text-slate-700') : (info ? 'text-slate-500' : 'text-slate-700')}`}>
+          {render ? render(t.key, t) : <>{sym}{fmt(get(t.key))}</>}
+          {sub && !compact && <div className="text-[9px] font-sans font-semibold text-slate-400 leading-tight">{sub(t.key, t)}</div>}
         </div>
       ))}
     </div>
   );
-  const ValueRow = ({ label, get, strong, accent }) => (
-    <div className={`grid grid-cols-[1.6fr_1fr_1fr_1fr] items-center border-t border-slate-100 ${strong ? 'bg-slate-100' : accent ? 'bg-indigo-50/40' : 'bg-slate-50/50'}`}>
-      <div className={`${cellP} text-left ${lblF} ${strong ? 'font-extrabold text-slate-800' : 'font-bold text-slate-500'}`}>{label}</div>
-      {TIERS.map(t => (
-        <div key={t.key} className={`${cellP} text-center ${valF} font-mono ${t.main ? (strong ? 'bg-blue-100/70 font-extrabold text-blue-800' : 'bg-blue-50/40 font-bold text-slate-700') : 'text-slate-700'}`}>{sym}{fmt(get(t.key))}</div>
-      ))}
-    </div>
-  );
+
+  const finSum = (tk) => lineSum(tk, 'proc', 'fin');
+  const extraSum = (tk) => lineSum(tk, 'etc', 'custom');
+  const lossLabel = `생지 kg (가공 LOSS ${calc?.processLossPct ?? ptype.lossPct}%${calc?.finishingLossPct ? ` + 후가공 ${calc.finishingLossPct}%` : ''})`;
 
   return (
     <div className="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
-      <div className={`bg-blue-600 text-white ${secP} flex items-center justify-between`}>
+      <div className={`bg-blue-600 text-white ${secP} flex items-center justify-between gap-2`}>
         <h3 className={`${compact ? 'text-sm' : 'text-base'} font-extrabold`}>₩ 가격정보 (원가 분해 · 3구간)</h3>
-        <span className="text-xs opacity-90">{isExport ? '수출($) · 관세제외' : '내수(₩) · 관세포함'}</span>
+        <div className="flex items-center gap-2">
+          {onOpenCostSettings && (
+            <button type="button" onClick={onOpenCostSettings} className="print:hidden flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold bg-white/15 hover:bg-white/25 border border-white/30 rounded">
+              <Settings className="w-3.5 h-3.5" /> 원가 설정
+            </button>
+          )}
+          <span className="text-xs opacity-90">{isExport ? '수출($) · 관세제외' : '내수(₩) · 관세포함'}</span>
+        </div>
       </div>
 
-      {/* ① 재료비 (원사 — 자동 단가, 반올림 없음). 설계서는 원사 배합이 별도라 숨김 */}
+      {/* ① 재료비 (원사 — 자동 단가). 설계서는 원사 배합이 별도라 숨김 */}
       {showMaterial && (
       <div className="px-4 py-3 border-b border-slate-200">
         <div className="flex items-center justify-between mb-2">
@@ -141,7 +166,7 @@ export const CostBreakdownTable = ({
           <button type="button" onClick={addYarn} className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100"><Plus className="w-3.5 h-3.5" /> 원사추가</button>
         </div>
         <div className="grid grid-cols-[2.4fr_0.8fr_1.1fr_1.1fr_0.3fr] gap-2 text-xs font-bold text-slate-400 px-1 mb-1.5">
-          <div>원사 (공급내역)</div><div className="text-center">혼용%</div><div className="text-right">단가/kg</div><div className="text-right">공급금액/yd</div><div></div>
+          <div>원사 (공급내역)</div><div className="text-center">혼용%</div><div className="text-right">단가/kg</div><div className="text-right">혼용 금액/kg</div><div></div>
         </div>
         {(yarns || []).map((slot, i) => (
           <div key={i} className="grid grid-cols-[2.4fr_0.8fr_1.1fr_1.1fr_0.3fr] gap-2 items-center mb-1.5">
@@ -152,80 +177,136 @@ export const CostBreakdownTable = ({
             <div className="text-center">{(yarns || []).length > 1 && <button type="button" onClick={() => removeYarn(i)} className="text-slate-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>}</div>
           </div>
         ))}
-        <div className="flex justify-end gap-2 text-sm font-bold text-slate-600 mt-1.5 pr-9">재료비 소계: <span className="font-mono text-slate-900 text-base">{sym}{fmt(matSub)}</span></div>
+        <div className="flex justify-end items-baseline gap-2 text-sm font-bold text-slate-600 mt-1.5 pr-9">
+          원사 단가 (혼용 가중): <span className="font-mono text-slate-900 text-base">{sym}{fmt(perKgYarn)} / kg</span>
+        </div>
+        <div className="text-right text-[11px] text-slate-400 pr-9">LOSS는 아래 표에서 수량별 원사 투입 kg로 반영돼요</div>
       </div>
       )}
 
-      {/* ② 염가공료 + ③ 후가공 (공통 입력) */}
-      <div className={`${secP} border-b border-slate-200 grid grid-cols-1 md:grid-cols-2 ${compact ? 'gap-2' : 'gap-4'}`}>
-        <div>
-          <div className={`${compact ? 'text-xs mb-0.5' : 'text-sm mb-1.5'} font-extrabold text-slate-700`}>② 염가공료</div>
-          <div className="flex items-center gap-2">
-            <input type="number" value={cost.dyeingFee ?? ''} onChange={(e) => setField('dyeingFee', e.target.value)} className={`w-36 text-right bg-white border border-slate-300 rounded ${compact ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1.5 text-sm'} font-mono outline-none focus:ring-1 ring-blue-400`} placeholder="2500" />
-            <span className="text-xs text-slate-400">₩/kg (전 구간 공통)</span>
+      {/* ② 편직 · 가공 조건 (품목 속성) */}
+      <div className={`${secP} border-b border-slate-200 space-y-2`}>
+        <div className={`${compact ? 'text-xs' : 'text-sm'} font-extrabold text-slate-700`}>② 편직 · 가공 조건</div>
+        <div className={`grid grid-cols-2 ${compact ? 'md:grid-cols-4 gap-2' : 'md:grid-cols-4 gap-3'}`}>
+          <div>
+            <div className={subLbl}>편직 난이도</div>
+            <select value={gradeId} onChange={(e) => setChoice('knitGrade', e.target.value)} className={selCls}>
+              {!gradeKnown && <option value={gradeId}>⚠ 삭제된 등급 → {grade.name}로 계산</option>}
+              {grades.map(g => <option key={g.id} value={g.id}>{g.name} · 정액 {man(g.fixedFee)}원</option>)}
+            </select>
+            {!compact && grade.desc && <div className="text-[10px] text-slate-400 mt-0.5 truncate">{grade.desc}</div>}
+          </div>
+          <div>
+            <div className={subLbl}>편직 kg단가 (원/kg)</div>
+            <input type="number" value={baseKgRate} onChange={(e) => setField('knitKgRate', e.target.value)} className={inCls} placeholder="2000" />
+            {!compact && crossKg > 0 && <div className="text-[10px] text-slate-400 mt-0.5">생지 {num(crossKg)}kg 넘으면 kg 계산 (아래는 정액)</div>}
+          </div>
+          <div>
+            <div className={subLbl}>가공 유형</div>
+            <select value={typeId} onChange={(e) => setChoice('processType', e.target.value)} className={selCls}>
+              {!typeKnown && <option value={typeId}>⚠ 삭제된 유형 → {ptype.name}로 계산</option>}
+              {types.map(t => <option key={t.id} value={t.id}>{t.name} · LOSS {t.lossPct}%</option>)}
+            </select>
+          </div>
+          <div>
+            <div className={subLbl}>염가공료 (원/kg, 가공지 기준)</div>
+            <input type="number" value={cost.dyeingFee ?? ''} onChange={(e) => setField('dyeingFee', e.target.value)} className={inCls} placeholder="8800" />
           </div>
         </div>
+
+        {/* 편직 kg단가 구간 (선택) */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {knitTiers.map((t, i) => (
+            <div key={i} className="flex items-center gap-1 bg-indigo-50/60 border border-indigo-100 rounded px-1.5 py-0.5">
+              <input type="number" value={t.fromKg ?? ''} onChange={(e) => setKnitTier(i, 'fromKg', e.target.value)} className={`${inCls} w-20`} />
+              <span className="text-[11px] text-slate-500 whitespace-nowrap">kg 이상 →</span>
+              <input type="number" value={t.rate ?? ''} onChange={(e) => setKnitTier(i, 'rate', e.target.value)} className={`${inCls} w-20`} />
+              <span className="text-[11px] text-slate-500 whitespace-nowrap">원/kg{!(Number(t.fromKg) > 0) ? ' (kg 입력 필요)' : ''}</span>
+              <button type="button" onClick={() => removeKnitTier(i)} className="text-slate-300 hover:text-red-500 print:hidden"><Trash2 className="w-3.5 h-3.5" /></button>
+            </div>
+          ))}
+          <button type="button" onClick={addKnitTier} className={`${addBtn} text-indigo-700 bg-indigo-50 border-indigo-200 hover:bg-indigo-100`}><Plus className="w-3 h-3" /> kg단가 구간</button>
+          {knitTiers.length > 0 && !compact && <span className="text-[10px] text-slate-400">구간이 바뀌어 단가가 내려가도 편직비 총액은 줄지 않아요 (직전 구간 끝 금액 유지)</span>}
+        </div>
+
+        {/* 후가공 (선택) */}
         <div>
-          <div className={`flex items-center justify-between ${compact ? 'mb-0.5' : 'mb-1.5'}`}>
-            <span className={`${compact ? 'text-xs' : 'text-sm'} font-extrabold text-slate-700`}>③ 후가공 (선택)</span>
-            <button type="button" onClick={addFinishing} className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100"><Plus className="w-3.5 h-3.5" /> 후가공추가</button>
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`${compact ? 'text-[11px]' : 'text-xs'} font-extrabold text-slate-600`}>후가공 (선택)</span>
+            <button type="button" onClick={addFinishing} className={`${addBtn} text-amber-700 bg-amber-50 border-amber-200 hover:bg-amber-100`}><Plus className="w-3 h-3" /> 후가공추가</button>
+            {finishing.length === 0 && <span className="text-[11px] text-slate-400">후가공 없음</span>}
           </div>
-          {finishing.length === 0 && <div className="text-xs text-slate-400">후가공 없음 (필요 시 추가)</div>}
           {finishing.map((f, i) => (
-            <div key={f.id || i} className="grid grid-cols-[2fr_1.1fr_1.1fr_0.3fr] gap-1.5 items-center mb-1.5">
-              <input type="text" value={f.name} onChange={(e) => setFinishing(i, 'name', e.target.value)} className="w-full bg-white border border-amber-200 rounded px-2 py-1.5 text-sm outline-none" placeholder="후가공명" />
-              <div className="flex items-center gap-1"><input type="number" value={f.fee ?? ''} onChange={(e) => setFinishing(i, 'fee', e.target.value)} className={inCls} placeholder="500" /><span className="text-[10px] text-slate-400">₩/kg</span></div>
-              <div className="flex items-center gap-1"><input type="number" value={f.lossPct ?? ''} onChange={(e) => setFinishing(i, 'lossPct', e.target.value)} className={`${inCls} text-red-500`} placeholder="1" /><span className="text-[10px] text-slate-400">Loss%</span></div>
-              <button type="button" onClick={() => removeFinishing(i)} className="text-slate-300 hover:text-red-500 justify-self-center"><Trash2 className="w-4 h-4" /></button>
+            <div key={f.id || i} className="grid grid-cols-[2fr_1.1fr_1.1fr_0.3fr] gap-1.5 items-center mb-1 max-w-xl">
+              <input type="text" value={f.name} onChange={(e) => setFinishing(i, 'name', e.target.value)} className={`w-full bg-white border border-amber-200 rounded px-2 ${compact ? 'py-0.5 text-[11px]' : 'py-1.5 text-sm'} outline-none`} placeholder="후가공명" />
+              <div className="flex items-center gap-1"><input type="number" value={f.fee ?? ''} onChange={(e) => setFinishing(i, 'fee', e.target.value)} className={inCls} placeholder="500" /><span className="text-[10px] text-slate-400">원/kg</span></div>
+              <div className="flex items-center gap-1"><input type="number" value={f.lossPct ?? ''} onChange={(e) => setFinishing(i, 'lossPct', e.target.value)} className={`${inCls} text-red-500`} placeholder="1" /><span className="text-[10px] text-slate-400">LOSS%</span></div>
+              <button type="button" onClick={() => removeFinishing(i)} className="text-slate-300 hover:text-red-500 justify-self-center print:hidden"><Trash2 className="w-4 h-4" /></button>
+            </div>
+          ))}
+        </div>
+
+        {/* 품목별 추가비용 (선택, YD당) */}
+        <div>
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className={`${compact ? 'text-[11px]' : 'text-xs'} font-extrabold text-slate-600`}>품목별 추가비용 (선택, 원/yd)</span>
+            <button type="button" onClick={addExtra} className={`${addBtn} text-slate-600 bg-white border-slate-300 hover:bg-slate-100`}><Plus className="w-3 h-3" /> 항목</button>
+            {!compact && <span className="text-[11px] text-slate-400">외관검사·이화학·운임은 원가 설정에서 공통으로 계산돼요</span>}
+          </div>
+          {extras.map((e, i) => (
+            <div key={e.id || i} className="grid grid-cols-[2fr_1.1fr_0.3fr] gap-1.5 items-center mb-1 max-w-md">
+              <input type="text" value={e.name} onChange={(ev) => setExtra(i, 'name', ev.target.value)} className={`w-full bg-white border border-slate-200 rounded px-2 ${compact ? 'py-0.5 text-[11px]' : 'py-1.5 text-sm'} outline-none`} placeholder="항목명 (예: 특수 포장)" />
+              <div className="flex items-center gap-1"><input type="number" value={e.perYd ?? ''} onChange={(ev) => setExtra(i, 'perYd', ev.target.value)} className={inCls} placeholder="0" /><span className="text-[10px] text-slate-400">원/yd</span></div>
+              <button type="button" onClick={() => removeExtra(i)} className="text-slate-300 hover:text-red-500 justify-self-center print:hidden"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ④ 구간별 산출 */}
+      {/* ③ 구간별 산출 (모두 자동 계산) */}
       <div className={secP}>
-        <div className={`${compact ? 'text-xs mb-1' : 'text-sm mb-2'} font-extrabold text-slate-700`}>④ 구간별 산출 (입력 + 원가)</div>
+        <div className={`${compact ? 'text-xs mb-1' : 'text-sm mb-2'} font-extrabold text-slate-700`}>③ 구간별 산출 (자동 계산)</div>
         <div className="border border-slate-300 rounded-lg overflow-hidden">
           {Head()}
-          {!showMaterial && ValueRow({ label: '재료비 / yd', get: (tk) => tv(tk).yarnCostYd })}
-          {InputRow({ label: '편직료 (₩/kg)', get: (t) => cost[t.feeKey] ?? '', set: (t, v) => setField(t.feeKey, v) })}
-          {InputRow({ label: '편직 Loss (%)', red: true, get: (t) => cost.losses?.[t.key]?.knit ?? '', set: (t, v) => setLoss(t.key, 'knit', v) })}
-          {ValueRow({ label: '▸ 편직비 / yd', get: (tk) => tv(tk).knitCostYd, accent: true })}
-          {InputRow({ label: '염가공 Loss (%)', red: true, get: (t) => cost.losses?.[t.key]?.dye ?? '', set: (t, v) => setLoss(t.key, 'dye', v) })}
-          {ValueRow({ label: '▸ 가공비 / yd', get: (tk) => procPart(tk, 'dye'), accent: true })}
-          {finishing.length > 0 && ValueRow({ label: '▸ 후가공 / yd', get: (tk) => procPart(tk, 'fin'), accent: true })}
+          {/* kg 흐름: 가공지 → 생지 → 원사 */}
+          {ValueRow({ label: lossLabel, info: true, render: (tk) => <>{num(tier(tk).kg?.greige)} kg</> })}
+          {ValueRow({ label: '편직 LOSS (생지 kg 구간)', info: true, render: (tk) => <>{tier(tk).kg?.knitLossPct ?? 0}%</> })}
+          {!compact && ValueRow({ label: '원사 투입 kg', info: true, render: (tk) => <>{num(tier(tk).kg?.yarn)} kg</> })}
 
-          {/* 기타비용 (항목별 구간별 원/yd) */}
-          <div className="grid grid-cols-[1.6fr_1fr_1fr_1fr] items-center border-t-2 border-slate-200 bg-slate-50/60">
-            <div className="px-2.5 py-1.5 text-left text-xs font-extrabold text-slate-500 flex items-center justify-between">
-              기타비용 (원/yd)
-              <button type="button" onClick={addEtc} className="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 bg-white border border-slate-300 rounded hover:bg-slate-100 mr-2"><Plus className="w-3 h-3" /> 항목</button>
-            </div>
-            <div /><div /><div />
-          </div>
-          {etcCosts.map((e, i) => (
-            <div key={e.id || i} className="grid grid-cols-[1.6fr_1fr_1fr_1fr] items-center border-t border-slate-100">
-              <div className="px-2 py-1 flex items-center gap-1">
-                <input type="text" value={e.name} onChange={(ev) => setEtcName(i, ev.target.value)} className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-[13px] outline-none" placeholder="항목명" />
-                <button type="button" onClick={() => removeEtc(i)} className="text-slate-300 hover:text-red-500 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
-              </div>
-              {TIERS.map(t => (
-                <div key={t.key} className={`p-1 ${t.main ? 'bg-blue-50/40' : ''}`}>
-                  <input type="number" value={e.vals?.[t.key] ?? ''} onChange={(ev) => setEtcVal(i, t.key, ev.target.value)} className={`${inCls} ${t.main ? 'font-bold text-blue-700' : ''}`} placeholder="0" />
-                </div>
-              ))}
-            </div>
-          ))}
-          {ValueRow({ label: '▸ 기타비용 / yd', get: (tk) => tv(tk).extraFeeYd, accent: true })}
+          {ValueRow({ label: '재료비 / yd (LOSS 포함)', get: (tk) => tv(tk).yarnCostYd, accent: true })}
+          {ValueRow({
+            label: '편직비 / yd', get: (tk) => tv(tk).knitCostYd, accent: true,
+            sub: (tk) => `${KNIT_FEE_MODE_LABEL[tier(tk).knit?.mode] || ''} · ${man(tier(tk).knit?.total)}`,
+            title: (tk) => {
+              const k = tier(tk).knit || {};
+              const kgTxt = `생지 ${num(tier(tk).kg?.greige)}kg × ${num(k.rate)}원 = ${num(k.byKg)}원`;
+              return `오더 편직비 ${num(k.total)}원 — ${k.mode === 'fixed' ? `정액 ${num(k.fixedFee)}원 적용 (${kgTxt})` : k.mode === 'floor' ? `구간하한 ${num(k.floor)}원 적용 (${kgTxt})` : kgTxt}`;
+            },
+          })}
+          {ValueRow({ label: '염가공비 / yd', get: (tk) => lineSum(tk, 'proc', 'dye'), accent: true })}
+          {finishing.length > 0 && ValueRow({ label: '후가공 / yd', get: finSum, accent: true })}
+          {ValueRow({
+            label: '이화학검사 / yd', get: (tk) => lineSum(tk, 'etc', 'chem'),
+            sub: (tk) => `${tier(tk).chem?.colors ?? 0}컬러 · ${man(tier(tk).chem?.total)}`,
+            title: (tk, t) => `${tier(tk).chem?.colors ?? 0}컬러 × ${num(tier(tk).chem?.feePerColor)}원 = ${num(tier(tk).chem?.total)}원 ÷ ${num(t.qty)}YD`,
+          })}
+          {ValueRow({
+            label: '운임 / yd', get: (tk) => lineSum(tk, 'etc', 'freight'),
+            sub: (tk) => `오더 ${man(tier(tk).freight?.total)}`,
+            title: (tk, t) => `오더 운임 ${num(tier(tk).freight?.total)}원 ÷ ${num(t.qty)}YD`,
+          })}
+          {ValueRow({ label: '외관검사 / yd', get: (tk) => lineSum(tk, 'etc', 'visual') })}
+          {extras.length > 0 && ValueRow({ label: '추가비용 / yd', get: extraSum })}
 
           {/* 합계 */}
           {ValueRow({ label: '순원가 / yd', get: (tk) => tv(tk).totalCostYd, strong: true })}
           {ValueRow({ label: `위험마진 (${Number(cost.riskMarginPct || 0)}%)`, get: (tk) => tv(tk).riskAmtYd })}
           {ValueRow({ label: '영업 기준원가 / yd', get: (tk) => tv(tk).finalCostYd, strong: true })}
         </div>
+        {!compact && <div className="text-[10px] text-slate-400 mt-1">편직비·이화학·운임은 오더 총액을 수량으로 나눈 값이에요. 칸에 마우스를 올리면 계산 과정이 보여요.</div>}
       </div>
 
-      {/* ⑤ 위험마진 + 납품단위 */}
+      {/* ④ 위험마진 + 납품단위 */}
       <div className={`${secP} bg-slate-50 border-t border-slate-200 ${compact ? 'space-y-1.5' : 'space-y-3'}`}>
         <div className={`flex items-center gap-3 bg-rose-50 border border-rose-200 rounded-lg px-3 ${compact ? 'py-1' : 'py-2.5'} flex-wrap`}>
           <span className="text-sm font-extrabold text-rose-700 whitespace-nowrap">⚠ 위험 마진 (%)</span>
@@ -240,7 +321,7 @@ export const CostBreakdownTable = ({
               {TIERS.map(t => (
                 <div key={t.key} className={`${compact ? 'p-1' : 'p-2'} text-center ${t.main ? 'text-blue-700' : ''}`}>
                   <div>{t.label}</div>
-                  <div className="text-[10px] font-normal text-slate-400">≈ {num(kgOf(t))} kg</div>
+                  <div className="text-[10px] font-normal text-slate-400">가공지 ≈ {num(tier(t.key).kg?.finished)} kg</div>
                 </div>
               ))}
             </div>

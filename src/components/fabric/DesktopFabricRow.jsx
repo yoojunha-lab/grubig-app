@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { ChevronUp, ChevronDown, Edit2, Trash2, Factory, TrendingUp } from 'lucide-react';
-import { num } from '../../utils/helpers';
+import { num, fmtMan } from '../../utils/helpers';
+import { KNIT_FEE_MODE_LABEL } from '../../constants/costing';
 
 export const DesktopFabricRow = React.memo(({
   f,
@@ -17,11 +18,13 @@ export const DesktopFabricRow = React.memo(({
   setIsDesignSheetModalOpen,
 }) => {
   // calculateCost를 f와 calculateCost 의존성으로만 재계산 (렌더 최적화)
+  //  (원가 설정·환율이 바뀌면 calculateCost가 새로 만들어져 다시 계산됨 — 아래 memo 비교에도 포함)
   const c = useMemo(() => calculateCost(f), [f, calculateCost]);
   const d1k = c.tier1k[viewMode];
   const d3k = c.tier3k[viewMode];
   const d5k = c.tier5k[viewMode];
   const sym = viewMode === 'domestic' ? '￦' : '$';
+  const tierCount = (Array.isArray(f.knitKgRateTiers) ? f.knitKgRateTiers : []).filter(t => Number(t?.fromKg) > 0).length;
 
   return (
     <React.Fragment>
@@ -102,40 +105,28 @@ export const DesktopFabricRow = React.memo(({
           </div>
         </td>
 
-        <td className="p-2 border-r border-slate-50 text-[11px] font-mono align-middle min-w-[200px]">
+        <td className="p-2 border-r border-slate-50 text-[11px] font-mono align-middle min-w-[180px]">
           <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-1">
-              <span className="text-slate-500 font-bold text-[10px] w-10">편직비</span>
-              <div className="flex gap-2.5 text-right">
-                <span className="text-slate-500"><span className="text-[9px] text-slate-400 mr-0.5">1k</span>{num(f.knittingFee1k)}</span>
-                <span className="text-blue-600 font-bold"><span className="text-[9px] text-blue-400 mr-0.5">3k</span>{num(f.knittingFee3k)}</span>
-                <span className="text-slate-500"><span className="text-[9px] text-slate-400 mr-0.5">5k</span>{num(f.knittingFee5k)}</span>
-              </div>
+            <div className="flex items-center justify-between border-b border-slate-100 pb-1 gap-2">
+              <span className="text-slate-500 font-bold text-[10px] font-sans">난이도</span>
+              <span className="text-indigo-700 font-bold bg-indigo-50 px-1.5 rounded">{c.knitGrade?.name} <span className="font-normal text-indigo-400">정액 {fmtMan(c.knitGrade?.fixedFee)}</span></span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-orange-500 font-bold text-[10px] w-10">LOSS</span>
-              <div className="flex gap-2.5 text-right text-orange-600 font-bold">
-                <span className="opacity-70"><span className="text-[9px] font-normal mr-0.5">1k</span>{num(f.losses?.tier1k?.knit)}%</span>
-                <span><span className="text-[9px] font-normal mr-0.5">3k</span>{num(f.losses?.tier3k?.knit)}%</span>
-                <span className="opacity-70"><span className="text-[9px] font-normal mr-0.5">5k</span>{num(f.losses?.tier5k?.knit)}%</span>
-              </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-500 font-bold text-[10px] font-sans">kg단가</span>
+              <span className="text-slate-800 font-bold">￦{num(c.knitKgRate)}{tierCount > 0 && <span className="font-normal text-slate-400"> +구간{tierCount}</span>}</span>
             </div>
           </div>
         </td>
 
-        <td className="p-2 border-r border-slate-50 text-[11px] font-mono align-middle min-w-[180px]">
+        <td className="p-2 border-r border-slate-50 text-[11px] font-mono align-middle min-w-[170px]">
           <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-1">
-              <span className="text-slate-500 font-bold text-[10px]">염가공비</span>
-              <span className="text-slate-800 font-bold">￦{num(f.dyeingFee)}</span>
+            <div className="flex items-center justify-between border-b border-slate-100 pb-1 gap-2">
+              <span className="text-slate-500 font-bold text-[10px] font-sans">유형</span>
+              <span className="text-orange-600 font-bold">{c.processType?.name} <span className="font-normal">LOSS {c.processLossPct}%</span></span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-orange-500 font-bold text-[10px]">염색 LOSS</span>
-              <div className="flex gap-2.5 text-right text-orange-600 font-bold">
-                <span className="opacity-70"><span className="text-[9px] font-normal mr-0.5">1k</span>{num(f.losses?.tier1k?.dye)}%</span>
-                <span><span className="text-[9px] font-normal mr-0.5">3k</span>{num(f.losses?.tier3k?.dye)}%</span>
-                <span className="opacity-70"><span className="text-[9px] font-normal mr-0.5">5k</span>{num(f.losses?.tier5k?.dye)}%</span>
-              </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-slate-500 font-bold text-[10px] font-sans">염가공료</span>
+              <span className="text-slate-800 font-bold">￦{num(f.dyeingFee)}</span>
             </div>
           </div>
         </td>
@@ -191,7 +182,7 @@ export const DesktopFabricRow = React.memo(({
                     <div>{num(c.tier5k[viewMode]?.dyeCostYd, viewMode)}</div>
                   </div>
                   <div className="grid grid-cols-4 text-center font-mono py-1.5 items-center border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                    <div className="text-left text-slate-500 text-[10px] font-bold">기타비용</div>
+                    <div className="text-left text-slate-500 text-[10px] font-bold">검사·운임 등</div>
                     <div>{num(c.tier1k[viewMode]?.extraFeeYd, viewMode)}</div>
                     <div className="text-blue-600 font-bold bg-blue-50/30 rounded">{num(c.tier3k[viewMode]?.extraFeeYd, viewMode)}</div>
                     <div>{num(c.tier5k[viewMode]?.extraFeeYd, viewMode)}</div>
@@ -210,13 +201,20 @@ export const DesktopFabricRow = React.memo(({
                 <div className="space-y-3 text-xs text-slate-600 flex-1">
 
                   <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-100">
-                    <div className="text-[10px] font-bold text-slate-500 mb-1.5 border-b border-slate-200 pb-1">공정별 LOSS 설정 (%)</div>
-                    <div className="grid grid-cols-4 text-center font-mono py-1">
-                      <div className="text-left text-[10px] text-slate-400 font-medium">편직/염색</div>
-                      <div className="text-[10px]">{num(f.losses?.tier1k?.knit)} / {num(f.losses?.tier1k?.dye)}</div>
-                      <div className="text-[11px] text-blue-600 font-bold bg-blue-50/50 rounded">{num(f.losses?.tier3k?.knit)} / {num(f.losses?.tier3k?.dye)}</div>
-                      <div className="text-[10px]">{num(f.losses?.tier5k?.knit)} / {num(f.losses?.tier5k?.dye)}</div>
-                    </div>
+                    <div className="text-[10px] font-bold text-slate-500 mb-1.5 border-b border-slate-200 pb-1">구간별 생지 kg · LOSS · 편직비 기준 (자동 계산)</div>
+                    {[
+                      { l: '생지 kg', v: (t) => num(t.kg?.greige) },
+                      { l: '편직 LOSS', v: (t) => `${t.kg?.knitLossPct ?? 0}%` },
+                      { l: '편직비', v: (t) => `${KNIT_FEE_MODE_LABEL[t.knit?.mode] || ''} ${fmtMan(t.knit?.total)}` },
+                    ].map(row => (
+                      <div key={row.l} className="grid grid-cols-4 text-center font-mono py-0.5">
+                        <div className="text-left text-[10px] text-slate-400 font-medium font-sans">{row.l}</div>
+                        <div className="text-[10px]">{row.v(c.tier1k)}</div>
+                        <div className="text-[11px] text-blue-600 font-bold bg-blue-50/50 rounded">{row.v(c.tier3k)}</div>
+                        <div className="text-[10px]">{row.v(c.tier5k)}</div>
+                      </div>
+                    ))}
+                    <div className="text-[9px] text-slate-400 mt-1">가공 LOSS {c.processLossPct}% ({c.processType?.name}) 포함 · 기준값은 ⚙ 원가 설정</div>
                   </div>
 
                   <div className="bg-rose-50/30 rounded-lg p-2.5 border border-rose-100/50">
@@ -248,5 +246,7 @@ export const DesktopFabricRow = React.memo(({
          prevProps.yarnLibrary === nextProps.yarnLibrary &&
          prevProps.designSheets === nextProps.designSheets &&
          // 전역 환율이 바뀌면 수출 단가가 달라지므로 반드시 재렌더 (calculateCost가 환율을 내포)
-         prevProps.globalExchangeRate === nextProps.globalExchangeRate;
+         prevProps.globalExchangeRate === nextProps.globalExchangeRate &&
+         // 원가 설정(편직 정액·LOSS 구간·가공 유형 등)이 바뀌면 모든 품목 원가가 달라지므로 재렌더
+         prevProps.costSettings === nextProps.costSettings;
 });

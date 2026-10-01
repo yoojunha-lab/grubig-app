@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { ChevronUp, ChevronDown, Edit2, Trash2, Factory, TrendingUp, DollarSign, Info } from 'lucide-react';
-import { num } from '../../utils/helpers';
+import { num, fmtMan } from '../../utils/helpers';
+import { KNIT_FEE_MODE_LABEL } from '../../constants/costing';
 
 export const MobileFabricCard = React.memo(({
   f,
@@ -90,29 +91,15 @@ export const MobileFabricCard = React.memo(({
 
         <div className="grid grid-cols-2 gap-2 mb-3">
           <div className="bg-slate-50/50 rounded border border-slate-100 p-2">
-            <div className="text-[9px] text-slate-400 text-center border-b border-slate-100 pb-0.5 mb-1 font-bold">편직비 & LOSS</div>
-            <div className="grid grid-cols-3 gap-0.5 text-center font-mono text-[9px] mb-1">
-              <div className="text-slate-500">1k<br />{num(f.knittingFee1k)}</div>
-              <div className="font-bold text-blue-600 bg-blue-50 rounded">3k<br />{num(f.knittingFee3k)}</div>
-              <div className="text-slate-500">5k<br />{num(f.knittingFee5k)}</div>
-            </div>
-            <div className="grid grid-cols-3 gap-0.5 text-center font-mono text-[9px] text-orange-600 font-bold border-t border-slate-100 pt-1">
-              <div className="opacity-70">{num(f.losses?.tier1k?.knit)}%</div>
-              <div className="bg-orange-100/50 rounded">{num(f.losses?.tier3k?.knit)}%</div>
-              <div className="opacity-70">{num(f.losses?.tier5k?.knit)}%</div>
-            </div>
+            <div className="text-[9px] text-slate-400 text-center border-b border-slate-100 pb-0.5 mb-1 font-bold">편직 (난이도 · kg단가)</div>
+            <div className="text-center font-mono text-[11px] font-bold text-indigo-700">{c.knitGrade?.name} <span className="font-normal text-indigo-400">정액 {fmtMan(c.knitGrade?.fixedFee)}</span></div>
+            <div className="text-center font-mono text-[11px] font-bold text-slate-800 border-t border-slate-100 pt-1 mt-1">￦{num(c.knitKgRate)}/kg</div>
           </div>
 
-          <div className="bg-slate-50/50 rounded border border-slate-100 p-2 flex flex-col justify-between">
-            <div>
-              <div className="text-[9px] text-slate-400 text-center border-b border-slate-100 pb-0.5 mb-1 font-bold">염가공비 & 염색 LOSS</div>
-              <div className="font-bold text-slate-800 text-[11px] text-center font-mono mb-1 py-0.5">￦{num(f.dyeingFee)}</div>
-            </div>
-            <div className="grid grid-cols-3 gap-0.5 text-center font-mono text-[9px] text-orange-600 font-bold border-t border-slate-100 pt-1 mt-auto">
-              <div className="opacity-70">{num(f.losses?.tier1k?.dye)}%</div>
-              <div className="bg-orange-100/50 rounded">{num(f.losses?.tier3k?.dye)}%</div>
-              <div className="opacity-70">{num(f.losses?.tier5k?.dye)}%</div>
-            </div>
+          <div className="bg-slate-50/50 rounded border border-slate-100 p-2">
+            <div className="text-[9px] text-slate-400 text-center border-b border-slate-100 pb-0.5 mb-1 font-bold">가공 (유형 · 염가공료)</div>
+            <div className="text-center text-[11px] font-bold text-orange-600">{c.processType?.name} <span className="font-normal">LOSS {c.processLossPct}%</span></div>
+            <div className="text-center font-mono text-[11px] font-bold text-slate-800 border-t border-slate-100 pt-1 mt-1">￦{num(f.dyeingFee)}/kg</div>
           </div>
         </div>
 
@@ -131,11 +118,11 @@ export const MobileFabricCard = React.memo(({
       {isExpanded && (
         <div className="p-4 bg-slate-50/80 space-y-3">
           <div className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
-            <h4 className="text-[11px] font-bold text-slate-700 mb-2.5 flex items-center gap-1.5"><Factory className="w-3.5 h-3.5 text-slate-400" /> 기본 생산비 및 로스</h4>
+            <h4 className="text-[11px] font-bold text-slate-700 mb-2.5 flex items-center gap-1.5"><Factory className="w-3.5 h-3.5 text-slate-400" /> 3,000YD 기준 생산 조건 (자동 계산)</h4>
             <div className="space-y-2 text-xs">
-              <div className="flex justify-between items-center"><span className="text-slate-500">염가공비</span><span className="font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">￦{num(f.dyeingFee)}/kg</span></div>
-              <div className="flex justify-between items-center"><span className="text-slate-500">편직비(3k)</span><span className="font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">￦{num(f.knittingFee3k)}</span></div>
-              <div className="flex justify-between items-center"><span className="text-slate-500">LOSS(3k)</span><span className="font-mono font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded">{num(f.losses?.tier3k?.knit)}% + {num(f.losses?.tier3k?.dye)}%</span></div>
+              <div className="flex justify-between items-center"><span className="text-slate-500">생지 kg</span><span className="font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{num(c.tier3k.kg?.greige)} kg</span></div>
+              <div className="flex justify-between items-center"><span className="text-slate-500">편직비</span><span className="font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{KNIT_FEE_MODE_LABEL[c.tier3k.knit?.mode]} {fmtMan(c.tier3k.knit?.total)}</span></div>
+              <div className="flex justify-between items-center"><span className="text-slate-500">LOSS (가공 + 편직)</span><span className="font-mono font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded">{c.processLossPct}% + {c.tier3k.kg?.knitLossPct ?? 0}%</span></div>
             </div>
           </div>
 
@@ -183,5 +170,7 @@ export const MobileFabricCard = React.memo(({
          prevProps.yarnLibrary === nextProps.yarnLibrary &&
          prevProps.designSheets === nextProps.designSheets &&
          // 전역 환율이 바뀌면 수출 단가가 달라지므로 반드시 재렌더 (calculateCost가 환율을 내포)
-         prevProps.globalExchangeRate === nextProps.globalExchangeRate;
+         prevProps.globalExchangeRate === nextProps.globalExchangeRate &&
+         // 원가 설정(편직 정액·LOSS 구간·가공 유형 등)이 바뀌면 모든 품목 원가가 달라지므로 재렌더
+         prevProps.costSettings === nextProps.costSettings;
 });

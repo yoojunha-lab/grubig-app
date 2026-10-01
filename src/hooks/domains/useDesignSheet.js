@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { DESIGN_STAGES, SAMPLING_SUBSTAGES, makeDefaultEtcCosts } from '../../constants/common';
+import { DESIGN_STAGES, SAMPLING_SUBSTAGES } from '../../constants/common';
+import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
+import { resolveKnitKgRate, normalizeExtraCosts } from '../../utils/costModel';
 
 // GRUBIG ERP - 원단 설계서 도메인 로직 훅
 
@@ -81,10 +83,16 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       widthCut: 56,
       gsm: 300,
       costGYd: '',
+      // [원가 개편 2026-10] 편직 난이도(정액)·kg단가·구간 단가·가공 유형(가공 LOSS) — 정액·LOSS 값은 원가 설정
+      knitGrade: DEFAULT_KNIT_GRADE_ID,
+      knitKgRate: DEFAULT_KNIT_KG_RATE,
+      knitKgRateTiers: [],
+      processType: DEFAULT_PROCESS_TYPE_ID,
+      dyeingFee: 8800,
+      // (레거시 — 계산에 안 씀) 구간별 편직료·LOSS·extraFee·brandExtra. 기존 문서/동기화 호환용으로만 유지
       knittingFee1k: 3000,
       knittingFee3k: 2000,
       knittingFee5k: 2000,
-      dyeingFee: 8800,
       extraFee1k: 900,
       extraFee3k: 700,
       extraFee5k: 500,
@@ -95,9 +103,9 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       },
       marginTier: 3,
       brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 },
-      // [신규 원가모델] 후가공(추가/삭제) + 기타비용 항목화 + 오퍼가격
+      // 후가공(추가/삭제) + 품목별 추가비용(YD당) + 오퍼가격. 외관검사·이화학·운임은 원가 설정에서 공통 계산
       finishing: [],
-      etcCosts: makeDefaultEtcCosts(),
+      etcCosts: [],
       riskMarginPct: 0,
       offerPrice: ''
     }
@@ -453,12 +461,21 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         });
       });
       // costInput 주요 필드 비교
-      ['widthFull', 'widthCut', 'gsm', 'costGYd', 'knittingFee1k', 'knittingFee3k', 'knittingFee5k',
-       'dyeingFee', 'extraFee1k', 'extraFee3k', 'extraFee5k', 'marginTier'].forEach(key => {
+      //  [원가 개편] 새 원가 필드가 없던 기존 설계서는 기본값(A · 옛 편직료 · 일반)으로 계산돼 왔으므로
+      //  그 값과 비교 → 원가를 안 건드리고 저장해도 헛 변경 이력이 남지 않음
+      const prevCostValue = (key) => {
+        const ci = existing.costInput || {};
+        if (key === 'knitGrade') return ci.knitGrade || DEFAULT_KNIT_GRADE_ID;
+        if (key === 'knitKgRate') return resolveKnitKgRate(ci);
+        if (key === 'processType') return ci.processType || DEFAULT_PROCESS_TYPE_ID;
+        return ci[key];
+      };
+      ['widthFull', 'widthCut', 'gsm', 'costGYd', 'knitGrade', 'knitKgRate', 'processType',
+       'dyeingFee', 'marginTier'].forEach(key => {
         const newVal = String(finalInput.costInput?.[key] ?? '');
-        const oldVal = String(existing.costInput?.[key] ?? '');
+        const oldVal = String(prevCostValue(key) ?? '');
         if (newVal !== oldVal) {
-          changedFields[`costInput.${key}`] = existing.costInput?.[key] ?? '';
+          changedFields[`costInput.${key}`] = prevCostValue(key) ?? '';
           // [요청2] 내폭·외폭·GSM은 확인칸이므로 감사 기록
           if (key === 'widthCut' || key === 'widthFull' || key === 'gsm') stampMeta(`costInput.${key}`, oldVal, newVal);
         }
@@ -517,6 +534,11 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
           losses: ci.losses ?? linkedFabric.losses,
           marginTier: ci.marginTier ?? linkedFabric.marginTier,
           brandExtra: ci.brandExtra ?? linkedFabric.brandExtra,
+          // [원가 개편] 편직 난이도·kg단가·구간 단가·가공 유형
+          knitGrade: ci.knitGrade ?? linkedFabric.knitGrade,
+          knitKgRate: ci.knitKgRate ?? linkedFabric.knitKgRate,
+          knitKgRateTiers: ci.knitKgRateTiers ?? linkedFabric.knitKgRateTiers,
+          processType: ci.processType ?? linkedFabric.processType,
           // [신규 원가모델] 후가공·기타비용·위험마진도 동기화 (원단은 top-level 보관)
           finishing: ci.finishing ?? linkedFabric.finishing,
           etcCosts: ci.etcCosts ?? linkedFabric.etcCosts,
@@ -559,7 +581,11 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
           tier3k: { ...initial.costInput.losses.tier3k, ...(sheet.costInput?.losses?.tier3k || {}) },
           tier5k: { ...initial.costInput.losses.tier5k, ...(sheet.costInput?.losses?.tier5k || {}) }
         },
-        brandExtra: { ...initial.costInput.brandExtra, ...(sheet.costInput?.brandExtra || {}) }
+        brandExtra: { ...initial.costInput.brandExtra, ...(sheet.costInput?.brandExtra || {}) },
+        // [원가 개편] 기존 설계서: kg단가는 옛 5,000YD 편직료에서 가져오고(목록 계산과 같은 값),
+        //   추가비용은 예전 기본 3항목(외관/이화학/운임 — 이제 원가 설정)을 빼고 품목 항목만 남김
+        knitKgRate: resolveKnitKgRate(sheet.costInput),
+        etcCosts: normalizeExtraCosts(sheet.costInput?.etcCosts)
       },
       yarns: sheet.yarns || initial.yarns,
       orderNumbers: sheet.orderNumbers || []
@@ -720,9 +746,14 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       losses: ci.losses ?? { tier1k:{knit:5,dye:10}, tier3k:{knit:3,dye:10}, tier5k:{knit:3,dye:9} },
       marginTier: ci.marginTier ?? 3,
       brandExtra: ci.brandExtra ?? { tier1k:1000, tier3k:700, tier5k:500 },
-      // [신규 원가모델] 후가공·기타비용·위험마진 보존
+      // [원가 개편] 편직 난이도·kg단가·구간 단가·가공 유형 (없으면 A · 옛 편직료 · 일반)
+      knitGrade: ci.knitGrade || DEFAULT_KNIT_GRADE_ID,
+      knitKgRate: resolveKnitKgRate(ci),
+      knitKgRateTiers: Array.isArray(ci.knitKgRateTiers) ? ci.knitKgRateTiers : [],
+      processType: ci.processType || DEFAULT_PROCESS_TYPE_ID,
+      // [신규 원가모델] 후가공·품목 추가비용·위험마진 보존
       finishing: Array.isArray(ci.finishing) ? ci.finishing : [],
-      etcCosts: Array.isArray(ci.etcCosts) && ci.etcCosts.length ? ci.etcCosts : makeDefaultEtcCosts(),
+      etcCosts: normalizeExtraCosts(ci.etcCosts),
       riskMarginPct: Number(ci.riskMarginPct || 0),
       yarns: sheet.yarns || [],
       remarks: `설계서 아이템화 자동 등록 (${sheet.devOrderNo || ''})`

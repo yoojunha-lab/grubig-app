@@ -27,12 +27,26 @@ const baseFabric = {
   remarks: '',
 };
 
+// [원가 개편 2026-10] 새 원가 필드(편직 난이도·kg단가·가공 유형) 있는 품목과 없는 옛 품목을 섞어둠
+//   - GB-2401 / GB-2404 : 옛 형식 (난이도 A · 가공 일반 · kg단가 = 옛 5,000YD 편직료로 계산되는지 확인)
+//   - GB-2404           : 옛 기타비용(외관/이화학/운임 기본 3항목 + 품목 추가비용 1개) — 기본 3항목은 무시되는지 확인
+//   - GB-2402 / 2403 / 2405 : 새 형식 (스판물 · 난이도 B · kg단가 구간)
 export const DEV_SAMPLE_FABRICS = [
   { ...baseFabric, id: 'fab_dev_1', article: 'GB-2401', itemName: 'Wool Jersey',        widthFull: 60, widthCut: 58, gsm: 280, yarns: [{ yarnId: 'y_dev_1', ratio: 100 }] },
-  { ...baseFabric, id: 'fab_dev_2', article: 'GB-2402', itemName: 'Cotton Span Rib',    widthFull: 44, widthCut: 42, gsm: 320, yarns: [{ yarnId: 'y_dev_2', ratio: 95 }, { yarnId: 'y_dev_3', ratio: 5 }] },
-  { ...baseFabric, id: 'fab_dev_3', article: 'GB-2403', itemName: 'Poly Interlock',     widthFull: 62, widthCut: 60, gsm: 240, yarns: [{ yarnId: 'y_dev_4', ratio: 100 }] },
-  { ...baseFabric, id: 'fab_dev_4', article: 'GB-2404', itemName: 'Wool/Poly Melange',  widthFull: 58, widthCut: 56, gsm: 300, yarns: [{ yarnId: 'y_dev_1', ratio: 60 }, { yarnId: 'y_dev_4', ratio: 40 }] },
-  { ...baseFabric, id: 'fab_dev_5', article: 'GB-2405', itemName: 'Cotton Single',      widthFull: 66, widthCut: 64, gsm: 180, yarns: [{ yarnId: 'y_dev_2', ratio: 100 }] },
+  { ...baseFabric, id: 'fab_dev_2', article: 'GB-2402', itemName: 'Cotton Span Rib',    widthFull: 44, widthCut: 42, gsm: 320, yarns: [{ yarnId: 'y_dev_2', ratio: 95 }, { yarnId: 'y_dev_3', ratio: 5 }],
+    knitGrade: 'A', knitKgRate: 2000, knitKgRateTiers: [], processType: 'span', etcCosts: [] },
+  { ...baseFabric, id: 'fab_dev_3', article: 'GB-2403', itemName: 'Poly Interlock',     widthFull: 62, widthCut: 60, gsm: 240, yarns: [{ yarnId: 'y_dev_4', ratio: 100 }],
+    knitGrade: 'B', knitKgRate: 2200, knitKgRateTiers: [], processType: 'normal', etcCosts: [] },
+  { ...baseFabric, id: 'fab_dev_4', article: 'GB-2404', itemName: 'Wool/Poly Melange',  widthFull: 58, widthCut: 56, gsm: 300, yarns: [{ yarnId: 'y_dev_1', ratio: 60 }, { yarnId: 'y_dev_4', ratio: 40 }],
+    knittingFee5k: 2100,
+    etcCosts: [
+      { id: 'etc_visual', name: '외관검사', vals: { tier1k: 190, tier3k: 190, tier5k: 190 } },
+      { id: 'etc_chem', name: '이화학검사', vals: { tier1k: 400, tier3k: 300, tier5k: 200 } },
+      { id: 'etc_freight', name: '운임', vals: { tier1k: 500, tier3k: 300, tier5k: 200 } },
+      { id: 'etc_3_x', name: '특수 포장', vals: { tier1k: 50, tier3k: 40, tier5k: 30 } },
+    ] },
+  { ...baseFabric, id: 'fab_dev_5', article: 'GB-2405', itemName: 'Cotton Single',      widthFull: 66, widthCut: 64, gsm: 180, yarns: [{ yarnId: 'y_dev_2', ratio: 100 }],
+    knitGrade: 'A', knitKgRate: 2000, knitKgRateTiers: [{ fromKg: 1000, rate: 1800 }], processType: 'brushed', etcCosts: [] },
 ];
 
 // ── [DEV 검증 전용] 개발의뢰 / 설계서 샘플 (개발·설계 현황 화면 확인용) ──────────
@@ -108,6 +122,9 @@ export const DEV_SAMPLE_DESIGN_SHEETS = [
     id: 'ds_dev_6', stage: 'sampling', status: 'active', fabricName: 'W/N/PU=64/32/4, BACK 다대 스트라이프',
     devOrderNo: 'F-26D006', eztexOrderNo: 'EZ-2404-120', devRequestId: 'dr_dev_1', deadline: '2026-06-25', registeredDate: '2026-04-03',
     createdAt: '2026-04-03T00:00:00.000Z', updatedAt: '2026-06-13T00:00:00.000Z',
+    // 옛 형식 원가 입력 (새 원가 필드 없음) — 설계서 원가 표가 기본값(A·일반·옛 편직료)으로 계산되는지 확인용
+    yarns: [{ yarnId: 'y_dev_1', ratio: 64 }, { yarnId: 'y_dev_4', ratio: 36 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }],
+    costInput: { ...baseFabric, widthFull: 58, widthCut: 56, gsm: 260, finishing: [], riskMarginPct: 0 },
   },
   // 바이어(피플앤네이쳐) · draft · 납기 정상(D-9)
   {

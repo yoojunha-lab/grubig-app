@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { makeDefaultEtcCosts } from '../../constants/common';
+import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
+import { resolveKnitKgRate, normalizeExtraCosts } from '../../utils/costModel';
+
+// [원가 개편] 다른 문서의 costInput에서 새 원가 필드를 꺼냄 — 값이 없는 옛 문서는 기본값(A · 옛 편직료 · 일반)
+const pickCostAttrs = (ci = {}) => ({
+  knitGrade: ci.knitGrade || DEFAULT_KNIT_GRADE_ID,
+  knitKgRate: resolveKnitKgRate(ci),
+  knitKgRateTiers: Array.isArray(ci.knitKgRateTiers) ? ci.knitKgRateTiers : [],
+  processType: ci.processType || DEFAULT_PROCESS_TYPE_ID,
+  etcCosts: normalizeExtraCosts(ci.etcCosts),
+});
 
 // GRUBIG ERP - 가설계서(Temp Design Sheet) 독립 도메인 훅
 // ⚠️ 기존 useDesignSheet.js는 수정하지 않음 (사이드이펙트 차단)
@@ -70,10 +80,16 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
       widthCut: 56,
       gsm: 300,
       costGYd: '',
+      // [원가 개편 2026-10] 편직 난이도(정액)·kg단가·구간 단가·가공 유형(가공 LOSS) — 정액·LOSS 값은 원가 설정
+      knitGrade: DEFAULT_KNIT_GRADE_ID,
+      knitKgRate: DEFAULT_KNIT_KG_RATE,
+      knitKgRateTiers: [],
+      processType: DEFAULT_PROCESS_TYPE_ID,
+      dyeingFee: 8800,
+      // (레거시 — 계산에 안 씀) 구간별 편직료·LOSS·extraFee·brandExtra. 기존 문서/불러오기 호환용으로만 유지
       knittingFee1k: 3000,
       knittingFee3k: 2000,
       knittingFee5k: 2000,
-      dyeingFee: 8800,
       extraFee1k: 900,
       extraFee3k: 700,
       extraFee5k: 500,
@@ -84,9 +100,9 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
       },
       marginTier: 3,
       brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 },
-      // [신규 원가모델] 후가공(추가/삭제) + 기타비용 항목화 + 오퍼가격
+      // 후가공(추가/삭제) + 품목별 추가비용(YD당) + 오퍼가격. 외관검사·이화학·운임은 원가 설정에서 공통 계산
       finishing: [],
-      etcCosts: makeDefaultEtcCosts(),
+      etcCosts: [],
       riskMarginPct: 0,
       offerPrice: ''
     }
@@ -231,7 +247,8 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
           tier3k: { ...initial.costInput.losses.tier3k, ...(tempSheet.costInput?.losses?.tier3k || {}) },
           tier5k: { ...initial.costInput.losses.tier5k, ...(tempSheet.costInput?.losses?.tier5k || {}) }
         },
-        brandExtra: { ...initial.costInput.brandExtra, ...(tempSheet.costInput?.brandExtra || {}) }
+        brandExtra: { ...initial.costInput.brandExtra, ...(tempSheet.costInput?.brandExtra || {}) },
+        ...pickCostAttrs(tempSheet.costInput)
       },
       // 구버전 문서 호환: priceOverride 필드가 없는 슬롯에 기본값('')을 채워준다.
       yarns: (tempSheet.yarns || initial.yarns).map((s, i) => ({
@@ -311,7 +328,9 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
             tier3k: { ...(prev.costInput?.losses?.tier3k || {}), ...(tempSheet.costInput?.losses?.tier3k || {}) },
             tier5k: { ...(prev.costInput?.losses?.tier5k || {}), ...(tempSheet.costInput?.losses?.tier5k || {}) }
           },
-          brandExtra: { ...(prev.costInput?.brandExtra || {}), ...(tempSheet.costInput?.brandExtra || {}) }
+          brandExtra: { ...(prev.costInput?.brandExtra || {}), ...(tempSheet.costInput?.brandExtra || {}) },
+          // 편직 난이도·kg단가·가공 유형도 가설계서 레시피 그대로 (옛 가설계서는 기본값)
+          ...pickCostAttrs(tempSheet.costInput)
         }
       };
     });
@@ -344,7 +363,8 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
           tier3k: { ...initial.costInput.losses.tier3k, ...(designSheet.costInput?.losses?.tier3k || {}) },
           tier5k: { ...initial.costInput.losses.tier5k, ...(designSheet.costInput?.losses?.tier5k || {}) }
         },
-        brandExtra: { ...initial.costInput.brandExtra, ...(designSheet.costInput?.brandExtra || {}) }
+        brandExtra: { ...initial.costInput.brandExtra, ...(designSheet.costInput?.brandExtra || {}) },
+        ...pickCostAttrs(designSheet.costInput)
       },
       // 원사 배합을 가져오되 가설계서 전용 priceOverride('')를 부여
       yarns: ((designSheet.yarns && designSheet.yarns.length) ? designSheet.yarns : initial.yarns).map((s, i) => ({

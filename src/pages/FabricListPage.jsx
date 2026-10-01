@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, X, Database, Upload, DollarSign, Filter, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, X, Database, Upload, DollarSign, Filter, Plus, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
 import { DesktopFabricRow } from '../components/fabric/DesktopFabricRow';
 import { MobileFabricCard } from '../components/fabric/MobileFabricCard';
 
@@ -26,6 +26,8 @@ export const FabricListPage = ({
   page = 0,
   setPage,
   onNewFabric,
+  costSettings,
+  onOpenCostSettings,
 }) => {
   // 페이지네이션 계산
   const total = filteredFabrics.length;
@@ -80,6 +82,11 @@ export const FabricListPage = ({
             <button onClick={handleBackupFabrics} className="justify-center items-center gap-1.5 px-3 py-2 text-slate-600 hover:bg-slate-50 border-r border-slate-200 text-sm font-bold flex transition-colors"><Database className="w-4 h-4 text-blue-500" /> 백업</button>
             <button onClick={() => setIsBulkModalOpen(true)} className="justify-center items-center gap-1.5 px-3 py-2 text-emerald-700 hover:bg-emerald-50 text-sm font-bold flex transition-colors"><Upload className="w-4 h-4" /> 엑셀</button>
           </div>
+          {onOpenCostSettings && (
+            <button onClick={onOpenCostSettings} title="편직 정액·LOSS 구간·가공 유형·이화학·운임 — 전 품목 공통" className="bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-lg hover:bg-slate-50 flex items-center justify-center gap-1.5 text-sm font-bold shadow-sm shrink-0">
+              <Settings className="w-4 h-4 text-slate-500" /> 원가 설정
+            </button>
+          )}
           <button onClick={onNewFabric} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-1.5 text-sm font-bold shadow-lg shadow-blue-200 shrink-0">
             <Plus className="w-4 h-4" /> 새 원단 등록
           </button>
@@ -108,8 +115,8 @@ export const FabricListPage = ({
               <th className="font-bold p-2 text-center border-r border-slate-200 w-28 text-blue-700 bg-blue-50/50">연동 설계서</th>
               <th className="font-bold p-2 text-left border-r border-slate-200 min-w-[140px]">Spec</th>
               <th className="font-bold p-2 text-left border-r border-slate-200 min-w-[220px]">사용 원사 (Yarn Mix)</th>
-              <th className="font-bold p-2 text-center border-r border-slate-200">편직비 & LOSS</th>
-              <th className="font-bold p-2 text-center border-r border-slate-200">염가공 & LOSS</th>
+              <th className="font-bold p-2 text-center border-r border-slate-200">편직 (난이도·kg단가)</th>
+              <th className="font-bold p-2 text-center border-r border-slate-200">가공 (유형·염가공료)</th>
               <th className="font-bold p-2 text-center border-r border-slate-200">위험마진(%)</th>
               <th colSpan="3" className="font-bold p-2 text-center border-r border-slate-200 text-emerald-700 bg-emerald-50/50">영업 기준원가</th>
               <th className="font-bold p-2 text-center w-12"></th>
@@ -139,6 +146,7 @@ export const FabricListPage = ({
                 handleEditSheet={handleEditSheet}
                 setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
                 globalExchangeRate={globalExchangeRate}
+                costSettings={costSettings}
               />
             ))}
             {total === 0 && (
@@ -174,6 +182,7 @@ export const FabricListPage = ({
             handleEditSheet={handleEditSheet}
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
             globalExchangeRate={globalExchangeRate}
+            costSettings={costSettings}
           />
         ))}
         {total === 0 && (

@@ -5,6 +5,8 @@ import { SearchableSelect } from '../components/common/SearchableSelect';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
 import { MainDetailFormModal } from '../components/main-detail/MainDetailFormModal';
 import { num, calculateGYd, computeSellPrice } from '../utils/helpers';
+import { computeCostAtQty, resolveKnitKgRate, normalizeExtraCosts } from '../utils/costModel';
+import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 
 // 편직 조직도 관련 부호
 const KNIT_SYMBOLS = ['︹', '︺', '︿', '﹀', '━', '┃', '╋', '○', '●', '◎', '△', '▽'];
@@ -133,7 +135,10 @@ export const DesignSheetPage = ({
   tempBuyerName = '',           // 가설계서 모드 전용 바이어명
   onTempBuyerChange,            // 바이어명 변경 콜백
   onLoadTempSheet,              // 가설계서 → 정식 설계서 불러오기 콜백
-  tempDesignSheets = []         // 저장된 가설계서 목록 (불러오기 모달용)
+  tempDesignSheets = [],        // 저장된 가설계서 목록 (불러오기 모달용)
+  // === 원가 설정 (편직 정액·LOSS 구간·가공 유형 등 — 원가 표 / 소요 중량 계산용) ===
+  costSettings = null,
+  onOpenCostSettings
 }) => {
   const STAGE_ORDER = ['draft', 'eztex', 'sampling', 'articled'];
   const stageIdx = STAGE_ORDER.indexOf(sheetInput.stage || 'draft');
@@ -206,13 +211,16 @@ export const DesignSheetPage = ({
   // 이론 G/YD = GSM × 외폭 × 변환계수
   const theoreticalGYd = calculateGYd(Number(sheetInput.costInput?.gsm || 0), Number(sheetInput.costInput?.widthFull || 0));
 
-  // [요청3] 소요 중량 계산 — 생산 G/YD(없으면 이론값) × YD ÷ 1000 × (1 + LOSS%)
-  //   LOSS = 1,000YD(tier1k) 기준 편직 LOSS + 염색 LOSS 합산 (원가모델 sumLossPct와 동일)
+  // [요청3] 소요 중량 계산 — 원가 모델과 같은 kg 흐름 (입력한 YD 그대로 계산)
+  //   가공지 kg(생산 G/YD, 없으면 이론값) → 생지 kg(가공 LOSS) → 원사 kg(편직 LOSS: 생지 kg 구간)
   const calcGYd = Number(sheetInput.costInput?.costGYd) || theoreticalGYd || 0;
-  const calcLoss1k = (Number(sheetInput.costInput?.losses?.tier1k?.knit) || 0) + (Number(sheetInput.costInput?.losses?.tier1k?.dye) || 0);
-  const calcKg = (Number(calcYd) > 0 && calcGYd > 0)
-    ? (calcGYd * Number(calcYd) / 1000) * (1 + calcLoss1k / 100)
+  const calcFlow = (Number(calcYd) > 0 && calcGYd > 0)
+    ? computeCostAtQty({ ...(sheetInput.costInput || {}), yarns: sheetInput.yarns || [] }, Number(calcYd), { settings: costSettings }).kg
     : null;
+  const calcKg = calcFlow ? calcFlow.yarn : null;
+  const calcLossLabel = calcFlow
+    ? `가공 ${calcFlow.processLossPct + calcFlow.finishingLossPct}% + 편직 ${calcFlow.knitLossPct}% · 생지 ${num(calcFlow.greige)}kg`
+    : `가공 LOSS ${(costData?.processLossPct ?? 0) + (costData?.finishingLossPct ?? 0)}% + 편직 LOSS(생지 kg 구간)`;
 
   // [가설계서 영업견적] 최종 판매가 — 공용 헬퍼 computeSellPrice (화면 통화 기준)
   const quoteSym = viewMode === 'export' ? '$' : '₩';
@@ -374,14 +382,14 @@ export const DesignSheetPage = ({
           </Td>
         </div>
 
-        {/* [요청3] 소요 중량(kg) 간이 계산기 — 생산 G/YD 기준 (LOSS 포함, 1,000YD 기준) */}
+        {/* [요청3] 소요 중량(kg) 간이 계산기 — 원사 투입 kg (가공·편직 LOSS 포함, 입력 YD 기준) */}
         <div className="-mt-2 mb-1 flex justify-end">
           <div className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
             <span className="text-[10px] font-extrabold text-slate-600 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-blue-500 rounded-full" /> 소요 중량 계산</span>
             <input type="number" min="0" value={calcYd} onChange={e => setCalcYd(e.target.value)} placeholder="YD수" className="w-[72px] border border-slate-300 rounded px-1.5 py-0.5 text-center font-mono text-[11px] outline-none focus:ring-2 ring-blue-200 placeholder:text-slate-300" />
             <span className="text-[10px] text-slate-400 font-bold">YD →</span>
             <span className="font-mono font-black text-blue-700 text-sm min-w-[56px] text-right">{calcKg != null ? calcKg.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'}<span className="text-[10px] font-bold text-slate-500 ml-0.5">kg</span></span>
-            <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 whitespace-nowrap">LOSS 포함 {calcLoss1k}% · 1,000YD 기준</span>
+            <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 whitespace-nowrap">원사 · LOSS 포함 ({calcLossLabel})</span>
           </div>
         </div>
 
@@ -607,6 +615,8 @@ export const DesignSheetPage = ({
           compact={true}
           setCost={(fn) => setSheetInput?.(prev => ({ ...prev, costInput: fn(prev.costInput || {}) }))}
           setYarns={(fn) => setSheetInput?.(prev => ({ ...prev, yarns: fn(prev.yarns || []) }))}
+          costSettings={costSettings}
+          onOpenCostSettings={onOpenCostSettings}
         />
 
         {/* [가설계서 전용] 영업 견적 시뮬레이션 — 매출이익율 넣으면 최종 판매가 */}
@@ -764,7 +774,16 @@ export const DesignSheetPage = ({
                         extraFee5k: fab.extraFee5k ?? prev.costInput?.extraFee5k,
                         losses: fab.losses || { tier1k: { knit: 5, dye: 10 }, tier3k: { knit: 3, dye: 10 }, tier5k: { knit: 3, dye: 9 } },
                         marginTier: fab.marginTier ?? 3,
-                        brandExtra: fab.brandExtra || { tier1k: 1000, tier3k: 700, tier5k: 500 }
+                        brandExtra: fab.brandExtra || { tier1k: 1000, tier3k: 700, tier5k: 500 },
+                        // [원가 개편] 편직 난이도·kg단가·구간 단가·가공 유형 + 후가공·추가비용·위험마진도 원단 값으로
+                        //   (안 가져오면 설계서 저장 시 역동기화로 원단 값이 설계서 기본값으로 덮어써짐)
+                        knitGrade: fab.knitGrade || DEFAULT_KNIT_GRADE_ID,
+                        knitKgRate: resolveKnitKgRate(fab),
+                        knitKgRateTiers: Array.isArray(fab.knitKgRateTiers) ? fab.knitKgRateTiers : [],
+                        processType: fab.processType || DEFAULT_PROCESS_TYPE_ID,
+                        finishing: Array.isArray(fab.finishing) ? fab.finishing : [],
+                        etcCosts: normalizeExtraCosts(fab.etcCosts),
+                        riskMarginPct: fab.riskMarginPct ?? 0
                       }
                     }));
                   }

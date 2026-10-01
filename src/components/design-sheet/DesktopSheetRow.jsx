@@ -131,10 +131,13 @@ export const DesktopSheetRow = ({
                            <span>└ 원사비</span><span className="font-mono">{prefix}{priceFn(data?.yarnCostYd)}</span>
                          </div>
                          <div className="flex justify-between text-[10px] px-1 text-slate-400 pl-3">
-                           <span>└ 편직비</span><span className="font-mono">{prefix}{priceFn(data?.knittingFeeYd)}</span>
+                           <span>└ 편직비</span><span className="font-mono">{prefix}{priceFn(data?.knitCostYd)}</span>
                          </div>
                          <div className="flex justify-between text-[10px] px-1 text-slate-400 pl-3">
-                           <span>└ 염가공비</span><span className="font-mono">{prefix}{priceFn(data?.dyeingFeeYd)}</span>
+                           <span>└ 염가공비</span><span className="font-mono">{prefix}{priceFn(data?.dyeCostYd)}</span>
+                         </div>
+                         <div className="flex justify-between text-[10px] px-1 text-slate-400 pl-3">
+                           <span>└ 검사·운임 등</span><span className="font-mono">{prefix}{priceFn(data?.extraFeeYd)}</span>
                          </div>
                        </div>
                      </div>

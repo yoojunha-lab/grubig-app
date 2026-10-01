@@ -96,6 +96,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
   // 견적 품목 생성. base = 영업 기준원가(도매 기준 priceConverter), 판가는 calcQuotePrice에서 마진 적용.
   // marginRate = 원단별 매출이익율(%) — 일괄값을 기본으로 받아 표에서 개별 수정 가능.
+  // ⚠️ 기준원가는 이 시점 값으로 품목에 저장(basePrice1k/3k/5k)되고, 저장된 견적은 원가 설정·계산식이
+  //    바뀌어도 다시 계산하지 않음 (견적을 열어 시장구분·환율을 바꾸거나 품목을 새로 넣을 때만 새로 계산).
   const createQuoteItem = (fabric, currentExchangeRate, currentMarketType, marginRate = 0) => {
     // marginRate는 구간별 객체 {1k,3k,5k} 또는 레거시 단일 숫자 모두 허용 → 객체로 정규화
     const safeMarginRate = toTierRate(marginRate);
@@ -113,7 +115,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     const d5k = calc.tier5k?.[currentMarketType] ?? {};
 
     // MCQ 결정: 원단에 직접 입력값(fabric.mcqYd)이 있으면 우선, 없으면 자동 계산
-    // 자동 계산 식: 100,000g ÷ (G/YD × (1 + 1K tier 염색 LOSS%)), 100단위 올림
+    // 자동 계산 식: 100,000g ÷ (G/YD × (1 + 가공 LOSS%)), 100단위 올림 — 가공 LOSS는 품목 가공 유형별(원가 설정)
     // 자동값에는 최소 300 YD 안전망 유지(직접 입력값에는 안전망 미적용 — 담당자 의도 존중)
     const userMcqYd = Number(fabric.mcqYd) || 0;
     let finalMcqYd;
@@ -121,8 +123,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       finalMcqYd = userMcqYd;
     } else {
       const effectiveGYd = Number(calc.effectiveGYd) || 0;
-      const dyeLoss1k = Number(fabric.losses?.tier1k?.dye) || 0;
-      const computed = calculateMcqYd(effectiveGYd, dyeLoss1k);
+      const processLoss = Number(calc.processLossPct) || 0;
+      const computed = calculateMcqYd(effectiveGYd, processLoss);
       finalMcqYd = Math.max(300, computed);
     }
 

@@ -49,7 +49,10 @@ export const TempDesignSheetListPage = ({
   loadTempToSheet,
   // [불러오기] 정식 설계서 → 가설계서 costing
   designSheets,
-  loadSheetToTemp
+  loadSheetToTemp,
+  // 원가 설정 (원가 표의 편직 난이도·가공 유형 선택 + ⚙ 원가 설정 버튼)
+  costSettings,
+  onOpenCostSettings
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('created'); // created(기본) | name | buyer | price
@@ -390,6 +393,8 @@ export const TempDesignSheetListPage = ({
               mainDetails={[]}
               tempBuyerName={tempInput.buyerName || ''}
               onTempBuyerChange={(val) => setTempInput(prev => ({ ...prev, buyerName: val }))}
+              costSettings={costSettings}
+              onOpenCostSettings={onOpenCostSettings}
             />
           </div>
         </div>

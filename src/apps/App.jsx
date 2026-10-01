@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Plus, Trash2, Save, FileSpreadsheet, Calculator,
   RotateCcw, Layers, Edit2, Check, X, Box, Search, ChevronDown, ChevronUp,
@@ -32,6 +32,8 @@ import { useProformaInvoice } from '../hooks/domains/useProformaInvoice';
 import { usePartner } from '../hooks/domains/usePartner';
 import { useLabdip } from '../hooks/domains/useLabdip';
 import { calcQuotePrice, getQuoteValidUntil } from '../utils/helpers';
+import { resolveCostSettings, findKnitGrade, findProcessType, resolveKnitKgRate } from '../utils/costModel';
+import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
 import { SearchableSelect } from '../components/common/SearchableSelect';
@@ -57,6 +59,7 @@ import { CollectionPage } from '../pages/CollectionPage';
 import { ProformaInvoicePage } from '../pages/ProformaInvoicePage';
 import { PIPrintSheet } from '../components/pi/PIPrintSheet';
 import { PISettingsModal } from '../components/pi/PISettingsModal';
+import { CostSettingsModal } from '../components/cost/CostSettingsModal';
 import { LabdipPage } from '../pages/LabdipPage';
 import { LabdipPrintSheet } from '../components/labdip/LabdipPrintSheet';
 
@@ -95,6 +98,12 @@ const App = () => {
   const [selectedPIForPrint, setSelectedPIForPrint] = useState(null);
   const [piSettings, setPiSettings] = useState(null);            // PI 은행정보/약관 설정 (settings/general.piSettings)
   const [isPISettingsOpen, setIsPISettingsOpen] = useState(false);
+  // 원가 설정 (settings/general.costSettings) — 편직 정액·LOSS 구간·가공 유형·이화학·운임·외관검사
+  //   저장값이 없거나 일부 빠져도 resolveCostSettings가 기본값으로 채움 → 계산·화면은 항상 완전한 설정을 받음
+  const [costSettingsRaw, setCostSettingsRaw] = useState(null);
+  const costSettings = useMemo(() => resolveCostSettings(costSettingsRaw), [costSettingsRaw]);
+  const [isCostSettingsOpen, setIsCostSettingsOpen] = useState(false);
+  const openCostSettings = () => setIsCostSettingsOpen(true);
   const [labdips, setLabdips] = useState([]);
   const [selectedLabdipForPrint, setSelectedLabdipForPrint] = useState(null);
   const [partners, setPartners] = useState([]);
@@ -198,6 +207,7 @@ const App = () => {
         setStructures(Array.isArray(d.structures) ? d.structures : []);
         setYarnSuppliers(Array.isArray(d.yarnSuppliers) ? d.yarnSuppliers : []);
         setPiSettings(d.piSettings || null);                     // PI 은행/약관 설정
+        setCostSettingsRaw(d.costSettings || null);              // 원가 설정
       } else {
         // 문서가 없을 때만 yarnCategories만 시드 — 마스터 배열은 비워둠 (실제 추가될 때 자동 생성됨)
         // 빈 배열로 시드하면 만약 콘솔 등에서 doc 재삭제 후 이 코드가 다시 돌면 데이터 영구 손실 위험
@@ -331,7 +341,7 @@ const App = () => {
     fabricInput, setFabricInput, editingFabricId, expandedFabricId, setExpandedFabricId,
     handleFabricChange, handleNestedChange, handleYarnSlotChange,
     handleSaveFabric, handleEditFabric, handleDeleteFabric, resetFabricForm, calculateCost, getMergedYarnName
-  } = useFabric(yarnLibrary, savedFabrics, designSheets, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate, savedQuotes);
+  } = useFabric(yarnLibrary, savedFabrics, designSheets, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate, savedQuotes, costSettings);
 
   const {
     yarnInput, setYarnInput, editingYarnId,
@@ -486,6 +496,28 @@ const App = () => {
     }
   };
 
+  // 원가 설정 저장 — settings/general.costSettings 통째로 교체 (DEV 우회 시 로컬만)
+  //   저장 즉시 모든 품목 원가가 새 설정으로 다시 계산됨. 저장된 견적서 단가(basePrice)는 그대로.
+  //   반환: 성공 true / 실패 false (모달이 성공했을 때만 닫히도록)
+  const saveCostSettings = async (next) => {
+    const stamped = {
+      ...next,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user?.displayName || user?.email || '',
+    };
+    if (DEV_BYPASS) { setCostSettingsRaw(stamped); setSyncStatus('saved'); return true; }
+    setSyncStatus('syncing');
+    try {
+      await updateDoc(doc(db, 'settings', 'general'), { costSettings: stamped });
+      setSyncStatus('saved');
+      return true;
+    } catch (e) {
+      setSyncStatus('error');
+      showToast(`원가 설정 저장 실패: ${e?.message || '네트워크 오류'}`, 'error');
+      return false;
+    }
+  };
+
   // PI 엑셀 내보내기 (품목표 중심 — 화면 폼 또는 보관함 문서)
   const handleDownloadPIExcel = (targetPI = null) => {
     if (!isXlsxReady || !window.XLSX) { showToast('엑셀 모듈을 불러오는 중입니다. 잠시 후 다시 시도해주세요.', 'error'); return; }
@@ -535,8 +567,10 @@ const App = () => {
     if (!isXlsxReady) return;
     const dataToExport = savedFabrics.map(f => ({
       Article: f.article, ItemName: f.itemName, WidthFull: f.widthFull, WidthCut: f.widthCut, GSM: f.gsm, CostGYd: f.costGYd,
-      KnittingFee1k: f.knittingFee1k, KnittingFee3k: f.knittingFee3k, KnittingFee5k: f.knittingFee5k, DyeingFee: f.dyeingFee,
-      ExtraFee1k: f.extraFee1k, ExtraFee3k: f.extraFee3k, ExtraFee5k: f.extraFee5k, Remarks: f.remarks || '',
+      // [원가 개편] 편직 난이도·가공 유형은 이름으로 (엑셀 일괄 등록 양식과 같은 열)
+      KnitGrade: findKnitGrade(costSettings, f.knitGrade).name, KnitKgRate: resolveKnitKgRate(f),
+      ProcessType: findProcessType(costSettings, f.processType).name, DyeingFee: f.dyeingFee,
+      RiskMarginPct: Number(f.riskMarginPct || 0), Remarks: f.remarks || '',
       Yarn1_Name: getMergedYarnName(f.yarns[0]?.yarnId), Yarn1_Ratio: f.yarns[0]?.ratio || 0,
       Yarn2_Name: getMergedYarnName(f.yarns[1]?.yarnId), Yarn2_Ratio: f.yarns[1]?.ratio || 0,
       Yarn3_Name: getMergedYarnName(f.yarns[2]?.yarnId), Yarn3_Ratio: f.yarns[2]?.ratio || 0,
@@ -555,11 +589,13 @@ const App = () => {
     window.XLSX.utils.book_append_sheet(wb, ws, "원사백업"); window.XLSX.writeFile(wb, `Yarn_Backup_${new Date().toLocaleDateString()}.xlsx`);
   };
 
-  const EXCEL_HEADERS = ['Article', 'ItemName', 'WidthFull', 'WidthCut', 'GSM', 'CostGYd', 'MarginTier', 'BrandExtra1k', 'BrandExtra3k', 'BrandExtra5k', 'KnittingFee1k', 'KnittingFee3k', 'KnittingFee5k', 'DyeingFee', 'ExtraFee1k', 'ExtraFee3k', 'ExtraFee5k', 'KnitLoss1k', 'KnitLoss3k', 'KnitLoss5k', 'DyeLoss1k', 'DyeLoss3k', 'DyeLoss5k', 'Remarks', 'Yarn1_Name', 'Yarn1_Ratio', 'Yarn2_Name', 'Yarn2_Ratio', 'Yarn3_Name', 'Yarn3_Ratio', 'Yarn4_Name', 'Yarn4_Ratio'];
+  // [원가 개편 2026-10] 편직 난이도(KnitGrade: A/B…)·편직 kg단가·가공 유형(ProcessType: 일반/스판물/기모물…) 열.
+  //   예전 양식(KnittingFee1k~5k·KnitLoss·DyeLoss 등)으로 올려도 등록됨 — kg단가는 KnittingFee5k로 대신 채움
+  const EXCEL_HEADERS = ['Article', 'ItemName', 'WidthFull', 'WidthCut', 'GSM', 'CostGYd', 'KnitGrade', 'KnitKgRate', 'ProcessType', 'DyeingFee', 'RiskMarginPct', 'Remarks', 'Yarn1_Name', 'Yarn1_Ratio', 'Yarn2_Name', 'Yarn2_Ratio', 'Yarn3_Name', 'Yarn3_Ratio', 'Yarn4_Name', 'Yarn4_Ratio'];
 
   const handleDownloadTemplate = () => {
     if (!isXlsxReady) return;
-    const exampleRow = ['SAMPLE-01', 'Cotton Jersey', 58, 56, 300, 320, 3, 1000, 700, 500, 3000, 2000, 2000, 8800, 900, 700, 500, 5, 3, 3, 10, 10, 9, '바이어 요청 샘플', 'CM 30S', 100, '', 0, '', 0, '', 0];
+    const exampleRow = ['SAMPLE-01', 'Cotton Jersey', 58, 56, 300, 320, 'A', 2000, '일반', 8800, 0, '바이어 요청 샘플', 'CM 30S', 100, '', 0, '', 0, '', 0];
     const ws = window.XLSX.utils.aoa_to_sheet([EXCEL_HEADERS, exampleRow]);
     const wb = window.XLSX.utils.book_new();
     window.XLSX.utils.book_append_sheet(wb, ws, "원단일괄등록");
@@ -576,6 +612,15 @@ const App = () => {
         if (data.length === 0) { showToast('데이터가 없습니다.', 'error'); return; }
 
         const newFabrics = []; let missingYarnNames = new Set();
+        // [원가 개편] 편직 난이도·가공 유형은 이름(A, 스판물 …)으로 받아 원가 설정의 id로 바꿈. 모르는 이름은 기본값(A·일반)
+        const unknownCostNames = new Set();
+        const findIdByName = (list, name, fallbackId, label) => {
+          const key = String(name ?? '').trim().toUpperCase();
+          if (!key) return fallbackId;
+          const hit = list.find(x => String(x.name).trim().toUpperCase() === key || String(x.id).toUpperCase() === key);
+          if (!hit) unknownCostNames.add(`${label} '${String(name).trim()}'`);
+          return hit ? hit.id : fallbackId;
+        };
         // [중복 차단] 기존 원단 + 이번 업로드 내 중복 Article 모두 건너뜀 (대소문자/공백 무시)
         const existingArticleKeys = new Set((savedFabrics || []).map(f => String(f.article || '').trim().toUpperCase()));
         const batchArticleKeys = new Set();
@@ -609,6 +654,12 @@ const App = () => {
             id: `fab_${Date.now()}_${idx}`, date: new Date().toLocaleDateString(),
             article: String(row.Article || 'UNKNOWN').trim().toUpperCase(), itemName: String(row.ItemName || ''), remarks: String(row.Remarks || ''),
             widthFull: Number(row.WidthFull) || 58, widthCut: Number(row.WidthCut) || 56, gsm: Number(row.GSM) || 300, costGYd: row.CostGYd ? Number(row.CostGYd) : '',
+            knitGrade: findIdByName(costSettings.knitGrades, row.KnitGrade, DEFAULT_KNIT_GRADE_ID, '편직 난이도'),
+            knitKgRate: Number(row.KnitKgRate) || Number(row.KnittingFee5k) || Number(row.KnittingFee3k) || DEFAULT_KNIT_KG_RATE,
+            knitKgRateTiers: [],
+            processType: findIdByName(costSettings.processTypes, row.ProcessType, DEFAULT_PROCESS_TYPE_ID, '가공 유형'),
+            riskMarginPct: Math.max(0, Number(row.RiskMarginPct) || 0),
+            etcCosts: [],
             knittingFee1k: kFee1k, knittingFee3k: Number(row.KnittingFee3k) || 2000, knittingFee5k: Number(row.KnittingFee5k) || 2000, dyeingFee: Number(row.DyeingFee) || 8800,
             extraFee1k: Number(row.ExtraFee1k) || 900, extraFee3k: Number(row.ExtraFee3k) || 700, extraFee5k: Number(row.ExtraFee5k) || 500,
             losses: {
@@ -643,8 +694,13 @@ const App = () => {
         setIsBulkModalOpen(false);
 
         const dupNote = dupSkipped > 0 ? `\n\n⚠️ 중복 Article ${dupSkipped}건은 건너뛰었습니다.` : '';
+        const costNameNote = unknownCostNames.size > 0
+          ? `\n\n⚠️ 원가 설정에 없는 이름은 기본값(난이도 A · 가공 일반)으로 등록했습니다:\n${[...unknownCostNames].join(', ')}`
+          : '';
         if (missingYarnNames.size > 0) {
-          alert(`✅ 총 ${newFabrics.length}건이 성공적으로 등록되었습니다.${dupNote}\n\n⚠️ 주의: 다음 원사 정보가 아직 라이브러리에 없어서 임시 텍스트로 등록되었습니다.\n해당 원단들의 수율 단가(Cost/gYD) 계산이 부정확할 수 있으니,\n이후 원사 라이브러리에 아래 원사들을 추가하시거나 원단을 수정해주세요.\n\n[미등록 원사 목록]\n${[...missingYarnNames].join(', ')}`);
+          alert(`✅ 총 ${newFabrics.length}건이 성공적으로 등록되었습니다.${dupNote}${costNameNote}\n\n⚠️ 주의: 다음 원사 정보가 아직 라이브러리에 없어서 임시 텍스트로 등록되었습니다.\n해당 원단들의 수율 단가(Cost/gYD) 계산이 부정확할 수 있으니,\n이후 원사 라이브러리에 아래 원사들을 추가하시거나 원단을 수정해주세요.\n\n[미등록 원사 목록]\n${[...missingYarnNames].join(', ')}`);
+        } else if (costNameNote) {
+          alert(`✅ 총 ${newFabrics.length}건이 등록되었습니다.${dupNote}${costNameNote}`);
         } else {
           showToast(`${newFabrics.length}건이 등록되었습니다.${dupSkipped > 0 ? ` (중복 ${dupSkipped}건 건너뜀)` : ''}`, 'success');
         }
@@ -995,6 +1051,9 @@ const App = () => {
             handleSaveFabric={handleSaveFabric}
             globalExchangeRate={globalExchangeRate}
             yarnLibrary={yarnLibrary}
+            // ── 원가 설정 (편직 정액·LOSS·가공 유형 등) ──
+            costSettings={costSettings}
+            onOpenCostSettings={openCostSettings}
           />
         )}
 
@@ -1235,6 +1294,8 @@ const App = () => {
                 removeTest={removeTest}
                 handleSaveDetail={handleSaveDetail}
                 resetDetailForm={resetDetailForm}
+                costSettings={costSettings}
+                onOpenCostSettings={openCostSettings}
               />
             </div>
           </div>
@@ -1293,6 +1354,8 @@ const App = () => {
             loadTempToSheet={loadTempToSheet}
             designSheets={designSheets}
             loadSheetToTemp={loadSheetToTemp}
+            costSettings={costSettings}
+            onOpenCostSettings={openCostSettings}
           />
         )}
 
@@ -1397,6 +1460,19 @@ const App = () => {
             piSettings={piSettings}
             onSave={savePISettings}
             showToast={showToast}
+          />
+        )}
+
+        {/* 원가 설정 모달 — 열릴 때만 마운트해 설정값 재시드 (원단 관리·원가 표의 ⚙ 버튼) */}
+        {isCostSettingsOpen && (
+          <CostSettingsModal
+            onClose={() => setIsCostSettingsOpen(false)}
+            costSettings={costSettings}
+            onSave={saveCostSettings}
+            showToast={showToast}
+            savedFabrics={savedFabrics}
+            designSheets={designSheets}
+            tempDesignSheets={tempDesignSheets}
           />
         )}
 

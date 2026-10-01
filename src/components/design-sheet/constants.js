@@ -12,6 +12,7 @@ export const FIELD_LABELS = {
   'costInput.widthFull': '외폭(Cost)', 'costInput.widthCut': '내폭(Cost)', 'costInput.gsm': 'GSM(Cost)',
   'costInput.costGYd': 'G/YD', 'costInput.knittingFee1k': '편직비1K', 'costInput.knittingFee3k': '편직비3K',
   'costInput.knittingFee5k': '편직비5K', 'costInput.dyeingFee': '염가공비',
+  'costInput.knitGrade': '편직 난이도', 'costInput.knitKgRate': '편직 kg단가', 'costInput.processType': '가공 유형',
   'costInput.extraFee1k': '부대비1K', 'costInput.extraFee3k': '부대비3K', 'costInput.extraFee5k': '부대비5K',
   'costInput.marginTier': '도매(Conv) 마진 단계'
 };

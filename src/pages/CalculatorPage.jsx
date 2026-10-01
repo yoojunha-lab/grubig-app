@@ -15,17 +15,19 @@ export const CalculatorPage = ({
   handleSaveFabric,
   setActiveTab,
   globalExchangeRate,
-  yarnLibrary
+  yarnLibrary,
+  costSettings,
+  onOpenCostSettings
 }) => {
   const totalRatio = fabricInput.yarns.reduce((sum, yarn) => sum + (Number(yarn.ratio) || 0), 0);
   const isRatioValid = totalRatio === 100;
 
-  // MCQ 자동 계산 (1K tier 염색 LOSS 기준): 사용자 직접 입력값이 없을 때 표시될 값
+  // MCQ 자동 계산 (가공 유형의 가공 LOSS 기준): 사용자 직접 입력값이 없을 때 표시될 값
   const mcqGYdSource = Number(fabricInput.costGYd) > 0
     ? Number(fabricInput.costGYd)
     : Number(currentCalcFull?.theoreticalGYd) || 0;
-  const mcqDyeLoss1k = Number(fabricInput.losses?.tier1k?.dye) || 0;
-  const autoMcqYd = calculateMcqYd(mcqGYdSource, mcqDyeLoss1k);
+  const mcqProcessLoss = Number(currentCalcFull?.processLossPct) || 0;
+  const autoMcqYd = calculateMcqYd(mcqGYdSource, mcqProcessLoss);
 
   const handleSaveSafe = () => {
     if (!isRatioValid) {
@@ -135,14 +137,14 @@ export const CalculatorPage = ({
               <div className="w-full bg-amber-50/60 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-800 leading-snug">
                 💡 <strong>100kg 기준 ≈ {num(autoMcqYd)} YD</strong>
                 <span className="text-amber-600 font-normal ml-1">
-                  (G/YD {num(mcqGYdSource)} × 1K LOSS {mcqDyeLoss1k}% / 100단위 올림)
+                  (G/YD {num(mcqGYdSource)} × 가공 LOSS {mcqProcessLoss}% / 100단위 올림)
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* 2. 원가 분해 표 (재료/편직/가공/기타 + 위험마진 → 영업 기준원가) */}
+        {/* 2. 원가 분해 표 (편직 난이도·kg단가·가공 유형 + 구간별 kg 흐름/원가 + 위험마진 → 영업 기준원가) */}
         <CostBreakdownTable
           cost={fabricInput}
           yarns={fabricInput.yarns}
@@ -153,6 +155,8 @@ export const CalculatorPage = ({
           globalExchangeRate={globalExchangeRate}
           setCost={(fn) => setFabricInput(prev => fn(prev))}
           setYarns={(fn) => setFabricInput(prev => ({ ...prev, yarns: fn(prev.yarns) }))}
+          costSettings={costSettings}
+          onOpenCostSettings={onOpenCostSettings}
         />
 
         {/* 데스크톱 저장 버튼 */}
