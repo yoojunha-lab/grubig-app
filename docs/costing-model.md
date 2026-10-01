@@ -1,0 +1,137 @@
+# 원단 원가 모델 (Costing) — 2026-10 개편
+
+원단 원가 계산 방식의 기획 의도·계산식·설정·데이터 구조를 정리한 문서입니다.
+원가 관련 작업(원가 표, 원가 설정, 견적 기준원가, 설계서 원가)을 시작하기 전에 먼저 읽으세요.
+
+---
+
+## 1. 개편 배경 (대표님 요청, 2026-10-01)
+
+| 항목 | 예전 방식 | 새 방식 |
+|---|---|---|
+| 편직비 | 1K/3K/5K 칸마다 kg당 편직료를 품목별로 직접 입력 | `max(난이도 정액, 생지 kg × kg단가)` — 택시 기본요금처럼 |
+| 편직 LOSS | 1K/3K/5K 칸마다 % 직접 입력 | 오더 전체 **생지 kg 구간**으로 자동 (원가 설정) |
+| 가공(염가공) LOSS | 1K/3K/5K 칸마다 % 직접 입력 | 품목의 **가공 유형**(일반·스판물·기모물…)으로 자동 (원가 설정) |
+| 이화학검사 | 품목별 YD당 금액 | **컬러수(수량 구간) × 1컬러당 검사비** ÷ 수량 (원가 설정) |
+| 운임 | 품목별 YD당 금액 | **수량 구간별 오더 총액** ÷ 수량 (원가 설정) |
+| 외관검사 | 품목별 YD당 금액 | 전 품목 공통 YD당 단가 (원가 설정) |
+| 계산 단위 | 1K/3K/5K 고정 3칸 | **수량을 넣는 함수** — 화면은 1,000/3,000/5,000YD를 넣어서 표시 |
+
+목적: 수량이 늘었는데 편직비가 줄어들거나 갑자기 뛰는 구간이 없게 하고,
+LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목에 일관되게 적용.
+
+---
+
+## 2. 계산 순서 (오더 수량 Q YD)
+
+오더 전체 금액으로 계산한 뒤 마지막에 ÷ Q 해서 YD당 원가를 만든다. 반올림은 최종 원가에서만.
+
+| 단계 | 계산 | 비고 |
+|---|---|---|
+| 가공지 kg | Q × G/YD ÷ 1000 | G/YD = 생산 G/YD(입력값) 없으면 이론값 |
+| 생지 kg | 가공지 kg × (1 + (가공 LOSS% + 후가공 LOSS%) ÷ 100) | 가공 LOSS = 품목 가공 유형의 % |
+| 편직 LOSS% | 생지 kg가 속한 구간의 % | 'N kg 이하' 구간, 마지막은 '초과' |
+| 원사 kg | 생지 kg × (1 + 편직 LOSS% ÷ 100) | 원사 투입량 |
+| 재료비 | 원사 kg × 원사 단가(혼용 가중) | 내수=관세포함, 수출=관세제외 |
+| 편직비 | max(난이도 정액, 생지 kg × kg단가) | 정액 ÷ kg단가 지점부터 kg 계산 |
+| 염가공비 | 가공지 kg × 염가공료 | **가공지 기준** (대표님 확인, 예전과 동일) |
+| 후가공비 | 가공지 kg × 후가공료 | 후가공 LOSS는 생지 kg에 반영 |
+| 이화학검사 | 컬러수(Q 구간) × 1컬러당 검사비 | 오더 총액 |
+| 운임 | Q 구간의 금액 | 오더 총액 |
+| 외관검사 | YD당 단가 × Q | |
+| 품목별 추가비용 | YD당 금액 × Q | 품목마다 선택 입력 |
+| **순원가/YD** | 위 합계 ÷ Q | 100원(내수)/센트(수출) 반올림 |
+| **영업 기준원가/YD** | 순원가 × (1 + 위험마진%) | 위험마진은 예전과 동일 (terminology §1-A) |
+
+예) 면스판 립 327g/yd · 스판물(13%) · 난이도 A(60만) · kg단가 2,000원
+- 1,000YD: 생지 369.5kg × 2,000 = 739,020원 > 정액 → 739,020원 (YD당 739원)
+- 500YD: 생지 184.8kg × 2,000 = 369,510원 < 정액 → 600,000원 (YD당 1,200원)
+
+### 편직 kg단가 구간 (품목별, 선택)
+- 품목 화면 [kg단가 구간]으로 `1,000kg 이상 → 1,800원` 같은 구간 단가를 넣을 수 있다 (기본은 비어 있음).
+- 생지 kg가 속한 구간의 단가를 **전체 kg에** 적용한다.
+- 단, 구간이 바뀌며 단가가 내려가도 총액이 줄지 않게 **직전 구간 끝 금액**(다음 구간 시작 kg × 직전 단가)을 하한으로 둔다.
+  예) 2,000원 → 1,000kg 이상 1,800원: 1,000~1,111kg 구간은 200만원 유지(화면 표시 '구간하한') → 이후 kg 계산.
+
+### 구간(bracket) 공통 규칙
+- 각 줄은 'N 이하' 경계값 + 값, 마지막 줄은 '직전 경계 초과'.
+- 예) 편직 LOSS: 100kg 이하 10% / 300kg 이하 8% / 1,000kg 이하 5% / 1,000kg 초과 3%
+  → 100kg 정확히 = 10%, 100.1kg = 8%.
+
+---
+
+## 3. 원가 설정 (전 품목 공통)
+
+- 화면: 원단 관리 상단 **[⚙ 원가 설정]**, 원가 표 머리의 **[원가 설정]** 버튼 → `CostSettingsModal`
+- 저장: Firestore `settings/general.costSettings` (통째로 교체, `updatedAt`·`updatedBy` 기록)
+- 저장값이 없거나 일부 빠지면 `resolveCostSettings()`가 기본값으로 채움
+- 사용 중인 편직 난이도·가공 유형은 삭제 불가 (원단·설계서·가설계서에서 쓰는 수를 셈. 값이 없는 옛 품목은 A·일반으로 셈)
+
+| 설정 | 기본값 | 필드 |
+|---|---|---|
+| 편직 정액 | A 600,000원 (싱글 등 쉬운 아이템) / B 1,000,000원 (기계 손이 많이 가는 아이템) + 등급 추가 | `knitGrades[{id,name,fixedFee,desc}]` |
+| 편직 LOSS | 100kg 이하 10% / 300kg 이하 8% / 1,000kg 이하 5% / 1,000kg 초과 3% | `knitLossBrackets[{max,pct}]` |
+| 가공 LOSS | 일반 10% / 스판물 13% / 기모물 12% + 유형 추가 | `processTypes[{id,name,lossPct}]` |
+| 이화학 | 1컬러당 200,000원 · 1,000YD 이하 2컬러 / 3,000YD 이하 4 / 5,000YD 이하 6 / 초과 6 | `chemTest{feePerColor,colorBrackets[{max,colors}]}` |
+| 운임 | 500YD 이하 30만 / 1,000YD 이하 50만 / 3,000YD 이하 90만 / 5,000YD 이하 100만 / 초과 100만 | `freightBrackets[{max,amount}]` |
+| 외관검사 | YD당 190원 | `visualInspectionPerYd` |
+
+기본값 출처: 대표님 지정(정액·가공 LOSS·편직 LOSS·이화학 컬러수) + 예전 원가에 맞춘 시작값(이화학 1컬러당·운임·외관검사).
+설정에서 언제든 수정.
+
+---
+
+## 4. 품목(원단·설계서 costInput) 필드
+
+| 필드 | 의미 | 기존 품목(값 없음)일 때 |
+|---|---|---|
+| `knitGrade` | 편직 난이도 id (A/B…) | `'A'` |
+| `knitKgRate` | 편직 kg단가 (원/kg) | 예전 `knittingFee5k` → `knittingFee3k` → 2,000원 |
+| `knitKgRateTiers` | 구간 단가 `[{fromKg, rate}]` | `[]` |
+| `processType` | 가공 유형 id (normal/span/brushed…) | `'normal'`(일반) |
+| `dyeingFee` | 염가공료 (원/kg, 가공지 기준) | 그대로 |
+| `finishing` | 후가공 `[{name, fee, lossPct}]` | 그대로 |
+| `etcCosts` | 품목별 추가비용 `[{id, name, perYd}]` | 예전 기본 3항목(외관검사·이화학·운임, id `etc_visual/etc_chem/etc_freight`)은 **무시**(설정값 사용). 예전 사용자 항목은 3,000YD 값을 YD당으로 사용 |
+| `riskMarginPct` | 위험마진 % | 그대로 |
+
+- 기존 데이터는 **일괄 변환하지 않는다.** 계산할 때 위 규칙으로 읽고, 품목을 열어 저장하면 새 필드가 기록된다.
+- 예전 필드(`knittingFee1k/3k/5k`, `losses`, `extraFee*`, `brandExtra`)는 지우지 않고 남겨둔다 — 계산에는 쓰지 않음.
+- 원단 ↔ 설계서 양방향 동기화(`useFabric.handleSaveFabric`, `useDesignSheet.handleSaveSheet`)와
+  아이템화 자동 등록·원단 불러오기·가설계서 불러오기 모두 새 필드를 같이 옮긴다.
+
+---
+
+## 5. 과거 견적·오더 보존
+
+- **견적서**: 품목을 넣을 때의 영업 기준원가를 `basePrice1k/3k/5k`로 품목에 저장. 목록·PDF·엑셀은 저장값만 사용
+  → 원가 설정·계산식이 바뀌어도 저장된 견적 단가는 그대로 (DEV 화면에서 확인 완료).
+  단, 옛 견적을 열어 **시장구분(내수/수출)·환율을 바꾸거나 품목을 새로 넣으면** 그때는 새 방식으로 계산 (예전부터 같은 동작).
+- **생산 오더 / PI**: 원가를 저장하지 않음 → 영향 없음.
+- **원단 리스트·설계서·가설계서**: 열 때마다 계산하는 화면이라 새 방식 숫자로 보임.
+
+---
+
+## 6. 코드 위치
+
+| 역할 | 파일 |
+|---|---|
+| 계산 엔진 (순수 함수) | `src/utils/costModel.js` — `computeCostAtQty`(임의 수량), `calculateCostTiers`(1K/3K/5K), `resolveCostSettings`, `calcKnitFee` 등 |
+| 설정 기본값·상수 | `src/constants/costing.js` — `DEFAULT_COST_SETTINGS`, `COST_DISPLAY_TIERS` |
+| 설정 저장/구독 | `src/apps/App.jsx` — `costSettingsRaw` → `costSettings`(useMemo), `saveCostSettings` |
+| 설정 화면 | `src/components/cost/CostSettingsModal.jsx` |
+| 원가 표 (계산기·설계서·가설계서 공용) | `src/components/cost/CostBreakdownTable.jsx` |
+| 훅 연결 | `src/hooks/domains/useFabric.js` — `calculateCost`(3구간), `calculateCostAtQty`(임의 수량) |
+| 원단 리스트 | `src/components/fabric/DesktopFabricRow.jsx`, `MobileFabricCard.jsx` (memo 비교에 `costSettings` 포함) |
+| 견적 MCQ | `src/hooks/domains/useQuotation.js` — 100kg ÷ (G/YD × (1 + 가공 LOSS%)) |
+| 설계서 소요 중량 | `src/pages/DesignSheetPage.jsx` — 입력 YD → 원사 kg (같은 kg 흐름) |
+| 원단 엑셀 양식 | `src/apps/App.jsx` — `KnitGrade`·`KnitKgRate`·`ProcessType` 열 (이름으로 입력, 예전 양식도 등록됨) |
+
+---
+
+## 7. 확장 포인트 / 남은 과제
+
+- **임의 수량 칸**: 원가 표에 수량 입력 칸만 추가하고 `calculateCostAtQty(fabric, qty)`(useFabric) 또는
+  `computeCostAtQty(fabric, qty, ctx)`를 부르면 바로 계산된다. (예: 15,000YD)
+- **염가공료 생지 기준 전환**: 지금은 가공지 kg 기준. 염색소가 생지 투입 kg 기준으로 받으면
+  `costModel.js`의 `dye` 라인을 `greigeKg` 기준으로 바꾸면 된다 (대표님 결정 필요).
+- 설계서 변경 이력에는 가공 유형이 id(`span` 등)로 남는다 — 화면 표시 개선 여지.
