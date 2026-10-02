@@ -262,13 +262,14 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     settings: costSettings,
   });
 
-  // 원가 표용 1,000 / 3,000 / 5,000YD 3구간 (tier1k/tier3k/tier5k)
+  // 원가 표용 구간 — 300·500·800YD(2컬러 기준) + 1,000·3,000·5,000YD(MCQ 충족 기준, tier1k/tier3k/tier5k)
   const calculateCost = (fabricData, overrideExchangeRate = null) =>
     calculateCostTiers(fabricData, costCtx(overrideExchangeRate));
 
   // 임의 수량(YD) 1개 — 나중에 '수량 직접 입력' 칸에서 바로 사용
-  const calculateCostAtQty = (fabricData, qty, overrideExchangeRate = null) =>
-    computeCostAtQty(fabricData, qty, costCtx(overrideExchangeRate));
+  //  opts: { colors: 컬러수 가정, assumeMcq: 컬러마다 MCQ 충족 → 염색 최소 청구 없음 } (없으면 수량 구간 기본)
+  const calculateCostAtQty = (fabricData, qty, overrideExchangeRate = null, opts = {}) =>
+    computeCostAtQty(fabricData, qty, costCtx(overrideExchangeRate), opts);
 
   const getMergedYarnName = (slotId) => {
     if (!slotId) return '';

@@ -3,14 +3,15 @@ import { Plus, Trash2, Settings } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { num, calculateGYd, clampNum, fmtMan as man } from '../../utils/helpers';
 import { normalizeExtraCosts, findKnitGrade, findProcessType, isImportSupplier, findImportCountry } from '../../utils/costModel';
-import { COST_DISPLAY_TIERS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, KNIT_FEE_MODE_LABEL } from '../../constants/costing';
+import { COST_DISPLAY_TIERS, COST_TIER_GROUPS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, KNIT_FEE_MODE_LABEL } from '../../constants/costing';
 
 /**
- * 원가 분해 표 — 1,000 / 3,000 / 5,000 YD 3구간 동시 표시. 원단 계산기 / 설계서 / 가설계서 공유.
- * 계산식은 utils/costModel.js (docs/costing-model.md):
+ * 원가 분해 표 — 300·500·800YD(2컬러 기준) + 1,000·3,000·5,000YD(MCQ 충족 기준) 6구간 동시 표시.
+ * 원단 계산기 / 설계서 / 가설계서 공유. 계산식은 utils/costModel.js (docs/costing-model.md):
  * · 생지 kg = 가공지 kg × (1 + 가공 LOSS%) → 편직 LOSS% = 생지 kg 구간 → 원사 kg = 생지 kg × (1 + 편직 LOSS%)
  * · 재료비 = 원사 kg × 원사 단가,  편직비 = max(난이도 정액, 생지 kg × kg단가)
- * · 염가공·후가공 = 가공지 kg × 원/kg,  이화학·운임 = 오더 총액 ÷ 수량,  외관검사 = YD당 (원가 설정)
+ * · 염가공 = 청구 kg × 원/kg (2컬러 기준 구간은 컬러당 최소 청구 kg 적용),  후가공 = 가공지 kg × 원/kg
+ * · 이화학·운임 = 오더 총액 ÷ 수량,  외관검사 = YD당 (원가 설정)
  * · 수입 원사 운반비 = 그 원사 kg × 수입 국가 kg 구간 단가 → 재료비에 포함 (③ 표에 적용 구간 표시)
  * · 판매마진/Brand 없음(영업/견적에서 결정). '위험 마진(%)'만 가산 → 영업 기준원가. 반올림은 최종에서만.
  *
@@ -133,23 +134,45 @@ export const CostBreakdownTable = ({
   const subLbl = `${compact ? 'text-[10px]' : 'text-[11px]'} font-bold text-slate-500 mb-0.5`;
   const addBtn = "flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded border print:hidden";
 
+  // 구간 칸 수에 맞춘 열 너비 (항목 칸 + 구간 칸 N개). 표 최소 너비 — 폰에서는 옆으로 밀어 보기
+  const colStyle = (labelFr) => ({ gridTemplateColumns: `${labelFr} repeat(${TIERS.length}, minmax(0, 1fr))` });
+  const minTableW = 'min-w-[680px]';
+  // 묶음(2컬러 기준 / MCQ 충족 기준) — 같은 묶음 구간끼리 붙어 있음. 묶음이 바뀌는 첫 칸에 굵은 왼쪽 선
+  const groups = COST_TIER_GROUPS
+    .map(g => ({ ...g, count: TIERS.filter(t => t.group === g.key).length }))
+    .filter(g => g.count > 0);
+  const groupEdge = (i) => (i > 0 && TIERS[i - 1].group !== TIERS[i].group ? 'border-l-2 border-slate-300' : '');
+  const smallQtys = TIERS.filter(t => t.group === 'small').map(t => num(t.qty));
+  const mcqFromQty = Math.min(...TIERS.filter(t => t.group === 'mcq').map(t => t.qty));
+  const dyeMinKg = costSettings?.dyeMinKgPerColor ?? 100;
+
   const Head = () => (
-    <div className="grid grid-cols-[1.6fr_1fr_1fr_1fr] bg-slate-200 text-xs font-extrabold text-slate-600">
-      <div className={`${compact ? 'p-1.5' : 'p-2.5'} text-left`}>항목 / 구간</div>
-      {TIERS.map(t => (
-        <div key={t.key} className={`${compact ? 'p-1' : 'p-2'} text-center ${t.main ? 'text-blue-700 bg-blue-100/70' : ''}`}>
-          <div>{t.label}</div>
-          <div className="text-[10px] font-normal text-slate-400">가공지 ≈ {num(tier(t.key).kg?.finished)} kg</div>
-        </div>
-      ))}
-    </div>
+    <>
+      <div className="grid bg-slate-100 text-[11px] font-extrabold" style={colStyle('1.6fr')}>
+        <div />
+        {groups.map((g, gi) => (
+          <div key={g.key} title={g.hint} style={{ gridColumn: `span ${g.count}` }} className={`${compact ? 'py-0.5' : 'py-1'} text-center ${gi > 0 ? 'border-l-2 border-slate-300' : ''} ${g.key === 'mcq' ? 'text-blue-700' : 'text-amber-700'}`}>
+            {g.label}
+          </div>
+        ))}
+      </div>
+      <div className="grid bg-slate-200 text-xs font-extrabold text-slate-600" style={colStyle('1.6fr')}>
+        <div className={`${compact ? 'p-1.5' : 'p-2.5'} text-left`}>항목 / 구간</div>
+        {TIERS.map((t, i) => (
+          <div key={t.key} className={`${compact ? 'p-1' : 'p-2'} text-center ${groupEdge(i)} ${t.main ? 'text-blue-700 bg-blue-100/70' : ''}`}>
+            <div>{t.label}</div>
+            <div className="text-[10px] font-normal text-slate-400">가공지 ≈ {num(tier(t.key).kg?.finished)} kg</div>
+          </div>
+        ))}
+      </div>
+    </>
   );
   // 값 행. render(tk) → 셀 내용, sub(tk) → 작은 보조문구, title(tk) → 마우스오버 설명
   const ValueRow = ({ label, get, strong, accent, info, render, sub, title }) => (
-    <div className={`grid grid-cols-[1.6fr_1fr_1fr_1fr] items-center border-t border-slate-100 ${strong ? 'bg-slate-100' : accent ? 'bg-indigo-50/40' : info ? 'bg-white' : 'bg-slate-50/50'}`}>
+    <div className={`grid items-center border-t border-slate-100 ${strong ? 'bg-slate-100' : accent ? 'bg-indigo-50/40' : info ? 'bg-white' : 'bg-slate-50/50'}`} style={colStyle('1.6fr')}>
       <div className={`${cellP} text-left ${lblF} ${strong ? 'font-extrabold text-slate-800' : info ? 'font-semibold text-slate-400' : 'font-bold text-slate-500'}`}>{label}</div>
-      {TIERS.map(t => (
-        <div key={t.key} title={title ? title(t.key, t) : undefined} className={`${cellP} text-center ${valF} font-mono ${t.main ? (strong ? 'bg-blue-100/70 font-extrabold text-blue-800' : 'bg-blue-50/40 font-bold text-slate-700') : (info ? 'text-slate-500' : 'text-slate-700')}`}>
+      {TIERS.map((t, i) => (
+        <div key={t.key} title={title ? title(t.key, t) : undefined} className={`${cellP} text-center ${valF} font-mono ${groupEdge(i)} ${t.main ? (strong ? 'bg-blue-100/70 font-extrabold text-blue-800' : 'bg-blue-50/40 font-bold text-slate-700') : (info ? 'text-slate-500' : 'text-slate-700')}`}>
           {render ? render(t.key, t) : <>{sym}{fmt(get(t.key))}</>}
           {sub && !compact && <div className="text-[9px] font-sans font-semibold text-slate-400 leading-tight">{sub(t.key, t)}</div>}
         </div>
@@ -164,7 +187,7 @@ export const CostBreakdownTable = ({
   return (
     <div className="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden">
       <div className={`bg-blue-600 text-white ${secP} flex items-center justify-between gap-2`}>
-        <h3 className={`${compact ? 'text-sm' : 'text-base'} font-extrabold`}>₩ 가격정보 (원가 분해 · 3구간)</h3>
+        <h3 className={`${compact ? 'text-sm' : 'text-base'} font-extrabold`}>₩ 가격정보 (원가 분해 · {TIERS.length}구간)</h3>
         <div className="flex items-center gap-2">
           {onOpenCostSettings && (
             <button type="button" onClick={onOpenCostSettings} className="print:hidden flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold bg-white/15 hover:bg-white/25 border border-white/30 rounded">
@@ -289,8 +312,13 @@ export const CostBreakdownTable = ({
 
       {/* ③ 구간별 산출 (모두 자동 계산) */}
       <div className={secP}>
-        <div className={`${compact ? 'text-xs mb-1' : 'text-sm mb-2'} font-extrabold text-slate-700`}>③ 구간별 산출 (자동 계산)</div>
-        <div className="border border-slate-300 rounded-lg overflow-hidden">
+        <div className={`${compact ? 'text-xs mb-1' : 'text-sm mb-2'} font-extrabold text-slate-700 flex items-center justify-between`}>
+          ③ 구간별 산출 (자동 계산)
+          <span className="sm:hidden text-[10px] font-semibold text-slate-400 print:hidden">← 옆으로 밀어서 보기 →</span>
+        </div>
+        {/* 6구간이라 폰에서는 칸이 좁아짐 → 최소 너비를 두고 옆으로 밀어 보게 함 (PC·설계서 A4는 그대로) */}
+        <div className="border border-slate-300 rounded-lg overflow-x-auto">
+          <div className={minTableW}>
           {Head()}
           {/* kg 흐름: 가공지 → 생지 → 원사 */}
           {ValueRow({ label: lossLabel, info: true, render: (tk) => <>{num(tier(tk).kg?.greige)} kg</> })}
@@ -300,7 +328,7 @@ export const CostBreakdownTable = ({
           {ValueRow({ label: '재료비 / yd (LOSS 포함)', get: (tk) => tv(tk).yarnCostYd, accent: true })}
           {/* 수입 원사 운반비 — 재료비에 이미 포함. 수량마다 그 원사 kg로 정해진 구간 단가를 보여줌 */}
           {calc?.hasImportFreight && ValueRow({
-            label: '└ 수입 원사 운반비 (원/kg · 재료비 포함)', info: true,
+            label: compact ? '└ 수입 원사 운반비 (원/kg)' : '└ 수입 원사 운반비 (원/kg · 재료비 포함)', info: true,
             render: (tk) => {
               const lines = tier(tk).importFreight?.lines || [];
               if (lines.length === 0) return <span className="text-slate-300">-</span>;
@@ -326,7 +354,21 @@ export const CostBreakdownTable = ({
               return `오더 편직비 ${num(k.total)}원 — ${k.mode === 'fixed' ? `정액 ${num(k.fixedFee)}원 적용 (${kgTxt})` : k.mode === 'floor' ? `구간하한 ${num(k.floor)}원 적용 (${kgTxt})` : kgTxt}`;
             },
           })}
-          {ValueRow({ label: '염가공비 / yd', get: (tk) => lineSum(tk, 'proc', 'dye'), accent: true })}
+          {ValueRow({
+            label: '염가공비 / yd', get: (tk) => lineSum(tk, 'proc', 'dye'), accent: true,
+            // 2컬러 기준 구간에서 컬러당 kg가 최소 청구 kg보다 적으면 '컬러당 49→100kg 청구'
+            sub: (tk) => {
+              const d = tier(tk).dye || {};
+              return d.minApplied ? `컬러당 ${num(d.perColorKg)}→${num(d.minKg)}kg 청구` : '';
+            },
+            title: (tk, t) => {
+              const d = tier(tk).dye || {};
+              const fee = num(cost.dyeingFee);
+              if (d.minApplied) return `${d.colors}컬러 × 컬러당 가공지 ${num(d.perColorKg)}kg → 최소 ${num(d.minKg)}kg로 청구 = ${num(d.billedKg)}kg × ${fee}원 = ${num(d.total)}원 ÷ ${num(t.qty)}YD`;
+              const why = d.assumeMcq ? 'MCQ 충족 기준 — 최소 청구 없음' : `컬러당 ${num(d.perColorKg)}kg라 최소 ${num(d.minKg)}kg 이상`;
+              return `가공지 ${num(d.billedKg)}kg × ${fee}원 = ${num(d.total)}원 ÷ ${num(t.qty)}YD (${why})`;
+            },
+          })}
           {finishing.length > 0 && ValueRow({ label: '후가공 / yd', get: finSum, accent: true })}
           {ValueRow({
             label: '이화학검사 / yd', get: (tk) => lineSum(tk, 'etc', 'chem'),
@@ -345,8 +387,17 @@ export const CostBreakdownTable = ({
           {ValueRow({ label: '순원가 / yd', get: (tk) => tv(tk).totalCostYd, strong: true })}
           {ValueRow({ label: `위험마진 (${Number(cost.riskMarginPct || 0)}%)`, get: (tk) => tv(tk).riskAmtYd })}
           {ValueRow({ label: '영업 기준원가 / yd', get: (tk) => tv(tk).finalCostYd, strong: true })}
+          </div>
         </div>
-        {!compact && <div className="text-[10px] text-slate-400 mt-1">편직비·이화학·운임은 오더 총액을 수량으로 나눈 값이에요. 칸에 마우스를 올리면 계산 과정이 보여요.</div>}
+        {!compact && (
+          <div className="text-[10px] text-slate-400 mt-1 space-y-0.5">
+            <div>
+              <b className="text-amber-700">2컬러 기준</b> ({smallQtys.join('·')}YD): 2컬러로 나눠 염색한다고 보고, 컬러당 가공지 {num(dyeMinKg)}kg 미만이면 {num(dyeMinKg)}kg로 청구해요. 이화학도 2컬러.
+              {' '}<b className="text-blue-700">MCQ 충족 기준</b> ({num(mcqFromQty)}YD 이상): 컬러마다 MCQ를 맞췄다고 보고 염색 최소 청구가 없어요.
+            </div>
+            <div>편직비·이화학·운임은 오더 총액을 수량으로 나눈 값이에요. 칸에 마우스를 올리면 계산 과정이 보여요.</div>
+          </div>
+        )}
       </div>
 
       {/* ④ 위험마진 + 납품단위 */}
@@ -358,22 +409,24 @@ export const CostBreakdownTable = ({
         </div>
         <div>
           <div className={`text-xs font-bold text-slate-400 ${compact ? 'mb-1' : 'mb-1.5'}`}>납품 단위 (영업 기준원가)</div>
-          <div className="overflow-hidden rounded-lg border border-slate-300">
-            <div className="grid grid-cols-[1.2fr_1fr_1fr_1fr] bg-slate-200 text-xs font-bold text-slate-600">
+          <div className="overflow-x-auto rounded-lg border border-slate-300">
+            <div className={minTableW}>
+            <div className="grid bg-slate-200 text-xs font-bold text-slate-600" style={colStyle('1.2fr')}>
               <div className={compact ? 'p-1' : 'p-2'}>단위</div>
-              {TIERS.map(t => (
-                <div key={t.key} className={`${compact ? 'p-1' : 'p-2'} text-center ${t.main ? 'text-blue-700' : ''}`}>
+              {TIERS.map((t, i) => (
+                <div key={t.key} className={`${compact ? 'p-1' : 'p-2'} text-center ${groupEdge(i)} ${t.main ? 'text-blue-700' : ''}`}>
                   <div>{t.label}</div>
                   <div className="text-[10px] font-normal text-slate-400">가공지 ≈ {num(tier(t.key).kg?.finished)} kg</div>
                 </div>
               ))}
             </div>
             {[{ k: 'finalCostYd', l: '원가 / yd' }, { k: 'pricePerM', l: '원가 / m' }, { k: 'pricePerKg', l: '원가 / kg' }].map(row => (
-              <div key={row.k} className="grid grid-cols-[1.2fr_1fr_1fr_1fr] border-t border-slate-100 bg-white">
+              <div key={row.k} className="grid border-t border-slate-100 bg-white" style={colStyle('1.2fr')}>
                 <div className={`${compact ? 'px-2 py-0.5 text-[11px]' : 'p-2 text-[13px]'} font-semibold text-slate-500`}>{row.l}</div>
-                {TIERS.map(t => <div key={t.key} className={`${compact ? 'px-2 py-0.5 text-[11px]' : 'p-2 text-sm'} text-center font-mono ${t.main ? 'bg-emerald-50 font-extrabold text-emerald-700' : 'text-slate-600'}`}>{sym}{fmt(tv(t.key)[row.k])}</div>)}
+                {TIERS.map((t, i) => <div key={t.key} className={`${compact ? 'px-2 py-0.5 text-[11px]' : 'p-2 text-sm'} text-center font-mono ${groupEdge(i)} ${t.main ? 'bg-emerald-50 font-extrabold text-emerald-700' : 'text-slate-600'}`}>{sym}{fmt(tv(t.key)[row.k])}</div>)}
               </div>
             ))}
+            </div>
           </div>
           <div className={`grid grid-cols-3 gap-2 ${compact ? 'mt-1' : 'mt-2'} text-center text-xs`}>
             <div className={`bg-white rounded ${compact ? 'p-1' : 'p-2'} border border-slate-200`}><div className="text-slate-400 font-bold">가공폭</div><div className={`font-bold text-slate-700 ${compact ? 'text-xs' : 'text-sm'}`}>{cost.widthCut || '-'}/{cost.widthFull || '-'}"</div></div>

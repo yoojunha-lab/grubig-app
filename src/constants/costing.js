@@ -53,6 +53,9 @@ export const DEFAULT_COST_SETTINGS = {
   ],
   // 외관검사 — YD당 단가 (전 품목 공통)
   visualInspectionPerYd: 190,
+  // 염색 최소 청구 kg (컬러당) — 한 컬러를 이 kg보다 적게 염색해도 이 kg로 청구 (대표님 지정, 2026-10-02)
+  //  · 기준 kg는 염가공료와 같은 가공지 kg. 'MCQ 충족' 구간(1,000YD 이상)은 적용하지 않음
+  dyeMinKgPerColor: 100,
   // 수입 원사 운반비 (원/kg) — 원사 라이브러리에서 공급처를 [수입]으로 체크한 원사만, 수입 국가별 구간
   //  · kg = 그 원사의 오더 투입 kg (원사 투입 kg × 혼용률) → 속한 구간의 kg당 금액을 원사 단가에 더함
   //  · 'N kg 미만' 규칙, 마지막 max = null → '직전 경계 이상'. 기본값은 중국 기준 (대표님 지정, 2026-10-02)
@@ -70,12 +73,25 @@ export const DEFAULT_COST_SETTINGS = {
   ],
 };
 
-// 원가 표에 보여주는 기준 수량 3구간. 계산 자체는 임의 수량 함수(computeCostAtQty)라 수량만 바꾸면 됨.
-//  key(tier1k/3k/5k)는 견적(basePrice1k/3k/5k)·설계서 화면이 읽는 기존 키 그대로 유지
+// 원가 표에 보여주는 기준 수량 6구간 (대표님 지정, 2026-10-02). 계산 자체는 임의 수량 함수
+// (computeCostAtQty)라 수량·컬러 가정만 바꾸면 됨.
+//  · group 'small' (300·500·800YD): 2컬러로 나눠 염색한다고 봄 → 컬러당 염색 최소 청구 적용, 이화학도 2컬러
+//  · group 'mcq'  (1,000·3,000·5,000YD): 컬러마다 MCQ를 맞췄다고 봄(assumeMcq) → 염색 최소 청구 없음,
+//    이화학은 원가 설정의 수량 구간 컬러수
+//  · key tier1k/3k/5k는 견적(basePrice1k/3k/5k)·원단 목록·설계서 화면이 읽는 기존 키 그대로 유지
 export const COST_DISPLAY_TIERS = [
-  { key: 'tier1k', label: '1,000 YD', qty: 1000 },
-  { key: 'tier3k', label: '3,000 YD', qty: 3000, main: true },
-  { key: 'tier5k', label: '5,000 YD', qty: 5000 },
+  { key: 'tier300', label: '300 YD', qty: 300, group: 'small', colors: 2 },
+  { key: 'tier500', label: '500 YD', qty: 500, group: 'small', colors: 2 },
+  { key: 'tier800', label: '800 YD', qty: 800, group: 'small', colors: 2 },
+  { key: 'tier1k', label: '1,000 YD', qty: 1000, group: 'mcq', assumeMcq: true },
+  { key: 'tier3k', label: '3,000 YD', qty: 3000, group: 'mcq', assumeMcq: true, main: true },
+  { key: 'tier5k', label: '5,000 YD', qty: 5000, group: 'mcq', assumeMcq: true },
+];
+
+// 원가 표 구간 묶음 머리 (COST_DISPLAY_TIERS의 group 순서대로, 같은 묶음끼리 붙어 있어야 함)
+export const COST_TIER_GROUPS = [
+  { key: 'small', label: '2컬러 기준', hint: '2컬러로 나눠 염색 · 컬러당 최소 청구 적용' },
+  { key: 'mcq', label: 'MCQ 충족 기준', hint: '컬러마다 MCQ 이상 · 염색 최소 청구 없음' },
 ];
 
 // 편직비가 어떤 기준으로 정해졌는지 (computeCostAtQty 결과 knit.mode) — 화면 표시용

@@ -86,7 +86,7 @@ GRUBIG-APP/
 │   │
 │   ├── utils/
 │   │   ├── helpers.js           # num, calculateGYd 등 순수 함수
-│   │   └── costModel.js         # 원단 원가 엔진 (수량 함수 computeCostAtQty / 3구간 calculateCostTiers)
+│   │   └── costModel.js         # 원단 원가 엔진 (수량 함수 computeCostAtQty / 원가 표 6구간 calculateCostTiers)
 │   │
 │   ├── constants/
 │   │   ├── common.js            # DESIGN_STAGES, STAGE_COLORS 등 상수

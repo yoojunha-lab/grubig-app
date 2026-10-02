@@ -2,18 +2,18 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Save, Plus, Trash2, Settings, AlertTriangle } from 'lucide-react';
 import { num } from '../../utils/helpers';
-import { resolveCostSettings, getChemColors, getFreightAmount, isImportSupplier } from '../../utils/costModel';
-import { COST_DISPLAY_TIERS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, DEFAULT_IMPORT_COUNTRY_ID } from '../../constants/costing';
+import { resolveCostSettings, resolveOrderColors, getFreightAmount, isImportSupplier } from '../../utils/costModel';
+import { COST_DISPLAY_TIERS, COST_TIER_GROUPS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, DEFAULT_IMPORT_COUNTRY_ID } from '../../constants/costing';
 
 // ============================================================
 // 원가 설정 모달 — 전 품목 공통 원가 기준값 편집
-//  · 편직 정액(난이도별) / 편직 LOSS(생지 kg 구간) / 가공 LOSS(가공 유형) / 이화학 / 운임 / 외관검사
-//    / 수입 원사 운반비(국가별 · 원사 kg 구간)
+//  · 편직 정액(난이도별) / 편직 LOSS(생지 kg 구간) / 가공 LOSS(가공 유형) / 염색 최소 청구(컬러당)
+//    / 이화학 / 운임 / 외관검사 / 수입 원사 운반비(국가별 · 원사 kg 구간)
 //  · 저장값은 settings/general.costSettings (App.jsx의 saveCostSettings) → 저장 즉시 모든 품목 원가 재계산
 //  · 저장된 견적서는 단가(basePrice)를 따로 보관하므로 바뀌지 않음
 //  · 숫자 칸은 입력 중 빈칸을 허용하려고 입력값 그대로 들고 있다가 저장할 때 숫자로 바꿈
 //  · 부모(App)에서 열릴 때만 마운트 → useState 초기화로 편집 상태 시드
-//  · initialFocus='importFreight' 면 열자마자 ⑦ 수입 원사 운반비로 스크롤 (원사 라이브러리에서 열 때)
+//  · initialFocus='importFreight' 면 열자마자 ⑧ 수입 원사 운반비로 스크롤 (원사 라이브러리에서 열 때)
 // ============================================================
 
 // 구간 경계값/금액 등 숫자 변환 (마지막 '초과' 구간은 max = null 유지)
@@ -30,6 +30,7 @@ const buildNext = (l) => ({
   },
   freightBrackets: l.freightBrackets.map(b => ({ max: toMax(b.max), amount: Number(b.amount) || 0 })),
   visualInspectionPerYd: Number(l.visualInspectionPerYd) || 0,
+  dyeMinKgPerColor: Number(l.dyeMinKgPerColor) || 0,
   importCountries: l.importCountries.map(c => ({
     id: c.id,
     name: String(c.name || '').trim(),
@@ -143,7 +144,7 @@ export const CostSettingsModal = ({
   onClose, costSettings, onSave, showToast,
   savedFabrics = [], designSheets = [], tempDesignSheets = [],
   yarnLibrary = [],    // 수입 국가별 사용 원사 수 표시·삭제 차단용
-  initialFocus = null, // 'importFreight' → ⑦ 수입 원사 운반비로 스크롤
+  initialFocus = null, // 'importFreight' → ⑧ 수입 원사 운반비로 스크롤
 }) => {
   // 열릴 때의 설정을 깊은 복제해 편집 상태로 시드
   const [local, setLocal] = useState(() => JSON.parse(JSON.stringify(resolveCostSettings(costSettings))));
@@ -198,14 +199,16 @@ export const CostSettingsModal = ({
     return { yarns: u ? u.yarnIds.size : 0, suppliers: u ? [...u.suppliers].sort() : [] };
   };
 
-  // 미리보기 — 저장 전 값으로 이화학·운임·외관검사 YD당 금액
+  // 미리보기 — 저장 전 값으로 원가 표 구간마다 이화학·운임·외관검사 YD당 금액
+  //  (컬러수는 원가 표와 같은 가정: 2컬러 기준 구간은 2컬러, MCQ 충족 구간은 이화학 수량 구간)
   const preview = useMemo(() => {
     const s = resolveCostSettings(buildNext(local));
     return COST_DISPLAY_TIERS.map(t => {
-      const colors = getChemColors(s, t.qty);
+      const colors = resolveOrderColors(s, t.qty, t.colors);
       const chem = colors * s.chemTest.feePerColor;
       const freight = getFreightAmount(s, t.qty);
-      return { ...t, colors, chem, freight, perYd: (chem + freight) / t.qty + s.visualInspectionPerYd };
+      const groupLabel = COST_TIER_GROUPS.find(g => g.key === t.group)?.label || '';
+      return { ...t, groupLabel, colors, chem, freight, perYd: (chem + freight) / t.qty + s.visualInspectionPerYd };
     });
   }, [local]);
 
@@ -249,6 +252,7 @@ export const CostSettingsModal = ({
     const countryErr = checkNames(local.importCountries, '수입 국가');
     if (countryErr) return countryErr;
     return checkBrackets(local.knitLossBrackets, 'pct', '편직 LOSS', { maxValue: 99 })
+      || (isBlank(local.dyeMinKgPerColor) || !(Number(local.dyeMinKgPerColor) >= 0) ? '염색 최소 청구: kg를 0 이상으로 입력해 주세요. (0이면 최소 청구 없음)' : null)
       || (isBlank(local.chemTest.feePerColor) || !(Number(local.chemTest.feePerColor) >= 0) ? '이화학 검사: 1컬러당 검사비를 0 이상으로 입력해 주세요.' : null)
       || checkBrackets(local.chemTest.colorBrackets, 'colors', '이화학 컬러수', { integer: true })
       || checkBrackets(local.freightBrackets, 'amount', '운임')
@@ -345,8 +349,16 @@ export const CostSettingsModal = ({
             </button>
           </Section>
 
-          {/* 4. 이화학 검사 */}
-          <Section no={4} title="이화학 검사 (오더당)" hint="오더 검사비 = 컬러수 × 1컬러당 검사비. 원가에는 오더 검사비 ÷ 수량이 YD당으로 들어가요.">
+          {/* 4. 염색 최소 청구 (컬러당) */}
+          <Section no={4} title="염색 최소 청구 (컬러당)" hint="염색은 컬러마다 따로 하므로, 한 컬러를 이 kg보다 적게 염색해도 이 kg로 청구돼요. 기준은 염가공료와 같은 가공지 kg. 원가 표의 2컬러 기준 구간(300·500·800YD)에 적용되고, MCQ 충족 기준 구간(1,000YD 이상)은 적용하지 않아요.">
+            <div className="flex items-center gap-2 flex-wrap">
+              <input type="number" min="0" value={local.dyeMinKgPerColor} onChange={e => set('dyeMinKgPerColor', e.target.value)} className={`${inCls} w-36`} />
+              <span className="text-xs text-slate-500">kg / 컬러 (0이면 최소 청구 없음)</span>
+            </div>
+          </Section>
+
+          {/* 5. 이화학 검사 */}
+          <Section no={5} title="이화학 검사 (오더당)" hint="오더 검사비 = 컬러수 × 1컬러당 검사비. 원가에는 오더 검사비 ÷ 수량이 YD당으로 들어가요. 원가 표의 2컬러 기준 구간은 2컬러로 계산해요.">
             <div className="flex items-center gap-2 flex-wrap pb-1">
               <span className="text-sm font-bold text-slate-600">1컬러당 검사비</span>
               <input type="number" min="0" value={local.chemTest.feePerColor} onChange={e => setChem('feePerColor', e.target.value)} className={`${inCls} w-36`} />
@@ -356,22 +368,22 @@ export const CostSettingsModal = ({
             <BracketEditor rows={local.chemTest.colorBrackets} valueKey="colors" unit="YD" valueUnit="컬러" onChange={v => setChem('colorBrackets', v)} />
           </Section>
 
-          {/* 5. 운임 */}
-          <Section no={5} title="운임 (오더당 총액)" hint="오더 수량이 속한 구간의 금액을 오더 운임으로 보고, 원가에는 운임 ÷ 수량이 YD당으로 들어가요.">
+          {/* 6. 운임 */}
+          <Section no={6} title="운임 (오더당 총액)" hint="오더 수량이 속한 구간의 금액을 오더 운임으로 보고, 원가에는 운임 ÷ 수량이 YD당으로 들어가요.">
             <BracketEditor rows={local.freightBrackets} valueKey="amount" unit="YD" valueUnit="원" money onChange={v => set('freightBrackets', v)} />
           </Section>
 
-          {/* 6. 외관검사 */}
-          <Section no={6} title="외관검사 (YD당)" hint="모든 품목에 같은 YD당 단가로 들어가요.">
+          {/* 7. 외관검사 */}
+          <Section no={7} title="외관검사 (YD당)" hint="모든 품목에 같은 YD당 단가로 들어가요.">
             <div className="flex items-center gap-2">
               <input type="number" min="0" value={local.visualInspectionPerYd} onChange={e => set('visualInspectionPerYd', e.target.value)} className={`${inCls} w-36`} />
               <span className="text-xs text-slate-500">원 / YD</span>
             </div>
           </Section>
 
-          {/* 7. 수입 원사 운반비 (국가별) */}
+          {/* 8. 수입 원사 운반비 (국가별) */}
           <div ref={importSectionRef} className={`scroll-mt-2 rounded-xl ${initialFocus === 'importFreight' ? 'ring-2 ring-emerald-300' : ''}`}>
-            <Section no={7} title="수입 원사 운반비 (국가별 · 원사 kg 구간)" hint="원사 라이브러리에서 공급처를 [수입]으로 체크한 원사에만 적용돼요. 그 원사의 오더 투입 kg(원사 투입 kg × 혼용률)이 속한 구간의 kg당 금액을 원사 단가에 더하고, 1,000/3,000/5,000YD마다 따로 계산해요.">
+            <Section no={8} title="수입 원사 운반비 (국가별 · 원사 kg 구간)" hint="원사 라이브러리에서 공급처를 [수입]으로 체크한 원사에만 적용돼요. 그 원사의 오더 투입 kg(원사 투입 kg × 혼용률)이 속한 구간의 kg당 금액을 원사 단가에 더하고, 원가 표의 수량 구간마다 따로 계산해요.">
               {local.importCountries.map((c, i) => {
                 const u = countryUsedBy(c.id);
                 return (
@@ -408,7 +420,10 @@ export const CostSettingsModal = ({
               <div className="bg-blue-100/80 px-2 py-1.5 font-bold text-blue-900 text-right">YD당 합계</div>
               {preview.map(p => (
                 <React.Fragment key={p.key}>
-                  <div className="bg-white px-2 py-1.5 font-bold text-slate-700">{p.label}</div>
+                  <div className="bg-white px-2 py-1.5 font-bold text-slate-700">
+                    {p.label}
+                    {p.groupLabel && <span className={`ml-1 text-[10px] font-semibold ${p.group === 'mcq' ? 'text-blue-500' : 'text-amber-600'}`}>{p.groupLabel}</span>}
+                  </div>
                   <div className="bg-white px-2 py-1.5 text-right font-mono text-slate-600">{p.colors}컬러 · {num(p.chem)}원</div>
                   <div className="bg-white px-2 py-1.5 text-right font-mono text-slate-600">{num(p.freight)}원</div>
                   <div className="bg-white px-2 py-1.5 text-right font-mono font-bold text-blue-700">{num(p.perYd)}원</div>
