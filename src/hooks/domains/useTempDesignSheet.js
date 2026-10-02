@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
-import { resolveKnitKgRate, normalizeExtraCosts } from '../../utils/costModel';
+import { resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete } from '../../utils/costModel';
 
 // [원가 개편] 다른 문서의 costInput에서 새 원가 필드를 꺼냄 — 값이 없는 옛 문서는 기본값(A · 옛 편직료 · 일반)
 const pickCostAttrs = (ci = {}) => ({
@@ -205,6 +205,12 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
     // [방어] 원단명 필수 입력 검증
     if (!finalInput.fabricName?.trim()) {
       showToast('원단명(Name)을 반드시 입력해주세요.', 'error');
+      return;
+    }
+
+    // [원가 확인] 원사 혼용률 합계가 100%가 아니면 저장 막기 (원단·설계서와 같은 규칙 — 대표님 결정 2026-10-03)
+    if (!isYarnRatioComplete(finalInput.yarns)) {
+      showToast(`원사 혼용률 합계가 100%가 아닙니다 (현재 ${sumYarnRatio(finalInput.yarns)}%). 비율을 맞춘 뒤 저장해 주세요.`, 'error');
       return;
     }
 

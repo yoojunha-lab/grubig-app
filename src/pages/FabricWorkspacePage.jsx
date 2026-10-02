@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { X, Save, LogOut } from 'lucide-react';
 import { FabricListPage } from './FabricListPage';
 import { CalculatorPage } from './CalculatorPage';
+import { sumYarnRatio, isYarnRatioComplete } from '../utils/costModel';
 
 // ============================================================
 // 원단 관리 워크스페이스 — '새 원단 등록' + '원단 리스트'를 한 메뉴로 병합
@@ -60,8 +61,8 @@ export const FabricWorkspacePage = (props) => {
   // 확인 모달 액션
   const guardSaveAndClose = async () => {
     // CalculatorPage 저장과 동일한 사전 검증(혼용률 100%). Article/폭 등은 handleSaveFabric이 검증.
-    const totalRatio = (fabricInput.yarns || []).reduce((sum, y) => sum + (Number(y.ratio) || 0), 0);
-    if (totalRatio !== 100) {
+    const totalRatio = sumYarnRatio(fabricInput.yarns);
+    if (!isYarnRatioComplete(fabricInput.yarns)) {
       alert(`[입력 오류] 원사 혼용률의 합계가 100%가 아닙니다.\n현재 합계: ${totalRatio}%\n\n정확한 단가 산출을 위해 원사 비율을 조정해 주세요.`);
       setPendingAction(null); // 폼으로 돌아가 비율 수정
       return;

@@ -3,6 +3,7 @@ import { FileText, Save, Download, X, Plus, ClipboardPaste, FileSpreadsheet, Fil
 import { PartnerSelectField } from '../components/common/PartnerSelectField';
 import { num, calcQuotePrice, formatQuotePrice, getBasePrice, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
 import { FabricPickerModal } from '../components/quote/FabricPickerModal';
+import { CostWarningBadge } from '../components/cost/CostWarnings';
 
 // 견적 구간(오더 수량)
 const TIERS = [
@@ -195,7 +196,13 @@ export const QuotationPage = ({
                 >
                   <td className="px-2 py-2 text-slate-400 font-mono text-center text-[13px]">{idx + 1}</td>
                   <td className="px-2 py-2 font-bold text-slate-800 text-[13px] uppercase">{item.article}</td>
-                  <td className="px-2 py-2 text-slate-600 text-[13px]">{item.itemName}</td>
+                  <td className="px-2 py-2 text-slate-600 text-[13px]">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span>{item.itemName}</span>
+                      {/* 원가 확인 필요 — 품목을 넣을 때의 사유를 저장해 둔 것 (마우스를 올리면 사유) */}
+                      <CostWarningBadge warnings={item.costWarnings} />
+                    </div>
+                  </td>
                   <td className="px-2 py-2 text-slate-500 text-center text-[13px]">{item.widthCut}"</td>
                   <td className="px-2 py-2 text-slate-500 text-center text-[13px]">{item.widthFull}"</td>
                   <td className="px-2 py-2 text-right text-slate-500 text-[13px]">{item.gsm}</td>
@@ -251,8 +258,11 @@ export const QuotationPage = ({
                              e.target.value = '';
                              return;
                           }
-                          setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || globalExchangeRate, items: [...(prev.items || []), createQuoteItem(fabric, prev.exchangeRate || globalExchangeRate, prev.marketType, prev.bulkMarginRate)] }));
-                          showToast('추가 완료', 'success'); e.target.value = '';
+                          const newItem = createQuoteItem(fabric, quoteInput.exchangeRate || globalExchangeRate, quoteInput.marketType, quoteInput.bulkMarginRate);
+                          setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || globalExchangeRate, items: [...(prev.items || []), newItem] }));
+                          const warns = newItem.costWarnings || [];
+                          showToast(warns.length > 0 ? `추가 완료 — ⚠ 원가 확인 필요: ${warns[0]}` : '추가 완료', warns.length > 0 ? 'error' : 'success');
+                          e.target.value = '';
                         } else alert(`'${art}' 원단을 찾을 수 없습니다.`);
                       }
                     }}

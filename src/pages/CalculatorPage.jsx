@@ -1,7 +1,8 @@
 import React from 'react';
-import { X, RotateCcw, Info, Plus, Save, AlertTriangle } from 'lucide-react';
+import { X, RotateCcw, Info, Plus, Save } from 'lucide-react';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
 import { num, calculateMcqYd } from '../utils/helpers';
+import { sumYarnRatio, isYarnRatioComplete } from '../utils/costModel';
 
 export const CalculatorPage = ({
   editingFabricId,
@@ -19,8 +20,8 @@ export const CalculatorPage = ({
   costSettings,
   onOpenCostSettings
 }) => {
-  const totalRatio = fabricInput.yarns.reduce((sum, yarn) => sum + (Number(yarn.ratio) || 0), 0);
-  const isRatioValid = totalRatio === 100;
+  const totalRatio = sumYarnRatio(fabricInput.yarns);
+  const isRatioValid = isYarnRatioComplete(fabricInput.yarns);
 
   // MCQ 자동 계산 (가공 유형의 가공 LOSS 기준): 사용자 직접 입력값이 없을 때 표시될 값
   const mcqGYdSource = Number(fabricInput.costGYd) > 0
@@ -75,23 +76,7 @@ export const CalculatorPage = ({
         </div>
       </div>
 
-      {/* 누락 원사 경고 — 라이브러리에서 삭제된 사종 참조 시 (silent failure 방지) */}
-      {(currentCalcFull?.missingYarnIds || []).length > 0 && (
-        <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 flex items-start gap-2">
-          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-bold text-amber-800">
-              ⚠️ 라이브러리에 없는 원사 {currentCalcFull.missingYarnIds.length}건 — 비율은 입력됐지만 원가 계산에서 제외됨
-            </div>
-            <div className="text-[11px] text-amber-700 mt-1 font-mono break-all">
-              미등록 ID: {currentCalcFull.missingYarnIds.join(', ')}
-            </div>
-            <div className="text-[11px] text-amber-700 mt-1">
-              해당 슬롯에서 원사를 다시 선택하거나, 원사 라이브러리에서 등록 후 매핑하세요.
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 원가 확인 필요(라이브러리에 없는 원사·단가 0원·혼용률 등) 경고는 아래 원가 표 맨 위에 표시 (설계서·가설계서와 공통) */}
 
       <div className="space-y-6">
         {/* 1. 기본 정보 */}

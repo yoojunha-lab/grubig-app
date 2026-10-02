@@ -32,7 +32,7 @@ import { useProformaInvoice } from '../hooks/domains/useProformaInvoice';
 import { usePartner } from '../hooks/domains/usePartner';
 import { useLabdip } from '../hooks/domains/useLabdip';
 import { calcQuotePrice, getQuoteValidUntil, num } from '../utils/helpers';
-import { resolveCostSettings, findKnitGrade, findProcessType, resolveKnitKgRate, isImportSupplier, findImportCountry } from '../utils/costModel';
+import { resolveCostSettings, findKnitGrade, findProcessType, resolveKnitKgRate, isImportSupplier, findImportCountry, sumYarnRatio, isYarnRatioComplete } from '../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
@@ -681,6 +681,8 @@ const App = () => {
         const existingArticleKeys = new Set((savedFabrics || []).map(f => String(f.article || '').trim().toUpperCase()));
         const batchArticleKeys = new Set();
         let dupSkipped = 0;
+        // [원가 확인] 혼용률 합계가 100%가 아닌 행은 등록하지 않음 (원단 등록 화면과 같은 규칙 — 대표님 결정 2026-10-03)
+        const ratioSkipped = [];
         data.forEach((row, idx) => {
           if (!row.Article) return;
           const artKey = String(row.Article).trim().toUpperCase();
@@ -688,6 +690,7 @@ const App = () => {
           batchArticleKeys.add(artKey);
           const kFee1k = Number(row.KnittingFee1k) || 3000;
           let mappedYarns = [];
+          const rowMissingYarns = [];
           for (let i = 1; i <= 4; i++) {
             const yName = row[`Yarn${i}_Name`] ? String(row[`Yarn${i}_Name`]).trim().toUpperCase() : '';
             const rawRatio = row[`Yarn${i}_Ratio`];
@@ -697,12 +700,18 @@ const App = () => {
               if (found) {
                 mappedYarns.push({ yarnId: found.id, ratio: yRatio });
               } else {
-                missingYarnNames.add(yName);
+                rowMissingYarns.push(yName);
                 // DB에 일단 가짜 yarn 이름 정보라도 쑤셔넣어서 나중에 '수정'할 때 매칭시킬 수 있게 배려
                 mappedYarns.push({ yarnId: `UNREGISTERED_${yName}`, ratio: yRatio, tempName: yName });
               }
             } else { mappedYarns.push({ yarnId: '', ratio: 0 }); }
           }
+          if (!isYarnRatioComplete(mappedYarns)) {
+            ratioSkipped.push(`${artKey} (${sumYarnRatio(mappedYarns)}%)`);
+            batchArticleKeys.delete(artKey); // 아래에 같은 Article이 올바른 비율로 또 있으면 그 행은 등록되게
+            return;
+          }
+          rowMissingYarns.forEach(n => missingYarnNames.add(n));
           const getLoss = (field) => row[field] !== undefined ? Number(String(row[field]).replace(/%/g, '').trim()) : null;
 
           newFabrics.push({
@@ -733,9 +742,14 @@ const App = () => {
           });
         });
 
-        // 유효 신규 건이 없으면 (전부 중복/빈값) 저장하지 않고 안내
+        const ratioNote = ratioSkipped.length > 0
+          ? `\n\n⛔ 원사 혼용률 합계가 100%가 아니라 등록하지 않은 원단 ${ratioSkipped.length}건 (엑셀에서 비율을 고친 뒤 다시 올려 주세요):\n${ratioSkipped.join(', ')}`
+          : '';
+
+        // 유효 신규 건이 없으면 (전부 중복/빈값/혼용률 오류) 저장하지 않고 안내
         if (newFabrics.length === 0) {
-          showToast(dupSkipped > 0 ? `모든 행이 중복 Article이라 등록하지 않았습니다. (${dupSkipped}건)` : '등록할 데이터가 없습니다.', 'error');
+          if (ratioNote) alert(`등록할 원단이 없습니다.${dupSkipped > 0 ? `\n\n⚠️ 중복 Article ${dupSkipped}건은 건너뛰었습니다.` : ''}${ratioNote}`);
+          else showToast(dupSkipped > 0 ? `모든 행이 중복 Article이라 등록하지 않았습니다. (${dupSkipped}건)` : '등록할 데이터가 없습니다.', 'error');
           if (fileInputRef.current) fileInputRef.current.value = '';
           return;
         }
@@ -754,9 +768,9 @@ const App = () => {
           ? `\n\n⚠️ 원가 설정에 없는 이름은 기본값(난이도 A · 가공 일반)으로 등록했습니다:\n${[...unknownCostNames].join(', ')}`
           : '';
         if (missingYarnNames.size > 0) {
-          alert(`✅ 총 ${newFabrics.length}건이 성공적으로 등록되었습니다.${dupNote}${costNameNote}\n\n⚠️ 주의: 다음 원사 정보가 아직 라이브러리에 없어서 임시 텍스트로 등록되었습니다.\n해당 원단들의 수율 단가(Cost/gYD) 계산이 부정확할 수 있으니,\n이후 원사 라이브러리에 아래 원사들을 추가하시거나 원단을 수정해주세요.\n\n[미등록 원사 목록]\n${[...missingYarnNames].join(', ')}`);
-        } else if (costNameNote) {
-          alert(`✅ 총 ${newFabrics.length}건이 등록되었습니다.${dupNote}${costNameNote}`);
+          alert(`✅ 총 ${newFabrics.length}건이 성공적으로 등록되었습니다.${dupNote}${costNameNote}${ratioNote}\n\n⚠️ 주의: 다음 원사 정보가 아직 라이브러리에 없어서 임시 텍스트로 등록되었습니다.\n해당 원단들은 '원가 확인 필요'로 표시되고 그 원사 값이 0원으로 계산되니,\n원사 라이브러리에 아래 원사들을 추가하시거나 원단을 수정해주세요.\n\n[미등록 원사 목록]\n${[...missingYarnNames].join(', ')}`);
+        } else if (costNameNote || ratioNote) {
+          alert(`✅ 총 ${newFabrics.length}건이 등록되었습니다.${dupNote}${costNameNote}${ratioNote}`);
         } else {
           showToast(`${newFabrics.length}건이 등록되었습니다.${dupSkipped > 0 ? ` (중복 ${dupSkipped}건 건너뜀)` : ''}`, 'success');
         }

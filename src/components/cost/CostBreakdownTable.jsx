@@ -1,9 +1,10 @@
 import React from 'react';
-import { Plus, Trash2, Settings } from 'lucide-react';
+import { Plus, Trash2, Settings, AlertTriangle } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { num, calculateGYd, clampNum, fmtMan as man } from '../../utils/helpers';
 import { normalizeExtraCosts, findKnitGrade, findProcessType, isImportSupplier, findImportCountry } from '../../utils/costModel';
 import { COST_DISPLAY_TIERS, COST_TIER_GROUPS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, KNIT_FEE_MODE_LABEL } from '../../constants/costing';
+import { COST_WARNING_TITLE } from './CostWarnings';
 
 /**
  * 원가 분해 표 — 300·500·800YD(2컬러 기준) + 1,000·3,000·5,000YD(MCQ 충족 기준) 6구간 동시 표시.
@@ -197,6 +198,18 @@ export const CostBreakdownTable = ({
           <span className="text-xs opacity-90">{isExport ? '수출($) · 관세제외' : '내수(₩) · 관세포함'}</span>
         </div>
       </div>
+
+      {/* 원가 확인 필요 — 혼용률·원사·단가·중량 문제로 원가가 덜 잡히거나 틀릴 수 있을 때 (화면에만, 인쇄 제외) */}
+      {(calc?.costWarnings || []).length > 0 && (
+        <div className={`${secP} bg-red-50 border-b border-red-200 text-red-700 print:hidden`}>
+          <div className={`${compact ? 'text-[11px]' : 'text-xs'} font-extrabold flex items-center gap-1`}>
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {COST_WARNING_TITLE}
+          </div>
+          <ul className={`${compact ? 'text-[10px]' : 'text-[11px]'} mt-0.5 pl-5 list-disc space-y-0.5`}>
+            {calc.costWarnings.map(w => <li key={w}>{w}</li>)}
+          </ul>
+        </div>
+      )}
 
       {/* ① 재료비 (원사 — 자동 단가). 설계서는 원사 배합이 별도라 숨김 */}
       {showMaterial && (

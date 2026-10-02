@@ -270,6 +270,13 @@ export const normalizeExtraCosts = (etcCosts) => (Array.isArray(etcCosts) ? etcC
     perYd: Math.max(0, toNum(isBlank(e.perYd) ? (e.vals?.tier3k ?? e.vals?.tier1k) : e.perYd)),
   }));
 
+/** 원사 혼용률 합계 (소수 둘째 자리 반올림 — 33.3+33.3+33.4 같은 경우도 100으로) */
+export const sumYarnRatio = (yarns) =>
+  Math.round((Array.isArray(yarns) ? yarns : []).reduce((s, y) => s + (Number(y?.ratio) || 0), 0) * 100) / 100;
+
+/** 혼용률 합계가 100%인지 — 원단·설계서·가설계서 저장, 아이템화, 엑셀 등록 때 확인 (대표님 결정: 100% 아니면 저장 막기) */
+export const isYarnRatioComplete = (yarns) => sumYarnRatio(yarns) === 100;
+
 /**
  * 원사 배합 → 라인별 kg당 금액(단가 × 혼용률). 내수 = 관세포함, 수출 = 관세제외.
  * 가설계서 전용 priceOverride(직접 입력 단가, 원/kg)가 있으면 내수·수출 동일하게 그 값을 쓴다.
@@ -279,6 +286,9 @@ export const normalizeExtraCosts = (etcCosts) => (Array.isArray(etcCosts) ? etcC
 export const buildMaterialLines = (yarns, yarnLibrary, exchangeRate) => {
   const lines = [];
   const missingYarnIds = [];
+  const missingYarnNames = []; // 경고 문구용 (엑셀 등록 때 못 찾은 원사는 tempName)
+  const zeroPriceYarns = [];   // 대표 공급처 단가가 0원(빈칸)이거나 공급처가 없는 원사
+  let unselectedRatio = 0;     // 혼용률은 있는데 원사를 고르지 않은 칸의 혼용률 합
   let perKgDomestic = 0;
   let perKgExport = 0;
   (Array.isArray(yarns) ? yarns : []).forEach(slot => {
@@ -293,13 +303,18 @@ export const buildMaterialLines = (yarns, yarnLibrary, exchangeRate) => {
       lines.push({ name: '단가 직접입력', supplierName: '', wDomestic: w, wExport: w, ratio, isImport: false, importCountry: '' });
       return;
     }
-    if (!slot.yarnId) return;
+    if (!slot.yarnId) { unselectedRatio += Number(slot.ratio) || 0; return; }
 
     const realYarnId = String(slot.yarnId).split('::')[0];
     const yarn = (yarnLibrary || []).find(y => String(y.id) === String(realYarnId));
-    if (!yarn) { missingYarnIds.push(realYarnId); return; } // 라이브러리에서 사라진 사종 — 경고 배너용
+    if (!yarn) { // 라이브러리에서 사라진 사종 — 경고 배너용
+      missingYarnIds.push(realYarnId);
+      missingYarnNames.push(slot.tempName || realYarnId.replace(/^UNREGISTERED_/, ''));
+      return;
+    }
     const sup = yarn.suppliers?.find(s => s.isDefault) || yarn.suppliers?.[0];
-    if (!sup) return;
+    if (!sup) { zeroPriceYarns.push(yarn.name || '원사'); return; }
+    if (!(Number(sup.price) > 0)) zeroPriceYarns.push(yarn.name || '원사');
     const isImport = isImportSupplier(sup);
     const priceInKrw = sup.currency === 'USD' ? Number(sup.price || 0) * exchangeRate : Number(sup.price || 0);
     const tariffAmt = priceInKrw * ((Number(sup.tariff) || 0) / 100);
@@ -312,7 +327,23 @@ export const buildMaterialLines = (yarns, yarnLibrary, exchangeRate) => {
       ratio, isImport, importCountry: isImport ? String(sup.importCountry || '') : '',
     });
   });
-  return { lines, missingYarnIds, perKgDomestic, perKgExport };
+  return { lines, missingYarnIds, missingYarnNames, zeroPriceYarns, unselectedRatio, perKgDomestic, perKgExport };
+};
+
+/**
+ * '원가 확인 필요' 경고 — 원가가 덜 잡히거나 틀릴 수 있는 원단인지 (원가 표·원단 목록·견적서에 표시)
+ *  혼용률 합계 ≠ 100% / 원사 미선택 칸 / 라이브러리에 없는 원사 / 단가 0원 원사 / 중량(G/YD) 0
+ * @returns {string[]} 경고 문구 (없으면 빈 배열)
+ */
+const buildCostWarnings = (fabric, p) => {
+  const warnings = [];
+  const total = sumYarnRatio(fabric?.yarns);
+  if (total !== 100) warnings.push(`혼용률 합계 ${total}% (100%가 아님)`);
+  if (p.unselectedRatio > 0) warnings.push(`원사를 고르지 않은 칸 (혼용률 ${Math.round(p.unselectedRatio * 100) / 100}%)`);
+  if (p.missingYarnNames.length > 0) warnings.push(`원사 라이브러리에 없는 원사: ${p.missingYarnNames.join(', ')}`);
+  if (p.zeroPriceYarns.length > 0) warnings.push(`단가 0원 원사: ${p.zeroPriceYarns.join(', ')}`);
+  if (!(p.effectiveGYd > 0)) warnings.push('중량(G/YD) 0 — GSM·외폭 또는 생산 G/YD 확인');
+  return warnings;
 };
 
 // ----------------------------------------------------------------------
@@ -504,7 +535,7 @@ export const computeCostAtQty = (fabric, qty, ctx = {}, opts = {}) => {
  */
 export const calculateCostTiers = (fabric, ctx = {}) => {
   if (!fabric || !fabric.yarns) {
-    const empty = { avgYarnCostDomestic: 0, avgYarnCostExport: 0, effectiveGYd: 0, theoreticalGYd: 0, ydPerKg: 0, missingYarnIds: [], processLossPct: 0, finishingLossPct: 0, knitKgRate: 0, hasImportFreight: false };
+    const empty = { avgYarnCostDomestic: 0, avgYarnCostExport: 0, effectiveGYd: 0, theoreticalGYd: 0, ydPerKg: 0, missingYarnIds: [], processLossPct: 0, finishingLossPct: 0, knitKgRate: 0, hasImportFreight: false, costWarnings: [] };
     COST_DISPLAY_TIERS.forEach(t => { empty[t.key] = emptyTier(t.qty); });
     return empty;
   }
@@ -519,6 +550,7 @@ export const calculateCostTiers = (fabric, ctx = {}) => {
     processLossPct: p.processLossPct, finishingLossPct: p.finishingLossPct,
     knitKgRate: p.knitKgRate,
     hasImportFreight: p.lines.some(m => m.isImport),
+    costWarnings: buildCostWarnings(fabric, p), // '원가 확인 필요' 문구 (없으면 [])
   };
   COST_DISPLAY_TIERS.forEach(t => { out[t.key] = costAtQty(p, t.qty, { colors: t.colors, assumeMcq: t.assumeMcq }); });
   return out;

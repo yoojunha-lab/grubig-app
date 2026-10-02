@@ -38,7 +38,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       return {
         ...item,
         basePrice1k: conv('1k'), basePrice3k: conv('3k'), basePrice5k: conv('5k'),
-        costWarnings: [...(item.costWarnings || []), '원단이 삭제되어 기준원가를 환율로만 환산함'],
+        costWarnings: [...new Set([...(item.costWarnings || []), '원단이 삭제되어 기준원가를 환율로만 환산함'])],
       };
     });
     return { items: next, missing };
@@ -149,6 +149,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       return {
         fabricId: fabric.id, article: fabric.article || 'N/A', itemName: fabric.itemName || '', widthCut: fabric.widthCut || 0, widthFull: fabric.widthFull || 0, gsm: fabric.gsm || 0,
         gYd: 0, mcqYd: 300, basePrice1k: 0, basePrice3k: 0, basePrice5k: 0, marginRate: safeMarginRate,
+        costWarnings: ['원가를 계산하지 못함 (기준원가 0)'],
       };
     }
     // tier 객체가 없을 수 있으므로 옵셔널 체이닝 + 빈 객체 폴백
@@ -178,6 +179,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       basePrice3k: d3k.priceConverter ?? 0,
       basePrice5k: d5k.priceConverter ?? 0,
       marginRate: safeMarginRate,   // 원단별 매출이익율(%) 구간별 객체 — 일괄값 기본, 표에서 구간마다 개별 수정 가능
+      // '원가 확인 필요' 사유 (혼용률·미등록 원사·단가 0원 등) — 기준원가와 같이 이 시점 값으로 저장, 품목 표에 배지로 표시
+      costWarnings: calc.costWarnings || [],
     };
   };
 
@@ -199,7 +202,9 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     const newItem = createQuoteItem(fabric, rate, quoteInput.marketType, quoteInput.bulkMarginRate);
     setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || globalExchangeRate, items: [...(prev.items || []), newItem] }));
     setSelectedFabricIdForQuote('');
-    showToast(`원단이 추가되었습니다.`, 'success');
+    const warns = newItem.costWarnings || [];
+    if (warns.length > 0) showToast(`원단이 추가되었습니다. ⚠ 원가 확인 필요 — ${warns[0]}`, 'error');
+    else showToast(`원단이 추가되었습니다.`, 'success');
   };
 
   const handleGridPaste = (text) => {
@@ -226,7 +231,11 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
     if (newItems.length > 0) {
       setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || globalExchangeRate, items: [...(prev.items || []), ...newItems] }));
-      showToast(`${newItems.length}개의 원단이 일괄 추가되었습니다.${duplicates > 0 ? ` (중복 제외됨: ${duplicates}건)` : ''}`, 'success');
+      const warned = newItems.filter(it => (it.costWarnings || []).length > 0).length;
+      showToast(
+        `${newItems.length}개의 원단이 일괄 추가되었습니다.${duplicates > 0 ? ` (중복 제외됨: ${duplicates}건)` : ''}${warned > 0 ? ` ⚠ 원가 확인 필요 ${warned}개 — 표의 빨간 배지 확인` : ''}`,
+        warned > 0 ? 'error' : 'success'
+      );
     } else if (duplicates > 0) {
       showToast(`이미 추가된 품목입니다. (중복 제외됨: ${duplicates}건)`, 'error');
     }

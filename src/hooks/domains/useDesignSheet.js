@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { DESIGN_STAGES, SAMPLING_SUBSTAGES } from '../../constants/common';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
-import { resolveKnitKgRate, normalizeExtraCosts } from '../../utils/costModel';
+import { resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete } from '../../utils/costModel';
 
 // GRUBIG ERP - 원단 설계서 도메인 로직 훅
 
@@ -221,6 +221,11 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         showToast('아이템화 전에 최종 스펙(GSM, 내폭, 외폭)을 모두 입력해주세요.', 'error');
         return;
       }
+      // [원가 확인] 혼용률 100%가 아니면 원가가 틀어진 원단이 등록되므로 아이템화 막기
+      if (!isYarnRatioComplete(sheet.yarns)) {
+        showToast(`아이템화 전에 원사 혼용률 합계를 100%로 맞춰 주세요. (현재 ${sumYarnRatio(sheet.yarns)}%)`, 'error');
+        return;
+      }
     }
 
     const now = new Date().toISOString();
@@ -358,6 +363,13 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     // [방어] 원단명 필수 입력 검증
     if (!finalInput.fabricName?.trim()) {
       showToast('원단명(Name)을 반드시 입력해주세요.', 'error');
+      return;
+    }
+
+    // [원가 확인] 원사 혼용률 합계가 100%가 아니면 저장 막기 (원단 등록과 같은 규칙 — 대표님 결정 2026-10-03)
+    //   비율만큼 원가가 덜/더 잡히고, 연결 원단으로 동기화되면 견적까지 틀어짐
+    if (!isYarnRatioComplete(finalInput.yarns)) {
+      showToast(`원사 혼용률 합계가 100%가 아닙니다 (현재 ${sumYarnRatio(finalInput.yarns)}%). 비율을 맞춘 뒤 저장해 주세요.`, 'error');
       return;
     }
 
@@ -706,6 +718,12 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     // [A2 방어] 이미 원단이 등록된 설계서는 중복 등록 차단
     if (sheet.linkedFabricId) {
       showToast('이미 원단이 등록된 설계서입니다.', 'error');
+      return false;
+    }
+
+    // [원가 확인] 혼용률 100%가 아니면 원단으로 등록하지 않음 (원가가 틀어진 원단이 견적에 들어가는 것 방지)
+    if (!isYarnRatioComplete(sheet.yarns)) {
+      showToast(`원사 혼용률 합계를 100%로 맞춘 뒤 원단으로 등록해 주세요. (현재 ${sumYarnRatio(sheet.yarns)}%)`, 'error');
       return false;
     }
 

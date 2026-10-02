@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { ChevronUp, ChevronDown, Edit2, Trash2, Factory, TrendingUp, DollarSign, Info } from 'lucide-react';
 import { num, fmtMan } from '../../utils/helpers';
 import { KNIT_FEE_MODE_LABEL } from '../../constants/costing';
+import { CostWarningBadge, CostWarningBox } from '../cost/CostWarnings';
 
 export const MobileFabricCard = React.memo(({
   f,
@@ -27,17 +28,13 @@ export const MobileFabricCard = React.memo(({
         <div>
           <div className="font-extrabold text-slate-800 text-lg uppercase tracking-tight flex items-center gap-1.5">
             {f.article}
-            {f.yarns && f.yarns.some(y => String(y.yarnId).startsWith('UNREGISTERED_')) && (
-              <span title="미등록 원사 포함 (임시 데이터)" className="text-sm cursor-help text-amber-500">⚠️</span>
-            )}
             {Number(f.widthCut) > Number(f.widthFull) && (
               <span title="오류: 내폭이 외폭보다 큽니다" className="text-sm cursor-help text-red-500">🚨</span>
             )}
-            {f.yarns && f.yarns.reduce((acc, y) => acc + (Number(y.ratio) || 0), 0) !== 100 && (
-              <span title={`오류: 혼용률 합계가 100%가 아닙니다`} className="text-sm cursor-help text-rose-500">❗️</span>
-            )}
           </div>
           <div className="text-xs text-slate-500 font-medium">{f.itemName}</div>
+          {/* 원가 확인 필요 — 터치 화면은 마우스 올리기가 없어 카드를 펼치면 사유 목록이 보임 */}
+          {c.costWarnings?.length > 0 && <div className="mt-1"><CostWarningBadge warnings={c.costWarnings} /></div>}
           <div className="text-[11px] font-mono text-slate-400 mt-1.5 flex items-center gap-1.5">
             <span className="bg-slate-200/50 px-1.5 py-0.5 rounded">{f.widthCut}/{f.widthFull}"</span>
             <span className="bg-slate-200/50 px-1.5 py-0.5 rounded">{f.gsm}g</span>
@@ -117,6 +114,7 @@ export const MobileFabricCard = React.memo(({
 
       {isExpanded && (
         <div className="p-4 bg-slate-50/80 space-y-3">
+          <CostWarningBox warnings={c.costWarnings} />
           <div className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
             <h4 className="text-[11px] font-bold text-slate-700 mb-2.5 flex items-center gap-1.5"><Factory className="w-3.5 h-3.5 text-slate-400" /> 3,000YD 기준 생산 조건 (자동 계산)</h4>
             <div className="space-y-2 text-xs">

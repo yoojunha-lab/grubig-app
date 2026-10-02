@@ -9,6 +9,8 @@ export const DEV_SAMPLE_YARNS = [
   { id: 'y_dev_2', category: '면방',    name: 'CM 30S',    remarks: '', updatedAt: '2026-06-20', suppliers: [{ id: 's_dev_2', name: '대원',    currency: 'KRW', price: 9000,  tariff: 0, freight: 0, isDefault: true, history: [{ date: '2026-06-20', price: 9000 }] }] },
   { id: 'y_dev_3', category: 'SPANDEX', name: 'SPAN 40D',  remarks: '', suppliers: [{ id: 's_dev_3', name: '효성',    currency: 'KRW', price: 12000, tariff: 0, freight: 0, isDefault: true, history: [] }] },
   { id: 'y_dev_4', category: '화섬',    name: 'POLY 75D',  remarks: '', suppliers: [{ id: 's_dev_4', name: 'TORAY',  currency: 'KRW', price: 7000,  tariff: 8, freight: 1, isDefault: true, history: [] }] },
+  // 단가 빈칸(0원) 원사 → '원가 확인 필요' 경고 확인용 (GB-2406)
+  { id: 'y_dev_5', category: '화섬',    name: 'NYLON 70D', remarks: '', suppliers: [{ id: 's_dev_5', name: '태광',   currency: 'KRW', price: 0,     tariff: 0, freight: 0, isDefault: true, history: [] }] },
 ];
 
 // calculateCost가 호출돼도 안전하도록 비용/로스 필드까지 채운 완전한 원단 샘플
@@ -48,6 +50,10 @@ export const DEV_SAMPLE_FABRICS = [
     ] },
   { ...baseFabric, id: 'fab_dev_5', article: 'GB-2405', itemName: 'Cotton Single',      widthFull: 66, widthCut: 64, gsm: 180, yarns: [{ yarnId: 'y_dev_2', ratio: 100 }],
     knitGrade: 'A', knitKgRate: 2000, knitKgRateTiers: [{ fromKg: 1000, rate: 1800 }], processType: 'brushed', etcCosts: [] },
+  // '원가 확인 필요' 경고 확인용 (2026-10 원가 검토 #2): 혼용률 95% · 단가 0원 원사(NYLON 70D) · 라이브러리에 없는 원사(엑셀 등록 TENCEL 40S)
+  { ...baseFabric, id: 'fab_dev_6', article: 'GB-2406', itemName: 'Cotton/Nylon Mix (확인용)', widthFull: 60, widthCut: 58, gsm: 220,
+    yarns: [{ yarnId: 'y_dev_2', ratio: 60 }, { yarnId: 'y_dev_5', ratio: 20 }, { yarnId: 'UNREGISTERED_TENCEL 40S', ratio: 15, tempName: 'TENCEL 40S' }],
+    knitGrade: 'A', knitKgRate: 2000, knitKgRateTiers: [], processType: 'normal', etcCosts: [] },
 ];
 
 // ── [DEV 검증 전용] 개발의뢰 / 설계서 샘플 (개발·설계 현황 화면 확인용) ──────────

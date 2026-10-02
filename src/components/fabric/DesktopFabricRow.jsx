@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { ChevronUp, ChevronDown, Edit2, Trash2, Factory, TrendingUp } from 'lucide-react';
 import { num, fmtMan } from '../../utils/helpers';
 import { KNIT_FEE_MODE_LABEL } from '../../constants/costing';
+import { CostWarningBadge, CostWarningBox } from '../cost/CostWarnings';
 
 export const DesktopFabricRow = React.memo(({
   f,
@@ -33,14 +34,10 @@ export const DesktopFabricRow = React.memo(({
         <td className="p-3 border-r border-slate-50 max-w-[250px]">
           <div className="flex items-center gap-1.5 flex-wrap">
             <b className="truncate text-sm">{f.article}</b>
-            {f.yarns && f.yarns.some(y => String(y.yarnId).startsWith('UNREGISTERED_')) && (
-              <span title="미등록 원사 포함 (임시 데이터)" className="cursor-help cursor-help-icon text-amber-500 shrink-0">⚠️</span>
-            )}
+            {/* 원가 확인 필요 (혼용률·미등록 원사·단가 0원·중량 0) — 사유는 마우스를 올리거나 행을 펼치면 보임 */}
+            <CostWarningBadge warnings={c.costWarnings} />
             {Number(f.widthCut) > Number(f.widthFull) && (
               <span title="오류: 내폭이 외폭보다 큽니다" className="cursor-help cursor-help-icon text-red-500 shrink-0">🚨</span>
-            )}
-            {f.yarns && f.yarns.reduce((acc, y) => acc + (Number(y.ratio) || 0), 0) !== 100 && (
-              <span title={`오류: 혼용률 합계가 100%가 아닙니다`} className="cursor-help cursor-help-icon text-rose-500 shrink-0">❗️</span>
             )}
           </div>
           <div className="text-[11px] text-slate-500 font-medium truncate mt-0.5">{f.itemName}</div>
@@ -152,6 +149,7 @@ export const DesktopFabricRow = React.memo(({
       {isExpanded && (
         <tr className="bg-slate-50/80 border-b-2 border-blue-200 shadow-inner">
           <td colSpan="14" className="p-3 sm:p-4 cursor-default relative overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <CostWarningBox warnings={c.costWarnings} className="max-w-[900px] mb-3 relative z-10" />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 lg:gap-4 max-w-[900px] w-full relative z-10">
 
               <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col">
