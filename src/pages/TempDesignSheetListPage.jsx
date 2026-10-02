@@ -87,7 +87,7 @@ export const TempDesignSheetListPage = ({
       .filter(s => !q || String(s.fabricName || '').toLowerCase().includes(q) || String(s.buyerName || '').toLowerCase().includes(q))
       .map(sheet => {
         const cost = getTempDesignCost?.(sheet);
-        return { sheet, p1: computeSellPrice(cost, sheet, viewMode, 'tier1k'), p3: computeSellPrice(cost, sheet, viewMode, 'tier3k'), p5: computeSellPrice(cost, sheet, viewMode, 'tier5k') };
+        return { sheet, p1: computeSellPrice(cost, sheet, viewMode, 'tier1k', globalExchangeRate), p3: computeSellPrice(cost, sheet, viewMode, 'tier3k', globalExchangeRate), p5: computeSellPrice(cost, sheet, viewMode, 'tier5k', globalExchangeRate) };
       });
     list.sort((a, b) => {
       if (sortBy === 'name') return String(a.sheet.fabricName || '').localeCompare(String(b.sheet.fabricName || ''), 'ko');
@@ -96,7 +96,7 @@ export const TempDesignSheetListPage = ({
       return (b.sheet.createdAt || '').localeCompare(a.sheet.createdAt || ''); // 생성날짜 최신순 (기본)
     });
     return list;
-  }, [tempDesignSheets, searchTerm, sortBy, viewMode, getTempDesignCost]);
+  }, [tempDesignSheets, searchTerm, sortBy, viewMode, getTempDesignCost, globalExchangeRate]);
 
   // 날짜 포맷
   const formatDate = (isoStr) => {

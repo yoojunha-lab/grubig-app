@@ -34,6 +34,30 @@ const TSelect = ({ children, ...props }) => (
   </select>
 );
 
+// [가설계서 영업견적] YD당 정액 입력칸 — 값은 항상 원화로 저장, 수출 보기에서는 환율로 환산한 $로 보여주고 $로 입력받음
+//  (입력하는 동안은 친 글자 그대로 들고 있다가(draft) 원화로 바꿔 저장 → '0.' 같은 중간 입력도 끊기지 않음)
+const KrwMoneyInput = ({ krw, isExport, rate, onChangeKrw, className = '' }) => {
+  const [draft, setDraft] = React.useState(null);
+  const r = Number(rate) > 0 ? Number(rate) : 1450;
+  const hasValue = krw !== '' && krw !== null && krw !== undefined;
+  const shown = !hasValue ? '' : (isExport ? Number((Number(krw) / r).toFixed(2)) : krw);
+  return (
+    <input
+      type="number"
+      value={draft ?? shown}
+      onFocus={() => setDraft(String(shown))}
+      onBlur={() => setDraft(null)}
+      onChange={e => {
+        const v = e.target.value;
+        setDraft(v);
+        onChangeKrw(v === '' ? '' : (isExport ? Math.round(Number(v) * r) : Number(v)));
+      }}
+      placeholder="0"
+      className={className}
+    />
+  );
+};
+
 // 변경 감사 툴팁 텍스트 만들기 (누가·언제·무엇→무엇)
 const buildAuditTip = (meta) => {
   if (!meta) return '';
@@ -222,9 +246,9 @@ export const DesignSheetPage = ({
     ? `가공 ${calcFlow.processLossPct + calcFlow.finishingLossPct}% + 편직 ${calcFlow.knitLossPct}% · 생지 ${num(calcFlow.greige)}kg`
     : `가공 LOSS ${(costData?.processLossPct ?? 0) + (costData?.finishingLossPct ?? 0)}% + 편직 LOSS(생지 kg 구간)`;
 
-  // [가설계서 영업견적] 최종 판매가 — 공용 헬퍼 computeSellPrice (화면 통화 기준)
+  // [가설계서 영업견적] 최종 판매가 — 공용 헬퍼 computeSellPrice (화면 통화 기준, YD당 정액은 원화 저장 → 수출 보기에서 환율 환산)
   const quoteSym = viewMode === 'export' ? '$' : '₩';
-  const quoteSellPrice = (tierKey) => computeSellPrice(costData, sheetInput, viewMode, tierKey);
+  const quoteSellPrice = (tierKey) => computeSellPrice(costData, sheetInput, viewMode, tierKey, globalExchangeRate);
 
   // [가설계서] 구간별 매출이익율/정액 — 레거시 단일값·빈값도 안전하게 읽고, 항상 구간별 객체로 기록
   const readQuoteTier = (field, tier) => {
@@ -647,10 +671,19 @@ export const DesignSheetPage = ({
                 </div>
               ))}
               {/* YD당 정액 입력 — 구간별 */}
-              <div className="bg-white py-1 text-[10px] font-bold text-slate-500 flex items-center justify-center">YD당 정액({quoteSym})</div>
+              <div className="bg-white py-1 text-[10px] font-bold text-slate-500 flex flex-col items-center justify-center leading-tight" title="원화로 저장돼요. 수출 보기에서는 환율로 환산한 $로 보여 주고 $로 입력받아요.">
+                <span>YD당 정액({quoteSym})</span>
+                {viewMode === 'export' && <span className="text-[9px] font-semibold text-slate-400">환율 ₩{num(globalExchangeRate)} 환산</span>}
+              </div>
               {['1k', '3k', '5k'].map((tk, i) => (
                 <div key={tk} className={`py-0.5 flex items-center justify-center ${i === 1 ? 'bg-emerald-50/50' : 'bg-white'}`}>
-                  <input type="number" value={readQuoteTier('quoteMarginAdd', tk)} onChange={e => setQuoteTier('quoteMarginAdd', tk, e.target.value)} placeholder="0" className="w-16 border border-emerald-300 rounded px-1 py-0.5 text-center font-mono text-[11px] outline-none focus:ring-2 ring-emerald-200 bg-white" />
+                  <KrwMoneyInput
+                    krw={readQuoteTier('quoteMarginAdd', tk)}
+                    isExport={viewMode === 'export'}
+                    rate={globalExchangeRate}
+                    onChangeKrw={v => setQuoteTier('quoteMarginAdd', tk, v)}
+                    className="w-16 border border-emerald-300 rounded px-1 py-0.5 text-center font-mono text-[11px] outline-none focus:ring-2 ring-emerald-200 bg-white"
+                  />
                 </div>
               ))}
               {/* 최종 판매가 */}

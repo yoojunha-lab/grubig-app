@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Save, Download, X, Plus, ClipboardPaste, FileSpreadsheet, FilePlus, DollarSign, Search, ArrowLeft } from 'lucide-react';
+import { FileText, Save, Download, X, Plus, ClipboardPaste, FileSpreadsheet, FilePlus, DollarSign, Search, ArrowLeft, RefreshCw } from 'lucide-react';
 import { PartnerSelectField } from '../components/common/PartnerSelectField';
 import { num, calcQuotePrice, formatQuotePrice, getBasePrice, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
 import { FabricPickerModal } from '../components/quote/FabricPickerModal';
@@ -21,6 +21,7 @@ export const QuotationPage = ({
   handleDownloadExcel,
   handleNewQuote,
   handleQuoteSettingChange,
+  handleRecalcQuote,
   handleQuoteMarginChange,
   handleBulkMarginRateChange,
   handleQuoteItemMarginChange,
@@ -37,6 +38,10 @@ export const QuotationPage = ({
 }) => {
   const currency = quoteInput.currency;
   const cSym = currency === 'USD' ? '$' : '￦';
+  // 이 견적의 환율 (품목을 넣을 때 기록. 아직 없으면 지금 환율) — 환율이 바뀌어도 견적 단가는 그대로
+  const quoteRate = Number(quoteInput.exchangeRate) || Number(globalExchangeRate) || 0;
+  const rateDiffers = !!quoteInput.exchangeRate && Number(quoteInput.exchangeRate) !== Number(globalExchangeRate);
+  const hasItems = (quoteInput.items || []).length > 0;
 
   // 단일 검색 추가용 원단 선택 팝업 상태
   const [isFabricPickerOpen, setIsFabricPickerOpen] = useState(false);
@@ -117,9 +122,10 @@ export const QuotationPage = ({
               <button onClick={() => handleQuoteSettingChange('marketType', 'export')} className={`flex-1 py-1.5 rounded-md text-[11px] font-bold transition-all ${quoteInput.marketType === 'export' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Exp</button>
             </div>
           </div>
-          <div className="lg:col-span-1" title="사이드바의 전역 환율 자동 적용중">
-            <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1"><DollarSign className="w-3 h-3 text-emerald-500" /> Rate</label>
-            <div className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-right font-mono font-bold text-slate-600 text-sm">￦{num(globalExchangeRate)}</div>
+          <div className="lg:col-span-1" title="이 견적의 환율 — 품목을 넣을 때 기록되고, 화면 위 환율을 바꿔도 그대로예요. 바꾸려면 [현재 원가로 다시 계산]">
+            <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1"><DollarSign className="w-3 h-3 text-emerald-500" /> Rate (견적)</label>
+            <div className={`w-full border rounded-lg px-2 py-2 text-right font-mono font-bold text-sm ${rateDiffers ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>￦{num(quoteRate)}</div>
+            {rateDiffers && <div className="text-[10px] text-amber-700 mt-0.5 text-right">지금 환율 ￦{num(globalExchangeRate)}</div>}
           </div>
 
           {/* 마진 설정: 구간별 일괄 매출이익율(%) + 구간별 추가 영업마진(YD당 정액) */}
@@ -157,12 +163,23 @@ export const QuotationPage = ({
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
           <h3 className="text-sm font-bold text-slate-500 uppercase">견적 품목 리스트 <span className="text-slate-300 normal-case">({(quoteInput.items || []).length})</span></h3>
-          <button
-            onClick={() => setIsFabricPickerOpen(true)}
-            className="w-full sm:w-max bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg font-bold text-sm hover:bg-indigo-100 border border-indigo-200 flex items-center justify-center gap-1.5 shrink-0"
-          >
-            <Search className="w-4 h-4" /> 원단 검색·추가 (목록에서 선택)
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            {hasItems && handleRecalcQuote && (
+              <button
+                onClick={handleRecalcQuote}
+                title="모든 품목의 기준원가를 지금 원가(원가 설정·원사 단가)와 지금 환율로 다시 계산해요. 매출이익율·YD당 정액은 그대로."
+                className={`w-full sm:w-max px-3 py-1.5 rounded-lg font-bold text-sm border flex items-center justify-center gap-1.5 shrink-0 ${rateDiffers ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
+              >
+                <RefreshCw className="w-4 h-4" /> 현재 원가로 다시 계산
+              </button>
+            )}
+            <button
+              onClick={() => setIsFabricPickerOpen(true)}
+              className="w-full sm:w-max bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg font-bold text-sm hover:bg-indigo-100 border border-indigo-200 flex items-center justify-center gap-1.5 shrink-0"
+            >
+              <Search className="w-4 h-4" /> 원단 검색·추가 (목록에서 선택)
+            </button>
+          </div>
         </div>
 
         <div className="overflow-hidden rounded-xl border border-slate-200 overflow-x-auto">

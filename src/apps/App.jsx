@@ -363,11 +363,11 @@ const App = () => {
   } = useYarn(yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast, designSheets, costSettings);
 
   const {
-    quoteInput, setQuoteInput, handleQuoteSettingChange, createQuoteItem,
+    quoteInput, setQuoteInput, handleQuoteSettingChange, handleRecalcQuote, createQuoteItem,
     handleQuoteMarginChange, handleBulkMarginRateChange, handleQuoteItemMarginChange,
     handleAddFabricToQuote, handleGridPaste,
     handleRemoveItemFromQuote, handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
-  } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, setGlobalExchangeRate);
+  } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate);
 
   // ⚓️ 설계서 시스템 훅
   const {
@@ -1149,6 +1149,7 @@ const App = () => {
             handleDownloadExcel={handleDownloadQuoteExcel}
             handleNewQuote={handleNewQuote}
             handleQuoteSettingChange={handleQuoteSettingChange}
+            handleRecalcQuote={handleRecalcQuote}
             handleQuoteMarginChange={handleQuoteMarginChange}
             handleBulkMarginRateChange={handleBulkMarginRateChange}
             handleQuoteItemMarginChange={handleQuoteItemMarginChange}

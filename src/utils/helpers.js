@@ -82,18 +82,45 @@ export const applyGrossMargin = (cost, margin) =>
 /**
  * 가설계서 영업견적 판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액.
  * DesignSheetPage(isTempMode)·TempDesignSheetListPage 공용 (중복 제거).
+ * YD당 정액(quoteMarginAdd)은 항상 원화로 저장 → 수출 보기에서는 환율로 나눠 $로 더함
+ *  (예전엔 화면 통화 그대로 더해서 내수/수출 보기를 바꾸면 ₩300이 $300이 되던 문제 수정)
  * @param {Object} cost   calculateCost 결과
  * @param {Object} sheet  quoteMarginRate·quoteMarginAdd 보유 시트 (구간별 {'1k','3k','5k'} 또는 레거시 단일값)
  * @param {string} viewMode 'domestic' | 'export'
  * @param {string} tierKey 'tier1k' | 'tier3k' | 'tier5k'
+ * @param {number} exchangeRate 원/$ (수출 보기에서 YD당 정액 환산용)
  */
-export const computeSellPrice = (cost, sheet, viewMode, tierKey) => {
+export const computeSellPrice = (cost, sheet, viewMode, tierKey, exchangeRate = 1450) => {
   const base = cost?.[tierKey]?.[viewMode]?.finalCostYd || 0;
   const t = tierKey.replace('tier', '');                   // 'tier1k' → '1k'
   const rate = toTierRate(sheet?.quoteMarginRate)[t] || 0; // 구간별 매출이익율(%)
-  const add = toTierAdd(sheet?.quoteMarginAdd)[t] || 0;    // 구간별 YD당 정액
-  return smartRound(applyGrossMargin(base, rate) + add, viewMode === 'export' ? 'USD' : 'KRW');
+  const addKrw = toTierAdd(sheet?.quoteMarginAdd)[t] || 0; // 구간별 YD당 정액 (원화)
+  const isExport = viewMode === 'export';
+  const add = isExport ? addKrw / (Number(exchangeRate) > 0 ? Number(exchangeRate) : 1450) : addKrw;
+  return smartRound(applyGrossMargin(base, rate) + add, isExport ? 'USD' : 'KRW');
 };
+
+/**
+ * 견적 YD당 정액(구간별)을 통화가 바뀔 때 환율로 환산. 원 → $ 는 센트, $ → 원 은 1원 단위 반올림.
+ * @param {Object} marginAdd { '1k', '3k', '5k' }
+ * @param {boolean} toUsd   true: 원 → $, false: $ → 원
+ * @param {number} rate     원/$ (견적 환율)
+ */
+export const convertMarginAdd = (marginAdd, toUsd, rate) => {
+  const r = Number(rate) > 0 ? Number(rate) : 1450;
+  const out = {};
+  ['1k', '3k', '5k'].forEach(t => {
+    const v = Number(marginAdd?.[t]) || 0;
+    out[t] = toUsd ? Number((v / r).toFixed(2)) : Math.round(v * r);
+  });
+  return out;
+};
+
+/** 견적이 지금 마진 방식(매출이익율·YD당 정액)인지 — 아니면 아주 옛날 extraMargin(마크업) 견적 */
+export const isNewMarginModel = (quote) =>
+  quote?.bulkMarginRate !== undefined ||
+  quote?.marginAdd !== undefined ||
+  (quote?.items || []).some(it => it && it.marginRate !== undefined);
 
 /**
  * 매출이익율(%) 값을 구간별 객체 { '1k', '3k', '5k' } 로 정규화합니다. (0~99 clamp)
@@ -132,11 +159,7 @@ export const toTierAdd = (val) => {
  */
 export const normalizeQuoteMargins = (quote) => {
   if (!quote) return quote;
-  const isNewModel =
-    quote.bulkMarginRate !== undefined ||
-    quote.marginAdd !== undefined ||
-    (quote.items || []).some(it => it && it.marginRate !== undefined);
-  if (!isNewModel) return quote; // extraMargin 기반 구버전 견적은 손대지 않음
+  if (!isNewMarginModel(quote)) return quote; // extraMargin 기반 구버전 견적은 손대지 않음
   return {
     ...quote,
     bulkMarginRate: toTierRate(quote.bulkMarginRate),

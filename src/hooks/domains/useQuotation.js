@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { calculateMcqYd, toTierRate, normalizeQuoteMargins } from '../../utils/helpers';
+import { useState, useRef } from 'react';
+import { calculateMcqYd, toTierRate, normalizeQuoteMargins, num, getBasePrice, convertMarginAdd, isNewMarginModel } from '../../utils/helpers';
 
 // GRUBIG ERP - 견적서(Quotation) 도메인 로직 및 훅
 
@@ -15,52 +15,94 @@ const makeBlankQuote = () => ({
   remarks: '', items: [], validityOption: '2weeks'
 });
 
-export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, setGlobalExchangeRate) => {
+// [견적 환율 원칙 — 대표님 결정 2026-10-03]
+//  · 견적 품목의 기준원가는 넣을 때의 원가·견적 환율(exchangeRate)로 저장하고, 환율이 바뀌어도 자동으로 다시 계산하지 않음
+//  · 다시 계산은 [현재 원가로 다시 계산] 버튼(handleRecalcQuote)·복제 때 확인했을 때·시장구분 전환 때만
+export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate) => {
   const [quoteInput, setQuoteInput] = useState(makeBlankQuote);
-
-  // 글로벌 환율 변동 감지 및 재계산 (기준원가만 재계산, 원단별 매출이익율은 보존)
-  const isMountedRef = useRef(false);
-  const prevExchangeRateRef = useRef(globalExchangeRate);
   const savingRef = useRef(false); // 저장 in-flight 가드 (빠른 더블클릭 중복 방지)
-  useEffect(() => {
-    if (!isMountedRef.current) {
-      isMountedRef.current = true;
-      prevExchangeRateRef.current = globalExchangeRate;
-      return;
-    }
-    if (prevExchangeRateRef.current === globalExchangeRate) return;
 
-    if (quoteInput.items && quoteInput.items.length > 0 && quoteInput.marketType) {
-      setQuoteInput(prev => ({
-        ...prev,
-        exchangeRate: globalExchangeRate,   // 환율을 실제로 바꿔 원가를 재계산 → 환율 스냅샷도 갱신
-        items: prev.items.map(item => {
-          const fabric = savedFabrics.find(f => String(f.id) === String(item.fabricId));
-          if (!fabric) return item;
-          // 환율 변동 → 기준원가만 재계산. 원단별 매출이익율(marginRate)은 유지.
-          return createQuoteItem(fabric, globalExchangeRate, prev.marketType, item.marginRate);
-        })
-      }));
-    }
-    prevExchangeRateRef.current = globalExchangeRate;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [globalExchangeRate]);
+  // 품목 기준원가를 지금 원가로 다시 계산 (원단이 삭제된 품목은 그대로 두고 개수만 셈)
+  //  convertDeleted: 통화가 바뀔 때(true = 원→$, false = $→원) 삭제된 원단 품목의 기준원가를 환율로만 환산
+  const rebuildItems = (items, rate, marketType, convertDeleted = null) => {
+    let missing = 0;
+    const next = (items || []).map(item => {
+      const fabric = savedFabrics.find(f => String(f.id) === String(item.fabricId));
+      if (fabric) return createQuoteItem(fabric, rate, marketType, item.marginRate);
+      missing++;
+      if (convertDeleted === null) return item;
+      const conv = (tier) => {
+        const v = getBasePrice(item, tier);
+        return convertDeleted ? Number((v / rate).toFixed(2)) : Math.round((v * rate) / 100) * 100;
+      };
+      return {
+        ...item,
+        basePrice1k: conv('1k'), basePrice3k: conv('3k'), basePrice5k: conv('5k'),
+        costWarnings: [...(item.costWarnings || []), '원단이 삭제되어 기준원가를 환율로만 환산함'],
+      };
+    });
+    return { items: next, missing };
+  };
 
   const handleQuoteSettingChange = (field, value) => {
-    setQuoteInput(prev => {
-      let next = { ...prev, [field]: value };
-      // 시장 구분(내수/수출) 변경 시: 통화 갱신 + 기준원가 재계산(매출이익율은 보존) + 환율 스냅샷 갱신
-      if (field === 'marketType') {
-        next.currency = value === 'export' ? 'USD' : 'KRW';
-        next.exchangeRate = globalExchangeRate;
-        next.items = (next.items || []).map(item => {
-          const fabric = savedFabrics.find(f => String(f.id) === String(item.fabricId));
-          if (!fabric) return item;
-          return createQuoteItem(fabric, globalExchangeRate, next.marketType, item.marginRate);
-        });
-      }
-      return next;
-    });
+    if (field !== 'marketType') {
+      setQuoteInput(prev => ({ ...prev, [field]: value }));
+      return;
+    }
+    if (value === quoteInput.marketType) return;
+    // 시장 구분(내수/수출) 변경: 기준원가는 통화·관세 기준이 달라 다시 계산해야 함 → 확인 후 '견적 환율'로 계산.
+    //  YD당 정액은 같은 환율로 환산 (₩300 → $0.21). 예전엔 숫자가 그대로 남아 ₩300이 $300이 됐음.
+    const items = quoteInput.items || [];
+    const hasItems = items.length > 0;
+    const hasAdd = ['1k', '3k', '5k'].some(t => Number(quoteInput.marginAdd?.[t]) > 0);
+    if (hasItems && !isNewMarginModel(quoteInput)) {
+      showToast('아주 옛날 방식(추가 마크업) 견적이라 시장 구분을 바꿀 수 없어요. 새 견적으로 작성해 주세요.', 'error');
+      return;
+    }
+    const rate = Number(quoteInput.exchangeRate) || Number(globalExchangeRate) || 1450;
+    const toUsd = value === 'export';
+    if ((hasItems || hasAdd) && !window.confirm(
+      `시장 구분을 ${toUsd ? '수출($)' : '내수(₩)'}로 바꿉니다.\n\n` +
+      (hasItems ? `· 모든 품목 단가를 현재 원가로 다시 계산해요 (이 견적의 환율 ₩${num(rate)} 기준)\n` : '') +
+      (hasAdd ? `· YD당 정액도 같은 환율로 환산해요\n` : '') +
+      `\n계속할까요?`
+    )) return;
+    const rebuilt = rebuildItems(items, rate, value, toUsd);
+    setQuoteInput(prev => ({
+      ...prev,
+      marketType: value,
+      currency: toUsd ? 'USD' : 'KRW',
+      exchangeRate: hasItems ? rate : prev.exchangeRate,
+      marginAdd: convertMarginAdd(prev.marginAdd, toUsd, rate),
+      items: rebuilt.items,
+    }));
+    if (rebuilt.missing > 0) showToast(`삭제된 원단 ${rebuilt.missing}개는 원가를 다시 계산하지 못해 환율로만 환산했어요.`, 'error');
+  };
+
+  // [현재 원가로 다시 계산] — 견적 단가는 저장 당시 값 그대로가 원칙이라, 누를 때만 지금 원가·지금 환율로 다시 계산.
+  //  매출이익율·YD당 정액은 그대로 (YD당 정액은 견적 통화 금액이라 환율이 바뀌어도 그대로)
+  const handleRecalcQuote = () => {
+    const items = quoteInput.items || [];
+    if (items.length === 0) { showToast('다시 계산할 품목이 없습니다.', 'error'); return; }
+    if (!isNewMarginModel(quoteInput)) {
+      showToast('아주 옛날 방식(추가 마크업) 견적이라 다시 계산할 수 없어요. 새 견적으로 작성해 주세요.', 'error');
+      return;
+    }
+    const rate = Number(globalExchangeRate) || 1450;
+    const oldRate = Number(quoteInput.exchangeRate) || null;
+    if (!window.confirm(
+      `모든 품목(${items.length}개)의 기준원가를 지금 원가(원가 설정·원사 단가)로 다시 계산합니다.\n` +
+      `적용 환율: ${oldRate ? `₩${num(oldRate)}` : '기록 없음'} → ₩${num(rate)}\n` +
+      `매출이익율과 YD당 정액은 그대로 둡니다.\n\n계속할까요?`
+    )) return;
+    const rebuilt = rebuildItems(items, rate, quoteInput.marketType);
+    setQuoteInput(prev => ({ ...prev, exchangeRate: rate, items: rebuilt.items }));
+    showToast(
+      rebuilt.missing > 0
+        ? `${items.length - rebuilt.missing}개 품목을 다시 계산했어요. (삭제된 원단 ${rebuilt.missing}개는 그대로)`
+        : `${items.length}개 품목을 지금 원가로 다시 계산했어요.`,
+      rebuilt.missing > 0 ? 'error' : 'success'
+    );
   };
 
   // 구간별 YD당 정액(원/$) 입력 — 추가 영업마진(전체 적용). kind: 'add'
@@ -259,20 +301,40 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     // [U2] ID와 Date를 갱신하여 복제본 생성. 이미 "(Copy)"로 끝나면 추가하지 않아 누적 방지
     const rawName = String(quoteToCopy.buyerName || '');
     const buyerName = / \(Copy\)$/.test(rawName) ? rawName : `${rawName} (Copy)`;
-    const duplicatedQuote = normalizeQuoteMargins({
-      ...quoteToCopy,
+    // 복제본은 새 견적 — 작성자·작성일은 저장하는 사람·시점으로 (원본 값은 빼고 복사)
+    const { authorName: _authorName, createdAt: _createdAt, ...rest } = quoteToCopy;
+    let duplicatedQuote = normalizeQuoteMargins({
+      ...rest,
       id: Date.now(),
       date: new Date().toISOString().split('T')[0],
       buyerName
     });
+    // 단가: 원본 견적 당시 값 그대로 / 지금 원가로 다시 계산 — 물어봄 (아주 옛날 방식 견적은 그대로 복제)
+    let recalculated = false;
+    let missing = 0;
+    if (isNewMarginModel(duplicatedQuote) && (duplicatedQuote.items || []).length > 0) {
+      const rate = Number(globalExchangeRate) || 1450;
+      const oldRate = Number(duplicatedQuote.exchangeRate) || null;
+      if (window.confirm(
+        `복제한 견적의 단가를 지금 원가로 다시 계산할까요?\n\n` +
+        `[확인] 지금 원가·지금 환율(₩${num(rate)})로 다시 계산 (권장)\n` +
+        `[취소] 원본 견적 당시 단가 그대로${oldRate ? ` (원본 환율 ₩${num(oldRate)})` : ''}`
+      )) {
+        const rebuilt = rebuildItems(duplicatedQuote.items, rate, duplicatedQuote.marketType);
+        duplicatedQuote = { ...duplicatedQuote, exchangeRate: rate, items: rebuilt.items };
+        recalculated = true;
+        missing = rebuilt.missing;
+      }
+    }
     setQuoteInput(duplicatedQuote);
     if(navigateCallback) navigateCallback();
-    showToast("견적서가 성공적으로 복제되었습니다. (날짜 최신화)", 'success');
+    if (missing > 0) showToast(`복제했어요. 삭제된 원단 ${missing}개는 원본 단가 그대로예요.`, 'error');
+    else showToast(recalculated ? '견적서를 복제하고 단가를 지금 원가로 다시 계산했어요.' : '견적서를 복제했어요. (단가는 원본 견적 그대로)', 'success');
   };
 
   return {
     quoteInput, setQuoteInput,
-    handleQuoteSettingChange, createQuoteItem,
+    handleQuoteSettingChange, handleRecalcQuote, createQuoteItem,
     handleQuoteMarginChange, handleBulkMarginRateChange, handleQuoteItemMarginChange,
     handleAddFabricToQuote, handleGridPaste,
     handleRemoveItemFromQuote, handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
