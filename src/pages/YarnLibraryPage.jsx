@@ -4,9 +4,16 @@ import { YarnLibraryRow } from '../components/yarn/YarnLibraryRow';
 import { MobileYarnCard } from '../components/yarn/MobileYarnCard';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { num, usd } from '../utils/helpers';
-import { saveBatchDocuments } from '../services/db';
+import { isImportSupplier, findImportCountry, describeImportBrackets } from '../utils/costModel';
 
 const PAGE_SIZE = 30; // 1페이지당 원사 수 (로드 성능)
+
+// 업체별 일괄변경 모드 — 운반비 금액(국내) / 수입사 지정(국가) / 수입 해제
+const BULK_MODES = [
+  { key: 'freight', label: '운반비 금액 변경', desc: '국내 업체 운반비(원/kg)를 한 번에 바꿔요' },
+  { key: 'import', label: '수입사로 지정', desc: '운반비가 원가 설정의 국가별 kg 구간으로 계산돼요' },
+  { key: 'domestic', label: '수입 해제', desc: '원사마다 입력해 둔 운반비 금액으로 돌아가요' },
+];
 
 export const YarnLibraryPage = ({
   filteredYarns,
@@ -39,11 +46,31 @@ export const YarnLibraryPage = ({
   setActiveMasterModal,     // 업체 목록 관리 모달 오픈용
   yarnPage = 0,
   setYarnPage,
+  costSettings = null,      // 원가 설정 — 수입 국가·kg 구간 운반비
+  onOpenCostSettings,       // (focus) => 원가 설정 열기. 'importFreight' 면 수입 원사 운반비로 스크롤
+  saveBatchToCloud,         // 일괄 저장 (App) — 성공 true / 실패 false
 }) => {
   const [isYarnFormModalOpen, setIsYarnFormModalOpen] = useState(false);
   const [isBulkFreightModalOpen, setIsBulkFreightModalOpen] = useState(false);
   const [selectedBulkSuppliers, setSelectedBulkSuppliers] = useState([]);
   const [bulkFreightAmount, setBulkFreightAmount] = useState('');
+  const [bulkMode, setBulkMode] = useState('freight');
+  const [bulkCountryId, setBulkCountryId] = useState('');
+
+  const importCountries = costSettings?.importCountries || [];
+  const openImportFreightSettings = () => onOpenCostSettings && onOpenCostSettings('importFreight');
+
+  // 업체명 → 수입 국가 이름들 (일괄변경 모달에 현재 수입 지정 상태 표시용)
+  const importStatusBySupplier = useMemo(() => {
+    const map = {};
+    (yarnLibrary || []).forEach(y => (y.suppliers || []).forEach(s => {
+      if (!isImportSupplier(s)) return;
+      const key = String(s.name || '').toUpperCase();
+      if (!map[key]) map[key] = new Set();
+      map[key].add(findImportCountry(costSettings, s.importCountry).name);
+    }));
+    return map;
+  }, [yarnLibrary, costSettings]);
 
   // 외부(다른 뷰)에서 수정 요건 발생 시 모달 오픈
   useEffect(() => {
@@ -124,6 +151,8 @@ export const YarnLibraryPage = ({
     const suppliersList = uniqueSuppliers.filter(s => s !== 'All');
     setSelectedBulkSuppliers(suppliersList); // 오픈 시 전체 선택 (사용자 편의)
     setBulkFreightAmount('');
+    setBulkMode('freight');
+    setBulkCountryId(findImportCountry(costSettings).id); // 기본 국가 (중국)
     setIsBulkFreightModalOpen(true);
   };
 
@@ -136,51 +165,67 @@ export const YarnLibraryPage = ({
   const selectAllBulkSuppliers = () => setSelectedBulkSuppliers(uniqueSuppliers.filter(s => s !== 'All'));
   const deselectAllBulkSuppliers = () => setSelectedBulkSuppliers([]);
 
-  const executeBulkFreightUpdate = () => {
+  // 모드별로 선택한 업체의 공급처 줄을 한 번에 바꿈: 운반비 금액 / 수입사 지정(국가) / 수입 해제
+  //  [저장 규약] 저장 성공(true)일 때만 목록 갱신·모달 닫기. 실패 시 App이 토스트, 모달 유지
+  const executeBulkFreightUpdate = async () => {
     if (selectedBulkSuppliers.length === 0) {
       window.alert('일괄 적용할 업체(공급처)를 최소 1개 이상 선택해 주세요.');
       return;
     }
-    const freightValue = Number(bulkFreightAmount);
-    if (bulkFreightAmount === '' || isNaN(freightValue) || freightValue < 0) {
-      window.alert('올바른 금액을 숫자로만 입력해 주세요.');
-      return;
+    const names = selectedBulkSuppliers.join(', ');
+    let patch;
+    let confirmMsg;
+    let doneMsg;
+    if (bulkMode === 'freight') {
+      const freightValue = Number(bulkFreightAmount);
+      if (bulkFreightAmount === '' || isNaN(freightValue) || freightValue < 0) {
+        window.alert('올바른 금액을 숫자로만 입력해 주세요.');
+        return;
+      }
+      patch = { freight: freightValue };
+      confirmMsg = `선택한 업체(${names})에 대하여 운반비를 ￦${num(freightValue)}(으)로 일괄 변경하시겠습니까?\n(수입사로 지정된 줄은 수입을 해제했을 때 이 금액이 쓰여요)`;
+      doneMsg = '선택된 업체의 운반비 일괄 변경이 완료되었습니다.';
+    } else if (bulkMode === 'import') {
+      const country = findImportCountry(costSettings, bulkCountryId);
+      patch = { isImport: true, importCountry: country.id };
+      confirmMsg = `선택한 업체(${names})를 수입사(${country.name})로 지정하시겠습니까?\n운반비가 원가 설정의 '${country.name}' kg 구간으로 계산돼요.`;
+      doneMsg = `선택된 업체를 수입사(${country.name})로 지정했습니다.`;
+    } else {
+      patch = { isImport: false };
+      confirmMsg = `선택한 업체(${names})의 수입사 지정을 해제하시겠습니까?\n운반비는 원사마다 입력해 둔 금액으로 돌아가요.`;
+      doneMsg = '선택된 업체의 수입사 지정을 해제했습니다.';
     }
+    if (!window.confirm(confirmMsg)) return;
 
-    if (window.confirm(`선택한 업체(${selectedBulkSuppliers.join(', ')})에 대하여 운반비를 ￦${num(freightValue)}(으)로 일괄 변경하시겠습니까?`)) {
-      const updatedYarns = [];
-      const updatedLibrary = yarnLibrary.map(yarn => {
-        let hasChanges = false;
-        const newSuppliers = (yarn.suppliers || []).map(sup => {
-          if (selectedBulkSuppliers.includes(sup.name)) {
-            hasChanges = true;
-            return { ...sup, freight: freightValue };
-          }
-          return sup;
-        });
-
-        if (hasChanges) {
-          const newYarn = { ...yarn, suppliers: newSuppliers };
-          updatedYarns.push(newYarn);
-          return newYarn;
+    const updatedYarns = [];
+    const updatedLibrary = yarnLibrary.map(yarn => {
+      let hasChanges = false;
+      const newSuppliers = (yarn.suppliers || []).map(sup => {
+        if (selectedBulkSuppliers.includes(String(sup.name || '').toUpperCase())) {
+          hasChanges = true;
+          return { ...sup, ...patch };
         }
-        return yarn;
+        return sup;
       });
 
-      if (updatedYarns.length > 0) {
-        saveBatchDocuments('yarns', updatedYarns).then(() => {
-          setYarnLibrary(updatedLibrary);
-          setIsBulkFreightModalOpen(false);
-          window.alert('선택된 업체의 운반비 일괄 변경이 완료되었습니다.');
-        }).catch(err => {
-          console.error(err);
-          window.alert('변경 내용을 저장하는 중 오류가 발생했습니다.');
-        });
-      } else {
-        setIsBulkFreightModalOpen(false);
-        window.alert('변경할 항목이 없습니다.');
+      if (hasChanges) {
+        const newYarn = { ...yarn, suppliers: newSuppliers };
+        updatedYarns.push(newYarn);
+        return newYarn;
       }
+      return yarn;
+    });
+
+    if (updatedYarns.length === 0) {
+      setIsBulkFreightModalOpen(false);
+      window.alert('변경할 항목이 없습니다.');
+      return;
     }
+    const ok = await saveBatchToCloud('yarns', updatedYarns);
+    if (!ok) return;
+    setYarnLibrary(updatedLibrary);
+    setIsBulkFreightModalOpen(false);
+    window.alert(doneMsg);
   };
 
   return (
@@ -193,6 +238,10 @@ export const YarnLibraryPage = ({
           <div className="flex bg-white border border-slate-200 rounded-lg overflow-hidden shrink-0 shadow-sm w-full sm:w-auto mt-2 sm:mt-0">
             <button onClick={openYarnSupplierManager} className="flex-1 sm:flex-none justify-center items-center gap-2 px-3 py-2 text-slate-600 hover:bg-slate-50 border-r border-slate-200 text-sm font-bold flex"><Factory className="w-4 h-4 text-slate-400" /> 업체 관리</button>
             <button onClick={handleOpenBulkModal} className="flex-1 sm:flex-none justify-center items-center gap-2 px-3 py-2 text-emerald-700 hover:bg-emerald-50 border-r border-slate-200 text-sm font-bold flex"><Truck className="w-4 h-4 text-emerald-500" /> 업체별 일괄변경</button>
+            {/* 폰에선 버튼 줄이 좁아 숨김 — 원사 수정 창의 [구간 금액 수정]·원단 관리의 [원가 설정]으로 열 수 있음 */}
+            {onOpenCostSettings && (
+              <button onClick={openImportFreightSettings} title="수입 원사 운반비 — 국가별 kg 구간 금액 (원가 설정)" className="hidden sm:flex sm:flex-none justify-center items-center gap-2 px-3 py-2 text-slate-600 hover:bg-slate-50 border-r border-slate-200 text-sm font-bold whitespace-nowrap"><Settings className="w-4 h-4 text-emerald-500" /> 수입 운반비</button>
+            )}
             <button onClick={handleBackupYarns} className="flex-1 sm:flex-none justify-center items-center gap-2 px-3 py-2 text-slate-600 hover:bg-slate-50 border-r border-slate-200 text-sm font-bold flex"><Database className="w-4 h-4 text-blue-500" /> 백업</button>
             <button onClick={() => setIsYarnBulkModalOpen(true)} className="flex-1 sm:flex-none justify-center items-center gap-2 px-3 py-2 text-emerald-700 hover:bg-emerald-50 text-sm font-bold flex"><Upload className="w-4 h-4" /> 엑셀 등록</button>
           </div>
@@ -257,6 +306,7 @@ export const YarnLibraryPage = ({
                 handleDeleteYarn={handleDeleteYarn}
                 yarnLibrary={yarnLibrary}
                 setYarnLibrary={setYarnLibrary}
+                costSettings={costSettings}
               />
             ))}
             {total === 0 && <tr><td colSpan="10" className="p-16 text-center text-slate-500 font-medium">검색 결과가 없거나 등록된 원사가 없습니다.</td></tr>}
@@ -275,6 +325,7 @@ export const YarnLibraryPage = ({
             handleDeleteYarn={handleDeleteYarn}
             yarnLibrary={yarnLibrary}
             setYarnLibrary={setYarnLibrary}
+            costSettings={costSettings}
           />
         ))}
         {total === 0 && (
@@ -338,7 +389,12 @@ export const YarnLibraryPage = ({
                 </div>
 
                 <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-2 overflow-x-hidden min-w-[700px] md:min-w-0">
-                  {yarnInput.suppliers.map((sup, idx) => (
+                  {yarnInput.suppliers.map((sup, idx) => {
+                    // 수입사: 운반비 칸 대신 수입 국가 선택 → 원가 설정의 국가별 kg 구간 운반비
+                    const isImport = isImportSupplier(sup);
+                    const country = isImport ? findImportCountry(costSettings, sup.importCountry) : null;
+                    const keptFreight = Number(sup.freight) || 0;
+                    return (
                     <div key={sup.id} className={`flex flex-col gap-2 bg-white p-3.5 rounded-xl border shadow-sm relative transition-all ${sup.isDefault ? 'border-blue-300 ring-2 ring-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
                       <div className="flex flex-nowrap gap-3 items-start">
                         <div className="flex flex-col items-center justify-center w-12 shrink-0 h-[38px] bg-slate-50 rounded-lg border border-slate-100 cursor-pointer hover:bg-slate-100 mt-5 transition-colors" onClick={() => handleSupplierChange(sup.id, 'isDefault', true)} title="기본(대표) 업체로 설정">
@@ -354,14 +410,14 @@ export const YarnLibraryPage = ({
                             placeholder="업체 검색·선택"
                           />
                         </div>
-                        <div className="w-24 shrink-0">
+                        <div className="w-20 shrink-0">
                           <label className="text-[10px] text-slate-500 font-bold mb-1 block">화폐</label>
                           <select value={sup.currency} onChange={e => handleSupplierChange(sup.id, 'currency', e.target.value)} className="w-full border border-slate-200 bg-slate-50 rounded-lg px-2 py-2 text-sm font-bold focus:border-blue-500 outline-none">
                             <option value="KRW">KRW</option>
                             <option value="USD">USD</option>
                           </select>
                         </div>
-                        <div className="w-32 shrink-0">
+                        <div className="w-28 shrink-0">
                           <label className="text-[10px] text-slate-500 font-bold mb-1 block">단가 (/kg)</label>
                           <input type="number" value={sup.price} onChange={e => handleSupplierChange(sup.id, 'price', e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-right font-mono font-bold focus:border-blue-500 outline-none bg-slate-50 focus:bg-white" placeholder="0" />
                         </div>
@@ -369,9 +425,29 @@ export const YarnLibraryPage = ({
                           <label className="text-[10px] text-blue-500 font-bold mb-1 block">관세(%)</label>
                           <input type="number" value={sup.tariff} onChange={e => handleSupplierChange(sup.id, 'tariff', e.target.value)} className="w-full border border-blue-200 bg-blue-50 rounded-lg px-2 py-2 text-sm text-right text-blue-700 font-bold focus:border-blue-500 outline-none" />
                         </div>
-                        <div className="w-28 shrink-0 flex flex-col">
-                          <label className="text-[10px] text-emerald-500 font-bold mb-1 block">운반비(￦) (/kg)</label>
-                          <input type="number" value={sup.freight} onChange={e => handleSupplierChange(sup.id, 'freight', e.target.value)} className="w-full border border-emerald-200 bg-emerald-50 rounded-lg px-2 py-2 text-sm text-right text-emerald-700 font-bold focus:border-emerald-500 outline-none" />
+                        <div
+                          className={`flex flex-col items-center justify-center w-12 shrink-0 h-[38px] rounded-lg border cursor-pointer mt-5 transition-colors ${isImport ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-100 hover:bg-slate-100'}`}
+                          onClick={() => handleSupplierChange(sup.id, 'isImport', !isImport)}
+                          title="수입사면 체크 — 운반비가 원가 설정의 국가별 kg 구간으로 계산돼요"
+                        >
+                          <label className={`text-[10px] font-bold cursor-pointer ${isImport ? 'text-emerald-700' : 'text-slate-500'}`}>수입</label>
+                          <input type="checkbox" checked={isImport} readOnly className="w-3.5 h-3.5 accent-emerald-600 cursor-pointer pointer-events-none" />
+                        </div>
+                        <div className="w-24 shrink-0 flex flex-col">
+                          {isImport ? (
+                            <>
+                              <label className="text-[10px] text-emerald-600 font-bold mb-1 block">수입 국가</label>
+                              <select value={country.id} onChange={e => handleSupplierChange(sup.id, 'importCountry', e.target.value)} className="w-full border border-emerald-300 bg-emerald-50 rounded-lg px-2 py-2 text-sm font-bold text-emerald-800 focus:border-emerald-500 outline-none">
+                                {!importCountries.some(c => c.id === country.id) && <option value={country.id}>{country.name}</option>}
+                                {importCountries.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                              </select>
+                            </>
+                          ) : (
+                            <>
+                              <label className="text-[10px] text-emerald-500 font-bold mb-1 block whitespace-nowrap">운반비(￦) (/kg)</label>
+                              <input type="number" value={sup.freight} onChange={e => handleSupplierChange(sup.id, 'freight', e.target.value)} className="w-full border border-emerald-200 bg-emerald-50 rounded-lg px-2 py-2 text-sm text-right text-emerald-700 font-bold focus:border-emerald-500 outline-none" />
+                            </>
+                          )}
                         </div>
                         {yarnInput.suppliers.length > 1 && (
                           <button onClick={() => handleRemoveSupplier(sup.id)} className="w-10 h-[38px] mt-5 flex items-center justify-center text-slate-400 hover:text-red-600 rounded-lg bg-white hover:bg-red-50 border border-slate-200 hover:border-red-200 transition-colors shrink-0" title="업체 삭제">
@@ -379,6 +455,19 @@ export const YarnLibraryPage = ({
                           </button>
                         )}
                       </div>
+
+                      {isImport && (
+                        <div className="ml-[60px] bg-emerald-50/60 border border-emerald-100 p-2.5 rounded-lg flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <span className="text-[10px] font-bold text-emerald-700 flex items-center gap-1"><Truck className="w-3 h-3" /> {country.name} 운반비 (원사 kg 구간)</span>
+                          {describeImportBrackets(country).map(b => (
+                            <span key={b.label} className="text-[11px] font-mono text-slate-700 whitespace-nowrap"><span className="font-sans text-slate-400">{b.label}</span> ￦{num(b.perKg)}</span>
+                          ))}
+                          {keptFreight > 0 && <span className="text-[10px] text-slate-400">· 입력해 둔 운반비 ￦{num(keptFreight)}는 수입 해제 시 다시 사용</span>}
+                          {onOpenCostSettings && (
+                            <button type="button" onClick={openImportFreightSettings} className="ml-auto text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1 whitespace-nowrap"><Settings className="w-3 h-3" /> 구간 금액 수정</button>
+                          )}
+                        </div>
+                      )}
 
                       {sup.history && sup.history.length > 0 && (
                         <div className="ml-[60px] bg-slate-50 border border-slate-100 p-2.5 rounded-lg mt-1">
@@ -395,7 +484,8 @@ export const YarnLibraryPage = ({
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -419,20 +509,38 @@ export const YarnLibraryPage = ({
         </div>
       )}
 
-      {/* 사종별 운반비 일괄변경 모달 */}
+      {/* 업체별 운반비·수입 일괄변경 모달 */}
       {isBulkFreightModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm transition-opacity">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <Truck className="w-5 h-5 text-emerald-600" /> 업체별 운임 일괄변경
+                <Truck className="w-5 h-5 text-emerald-600" /> 업체별 운반비 · 수입 일괄변경
               </h3>
               <button onClick={() => setIsBulkFreightModalOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 rounded-full">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 space-y-6">
+            <div className="p-6 space-y-6 overflow-y-auto">
+              {/* 무엇을 바꿀지 */}
+              <div>
+                <label className="text-sm font-bold text-slate-700 mb-2 block">변경할 내용</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {BULK_MODES.map(m => (
+                    <button
+                      key={m.key}
+                      type="button"
+                      onClick={() => setBulkMode(m.key)}
+                      className={`px-2 py-2 rounded-lg border text-sm font-bold transition-colors ${bulkMode === m.key ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1.5">{BULK_MODES.find(m => m.key === bulkMode)?.desc}</p>
+              </div>
+
               <div>
                 <div className="flex justify-between items-center mb-2.5">
                   <label className="text-sm font-bold text-slate-700">적용할 업체(공급처) 선택</label>
@@ -442,15 +550,21 @@ export const YarnLibraryPage = ({
                     <button onClick={deselectAllBulkSuppliers} className="text-slate-500 font-bold hover:underline py-0.5">선택해제</button>
                   </div>
                 </div>
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {uniqueSuppliers.filter(s => s !== 'All').map(sup => (
-                    <label key={sup} onClick={() => toggleBulkSupplier(sup)} className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer border transition-all ${selectedBulkSuppliers.includes(sup) ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
-                      <div className={`w-4 h-4 rounded-[4px] border flex items-center justify-center shrink-0 transition-colors ${selectedBulkSuppliers.includes(sup) ? 'bg-blue-500 border-blue-500 text-white' : 'bg-white border-slate-300'}`}>
-                        {selectedBulkSuppliers.includes(sup) && <Check className="w-3 h-3" />}
-                      </div>
-                      <span className="text-sm font-bold truncate">{sup}</span>
-                    </label>
-                  ))}
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[36vh] overflow-y-auto">
+                  {uniqueSuppliers.filter(s => s !== 'All').map(sup => {
+                    const importNames = importStatusBySupplier[sup] ? [...importStatusBySupplier[sup]] : [];
+                    return (
+                      <label key={sup} onClick={() => toggleBulkSupplier(sup)} className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer border transition-all ${selectedBulkSuppliers.includes(sup) ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                        <div className={`w-4 h-4 rounded-[4px] border flex items-center justify-center shrink-0 transition-colors ${selectedBulkSuppliers.includes(sup) ? 'bg-blue-500 border-blue-500 text-white' : 'bg-white border-slate-300'}`}>
+                          {selectedBulkSuppliers.includes(sup) && <Check className="w-3 h-3" />}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold truncate">{sup}</div>
+                          {importNames.length > 0 && <div className="text-[10px] font-bold text-emerald-700 truncate">수입 · {importNames.join(', ')}</div>}
+                        </div>
+                      </label>
+                    );
+                  })}
                   {uniqueSuppliers.filter(s => s !== 'All').length === 0 && (
                     <div className="col-span-full text-center text-slate-400 text-sm py-2">등록된 업체가 없습니다.</div>
                   )}
@@ -458,22 +572,48 @@ export const YarnLibraryPage = ({
                 <p className="text-right text-[11px] text-slate-500 mt-1.5 font-medium">선택된 업체 수: <span className="text-blue-600 font-bold">{selectedBulkSuppliers.length}</span>개</p>
               </div>
 
-              <div>
-                <label className="text-sm font-bold text-slate-700 mb-2 block">일괄 적용할 운반비 (￦) / kg</label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">￦</span>
-                  <input
-                    type="number"
-                    value={bulkFreightAmount}
-                    onChange={e => setBulkFreightAmount(e.target.value)}
-                    placeholder="0"
-                    className="w-full border-2 border-emerald-200 rounded-xl pl-8 pr-4 py-3 text-lg font-bold text-slate-800 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-50 outline-none transition-all"
-                  />
+              {bulkMode === 'freight' && (
+                <div>
+                  <label className="text-sm font-bold text-slate-700 mb-2 block">일괄 적용할 운반비 (￦) / kg</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">￦</span>
+                    <input
+                      type="number"
+                      value={bulkFreightAmount}
+                      onChange={e => setBulkFreightAmount(e.target.value)}
+                      placeholder="0"
+                      className="w-full border-2 border-emerald-200 rounded-xl pl-8 pr-4 py-3 text-lg font-bold text-slate-800 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-50 outline-none transition-all"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {bulkMode === 'import' && (() => {
+                const country = findImportCountry(costSettings, bulkCountryId);
+                return (
+                  <div>
+                    <label className="text-sm font-bold text-slate-700 mb-2 block">수입 국가</label>
+                    <select value={country.id} onChange={e => setBulkCountryId(e.target.value)} className="w-full border-2 border-emerald-200 rounded-xl px-4 py-3 text-base font-bold text-slate-800 focus:border-emerald-500 outline-none bg-white">
+                      {importCountries.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                    <div className="mt-2 bg-emerald-50/60 border border-emerald-100 rounded-lg p-2.5 flex flex-wrap gap-x-3 gap-y-1">
+                      <span className="text-[10px] font-bold text-emerald-700 w-full">{country.name} 운반비 (원사 kg 구간 · 원가 설정)</span>
+                      {describeImportBrackets(country).map(b => (
+                        <span key={b.label} className="text-[11px] font-mono text-slate-700 whitespace-nowrap"><span className="font-sans text-slate-400">{b.label}</span> ￦{num(b.perKg)}</span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {bulkMode === 'domestic' && (
+                <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3 leading-relaxed">
+                  선택한 업체의 [수입] 체크를 풀어요. 운반비는 원사마다 입력해 둔 금액(￦/kg)으로 다시 계산돼요.
+                </p>
+              )}
             </div>
 
-            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex gap-3">
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex gap-3 shrink-0">
               <button
                 onClick={() => setIsBulkFreightModalOpen(false)}
                 className="flex-1 py-3 rounded-xl font-bold text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 transition-colors"
@@ -484,7 +624,7 @@ export const YarnLibraryPage = ({
                 onClick={executeBulkFreightUpdate}
                 className="flex-1 py-3 rounded-xl font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-600/20 transition-all active:scale-95"
               >
-                일괄 업데이트 실행
+                {bulkMode === 'import' ? '수입사로 지정' : bulkMode === 'domestic' ? '수입 해제' : '운반비 일괄 변경'}
               </button>
             </div>
           </div>

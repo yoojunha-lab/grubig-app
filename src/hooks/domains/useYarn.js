@@ -1,16 +1,21 @@
 import { useState } from 'react';
 import { clampNum } from '../../utils/helpers';
+import { isImportSupplier, findImportCountry } from '../../utils/costModel';
 
 // GRUBIG ERP - 원사(Yarn) 도메인 로직 및 훅
+//  · 공급처 줄 필드: name, currency, price, tariff(%), freight(원/kg, 국내 업체 운반비), history, isDefault
+//    + isImport(수입사 체크) / importCountry(수입 국가 id) — 수입사는 freight 대신 원가 설정의 국가별 kg 구간 운반비
+//    (수입 체크를 풀면 freight 값이 다시 쓰이도록 freight는 지우지 않고 보관)
 
-export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast, designSheets) => {
+// costSettings: 원가 설정 (수입 국가 목록 — 수입 체크 시 기본 국가)
+export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast, designSheets, costSettings = null) => {
   const [editingYarnId, setEditingYarnId] = useState(null);
   // Y4: 빠른 더블클릭 삭제 race 방지 — 진행 중 yarn id 추적
   const [deletingYarnId, setDeletingYarnId] = useState(null);
 
   const initialYarnInput = {
     category: '소모', name: '', remarks: '',
-    suppliers: [{ id: 'sup_' + Date.now(), name: '', currency: 'KRW', price: '', tariff: 8, freight: 0, history: [], isDefault: true }]
+    suppliers: [{ id: 'sup_' + Date.now(), name: '', currency: 'KRW', price: '', tariff: 8, freight: 0, isImport: false, history: [], isDefault: true }]
   };
 
   const [yarnInput, setYarnInput] = useState(initialYarnInput);
@@ -19,8 +24,21 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
     setEditingYarnId(null);
     setYarnInput({
       category: '소모', name: '', remarks: '',
-      suppliers: [{ id: 'sup_' + Date.now(), name: '', currency: 'KRW', price: '', tariff: 8, freight: 0, history: [], isDefault: true }]
+      suppliers: [{ id: 'sup_' + Date.now(), name: '', currency: 'KRW', price: '', tariff: 8, freight: 0, isImport: false, history: [], isDefault: true }]
     });
+  };
+
+  // 라이브러리에 이미 등록된 같은 업체의 수입 지정 — 없으면 null (새 업체)
+  //  수입으로 지정된 줄이 하나라도 있으면 그 줄의 국가를 따름
+  const knownImportStatus = (supplierName) => {
+    const key = String(supplierName || '').trim().toUpperCase();
+    if (!key) return null;
+    const entries = (yarnLibrary || []).flatMap(y => (y.suppliers || []).filter(s => String(s.name || '').trim().toUpperCase() === key));
+    if (entries.length === 0) return null;
+    const imported = entries.find(isImportSupplier);
+    return imported
+      ? { isImport: true, importCountry: findImportCountry(costSettings, imported.importCountry).id }
+      : { isImport: false };
   };
 
   const handleEditYarn = (yarn) => {
@@ -129,7 +147,7 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
   const handleAddSupplier = () => {
     setYarnInput(prev => ({
       ...prev,
-      suppliers: [...prev.suppliers, { id: 'sup_' + Date.now(), name: '', currency: 'KRW', price: '', tariff: 8, freight: 0, history: [], isDefault: prev.suppliers.length === 0 }]
+      suppliers: [...prev.suppliers, { id: 'sup_' + Date.now(), name: '', currency: 'KRW', price: '', tariff: 8, freight: 0, isImport: false, history: [], isDefault: prev.suppliers.length === 0 }]
     }));
   };
 
@@ -160,7 +178,21 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
             const safeValue = field === 'name' ? String(value).toUpperCase()
               : numFields.includes(field) ? clampNum(value, 0, Infinity)
               : value;
-            return { ...s, [field]: safeValue };
+            const next = { ...s, [field]: safeValue };
+            // 수입 체크 시 국가가 비어 있으면 기본 국가(중국)
+            if (field === 'isImport' && safeValue === true && !next.importCountry) {
+              next.importCountry = findImportCountry(costSettings).id;
+            }
+            // 업체를 고르면 그 업체의 기존 수입 지정을 따라감 (라이브러리에 없는 새 업체면 그대로 둠)
+            if (field === 'name') {
+              const known = knownImportStatus(safeValue);
+              if (known) {
+                next.isImport = known.isImport;
+                // 국내 업체로 바뀌면 국가를 비움 → 나중에 수입 체크 시 기본 국가(중국)부터
+                next.importCountry = known.isImport ? known.importCountry : '';
+              }
+            }
+            return next;
           }
           return s;
         })

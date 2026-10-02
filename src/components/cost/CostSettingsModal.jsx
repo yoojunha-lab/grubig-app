@@ -1,17 +1,19 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Save, Plus, Trash2, Settings, AlertTriangle } from 'lucide-react';
 import { num } from '../../utils/helpers';
-import { resolveCostSettings, getChemColors, getFreightAmount } from '../../utils/costModel';
-import { COST_DISPLAY_TIERS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
+import { resolveCostSettings, getChemColors, getFreightAmount, isImportSupplier } from '../../utils/costModel';
+import { COST_DISPLAY_TIERS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, DEFAULT_IMPORT_COUNTRY_ID } from '../../constants/costing';
 
 // ============================================================
 // 원가 설정 모달 — 전 품목 공통 원가 기준값 편집
 //  · 편직 정액(난이도별) / 편직 LOSS(생지 kg 구간) / 가공 LOSS(가공 유형) / 이화학 / 운임 / 외관검사
+//    / 수입 원사 운반비(국가별 · 원사 kg 구간)
 //  · 저장값은 settings/general.costSettings (App.jsx의 saveCostSettings) → 저장 즉시 모든 품목 원가 재계산
 //  · 저장된 견적서는 단가(basePrice)를 따로 보관하므로 바뀌지 않음
 //  · 숫자 칸은 입력 중 빈칸을 허용하려고 입력값 그대로 들고 있다가 저장할 때 숫자로 바꿈
 //  · 부모(App)에서 열릴 때만 마운트 → useState 초기화로 편집 상태 시드
+//  · initialFocus='importFreight' 면 열자마자 ⑦ 수입 원사 운반비로 스크롤 (원사 라이브러리에서 열 때)
 // ============================================================
 
 // 구간 경계값/금액 등 숫자 변환 (마지막 '초과' 구간은 max = null 유지)
@@ -28,6 +30,11 @@ const buildNext = (l) => ({
   },
   freightBrackets: l.freightBrackets.map(b => ({ max: toMax(b.max), amount: Number(b.amount) || 0 })),
   visualInspectionPerYd: Number(l.visualInspectionPerYd) || 0,
+  importCountries: l.importCountries.map(c => ({
+    id: c.id,
+    name: String(c.name || '').trim(),
+    brackets: c.brackets.map(b => ({ max: toMax(b.max), perKg: Number(b.perKg) || 0 })),
+  })),
 });
 
 const isBlank = (v) => v === '' || v === null || v === undefined;
@@ -84,7 +91,11 @@ const Section = ({ no, title, hint, children }) => (
 );
 
 // 구간 편집 표 — 마지막 줄은 항상 '직전 경계 초과' (경계값 없음)
-const BracketEditor = ({ rows, valueKey, unit, valueUnit, onChange, money = false }) => {
+//  · strict: 'N 미만' / 마지막 '직전 경계 이상' 으로 표시 (수입 원사 운반비 — 계산도 pickBracket strict)
+//  · allLabel: 경계 줄이 하나도 없을 때 마지막 줄 문구
+const BracketEditor = ({ rows, valueKey, unit, valueUnit, onChange, money = false, strict = false, allLabel }) => {
+  const upTo = strict ? '미만' : '이하';
+  const over = strict ? '이상' : '초과';
   const bounded = rows.slice(0, -1);
   const open = rows[rows.length - 1];
   const lastMax = bounded.length ? bounded[bounded.length - 1].max : null;
@@ -100,7 +111,7 @@ const BracketEditor = ({ rows, valueKey, unit, valueUnit, onChange, money = fals
   const ValueCell = ({ i, r }) => (
     <div className={`flex items-center gap-1.5 ${valuePos}`}>
       <input type="number" min="0" value={r[valueKey]} onChange={e => setRow(i, valueKey, e.target.value)} className={inCls} />
-      <span className="text-xs text-slate-500 w-8 shrink-0">{valueUnit}</span>
+      <span className="text-xs text-slate-500 min-w-[2rem] shrink-0 whitespace-nowrap">{valueUnit}</span>
       {money && <span className="hidden sm:inline text-[11px] text-slate-400 w-24 shrink-0 text-right">{num(r[valueKey])}원</span>}
     </div>
   );
@@ -109,16 +120,16 @@ const BracketEditor = ({ rows, valueKey, unit, valueUnit, onChange, money = fals
       {bounded.map((r, i) => (
         <div key={i} className={rowCls}>
           <div className="col-start-1 row-start-1 grid grid-cols-[76px_1fr_auto] gap-1.5 items-center">
-            <span className="text-[11px] text-slate-400 text-right whitespace-nowrap">{i > 0 ? `${num(bounded[i - 1].max)} 초과 ~` : ''}</span>
+            <span className="text-[11px] text-slate-400 text-right whitespace-nowrap">{i > 0 ? `${num(bounded[i - 1].max)} ${over} ~` : ''}</span>
             <input type="number" min="0" value={r.max ?? ''} onChange={e => setRow(i, 'max', e.target.value)} className={inCls} />
-            <span className="text-xs text-slate-500 whitespace-nowrap">{unit} 이하</span>
+            <span className="text-xs text-slate-500 whitespace-nowrap">{unit} {upTo}</span>
           </div>
           {ValueCell({ i, r })}
           <button type="button" onClick={() => removeRow(i)} title="이 구간 삭제" className="col-start-2 row-start-1 sm:col-start-3 text-slate-300 hover:text-red-500 justify-self-center"><Trash2 className="w-4 h-4" /></button>
         </div>
       ))}
       <div className={rowCls}>
-        <div className="col-start-1 row-start-1 text-sm font-bold text-slate-600 pl-[82px]">{lastMax !== null && !isBlank(lastMax) ? `${num(lastMax)} ${unit} 초과` : `모든 ${unit === 'kg' ? '생지 kg' : '수량'}`}</div>
+        <div className="col-start-1 row-start-1 text-sm font-bold text-slate-600 pl-[82px]">{lastMax !== null && !isBlank(lastMax) ? `${num(lastMax)} ${unit} ${over}` : (allLabel || `모든 ${unit === 'kg' ? '생지 kg' : '수량'}`)}</div>
         {ValueCell({ i: rows.length - 1, r: open })}
       </div>
       <button type="button" onClick={addRow} className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100">
@@ -131,12 +142,22 @@ const BracketEditor = ({ rows, valueKey, unit, valueUnit, onChange, money = fals
 export const CostSettingsModal = ({
   onClose, costSettings, onSave, showToast,
   savedFabrics = [], designSheets = [], tempDesignSheets = [],
+  yarnLibrary = [],    // 수입 국가별 사용 원사 수 표시·삭제 차단용
+  initialFocus = null, // 'importFreight' → ⑦ 수입 원사 운반비로 스크롤
 }) => {
   // 열릴 때의 설정을 깊은 복제해 편집 상태로 시드
   const [local, setLocal] = useState(() => JSON.parse(JSON.stringify(resolveCostSettings(costSettings))));
   const initialRef = useRef(JSON.stringify(local));
+  const importSectionRef = useRef(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // 첫 화면이 다 그려진 뒤(다음 프레임)에 스크롤 — 마운트 직후엔 높이가 덜 잡혀 안 내려가는 경우가 있음
+  useEffect(() => {
+    if (initialFocus !== 'importFreight') return undefined;
+    const frame = requestAnimationFrame(() => importSectionRef.current?.scrollIntoView({ block: 'start' }));
+    return () => cancelAnimationFrame(frame);
+  }, [initialFocus]);
 
   const set = (key, value) => { setError(''); setLocal(prev => ({ ...prev, [key]: value })); };
   const setChem = (key, value) => { setError(''); setLocal(prev => ({ ...prev, chemTest: { ...prev.chemTest, [key]: value } })); };
@@ -158,6 +179,23 @@ export const CostSettingsModal = ({
     const fab = usage[`${kind}Fabric`][id] || 0;
     const sheet = usage[`${kind}Sheet`][id] || 0;
     return { fab, sheet, total: fab + sheet };
+  };
+
+  // 수입 국가별 사용 현황 — 원사 라이브러리에서 [수입] 체크한 공급처 줄. 국가가 빈 줄은 기본(중국)으로 셈
+  const countryUsage = useMemo(() => {
+    const map = {};
+    (yarnLibrary || []).forEach(y => (y?.suppliers || []).forEach(sup => {
+      if (!isImportSupplier(sup)) return;
+      const id = String(sup.importCountry || DEFAULT_IMPORT_COUNTRY_ID);
+      if (!map[id]) map[id] = { yarnIds: new Set(), suppliers: new Set() };
+      map[id].yarnIds.add(y.id);
+      if (sup.name) map[id].suppliers.add(String(sup.name).toUpperCase());
+    }));
+    return map;
+  }, [yarnLibrary]);
+  const countryUsedBy = (id) => {
+    const u = countryUsage[id];
+    return { yarns: u ? u.yarnIds.size : 0, suppliers: u ? [...u.suppliers].sort() : [] };
   };
 
   // 미리보기 — 저장 전 값으로 이화학·운임·외관검사 YD당 금액
@@ -188,6 +226,18 @@ export const CostSettingsModal = ({
     if (local.processTypes.length <= 1) { setError('가공 유형은 최소 1개가 있어야 해요.'); return; }
     set('processTypes', local.processTypes.filter((_, idx) => idx !== i));
   };
+  // 새 국가는 첫 번째 국가(중국) 구간을 복사해서 시작 → 금액만 고치면 됨
+  const addCountry = () => set('importCountries', [
+    ...local.importCountries,
+    { id: `ic_${Date.now()}`, name: '', brackets: JSON.parse(JSON.stringify(local.importCountries[0]?.brackets || [{ max: null, perKg: '' }])) },
+  ]);
+  const removeCountry = (i) => {
+    const c = local.importCountries[i];
+    const u = countryUsedBy(c.id);
+    if (u.yarns > 0) { setError(`'${c.name}'은(는) 사용 중이라 삭제할 수 없어요. (원사 ${u.yarns}개: ${u.suppliers.join(', ')}) 먼저 원사 라이브러리에서 수입 국가를 바꿔 주세요.`); return; }
+    if (local.importCountries.length <= 1) { setError('수입 국가는 최소 1개가 있어야 해요.'); return; }
+    set('importCountries', local.importCountries.filter((_, idx) => idx !== i));
+  };
 
   const validate = () => {
     const gradeErr = checkNames(local.knitGrades, '편직 정액');
@@ -196,11 +246,14 @@ export const CostSettingsModal = ({
     const typeErr = checkNames(local.processTypes, '가공 LOSS');
     if (typeErr) return typeErr;
     if (local.processTypes.some(t => isBlank(t.lossPct) || !(Number(t.lossPct) >= 0 && Number(t.lossPct) <= 99))) return '가공 LOSS: LOSS%는 0~99로 입력해 주세요.';
+    const countryErr = checkNames(local.importCountries, '수입 국가');
+    if (countryErr) return countryErr;
     return checkBrackets(local.knitLossBrackets, 'pct', '편직 LOSS', { maxValue: 99 })
       || (isBlank(local.chemTest.feePerColor) || !(Number(local.chemTest.feePerColor) >= 0) ? '이화학 검사: 1컬러당 검사비를 0 이상으로 입력해 주세요.' : null)
       || checkBrackets(local.chemTest.colorBrackets, 'colors', '이화학 컬러수', { integer: true })
       || checkBrackets(local.freightBrackets, 'amount', '운임')
-      || (isBlank(local.visualInspectionPerYd) || !(Number(local.visualInspectionPerYd) >= 0) ? '외관검사: YD당 단가를 0 이상으로 입력해 주세요.' : null);
+      || (isBlank(local.visualInspectionPerYd) || !(Number(local.visualInspectionPerYd) >= 0) ? '외관검사: YD당 단가를 0 이상으로 입력해 주세요.' : null)
+      || local.importCountries.reduce((err, c) => err || checkBrackets(c.brackets, 'perKg', `수입 원사 운반비(${String(c.name).trim()})`), null);
   };
 
   const handleSave = async () => {
@@ -315,6 +368,35 @@ export const CostSettingsModal = ({
               <span className="text-xs text-slate-500">원 / YD</span>
             </div>
           </Section>
+
+          {/* 7. 수입 원사 운반비 (국가별) */}
+          <div ref={importSectionRef} className={`scroll-mt-2 rounded-xl ${initialFocus === 'importFreight' ? 'ring-2 ring-emerald-300' : ''}`}>
+            <Section no={7} title="수입 원사 운반비 (국가별 · 원사 kg 구간)" hint="원사 라이브러리에서 공급처를 [수입]으로 체크한 원사에만 적용돼요. 그 원사의 오더 투입 kg(원사 투입 kg × 혼용률)이 속한 구간의 kg당 금액을 원사 단가에 더하고, 1,000/3,000/5,000YD마다 따로 계산해요.">
+              {local.importCountries.map((c, i) => {
+                const u = countryUsedBy(c.id);
+                return (
+                  <div key={c.id} className="border border-slate-200 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[11px] font-bold text-slate-400">국가</span>
+                      <input type="text" value={c.name} onChange={e => setListItem('importCountries', i, 'name', e.target.value)} className={`${txtCls} w-36 font-bold`} placeholder="예: 인도네시아" />
+                      <span className="text-[11px] text-slate-500 min-w-0 truncate" title={u.suppliers.join(', ')}>
+                        {u.yarns > 0 ? `원사 ${u.yarns}개 · ${u.suppliers.join(', ')}` : '아직 이 국가로 지정한 원사 없음'}
+                      </span>
+                      <button type="button" onClick={() => removeCountry(i)} title={u.yarns > 0 ? '사용 중이라 삭제할 수 없어요' : '이 국가 삭제'} className={`ml-auto ${u.yarns > 0 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-300 hover:text-red-500'}`}><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                    <BracketEditor
+                      rows={c.brackets} valueKey="perKg" unit="kg" valueUnit="원/kg" money strict allLabel="모든 원사 kg"
+                      onChange={v => setListItem('importCountries', i, 'brackets', v)}
+                    />
+                  </div>
+                );
+              })}
+              <button type="button" onClick={addCountry} className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100">
+                <Plus className="w-3.5 h-3.5" /> 국가 추가
+              </button>
+              <p className="text-[10px] text-slate-400">새 국가는 첫 번째 국가 구간을 복사해서 시작해요. 수입 국가를 비워 둔 원사는 중국 기준으로 계산돼요.</p>
+            </Section>
+          </div>
 
           {/* 미리보기 */}
           <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-3">

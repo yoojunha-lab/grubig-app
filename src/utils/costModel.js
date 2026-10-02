@@ -10,6 +10,7 @@
 //   3) 편직 LOSS% = 생지 kg가 속한 구간의 % (설정, 'N kg 이하' 구간)
 //   4) 원사 kg    = 생지 kg × (1 + 편직 LOSS% ÷ 100)
 //   5) 재료비     = 원사 kg × 원사 단가(혼용 가중. 내수=관세포함 / 수출=관세제외)
+//                  + 수입 원사 운반비 = 그 원사 kg(원사 kg × 혼용률) × 수입 국가 kg 구간의 kg당 금액 (설정)
 //   6) 편직비     = max(난이도 정액, 생지 kg × kg단가)   ← 택시 기본요금 방식
 //   7) 염가공비   = 가공지 kg × 염가공료,  후가공비 = 가공지 kg × 후가공료
 //   8) 이화학     = 컬러수(수량 구간) × 1컬러당 검사비,  운임 = 수량 구간 금액(오더당),  외관검사 = YD당 단가 × 수량
@@ -18,10 +19,10 @@
 //
 // ■ settings 인자는 항상 resolveCostSettings() 결과(빈 칸이 기본값으로 채워진 설정)를 넘긴다.
 
-import { calculateGYd, smartRound } from './helpers';
+import { calculateGYd, smartRound, num } from './helpers';
 import {
   DEFAULT_COST_SETTINGS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, DEFAULT_KNIT_KG_RATE,
-  COST_DISPLAY_TIERS, LEGACY_ETC_IDS, LEGACY_ETC_NAMES,
+  DEFAULT_IMPORT_COUNTRY_ID, COST_DISPLAY_TIERS, LEGACY_ETC_IDS, LEGACY_ETC_NAMES,
 } from '../constants/costing';
 
 const toNum = (v, fallback = 0) => {
@@ -76,6 +77,7 @@ export const resolveCostSettings = (raw) => {
   const d = DEFAULT_COST_SETTINGS;
   const pickList = (v, fallback) => (Array.isArray(v) && v.length ? v : fallback);
   const chem = (r.chemTest && typeof r.chemTest === 'object') ? r.chemTest : {};
+  const defaultImportBrackets = d.importCountries[0].brackets;
 
   return {
     knitGrades: uniqById(pickList(r.knitGrades, d.knitGrades).map((g, i) => {
@@ -102,6 +104,15 @@ export const resolveCostSettings = (raw) => {
     },
     freightBrackets: normalizeBrackets(pickList(r.freightBrackets, d.freightBrackets), 'amount'),
     visualInspectionPerYd: Math.max(0, toNum(isBlank(r.visualInspectionPerYd) ? d.visualInspectionPerYd : r.visualInspectionPerYd)),
+    // 수입 원사 운반비 — 국가별 kg 구간 ('N kg 미만'). 구간이 비면 기본(중국) 구간으로
+    importCountries: uniqById(pickList(r.importCountries, d.importCountries).map((c, i) => {
+      const id = String(c?.id || `ic_${i}`);
+      return {
+        id,
+        name: String(c?.name ?? '').trim() || id,
+        brackets: normalizeBrackets(pickList(c?.brackets, defaultImportBrackets), 'perKg'),
+      };
+    })),
     updatedAt: String(r.updatedAt || ''),
     updatedBy: String(r.updatedBy || ''),
   };
@@ -111,12 +122,15 @@ export const resolveCostSettings = (raw) => {
 // 2. 설정 조회 (구간 / 등급 / 유형)
 // ----------------------------------------------------------------------
 
-/** 값이 속한 구간 ('max 이하' 규칙, 마지막 max=null 은 '초과' 구간). 목록이 비면 null */
-export const pickBracket = (brackets, value) => {
+/**
+ * 값이 속한 구간 ('max 이하' 규칙, 마지막 max=null 은 '초과' 구간). 목록이 비면 null
+ *  · strict: true 면 'max 미만' 규칙 (마지막은 '이상' 구간) — 수입 원사 운반비
+ */
+export const pickBracket = (brackets, value, { strict = false } = {}) => {
   const list = Array.isArray(brackets) ? brackets : [];
   if (list.length === 0) return null;
   const v = toNum(value);
-  return list.find(b => isBlank(b.max) || v <= Number(b.max)) || list[list.length - 1];
+  return list.find(b => isBlank(b.max) || (strict ? v < Number(b.max) : v <= Number(b.max))) || list[list.length - 1];
 };
 
 /** 편직 난이도 — 없거나 삭제된 id면 기본(A) → 첫 번째 등급 */
@@ -147,6 +161,42 @@ export const getChemColors = (settings, qty) => toNum(pickBracket(settings?.chem
 
 /** 운임 오더 총액 — 오더 수량(YD) 기준 */
 export const getFreightAmount = (settings, qty) => toNum(pickBracket(settings?.freightBrackets, qty)?.amount);
+
+/** 원사 공급처가 수입사인지 (원사 라이브러리 공급처 줄의 [수입] 체크) */
+export const isImportSupplier = (sup) => sup?.isImport === true;
+
+/** 수입 국가 — 없거나 삭제된 id면 기본(중국) → 첫 번째 국가 */
+export const findImportCountry = (settings, countryId) => {
+  const list = settings?.importCountries || [];
+  const want = String(countryId || DEFAULT_IMPORT_COUNTRY_ID);
+  return list.find(c => c.id === want)
+    || list.find(c => c.id === DEFAULT_IMPORT_COUNTRY_ID)
+    || list[0]
+    || DEFAULT_COST_SETTINGS.importCountries[0];
+};
+
+/** 수입 원사 운반비 (원/kg) — 그 원사의 오더 투입 kg가 속한 구간 ('N kg 미만' 규칙) */
+export const getImportFreightPerKg = (settings, countryId, yarnKg) =>
+  toNum(pickBracket(findImportCountry(settings, countryId).brackets, yarnKg, { strict: true })?.perKg);
+
+/** 국가 구간의 kg당 운반비 최저·최고 — 원사 라이브러리 목록의 범위 표시용 */
+export const getImportFreightRange = (settings, countryId) => {
+  const values = (findImportCountry(settings, countryId).brackets || []).map(b => toNum(b.perKg));
+  return values.length ? { min: Math.min(...values), max: Math.max(...values) } : { min: 0, max: 0 };
+};
+
+/** 국가 구간을 화면용 문구로 → [{ label: '300kg 미만' | '300~1,000kg' | '2,000kg 이상', perKg }] */
+export const describeImportBrackets = (country) => {
+  const list = Array.isArray(country?.brackets) ? country.brackets : [];
+  return list.map((b, i) => {
+    const prev = i > 0 ? list[i - 1].max : null;
+    let label;
+    if (isBlank(b.max)) label = isBlank(prev) ? '모든 kg' : `${num(prev)}kg 이상`;
+    else if (isBlank(prev)) label = `${num(b.max)}kg 미만`;
+    else label = `${num(prev)}~${num(b.max)}kg`;
+    return { label, perKg: toNum(b.perKg) };
+  });
+};
 
 // ----------------------------------------------------------------------
 // 3. 품목 값 정리 (기존 품목 호환)
@@ -210,6 +260,8 @@ export const normalizeExtraCosts = (etcCosts) => (Array.isArray(etcCosts) ? etcC
 /**
  * 원사 배합 → 라인별 kg당 금액(단가 × 혼용률). 내수 = 관세포함, 수출 = 관세제외.
  * 가설계서 전용 priceOverride(직접 입력 단가, 원/kg)가 있으면 내수·수출 동일하게 그 값을 쓴다.
+ * 수입사 원사(isImport)는 운반비를 빼고 담는다 — 운반비가 그 원사 kg 구간으로 정해져서 수량별로
+ * costAtQty 에서 더함. 그래서 perKgDomestic/perKgExport 에도 수입 원사 운반비는 빠져 있다.
  */
 export const buildMaterialLines = (yarns, yarnLibrary, exchangeRate) => {
   const lines = [];
@@ -225,7 +277,7 @@ export const buildMaterialLines = (yarns, yarnLibrary, exchangeRate) => {
     if (!isBlank(slot.priceOverride) && Number.isFinite(overrideNum) && overrideNum > 0) {
       const w = overrideNum * ratio;
       perKgDomestic += w; perKgExport += w;
-      lines.push({ name: '단가 직접입력', wDomestic: w, wExport: w });
+      lines.push({ name: '단가 직접입력', supplierName: '', wDomestic: w, wExport: w, ratio, isImport: false, importCountry: '' });
       return;
     }
     if (!slot.yarnId) return;
@@ -235,13 +287,17 @@ export const buildMaterialLines = (yarns, yarnLibrary, exchangeRate) => {
     if (!yarn) { missingYarnIds.push(realYarnId); return; } // 라이브러리에서 사라진 사종 — 경고 배너용
     const sup = yarn.suppliers?.find(s => s.isDefault) || yarn.suppliers?.[0];
     if (!sup) return;
+    const isImport = isImportSupplier(sup);
     const priceInKrw = sup.currency === 'USD' ? Number(sup.price || 0) * exchangeRate : Number(sup.price || 0);
     const tariffAmt = priceInKrw * ((Number(sup.tariff) || 0) / 100);
-    const freightAmt = Number(sup.freight) || 0;
+    const freightAmt = isImport ? 0 : (Number(sup.freight) || 0); // 수입사는 kg 구간 운반비 (costAtQty)
     const wDom = (priceInKrw + tariffAmt + freightAmt) * ratio; // 관세는 내수만
     const wExp = (priceInKrw + freightAmt) * ratio;             // 수출은 관세 제외
     perKgDomestic += wDom; perKgExport += wExp;
-    lines.push({ name: yarn.name || '원사', wDomestic: wDom, wExport: wExp });
+    lines.push({
+      name: yarn.name || '원사', supplierName: String(sup.name || ''), wDomestic: wDom, wExport: wExp,
+      ratio, isImport, importCountry: isImport ? String(sup.importCountry || '') : '',
+    });
   });
   return { lines, missingYarnIds, perKgDomestic, perKgExport };
 };
@@ -296,6 +352,7 @@ const emptyTier = (qty = 0) => ({
   chem: { colors: 0, feePerColor: 0, total: 0 },
   freight: { total: 0 },
   visual: { perYd: 0, total: 0 },
+  importFreight: { lines: [], total: 0 },
   domestic: emptyMode(),
   export: emptyMode(),
   requiredKg: 0,
@@ -320,9 +377,24 @@ const costAtQty = (p, qtyRaw) => {
   const freightTotal = getFreightAmount(s, qty);
   const visualTotal = s.visualInspectionPerYd * qty;
 
+  // ── 수입 원사 운반비: 원사마다 그 원사 kg(원사 kg × 혼용률)가 속한 수입 국가 구간의 kg당 금액 ──
+  //   수량이 바뀌면 kg가 바뀌어 구간도 바뀜 → 1K/3K/5K·임의 수량 모두 여기서 자동 반영
+  const lineFreight = p.lines.map(m => {
+    if (!m.isImport) return null;
+    const kg = yarnKg * m.ratio;
+    const country = findImportCountry(s, m.importCountry);
+    const perKg = getImportFreightPerKg(s, country.id, kg);
+    return { name: m.name, supplierName: m.supplierName, countryId: country.id, countryName: country.name, kg, perKg, total: kg * perKg };
+  });
+  const importFreightLines = lineFreight.filter(Boolean);
+  const importFreightTotal = importFreightLines.reduce((sum, f) => sum + f.total, 0);
+
   // 한 모드(내수/수출)의 YD당 라인 (원화). 중간 반올림 없음.
   const build = (useExport) => {
-    const material = p.lines.map(m => ({ name: m.name, amt: (useExport ? m.wExport : m.wDomestic) * yarnKg / qty }));
+    const material = p.lines.map((m, i) => ({
+      name: m.name,
+      amt: ((useExport ? m.wExport : m.wDomestic) * yarnKg + (lineFreight[i]?.total || 0)) / qty,
+    }));
     const knitLines = [{ key: 'knit', name: '편직비', amt: knit.total / qty }];
     const proc = [
       { key: 'dye', name: '염가공료', amt: p.dyeingFee * finishedKg / qty },
@@ -365,6 +437,8 @@ const costAtQty = (p, qtyRaw) => {
     chem: { colors, feePerColor: s.chemTest.feePerColor, total: chemTotal },
     freight: { total: freightTotal },
     visual: { perYd: s.visualInspectionPerYd, total: visualTotal },
+    // 수입 원사 운반비 (원화, 오더 총액) — 재료비에 이미 포함. 화면 표시용 내역
+    importFreight: { lines: importFreightLines, total: importFreightTotal },
     domestic: {
       yarnCostYd: dom.matSub, knitCostYd: dom.knitSub, dyeCostYd: dom.procSub, extraFeeYd: dom.etcSub,
       totalCostYd: domTotal, riskAmtYd: domFinal - domTotal, finalCostYd: domFinal,
@@ -401,12 +475,13 @@ export const computeCostAtQty = (fabric, qty, ctx = {}) => {
  */
 export const calculateCostTiers = (fabric, ctx = {}) => {
   if (!fabric || !fabric.yarns) {
-    const empty = { avgYarnCostDomestic: 0, avgYarnCostExport: 0, effectiveGYd: 0, theoreticalGYd: 0, ydPerKg: 0, missingYarnIds: [], processLossPct: 0, finishingLossPct: 0, knitKgRate: 0 };
+    const empty = { avgYarnCostDomestic: 0, avgYarnCostExport: 0, effectiveGYd: 0, theoreticalGYd: 0, ydPerKg: 0, missingYarnIds: [], processLossPct: 0, finishingLossPct: 0, knitKgRate: 0, hasImportFreight: false };
     COST_DISPLAY_TIERS.forEach(t => { empty[t.key] = emptyTier(t.qty); });
     return empty;
   }
   const p = prepareCost(fabric, ctx);
   const out = {
+    // 원사 단가(혼용 가중) — 수입 원사 운반비(수량별 kg 구간)는 빠진 값
     avgYarnCostDomestic: Math.round(p.perKgDomestic), avgYarnCostExport: Math.round(p.perKgExport),
     effectiveGYd: p.effectiveGYd, theoreticalGYd: p.theoreticalGYd,
     ydPerKg: p.weightPerYdKg > 0 ? 1 / p.weightPerYdKg : 0,
@@ -414,6 +489,7 @@ export const calculateCostTiers = (fabric, ctx = {}) => {
     knitGrade: p.grade, processType: p.processType,
     processLossPct: p.processLossPct, finishingLossPct: p.finishingLossPct,
     knitKgRate: p.knitKgRate,
+    hasImportFreight: p.lines.some(m => m.isImport),
   };
   COST_DISPLAY_TIERS.forEach(t => { out[t.key] = costAtQty(p, t.qty); });
   return out;

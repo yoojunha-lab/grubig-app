@@ -1,6 +1,7 @@
 import React from 'react';
 import { History, Edit2, Trash2, Info } from 'lucide-react';
 import { num, usd } from '../../utils/helpers';
+import { isImportSupplier, findImportCountry, getImportFreightRange } from '../../utils/costModel';
 
 export const MobileYarnCard = React.memo(({
   y,
@@ -8,7 +9,8 @@ export const MobileYarnCard = React.memo(({
   handleEditYarn,
   handleDeleteYarn,
   yarnLibrary,
-  setYarnLibrary
+  setYarnLibrary,
+  costSettings = null, // 수입 원사 운반비 구간 (원가 설정)
 }) => {
   const defSup = y.suppliers?.find(s => s.isDefault) || y.suppliers?.[0] || {};
   // Number()로 명시적 변환 — Firestore에서 문자열로 올 수 있음
@@ -16,7 +18,11 @@ export const MobileYarnCard = React.memo(({
   const rate = Number(globalExchangeRate) || 1450;
   const convertedPrice = defSup.currency === 'USD' ? rawPrice * rate : rawPrice;
   const tariffAmt = convertedPrice * (Number(defSup.tariff || 0) / 100);
-  const freightAmt = Number(defSup.freight) || 0;
+  // 수입사는 운반비가 원사 kg 구간(원가 설정 · 국가별) → 운반비·내수 단가를 범위로 표시
+  const isImport = isImportSupplier(defSup);
+  const importCountry = isImport ? findImportCountry(costSettings, defSup.importCountry) : null;
+  const importRange = isImport ? getImportFreightRange(costSettings, importCountry.id) : null;
+  const freightAmt = isImport ? 0 : (Number(defSup.freight) || 0);
   // 관세는 내수(Dom)에만 포함, 수출(Export)에는 미포함
   const domPrice = Math.round(convertedPrice + tariffAmt + freightAmt);
   // 대표 공급처 기준 최종 단가 수정일 (history[0] = 최신, 없으면 원사 updatedAt 폴백)
@@ -58,6 +64,7 @@ export const MobileYarnCard = React.memo(({
             {y.suppliers?.map((s) => (
               <span key={s.id} className="inline-block uppercase text-[11px]">
                 {s.isDefault ? <strong className="text-blue-600 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5 shadow-sm">[{s.name}]</strong> : <span className="text-slate-500 bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5">{s.name}</span>}
+                {isImportSupplier(s) && <span className="ml-0.5 text-[9px] font-bold text-emerald-700">수입</span>}
               </span>
             ))}
           </div>
@@ -87,11 +94,22 @@ export const MobileYarnCard = React.memo(({
           <div className="flex justify-between items-end">
             <div className="flex flex-col gap-1 text-[11px] font-medium text-slate-500">
               <div className="flex justify-between w-24"><span className="text-slate-400">관세(Tariff)</span><span>{defSup.tariff || 0}%</span></div>
-              <div className="flex justify-between w-24"><span className="text-slate-400">부대(Freight/kg)</span><span className="text-emerald-600">￦{num(freightAmt)}</span></div>
+              {isImport ? (
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-1.5"><span className="text-slate-400">운반비</span><span className="text-emerald-600 font-bold font-mono">￦{num(importRange.min)}~{num(importRange.max)}</span></div>
+                  <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-1 rounded w-fit">수입 · {importCountry.name} kg 구간</span>
+                </div>
+              ) : (
+                <div className="flex justify-between w-24"><span className="text-slate-400">부대(Freight/kg)</span><span className="text-emerald-600">￦{num(freightAmt)}</span></div>
+              )}
             </div>
             <div className="text-right">
               <div className="text-[10px] font-bold text-blue-500 mb-0.5">최종 내수전환 단가 (/kg)</div>
-              <div className="font-mono font-extrabold text-[17px] text-blue-700 leading-none">￦{num(domPrice)}</div>
+              {isImport ? (
+                <div className="font-mono font-extrabold text-[14px] text-blue-700 leading-none whitespace-nowrap">￦{num(domPrice + importRange.min)}~{num(domPrice + importRange.max)}</div>
+              ) : (
+                <div className="font-mono font-extrabold text-[17px] text-blue-700 leading-none">￦{num(domPrice)}</div>
+              )}
             </div>
           </div>
 
@@ -114,5 +132,7 @@ export const MobileYarnCard = React.memo(({
 }, (prevProps, nextProps) => {
   return prevProps.y === nextProps.y &&
          prevProps.globalExchangeRate === nextProps.globalExchangeRate &&
-         prevProps.yarnLibrary === nextProps.yarnLibrary;
+         prevProps.yarnLibrary === nextProps.yarnLibrary &&
+         // 원가 설정(수입 운반비 구간)이 바뀌면 운반비·내수 단가 범위가 달라지므로 재렌더
+         prevProps.costSettings === nextProps.costSettings;
 });

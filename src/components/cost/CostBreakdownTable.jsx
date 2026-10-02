@@ -2,7 +2,7 @@ import React from 'react';
 import { Plus, Trash2, Settings } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { num, calculateGYd, clampNum, fmtMan as man } from '../../utils/helpers';
-import { normalizeExtraCosts, findKnitGrade, findProcessType } from '../../utils/costModel';
+import { normalizeExtraCosts, findKnitGrade, findProcessType, isImportSupplier, findImportCountry } from '../../utils/costModel';
 import { COST_DISPLAY_TIERS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, KNIT_FEE_MODE_LABEL } from '../../constants/costing';
 
 /**
@@ -11,6 +11,7 @@ import { COST_DISPLAY_TIERS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, KNI
  * · 생지 kg = 가공지 kg × (1 + 가공 LOSS%) → 편직 LOSS% = 생지 kg 구간 → 원사 kg = 생지 kg × (1 + 편직 LOSS%)
  * · 재료비 = 원사 kg × 원사 단가,  편직비 = max(난이도 정액, 생지 kg × kg단가)
  * · 염가공·후가공 = 가공지 kg × 원/kg,  이화학·운임 = 오더 총액 ÷ 수량,  외관검사 = YD당 (원가 설정)
+ * · 수입 원사 운반비 = 그 원사 kg × 수입 국가 kg 구간 단가 → 재료비에 포함 (③ 표에 적용 구간 표시)
  * · 판매마진/Brand 없음(영업/견적에서 결정). '위험 마진(%)'만 가산 → 영업 기준원가. 반올림은 최종에서만.
  *
  * props: cost, yarns, calc, viewMode, yarnSelectOptions, yarnLibrary, globalExchangeRate, setCost(fn), setYarns(fn),
@@ -35,18 +36,34 @@ export const CostBreakdownTable = ({
   const gYd = calc?.effectiveGYd || calculateGYd(Number(cost.gsm || 0), Number(cost.widthFull || 0));
   const weightYd = gYd / 1000;
 
-  const unitLandedKRW = (slot) => {
-    if (!slot) return 0;
-    const ov = Number(slot.priceOverride);
-    if (slot.priceOverride !== '' && slot.priceOverride != null && Number.isFinite(ov) && ov > 0) return ov;
+  const hasOverride = (slot) => {
+    const ov = Number(slot?.priceOverride);
+    return slot?.priceOverride !== '' && slot?.priceOverride != null && Number.isFinite(ov) && ov > 0;
+  };
+  // 원사 슬롯 → 라이브러리 원사의 대표 공급처 (단가 직접입력이면 null)
+  const slotSupplier = (slot) => {
+    if (!slot || hasOverride(slot)) return null;
     const id = String(slot.yarnId || '').split('::')[0];
     const yarn = (yarnLibrary || []).find(y => String(y.id) === String(id));
-    const sup = yarn?.suppliers?.find(s => s.isDefault) || yarn?.suppliers?.[0];
+    return yarn?.suppliers?.find(s => s.isDefault) || yarn?.suppliers?.[0] || null;
+  };
+  const unitLandedKRW = (slot) => {
+    if (!slot) return 0;
+    if (hasOverride(slot)) return Number(slot.priceOverride);
+    const sup = slotSupplier(slot);
     if (!sup) return 0;
     const priceKRW = sup.currency === 'USD' ? Number(sup.price || 0) * rate : Number(sup.price || 0);
     const tariff = isExport ? 0 : priceKRW * ((Number(sup.tariff) || 0) / 100);
-    return priceKRW + tariff + (Number(sup.freight) || 0);
+    // 수입사 원사는 운반비가 원사 kg 구간이라 여기선 빼고, ③ 구간별 표(재료비)에서 수량별로 더함
+    const freight = isImportSupplier(sup) ? 0 : (Number(sup.freight) || 0);
+    return priceKRW + tariff + freight;
   };
+  // 수입사 원사면 수입 국가 이름, 아니면 ''
+  const slotImportCountry = (slot) => {
+    const sup = slotSupplier(slot);
+    return sup && isImportSupplier(sup) ? findImportCountry(costSettings, sup.importCountry).name : '';
+  };
+  const hasImportSlot = (yarns || []).some(slot => Number(slot?.ratio) > 0 && slotImportCountry(slot));
   const toView = (krw) => isExport ? (krw / rate) : krw;
   // 혼용 금액/kg = 단가 × 혼용률 (LOSS 전). 수량별 LOSS는 아래 구간별 표에서 원사 kg로 반영
   const rowAmt = (slot) => toView(unitLandedKRW(slot) * (Number(slot?.ratio) || 0) / 100);
@@ -172,7 +189,10 @@ export const CostBreakdownTable = ({
           <div key={i} className="grid grid-cols-[2.4fr_0.8fr_1.1fr_1.1fr_0.3fr] gap-2 items-center mb-1.5">
             <SearchableSelect value={slot.yarnId} options={yarnSelectOptions} onChange={(id) => setYarn(i, 'yarnId', id)} placeholder="원사 검색..." />
             <input type="number" value={slot.ratio || ''} onChange={(e) => setYarn(i, 'ratio', e.target.value)} className={inCls} placeholder="0" />
-            <div className="text-right text-sm font-mono text-slate-500">{sym}{fmt(toView(unitLandedKRW(slot)))}</div>
+            <div className="text-right text-sm font-mono text-slate-500">
+              {sym}{fmt(toView(unitLandedKRW(slot)))}
+              {slotImportCountry(slot) && <div className="text-[10px] font-sans font-bold text-emerald-600 leading-tight">+ {slotImportCountry(slot)} 운반비 (kg 구간)</div>}
+            </div>
             <div className="text-right text-sm font-mono font-bold text-slate-800">{sym}{fmt(rowAmt(slot))}</div>
             <div className="text-center">{(yarns || []).length > 1 && <button type="button" onClick={() => removeYarn(i)} className="text-slate-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>}</div>
           </div>
@@ -180,7 +200,11 @@ export const CostBreakdownTable = ({
         <div className="flex justify-end items-baseline gap-2 text-sm font-bold text-slate-600 mt-1.5 pr-9">
           원사 단가 (혼용 가중): <span className="font-mono text-slate-900 text-base">{sym}{fmt(perKgYarn)} / kg</span>
         </div>
-        <div className="text-right text-[11px] text-slate-400 pr-9">LOSS는 아래 표에서 수량별 원사 투입 kg로 반영돼요</div>
+        <div className="text-right text-[11px] text-slate-400 pr-9">
+          {hasImportSlot
+            ? 'LOSS와 수입 원사 운반비(원사 kg 구간)는 아래 표에서 수량별로 반영돼요'
+            : 'LOSS는 아래 표에서 수량별 원사 투입 kg로 반영돼요'}
+        </div>
       </div>
       )}
 
@@ -274,6 +298,25 @@ export const CostBreakdownTable = ({
           {!compact && ValueRow({ label: '원사 투입 kg', info: true, render: (tk) => <>{num(tier(tk).kg?.yarn)} kg</> })}
 
           {ValueRow({ label: '재료비 / yd (LOSS 포함)', get: (tk) => tv(tk).yarnCostYd, accent: true })}
+          {/* 수입 원사 운반비 — 재료비에 이미 포함. 수량마다 그 원사 kg로 정해진 구간 단가를 보여줌 */}
+          {calc?.hasImportFreight && ValueRow({
+            label: '└ 수입 원사 운반비 (원/kg · 재료비 포함)', info: true,
+            render: (tk) => {
+              const lines = tier(tk).importFreight?.lines || [];
+              if (lines.length === 0) return <span className="text-slate-300">-</span>;
+              return <>{lines.map(l => num(l.perKg)).join(' · ')}</>;
+            },
+            // 수입 원사가 하나면 '중국 · 원사 450kg', 여러 개면 원사 이름으로 구분 ('2/48 WOOL 280kg / POLY 75D 187kg')
+            sub: (tk) => {
+              const lines = tier(tk).importFreight?.lines || [];
+              return lines.length > 1
+                ? lines.map(l => `${l.name} ${num(l.kg)}kg`).join(' / ')
+                : lines.map(l => `${l.countryName} · 원사 ${num(l.kg)}kg`).join('');
+            },
+            title: (tk, t) => (tier(tk).importFreight?.lines || [])
+              .map(l => `${l.name}${l.supplierName ? ` [${l.supplierName}]` : ''} · ${l.countryName}: 원사 ${num(l.kg)}kg → ${num(l.perKg)}원/kg = ${num(l.total)}원 (YD당 ${num(l.total / t.qty)}원)`)
+              .join('\n'),
+          })}
           {ValueRow({
             label: '편직비 / yd', get: (tk) => tv(tk).knitCostYd, accent: true,
             sub: (tk) => `${KNIT_FEE_MODE_LABEL[tier(tk).knit?.mode] || ''} · ${man(tier(tk).knit?.total)}`,

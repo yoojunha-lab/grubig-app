@@ -32,7 +32,7 @@ import { useProformaInvoice } from '../hooks/domains/useProformaInvoice';
 import { usePartner } from '../hooks/domains/usePartner';
 import { useLabdip } from '../hooks/domains/useLabdip';
 import { calcQuotePrice, getQuoteValidUntil } from '../utils/helpers';
-import { resolveCostSettings, findKnitGrade, findProcessType, resolveKnitKgRate } from '../utils/costModel';
+import { resolveCostSettings, findKnitGrade, findProcessType, resolveKnitKgRate, isImportSupplier, findImportCountry } from '../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
@@ -98,12 +98,17 @@ const App = () => {
   const [selectedPIForPrint, setSelectedPIForPrint] = useState(null);
   const [piSettings, setPiSettings] = useState(null);            // PI 은행정보/약관 설정 (settings/general.piSettings)
   const [isPISettingsOpen, setIsPISettingsOpen] = useState(false);
-  // 원가 설정 (settings/general.costSettings) — 편직 정액·LOSS 구간·가공 유형·이화학·운임·외관검사
+  // 원가 설정 (settings/general.costSettings) — 편직 정액·LOSS 구간·가공 유형·이화학·운임·외관검사·수입 원사 운반비
   //   저장값이 없거나 일부 빠져도 resolveCostSettings가 기본값으로 채움 → 계산·화면은 항상 완전한 설정을 받음
   const [costSettingsRaw, setCostSettingsRaw] = useState(null);
   const costSettings = useMemo(() => resolveCostSettings(costSettingsRaw), [costSettingsRaw]);
   const [isCostSettingsOpen, setIsCostSettingsOpen] = useState(false);
-  const openCostSettings = () => setIsCostSettingsOpen(true);
+  const [costSettingsFocus, setCostSettingsFocus] = useState(null); // 'importFreight' → 수입 원사 운반비로 스크롤
+  // onClick={openCostSettings} 처럼 버튼에 바로 붙이면 클릭 이벤트가 넘어오므로 문자열일 때만 focus로 씀
+  const openCostSettings = (focus) => {
+    setCostSettingsFocus(typeof focus === 'string' ? focus : null);
+    setIsCostSettingsOpen(true);
+  };
   const [labdips, setLabdips] = useState([]);
   const [selectedLabdipForPrint, setSelectedLabdipForPrint] = useState(null);
   const [partners, setPartners] = useState([]);
@@ -296,6 +301,14 @@ const App = () => {
   };
   // 일괄 저장: 성공 true / 실패 false 반환 (호출자가 후처리 분기 가능)
   const saveBatchToCloud = async (colName, items) => {
+    if (DEV_BYPASS) {
+      // DEV 우회: 실제 Firestore 대신 로컬 state만 (id 같은 문서는 교체)
+      const setter = DEV_LOCAL_SETTERS[colName];
+      const ids = new Set((items || []).map(x => String(x.id)));
+      if (setter) setter(prev => [...prev.filter(x => !ids.has(String(x.id))), ...items]);
+      setSyncStatus('saved');
+      return true;
+    }
     setSyncStatus('syncing');
     try {
       await saveBatchDocuments(colName, items);
@@ -347,7 +360,7 @@ const App = () => {
     yarnInput, setYarnInput, editingYarnId,
     handleSaveYarn, handleEditYarn, handleDeleteYarn, resetYarnForm,
     handleAddSupplier, handleRemoveSupplier, handleSupplierChange, handleDeleteHistoryItem
-  } = useYarn(yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast, designSheets);
+  } = useYarn(yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast, designSheets, costSettings);
 
   const {
     quoteInput, setQuoteInput, handleQuoteSettingChange, createQuoteItem,
@@ -582,8 +595,13 @@ const App = () => {
 
   const handleBackupYarns = () => {
     if (!isXlsxReady) return;
+    // Import: 수입사 'Y' / ImportCountry: 수입 국가 이름 (원가 설정) — 원사 엑셀 등록 양식과 같은 열
     const dataToExport = yarnLibrary.flatMap(y =>
-      (y.suppliers || []).map(s => ({ Category: y.category, Name: y.name, Supplier: s.name, Currency: s.currency, Price: s.price, Tariff: s.tariff, Freight: s.freight || 0, IsDefault: s.isDefault ? 'Y' : '', Remarks: y.remarks }))
+      (y.suppliers || []).map(s => ({
+        Category: y.category, Name: y.name, Supplier: s.name, Currency: s.currency, Price: s.price, Tariff: s.tariff, Freight: s.freight || 0,
+        Import: isImportSupplier(s) ? 'Y' : '', ImportCountry: isImportSupplier(s) ? findImportCountry(costSettings, s.importCountry).name : '',
+        IsDefault: s.isDefault ? 'Y' : '', Remarks: y.remarks,
+      }))
     );
     const ws = window.XLSX.utils.json_to_sheet(dataToExport); const wb = window.XLSX.utils.book_new();
     window.XLSX.utils.book_append_sheet(wb, ws, "원사백업"); window.XLSX.writeFile(wb, `Yarn_Backup_${new Date().toLocaleDateString()}.xlsx`);
@@ -711,10 +729,12 @@ const App = () => {
     reader.readAsBinaryString(e.target.files[0]);
   };
 
-  const YARN_EXCEL_HEADERS = ['Category', 'Name', 'Supplier', 'Currency', 'Price', 'Tariff', 'Freight', 'Remarks'];
+  // Import: 수입사면 'Y' (운반비는 원가 설정의 국가별 kg 구간 → Freight 열은 수입 해제 시에만 사용)
+  // ImportCountry: 수입 국가 이름 (원가 설정) — 비우면 기본 국가(중국). 예전 양식(두 열 없음)은 모두 국내로 등록
+  const YARN_EXCEL_HEADERS = ['Category', 'Name', 'Supplier', 'Currency', 'Price', 'Tariff', 'Freight', 'Import', 'ImportCountry', 'Remarks'];
   const handleDownloadYarnTemplate = () => {
     if (!isXlsxReady) return;
-    const ws = window.XLSX.utils.aoa_to_sheet([YARN_EXCEL_HEADERS, ['소모', '2/48 WOOL', 'XINAO', 'KRW', 18000, 8, 2, 'Standard']]);
+    const ws = window.XLSX.utils.aoa_to_sheet([YARN_EXCEL_HEADERS, ['소모', '2/48 WOOL', 'XINAO', 'KRW', 18000, 8, 0, 'Y', '중국', 'Standard']]);
     const wb = window.XLSX.utils.book_new();
     window.XLSX.utils.book_append_sheet(wb, ws, "원사일괄등록");
     window.XLSX.writeFile(wb, '원사등록_양식.xlsx', { bookType: 'xlsx', type: 'binary' });
@@ -729,15 +749,29 @@ const App = () => {
         if (data.length === 0) { showToast('데이터가 없습니다.', 'error'); return; }
 
         const groupedYarns = {};
+        const defaultCountry = findImportCountry(costSettings); // 기본 수입 국가 (중국)
+        const unknownCountries = new Set();
         data.forEach((row, idx) => {
           if (!row.Name) return;
           const name = String(row.Name).trim().toUpperCase();
           if (!groupedYarns[name]) {
             groupedYarns[name] = { id: `y${Date.now()}_${idx}`, category: row.Category ? String(row.Category).toUpperCase() : '소모', name: name, remarks: String(row.Remarks || ''), suppliers: [] };
           }
+          // 수입사(Import = Y) — 수입 국가는 이름으로 찾고, 비었거나 모르는 이름이면 기본 국가
+          const isImport = ['Y', 'YES', '수입'].includes(String(row.Import ?? '').trim().toUpperCase());
+          let importCountry = '';
+          if (isImport) {
+            const countryKey = String(row.ImportCountry ?? '').trim().toUpperCase();
+            const hit = countryKey
+              ? costSettings.importCountries.find(c => c.name.trim().toUpperCase() === countryKey || c.id.toUpperCase() === countryKey)
+              : null;
+            if (countryKey && !hit) unknownCountries.add(String(row.ImportCountry).trim());
+            importCountry = (hit || defaultCountry).id;
+          }
           groupedYarns[name].suppliers.push({
             id: `sup_${Date.now()}_${idx}`, name: row.Supplier ? String(row.Supplier).toUpperCase() : '기본업체', currency: String(row.Currency || 'KRW'), price: Number(row.Price) || 0,
             tariff: row.Tariff !== undefined ? Number(row.Tariff) : 8, freight: row.Freight !== undefined ? Number(row.Freight) : 0,
+            isImport, ...(isImport ? { importCountry } : {}),
             history: [{ date: new Date().toLocaleDateString(), price: Number(row.Price) || 0 }],
             isDefault: groupedYarns[name].suppliers.length === 0
           });
@@ -749,7 +783,11 @@ const App = () => {
         if (!ok) return;
         setYarnLibrary([...newYarns, ...yarnLibrary]);
         setIsYarnBulkModalOpen(false);
-        showToast(`${newYarns.length}건의 원사가 등록되었습니다.`, 'success');
+        if (unknownCountries.size > 0) {
+          alert(`✅ ${newYarns.length}건의 원사가 등록되었습니다.\n\n⚠️ 원가 설정에 없는 수입 국가는 '${defaultCountry.name}'(으)로 등록했습니다:\n${[...unknownCountries].join(', ')}\n\n국가를 추가하려면 원가 설정 → 7. 수입 원사 운반비에서 [국가 추가] 후 원사의 수입 국가를 바꿔 주세요.`);
+        } else {
+          showToast(`${newYarns.length}건의 원사가 등록되었습니다.`, 'success');
+        }
         if (yarnFileInputRef.current) yarnFileInputRef.current.value = '';
       } catch (err) { alert(`엑셀 업로드 중 오류가 발생했습니다: ${err.message}`); }
     };
@@ -1090,6 +1128,9 @@ const App = () => {
             setActiveMasterModal={setActiveMasterModal}
             yarnPage={yarnPage}
             setYarnPage={setYarnPage}
+            costSettings={costSettings}
+            onOpenCostSettings={openCostSettings}
+            saveBatchToCloud={saveBatchToCloud}
           />
         )}
 
@@ -1394,7 +1435,7 @@ const App = () => {
 
         {/* 모달 3종 (엑셀 업로드 2 + 카테고리 관리) */}
         {isBulkModalOpen && (<div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4"><div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 relative"><button onClick={() => setIsBulkModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6" /></button><h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><FileSpreadsheet className="w-6 h-6 text-emerald-600" /> 원단 엑셀 일괄 등록</h3><div className="space-y-4"><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">1. 양식 다운로드 (원사정보 포함됨)</p><button onClick={handleDownloadTemplate} className="w-full flex justify-center items-center gap-2 bg-white border border-slate-300 py-2 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><Download className="w-4 h-4" /> 양식 다운로드 (.xlsx)</button></div><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">2. 파일 업로드</p><label className="w-full flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-white hover:bg-slate-50 transition-colors"><Upload className="w-8 h-8 text-slate-400 mb-2" /><span className="text-sm text-slate-500 font-medium">클릭하여 엑셀 파일 선택</span><input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleFileUpload} ref={fileInputRef} /></label></div></div></div></div>)}
-        {isYarnBulkModalOpen && (<div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4"><div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 relative"><button onClick={() => setIsYarnBulkModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6" /></button><h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><FileSpreadsheet className="w-6 h-6 text-emerald-600" /> 원사 엑셀 일괄 등록</h3><div className="space-y-4"><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">1. 양식 다운로드</p><button onClick={handleDownloadYarnTemplate} className="w-full flex justify-center items-center gap-2 bg-white border border-slate-300 py-2 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><Download className="w-4 h-4" /> 원사 양식 다운로드 (.xlsx)</button></div><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">2. 파일 업로드</p><label className="w-full flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-white hover:bg-slate-50 transition-colors"><Upload className="w-8 h-8 text-slate-400 mb-2" /><span className="text-sm text-slate-500 font-medium">클릭하여 엑셀 파일 선택</span><input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleYarnFileUpload} ref={yarnFileInputRef} /></label></div></div></div></div>)}
+        {isYarnBulkModalOpen && (<div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4"><div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 relative"><button onClick={() => setIsYarnBulkModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600"><X className="w-6 h-6" /></button><h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2"><FileSpreadsheet className="w-6 h-6 text-emerald-600" /> 원사 엑셀 일괄 등록</h3><div className="space-y-4"><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">1. 양식 다운로드</p><button onClick={handleDownloadYarnTemplate} className="w-full flex justify-center items-center gap-2 bg-white border border-slate-300 py-2 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"><Download className="w-4 h-4" /> 원사 양식 다운로드 (.xlsx)</button><p className="text-[11px] text-slate-500 mt-2 leading-relaxed">수입 원사는 <b>Import</b> 열에 <b>Y</b>, <b>ImportCountry</b> 열에 나라 이름(예: 중국)을 넣어 주세요. 나라를 비우면 중국으로 등록돼요.</p></div><div className="p-4 bg-slate-50 rounded-xl border border-slate-200"><p className="text-sm font-bold text-slate-700 mb-2">2. 파일 업로드</p><label className="w-full flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-white hover:bg-slate-50 transition-colors"><Upload className="w-8 h-8 text-slate-400 mb-2" /><span className="text-sm text-slate-500 font-medium">클릭하여 엑셀 파일 선택</span><input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleYarnFileUpload} ref={yarnFileInputRef} /></label></div></div></div></div>)}
 
         {/* Category Manager Modal */}
         <CategoryModal
@@ -1473,6 +1514,8 @@ const App = () => {
             savedFabrics={savedFabrics}
             designSheets={designSheets}
             tempDesignSheets={tempDesignSheets}
+            yarnLibrary={yarnLibrary}
+            initialFocus={costSettingsFocus}
           />
         )}
 

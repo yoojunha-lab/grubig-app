@@ -2,6 +2,7 @@
 //  · 저장 위치: Firestore settings/general.costSettings (App.jsx의 saveCostSettings)
 //  · 저장값이 없거나 일부 항목이 빠져 있으면 아래 기본값으로 채움 (utils/costModel.js의 resolveCostSettings)
 //  · 구간(bracket) 공통 규칙: max = 'N 이하' 경계값, 마지막 구간은 max = null → '직전 경계 초과'
+//    (예외: 수입 원사 운반비만 'N 미만' / 마지막 '직전 경계 이상' — 대표님 기준표 그대로)
 //  · 계산 방식 전체 설명은 docs/costing-model.md
 
 // 품목.knitGrade 가 없을 때(기존 품목) 쓰는 편직 난이도
@@ -10,6 +11,8 @@ export const DEFAULT_KNIT_GRADE_ID = 'A';
 export const DEFAULT_PROCESS_TYPE_ID = 'normal';
 // 편직 kg단가 기본값 (신규 품목, 또는 기존 품목에 레거시 편직료도 없을 때)
 export const DEFAULT_KNIT_KG_RATE = 2000;
+// 수입 원사의 수입 국가가 비어 있거나 삭제된 국가일 때 쓰는 국가 (기존 수입사는 모두 중국 — 대표님 지정)
+export const DEFAULT_IMPORT_COUNTRY_ID = 'CN';
 
 export const DEFAULT_COST_SETTINGS = {
   // 편직 난이도별 정액 — 편직비 = max(정액, 생지kg × kg단가)
@@ -50,6 +53,21 @@ export const DEFAULT_COST_SETTINGS = {
   ],
   // 외관검사 — YD당 단가 (전 품목 공통)
   visualInspectionPerYd: 190,
+  // 수입 원사 운반비 (원/kg) — 원사 라이브러리에서 공급처를 [수입]으로 체크한 원사만, 수입 국가별 구간
+  //  · kg = 그 원사의 오더 투입 kg (원사 투입 kg × 혼용률) → 속한 구간의 kg당 금액을 원사 단가에 더함
+  //  · 'N kg 미만' 규칙, 마지막 max = null → '직전 경계 이상'. 기본값은 중국 기준 (대표님 지정, 2026-10-02)
+  importCountries: [
+    {
+      id: 'CN',
+      name: '중국',
+      brackets: [
+        { max: 300, perKg: 2500 },
+        { max: 1000, perKg: 2000 },
+        { max: 2000, perKg: 1500 },
+        { max: null, perKg: 1500 },
+      ],
+    },
+  ],
 };
 
 // 원가 표에 보여주는 기준 수량 3구간. 계산 자체는 임의 수량 함수(computeCostAtQty)라 수량만 바꾸면 됨.

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { History, Edit2, Trash2 } from 'lucide-react';
 import { num, usd } from '../../utils/helpers';
+import { isImportSupplier, findImportCountry, getImportFreightRange, describeImportBrackets } from '../../utils/costModel';
 
 export const YarnLibraryRow = React.memo(({
   y,
@@ -8,7 +9,8 @@ export const YarnLibraryRow = React.memo(({
   handleEditYarn,
   handleDeleteYarn,
   yarnLibrary,
-  setYarnLibrary
+  setYarnLibrary,
+  costSettings = null, // 수입 원사 운반비 구간 (원가 설정)
 }) => {
   const defSup = y.suppliers?.find(s => s.isDefault) || y.suppliers?.[0] || {};
   // Number()로 명시적 변환 — Firestore에서 문자열로 올 수 있음
@@ -16,7 +18,14 @@ export const YarnLibraryRow = React.memo(({
   const rate = Number(globalExchangeRate) || 1450;
   const convertedPrice = defSup.currency === 'USD' ? rawPrice * rate : rawPrice;
   const tariffAmt = convertedPrice * (Number(defSup.tariff || 0) / 100);
-  const freightAmt = Number(defSup.freight) || 0;
+  // 수입사는 운반비가 원사 kg 구간(원가 설정 · 국가별) → 운반비·내수 단가를 범위로 표시
+  const isImport = isImportSupplier(defSup);
+  const importCountry = isImport ? findImportCountry(costSettings, defSup.importCountry) : null;
+  const importRange = isImport ? getImportFreightRange(costSettings, importCountry.id) : null;
+  const importTip = isImport
+    ? [`${importCountry.name} 운반비 (원사 kg 구간)`, ...describeImportBrackets(importCountry).map(b => `${b.label}: ${num(b.perKg)}원/kg`)].join('\n')
+    : undefined;
+  const freightAmt = isImport ? 0 : (Number(defSup.freight) || 0);
   // 관세는 내수(Dom)에만 포함, 수출(Export)에는 미포함
   const domPrice = Math.round(convertedPrice + tariffAmt + freightAmt);
   // 대표 공급처 기준 최종 단가 수정일 (history[0] = 최신, 없으면 원사 updatedAt 폴백)
@@ -48,6 +57,7 @@ export const YarnLibraryRow = React.memo(({
         {y.suppliers?.map((s) => (
           <span key={s.id} className="inline-block mr-1">
             {s.isDefault ? <strong className="text-blue-600 bg-blue-50 border border-blue-100 rounded px-1 py-0.5">[{s.name}]</strong> : <span className="text-slate-500 bg-slate-50 border border-slate-100 rounded px-1 py-0.5">{s.name}</span>}
+            {isImportSupplier(s) && <span className="ml-0.5 text-[9px] font-bold text-emerald-700 normal-case">수입</span>}
           </span>
         ))}
       </td>
@@ -71,11 +81,21 @@ export const YarnLibraryRow = React.memo(({
         </div>
       </td>
       <td className="px-6 py-2.5 text-right text-slate-500 font-medium text-sm">{defSup.tariff || 0}%</td>
-      <td className="px-6 py-2.5 text-right font-bold text-emerald-600 text-sm">
-        ￦{num(freightAmt)}
+      <td className="px-6 py-2.5 text-right font-bold text-emerald-600 text-sm" title={importTip}>
+        {isImport ? (
+          <div className="flex flex-col items-end gap-0.5 cursor-help">
+            <span className="whitespace-nowrap">￦{num(importRange.min)}~{num(importRange.max)}</span>
+            <span className="text-[9px] text-emerald-700 font-sans tracking-tight bg-emerald-50 border border-emerald-100 px-1 rounded leading-none whitespace-nowrap">수입 · {importCountry.name} 구간</span>
+          </div>
+        ) : <>￦{num(freightAmt)}</>}
       </td>
       <td className="px-6 py-2.5 text-right font-mono font-bold text-sm">
-        {defSup.currency === 'USD' ? (
+        {isImport ? (
+          <div className="flex flex-col items-end gap-0.5" title={importTip}>
+            <span className="text-blue-700 whitespace-nowrap">￦{num(domPrice + importRange.min)}~{num(domPrice + importRange.max)}</span>
+            <span className="text-[9px] text-slate-500 font-sans tracking-tight bg-slate-100 px-1 rounded leading-none">(운반비 구간{defSup.currency === 'USD' ? ' · $적용' : ''})</span>
+          </div>
+        ) : defSup.currency === 'USD' ? (
           <div className="flex flex-col items-end gap-0.5">
             <span className="text-blue-700">￦{num(domPrice)}</span>
             <span className="text-[9px] text-slate-500 font-sans tracking-tight bg-slate-100 px-1 rounded leading-none">($적용)</span>
@@ -101,5 +121,7 @@ export const YarnLibraryRow = React.memo(({
 }, (prevProps, nextProps) => {
   return prevProps.y === nextProps.y &&
          prevProps.globalExchangeRate === nextProps.globalExchangeRate &&
-         prevProps.yarnLibrary === nextProps.yarnLibrary;
+         prevProps.yarnLibrary === nextProps.yarnLibrary &&
+         // 원가 설정(수입 운반비 구간)이 바뀌면 운반비·내수 단가 범위가 달라지므로 재렌더
+         prevProps.costSettings === nextProps.costSettings;
 });

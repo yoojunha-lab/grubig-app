@@ -20,6 +20,19 @@
 목적: 수량이 늘었는데 편직비가 줄어들거나 갑자기 뛰는 구간이 없게 하고,
 LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목에 일관되게 적용.
 
+### 1-A. 수입 원사 운반비 (대표님 요청, 2026-10-02 추가)
+
+| 항목 | 예전 방식 | 새 방식 |
+|---|---|---|
+| 원사 운반비 | 공급처마다 고정 원/kg (`freight`) | 국내 업체는 그대로. **수입사**는 **수입 국가별 kg 구간** 원/kg (원가 설정) |
+
+- 원사 라이브러리 공급처 줄에서 **[수입] 체크 + 수입 국가** 선택 (기본 중국). 기존 수입사는 모두 중국으로 지정 (대표님 지정).
+- 구간을 정하는 kg = **그 수입 원사만의 오더 투입 kg** (원사 투입 kg × 혼용률) — 대표님 확인.
+  오더 전체 원사 kg로 하면 수입 원사가 일부만 들어가도 큰 구간이 잡혀 운반비가 낮게 계산되므로 쓰지 않음.
+- 기본 구간 (중국, 대표님 지정): 300kg 미만 2,500원 / 300~1,000kg 2,000원 / 1,000~2,000kg 1,500원 / 2,000kg 이상 1,500원.
+  이 구간만 **'N kg 미만' 규칙** (300kg 정확히 = 2,000원). 다른 원가 설정 구간은 'N 이하'.
+- 수량 함수(`computeCostAtQty`) 안에서 계산 → 원가 표 1K/3K/5K는 물론, 나중에 만들 **임의 수량(야드수 입력) 판매가에도 자동 적용**.
+
 ---
 
 ## 2. 계산 순서 (오더 수량 Q YD)
@@ -32,7 +45,8 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 생지 kg | 가공지 kg × (1 + (가공 LOSS% + 후가공 LOSS%) ÷ 100) | 가공 LOSS = 품목 가공 유형의 % |
 | 편직 LOSS% | 생지 kg가 속한 구간의 % | 'N kg 이하' 구간, 마지막은 '초과' |
 | 원사 kg | 생지 kg × (1 + 편직 LOSS% ÷ 100) | 원사 투입량 |
-| 재료비 | 원사 kg × 원사 단가(혼용 가중) | 내수=관세포함, 수출=관세제외 |
+| 재료비 | 원사 kg × 원사 단가(혼용 가중) + 수입 원사 운반비 | 내수=관세포함, 수출=관세제외 (운반비는 둘 다 포함) |
+| 수입 원사 운반비 | 원사마다: 그 원사 kg(원사 kg × 혼용률) × 수입 국가 kg 구간 원/kg | 수입사 원사만. 국내 업체는 고정 원/kg가 원사 단가에 포함 (§1-A) |
 | 편직비 | max(난이도 정액, 생지 kg × kg단가) | 정액 ÷ kg단가 지점부터 kg 계산 |
 | 염가공비 | 가공지 kg × 염가공료 | **가공지 기준** (대표님 확인, 예전과 동일) |
 | 후가공비 | 가공지 kg × 후가공료 | 후가공 LOSS는 생지 kg에 반영 |
@@ -75,6 +89,11 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 이화학 | 1컬러당 200,000원 · 1,000YD 이하 2컬러 / 3,000YD 이하 4 / 5,000YD 이하 6 / 초과 6 | `chemTest{feePerColor,colorBrackets[{max,colors}]}` |
 | 운임 | 500YD 이하 30만 / 1,000YD 이하 50만 / 3,000YD 이하 90만 / 5,000YD 이하 100만 / 초과 100만 | `freightBrackets[{max,amount}]` |
 | 외관검사 | YD당 190원 | `visualInspectionPerYd` |
+| 수입 원사 운반비 | 중국: 300kg 미만 2,500 / 1,000kg 미만 2,000 / 2,000kg 미만 1,500 / 이상 1,500 (원/kg) + 국가 추가 | `importCountries[{id,name,brackets[{max,perKg}]}]` ('미만' 규칙) |
+
+- 수입 국가는 원사에서 쓰는 중이면 삭제 불가 (원사 라이브러리의 수입 공급처 줄을 셈. 국가가 빈 줄은 중국으로 셈).
+- 새 국가는 첫 번째 국가 구간을 복사해서 시작. 국가 구간이 비어 있으면 기본(중국) 구간으로 계산.
+- 원사 라이브러리 상단 **[⚙ 수입 운반비]**(PC), 원사 수정 창의 **[구간 금액 수정]**으로 열면 ⑦로 바로 스크롤.
 
 기본값 출처: 대표님 지정(정액·가공 LOSS·편직 LOSS·이화학 컬러수) + 예전 원가에 맞춘 시작값(이화학 1컬러당·운임·외관검사).
 설정에서 언제든 수정.
@@ -99,6 +118,22 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 - 원단 ↔ 설계서 양방향 동기화(`useFabric.handleSaveFabric`, `useDesignSheet.handleSaveSheet`)와
   아이템화 자동 등록·원단 불러오기·가설계서 불러오기 모두 새 필드를 같이 옮긴다.
 
+### 4-A. 원사 공급처(`yarns/{id}.suppliers[]`) 필드 — 수입 원사 운반비
+
+| 필드 | 의미 | 기존 원사(값 없음)일 때 |
+|---|---|---|
+| `freight` | 국내 업체 운반비 (원/kg, 고정) | 그대로. 수입사로 체크해도 **지우지 않고 보관** → 수입 해제 시 다시 사용 |
+| `isImport` | 수입사 여부 ([수입] 체크) | `false`(국내) — 체크하기 전까지 원가는 예전과 같음 |
+| `importCountry` | 수입 국가 id (`CN` = 중국 …) | 비었거나 삭제된 국가면 중국 → 첫 번째 국가로 계산 |
+
+- 원사 단가는 **대표 공급처** 기준 (예전과 같음). 수입사 대표 공급처면 운반비 칸 대신 국가별 kg 구간.
+- 원사 등록에서 업체를 고르면 라이브러리에 이미 있는 **같은 업체의 수입 지정을 따라감** (새 업체면 그대로).
+- 기존 원사 일괄 지정: 원사 라이브러리 **[업체별 일괄변경]** → '수입사로 지정'(국가 선택) / '수입 해제' / '운반비 금액 변경'.
+- 원사 엑셀 백업·등록 양식: `Import`(수입사면 Y) · `ImportCountry`(국가 이름, 비우면 중국) 열. 예전 양식은 모두 국내로 등록.
+- 가설계서에서 단가를 직접 입력한 원사(`priceOverride`)는 관세·운반비 없이 그 단가 그대로 (예전과 같음).
+- 화면 표시: 원사 목록은 운반비·내수 단가를 **범위**(예: ₩20,940~21,940)로, 원가 표 ①은 '+ 중국 운반비 (kg 구간)',
+  ③ 구간별 표는 '└ 수입 원사 운반비' 줄에 수량마다 적용된 원/kg와 원사 kg.
+
 ---
 
 ## 5. 과거 견적·오더 보존
@@ -115,7 +150,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 
 | 역할 | 파일 |
 |---|---|
-| 계산 엔진 (순수 함수) | `src/utils/costModel.js` — `computeCostAtQty`(임의 수량), `calculateCostTiers`(1K/3K/5K), `resolveCostSettings`, `calcKnitFee` 등 |
+| 계산 엔진 (순수 함수) | `src/utils/costModel.js` — `computeCostAtQty`(임의 수량), `calculateCostTiers`(1K/3K/5K), `resolveCostSettings`, `calcKnitFee`, `getImportFreightPerKg`·`findImportCountry`·`isImportSupplier`(수입 원사 운반비) 등 |
 | 설정 기본값·상수 | `src/constants/costing.js` — `DEFAULT_COST_SETTINGS`, `COST_DISPLAY_TIERS` |
 | 설정 저장/구독 | `src/apps/App.jsx` — `costSettingsRaw` → `costSettings`(useMemo), `saveCostSettings` |
 | 설정 화면 | `src/components/cost/CostSettingsModal.jsx` |
@@ -125,6 +160,9 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 견적 MCQ | `src/hooks/domains/useQuotation.js` — 100kg ÷ (G/YD × (1 + 가공 LOSS%)) |
 | 설계서 소요 중량 | `src/pages/DesignSheetPage.jsx` — 입력 YD → 원사 kg (같은 kg 흐름) |
 | 원단 엑셀 양식 | `src/apps/App.jsx` — `KnitGrade`·`KnitKgRate`·`ProcessType` 열 (이름으로 입력, 예전 양식도 등록됨) |
+| 원사 수입 지정 (공급처 줄·일괄변경) | `src/pages/YarnLibraryPage.jsx`, `src/hooks/domains/useYarn.js` |
+| 원사 목록 표시 (운반비·내수 단가 범위) | `src/components/yarn/YarnLibraryRow.jsx`, `MobileYarnCard.jsx` (memo 비교에 `costSettings` 포함) |
+| 원사 엑셀 양식 | `src/apps/App.jsx` — `Import`·`ImportCountry` 열 (`handleBackupYarns`, `handleYarnFileUpload`) |
 
 ---
 
@@ -132,6 +170,9 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 
 - **임의 수량 칸**: 원가 표에 수량 입력 칸만 추가하고 `calculateCostAtQty(fabric, qty)`(useFabric) 또는
   `computeCostAtQty(fabric, qty, ctx)`를 부르면 바로 계산된다. (예: 15,000YD)
+  수입 원사 운반비도 이 함수 안에서 그 수량의 원사 kg로 구간을 고르므로 따로 손댈 것 없음 (결과 `importFreight.lines`).
+- **같은 수입사 원사 kg 합산**: 지금은 원사마다 따로 구간을 정한다. 한 원단에 같은 수입사 원사가 2개 이상 들어가
+  한 번에 실어 오는 경우 kg를 합쳐 구간을 정하려면 `costAtQty`의 `lineFreight`를 공급처별로 묶으면 된다 (대표님 결정 필요).
 - **염가공료 생지 기준 전환**: 지금은 가공지 kg 기준. 염색소가 생지 투입 kg 기준으로 받으면
   `costModel.js`의 `dye` 라인을 `greigeKg` 기준으로 바꾸면 된다 (대표님 결정 필요).
 - 설계서 변경 이력에는 가공 유형이 id(`span` 등)로 남는다 — 화면 표시 개선 여지.
