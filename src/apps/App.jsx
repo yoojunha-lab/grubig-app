@@ -31,7 +31,7 @@ import { useCollection } from '../hooks/domains/useCollection';
 import { useProformaInvoice } from '../hooks/domains/useProformaInvoice';
 import { usePartner } from '../hooks/domains/usePartner';
 import { useLabdip } from '../hooks/domains/useLabdip';
-import { calcQuotePrice, getQuoteValidUntil } from '../utils/helpers';
+import { calcQuotePrice, getQuoteValidUntil, num } from '../utils/helpers';
 import { resolveCostSettings, findKnitGrade, findProcessType, resolveKnitKgRate, isImportSupplier, findImportCountry } from '../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 
@@ -77,7 +77,11 @@ const App = () => {
     const guard = navGuardRef.current;
     if (guard) guard(go); else go();
   };
+  // 공통 환율 (원/$) — 회사 공통 설정 settings/general.exchangeRate { value, updatedAt, updatedBy } 를 모든 직원이 같이 씀
+  //  (2026-10-03 대표님 결정: 예전엔 PC마다 따로라 직원마다 수출 원가·견적이 달랐음)
+  //  localStorage는 첫 화면 깜빡임 방지용 캐시 + 아직 공통 값이 저장되기 전(처음 한 번)의 이 PC 값
   const [globalExchangeRate, setGlobalExchangeRate] = useState(() => Number(localStorage.getItem('grubig_global_exchange_rate')) || 1450);
+  const [exchangeRateMeta, setExchangeRateMeta] = useState(null); // { updatedAt, updatedBy } — null이면 아직 공통 저장 전
 
   useEffect(() => {
     localStorage.setItem('grubig_global_exchange_rate', globalExchangeRate);
@@ -213,6 +217,14 @@ const App = () => {
         setYarnSuppliers(Array.isArray(d.yarnSuppliers) ? d.yarnSuppliers : []);
         setPiSettings(d.piSettings || null);                     // PI 은행/약관 설정
         setCostSettingsRaw(d.costSettings || null);              // 원가 설정
+        // 공통 환율 — 저장된 값이 있으면 모든 직원이 그 값을 씀 (없으면 이 PC 값 유지)
+        const er = d.exchangeRate;
+        if (er && Number(er.value) > 0) {
+          setGlobalExchangeRate(Number(er.value));
+          setExchangeRateMeta({ updatedAt: er.updatedAt || '', updatedBy: er.updatedBy || '' });
+        } else {
+          setExchangeRateMeta(null);
+        }
       } else {
         // 문서가 없을 때만 yarnCategories만 시드 — 마스터 배열은 비워둠 (실제 추가될 때 자동 생성됨)
         // 빈 배열로 시드하면 만약 콘솔 등에서 doc 재삭제 후 이 코드가 다시 돌면 데이터 영구 손실 위험
@@ -506,6 +518,32 @@ const App = () => {
     } catch (e) {
       setSyncStatus('error');
       showToast(`PI 설정 저장 실패: ${e?.message || '네트워크 오류'}`, 'error');
+    }
+  };
+
+  // 공통 환율 저장 — settings/general.exchangeRate (DEV 우회 시 로컬만). 화면 위 환율 칸에서 확인 후 호출
+  //  모든 직원의 원단 원가·새 견적에 바로 적용. 이미 저장한 견적은 그 견적의 환율 그대로.
+  const saveExchangeRate = async (value) => {
+    const v = Math.round(Number(value) * 100) / 100;
+    if (!(v > 0)) { showToast('환율은 0보다 커야 해요.', 'error'); return false; }
+    const prevRate = globalExchangeRate;
+    const prevMeta = exchangeRateMeta;
+    const meta = { updatedAt: new Date().toISOString(), updatedBy: user?.displayName || user?.email || '' };
+    setGlobalExchangeRate(v);
+    setExchangeRateMeta(meta);
+    if (DEV_BYPASS) { setSyncStatus('saved'); showToast(`공통 환율을 ₩${num(v)}로 바꿨어요.`, 'success'); return true; }
+    setSyncStatus('syncing');
+    try {
+      await setDoc(doc(db, 'settings', 'general'), { exchangeRate: { value: v, ...meta } }, { merge: true });
+      setSyncStatus('saved');
+      showToast(`공통 환율을 ₩${num(v)}로 바꿨어요. 모든 직원에게 적용됩니다.`, 'success');
+      return true;
+    } catch (e) {
+      setGlobalExchangeRate(prevRate); // 실패 시 이전 값으로 되돌림
+      setExchangeRateMeta(prevMeta);
+      setSyncStatus('error');
+      showToast(`환율 저장 실패: ${e?.message || '네트워크 오류'}`, 'error');
+      return false;
     }
   };
 
@@ -1050,7 +1088,8 @@ const App = () => {
         syncStatus={syncStatus}
         handleLogout={handleLogout}
         globalExchangeRate={globalExchangeRate}
-        setGlobalExchangeRate={setGlobalExchangeRate}
+        onCommitExchangeRate={saveExchangeRate}
+        exchangeRateMeta={exchangeRateMeta}
       />
 
       <div className="flex-1 p-4 md:p-8 print:p-0 print:overflow-visible relative w-full overflow-x-hidden">

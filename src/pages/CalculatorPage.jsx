@@ -98,8 +98,8 @@ export const CalculatorPage = ({
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
           <h3 className="text-sm font-bold text-slate-400 uppercase mb-4 flex justify-between items-center">
             <span>1. 기본 정보 (Basic Info) <Info className="w-4 h-4 text-slate-300 inline" /></span>
-            <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm" title="사이드바의 전역 환율 자동 적용중">
-              <label className="text-[10px] font-bold text-slate-500 tracking-wide uppercase">전역 환율 💸</label>
+            <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm" title="화면 위 공통 환율(전 직원 같은 값) 자동 적용 중">
+              <label className="text-[10px] font-bold text-slate-500 tracking-wide uppercase">공통 환율 💸</label>
               <div className="font-mono text-sm font-bold text-slate-700">￦{num(globalExchangeRate)}</div>
             </div>
           </h3>

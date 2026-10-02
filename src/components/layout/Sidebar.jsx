@@ -63,10 +63,41 @@ export const Sidebar = ({
   activeTab, setActiveTab,
   viewMode, setViewMode,
   syncStatus, handleLogout,
-  globalExchangeRate, setGlobalExchangeRate,
+  globalExchangeRate,
+  onCommitExchangeRate, // 공통 환율 저장 (App.saveExchangeRate) — 확인 후 회사 공통 설정에 저장
+  exchangeRateMeta,     // { updatedAt, updatedBy } | null(아직 공통 저장 전)
 }) => {
   const [openGroup, setOpenGroup] = useState(null); // 현재 펼쳐진 그룹 key
   const navRef = useRef(null);
+
+  // ── 공통 환율 입력: 치는 동안은 칸에만 두고(draft), Enter·칸 밖 클릭 때 확인 후 저장 ──
+  //   (예전엔 한 글자 칠 때마다 바로 바뀌어 원가가 중간값으로 계산됐음. Esc = 입력 취소)
+  const [rateDraft, setRateDraft] = useState(null);
+  const fmtRate = (v) => Number(v || 0).toLocaleString();
+  const commitRate = () => {
+    if (rateDraft === null) return;
+    const v = Number(rateDraft);
+    setRateDraft(null);
+    if (!(v > 0) || v === Number(globalExchangeRate)) return;
+    if (!window.confirm(
+      `공통 환율을 ₩${fmtRate(globalExchangeRate)} → ₩${fmtRate(v)}로 바꿉니다.\n\n` +
+      `모든 직원의 화면(원단 원가·새 견적)에 바로 적용돼요.\n이미 저장한 견적은 그 견적의 환율 그대로예요.\n\n계속할까요?`
+    )) return;
+    if (onCommitExchangeRate) onCommitExchangeRate(v);
+  };
+  const rateInputProps = {
+    type: 'number',
+    value: rateDraft ?? globalExchangeRate,
+    onChange: e => setRateDraft(e.target.value),
+    onBlur: commitRate,
+    onKeyDown: e => {
+      if (e.key === 'Enter') e.currentTarget.blur();
+      if (e.key === 'Escape') setRateDraft(null);
+    },
+  };
+  const rateTitle = exchangeRateMeta
+    ? `공통 환율 (전 직원) — 마지막 변경: ${exchangeRateMeta.updatedAt ? new Date(exchangeRateMeta.updatedAt).toLocaleString('ko-KR') : '-'}${exchangeRateMeta.updatedBy ? ` · ${exchangeRateMeta.updatedBy}` : ''}\n바꾸려면 숫자 입력 후 Enter`
+    : '공통 환율 — 아직 회사 공통으로 저장 전이라 이 PC 값이에요. 숫자 입력 후 Enter로 저장하면 모든 직원에게 적용돼요.';
 
   // 외부 클릭 시 드롭다운 닫기
   useEffect(() => {
@@ -158,17 +189,16 @@ export const Sidebar = ({
 
         {/* 우: 환율 + 내수/수출 + 동기화 + 로그아웃 (데스크탑) */}
         <div className="hidden md:flex items-center gap-2 shrink-0">
-          <div className="flex items-center gap-1.5 bg-slate-800/40 px-2.5 py-1.5 rounded-lg border border-slate-700/50">
+          <div className="flex items-center gap-1.5 bg-slate-800/40 px-2.5 py-1.5 rounded-lg border border-slate-700/50" title={rateTitle}>
             <DollarSign className="w-3.5 h-3.5 text-yellow-500" />
             <span className="text-yellow-500 font-bold text-xs">￦</span>
             <input
-              type="number"
-              value={globalExchangeRate}
-              onChange={e => setGlobalExchangeRate(Number(e.target.value))}
+              {...rateInputProps}
               className="w-14 bg-transparent border-none text-white text-right font-mono font-bold focus:ring-0 outline-none p-0 text-xs"
-              title="전역 적용 환율"
+              aria-label="공통 환율"
             />
             <span className="text-slate-500 text-[10px]">/$</span>
+            {!exchangeRateMeta && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title="아직 회사 공통으로 저장 전" />}
           </div>
 
           <div className="flex bg-slate-800/50 p-1 rounded-lg border border-slate-700/50">
@@ -224,18 +254,20 @@ export const Sidebar = ({
           <div className="p-4 space-y-3 border-b border-slate-800/50">
             <div className="bg-slate-800/30 p-3 rounded-xl border border-slate-700/50">
               <label className="text-[10px] text-slate-400 font-bold mb-2 block uppercase tracking-wider flex items-center gap-1">
-                <DollarSign className="w-3.5 h-3.5 text-yellow-500" /> 전역 적용 환율
+                <DollarSign className="w-3.5 h-3.5 text-yellow-500" /> 공통 환율 (전 직원)
               </label>
               <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded-lg border border-slate-700">
                 <span className="text-yellow-500 font-bold text-sm pl-1">￦</span>
                 <input
-                  type="number"
-                  value={globalExchangeRate}
-                  onChange={e => setGlobalExchangeRate(Number(e.target.value))}
+                  {...rateInputProps}
                   className="w-full bg-transparent border-none text-white text-right font-mono font-bold focus:ring-0 outline-none p-0 text-base"
+                  aria-label="공통 환율"
                 />
                 <span className="text-slate-500 font-bold text-xs pr-1">/ $</span>
               </div>
+              <p className="text-[10px] text-slate-500 mt-1.5">
+                {exchangeRateMeta ? '입력 후 완료(Enter)하면 모든 직원에게 적용돼요.' : '아직 공통 저장 전 — 입력 후 완료하면 모든 직원에게 적용돼요.'}
+              </p>
             </div>
 
             <div className="bg-slate-800/50 p-1.5 rounded-xl flex text-xs font-bold border border-slate-700/50">
