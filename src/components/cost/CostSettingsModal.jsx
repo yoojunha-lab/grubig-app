@@ -350,7 +350,7 @@ export const CostSettingsModal = ({
           </Section>
 
           {/* 4. 염색 최소 청구 (컬러당) */}
-          <Section no={4} title="염색 최소 청구 (컬러당)" hint="염색은 컬러마다 따로 하므로, 한 컬러를 이 kg보다 적게 염색해도 이 kg로 청구돼요. 기준은 염가공료와 같은 가공지 kg. 원가 표의 2컬러 기준 구간(300·500·800YD)에 적용되고, MCQ 충족 기준 구간(1,000YD 이상)은 적용하지 않아요.">
+          <Section no={4} title="염색 최소 청구 (컬러당)" hint="염색은 컬러마다 따로 하므로, 한 컬러를 이 kg보다 적게 염색해도 이 kg로 청구돼요. 기준은 염가공료와 같은 생지 kg (MCQ와 같은 기준). 원가 표의 2컬러 기준 구간(300·500·800YD)에 적용되고, MCQ 충족 기준 구간(1,000YD 이상)은 적용하지 않아요.">
             <div className="flex items-center gap-2 flex-wrap">
               <input type="number" min="0" value={local.dyeMinKgPerColor} onChange={e => set('dyeMinKgPerColor', e.target.value)} className={`${inCls} w-36`} />
               <span className="text-xs text-slate-500">kg / 컬러 (0이면 최소 청구 없음)</span>

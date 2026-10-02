@@ -10,7 +10,7 @@ import { COST_DISPLAY_TIERS, COST_TIER_GROUPS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PR
  * 원단 계산기 / 설계서 / 가설계서 공유. 계산식은 utils/costModel.js (docs/costing-model.md):
  * · 생지 kg = 가공지 kg × (1 + 가공 LOSS%) → 편직 LOSS% = 생지 kg 구간 → 원사 kg = 생지 kg × (1 + 편직 LOSS%)
  * · 재료비 = 원사 kg × 원사 단가,  편직비 = max(난이도 정액, 생지 kg × kg단가)
- * · 염가공 = 청구 kg × 원/kg (2컬러 기준 구간은 컬러당 최소 청구 kg 적용),  후가공 = 가공지 kg × 원/kg
+ * · 염가공 = 생지 청구 kg × 원/kg (2컬러 기준 구간은 컬러당 최소 청구 kg 적용),  후가공 = 가공지 kg × 원/kg
  * · 이화학·운임 = 오더 총액 ÷ 수량,  외관검사 = YD당 (원가 설정)
  * · 수입 원사 운반비 = 그 원사 kg × 수입 국가 kg 구간 단가 → 재료비에 포함 (③ 표에 적용 구간 표시)
  * · 판매마진/Brand 없음(영업/견적에서 결정). '위험 마진(%)'만 가산 → 영업 기준원가. 반올림은 최종에서만.
@@ -256,7 +256,7 @@ export const CostBreakdownTable = ({
             </select>
           </div>
           <div>
-            <div className={subLbl}>염가공료 (원/kg, 가공지 기준)</div>
+            <div className={subLbl}>염가공료 (원/kg, 생지 기준)</div>
             <input type="number" value={cost.dyeingFee ?? ''} onChange={(e) => setField('dyeingFee', e.target.value)} className={inCls} placeholder="8800" />
           </div>
         </div>
@@ -364,9 +364,9 @@ export const CostBreakdownTable = ({
             title: (tk, t) => {
               const d = tier(tk).dye || {};
               const fee = num(cost.dyeingFee);
-              if (d.minApplied) return `${d.colors}컬러 × 컬러당 가공지 ${num(d.perColorKg)}kg → 최소 ${num(d.minKg)}kg로 청구 = ${num(d.billedKg)}kg × ${fee}원 = ${num(d.total)}원 ÷ ${num(t.qty)}YD`;
-              const why = d.assumeMcq ? 'MCQ 충족 기준 — 최소 청구 없음' : `컬러당 ${num(d.perColorKg)}kg라 최소 ${num(d.minKg)}kg 이상`;
-              return `가공지 ${num(d.billedKg)}kg × ${fee}원 = ${num(d.total)}원 ÷ ${num(t.qty)}YD (${why})`;
+              if (d.minApplied) return `${d.colors}컬러 × 컬러당 생지 ${num(d.perColorKg)}kg → 최소 ${num(d.minKg)}kg로 청구 = ${num(d.billedKg)}kg × ${fee}원 = ${num(d.total)}원 ÷ ${num(t.qty)}YD`;
+              const why = d.assumeMcq ? 'MCQ 충족 기준 — 최소 청구 없음' : `컬러당 생지 ${num(d.perColorKg)}kg라 최소 ${num(d.minKg)}kg 이상`;
+              return `생지 ${num(d.billedKg)}kg × ${fee}원 = ${num(d.total)}원 ÷ ${num(t.qty)}YD (${why})`;
             },
           })}
           {finishing.length > 0 && ValueRow({ label: '후가공 / yd', get: finSum, accent: true })}
@@ -392,7 +392,7 @@ export const CostBreakdownTable = ({
         {!compact && (
           <div className="text-[10px] text-slate-400 mt-1 space-y-0.5">
             <div>
-              <b className="text-amber-700">2컬러 기준</b> ({smallQtys.join('·')}YD): 2컬러로 나눠 염색한다고 보고, 컬러당 가공지 {num(dyeMinKg)}kg 미만이면 {num(dyeMinKg)}kg로 청구해요. 이화학도 2컬러.
+              <b className="text-amber-700">2컬러 기준</b> ({smallQtys.join('·')}YD): 2컬러로 나눠 염색한다고 보고, 컬러당 생지 {num(dyeMinKg)}kg 미만이면 {num(dyeMinKg)}kg로 청구해요. 이화학도 2컬러.
               {' '}<b className="text-blue-700">MCQ 충족 기준</b> ({num(mcqFromQty)}YD 이상): 컬러마다 MCQ를 맞췄다고 보고 염색 최소 청구가 없어요.
             </div>
             <div>편직비·이화학·운임은 오더 총액을 수량으로 나눈 값이에요. 칸에 마우스를 올리면 계산 과정이 보여요.</div>

@@ -13,8 +13,9 @@
 //   5) 재료비     = 원사 kg × 원사 단가(혼용 가중. 내수=관세포함 / 수출=관세제외)
 //                  + 수입 원사 운반비 = 그 원사 kg(원사 kg × 혼용률) × 수입 국가 kg 구간의 kg당 금액 (설정)
 //   6) 편직비     = max(난이도 정액, 생지 kg × kg단가)   ← 택시 기본요금 방식
-//   7) 염가공비   = 청구 kg × 염가공료 — 컬러마다 따로 염색, 컬러당 가공지 kg가 최소 청구 kg(설정, 기본 100kg)
-//                  미만이면 최소 kg로 청구. 'MCQ 충족' 가정이면 최소 청구 없음 (청구 kg = 가공지 kg)
+//   7) 염가공비   = 청구 kg × 염가공료 — 생지 kg 기준 (염색소에 들어가는 원단. 대표님 지정: 보수적으로 생지).
+//                  컬러마다 따로 염색 → 컬러당 생지 kg가 최소 청구 kg(설정, 기본 100kg) 미만이면 최소 kg로 청구.
+//                  'MCQ 충족' 가정이면 최소 청구 없음 (청구 kg = 생지 kg). MCQ(생지 100kg 기준)와 같은 기준.
 //                  후가공비 = 가공지 kg × 후가공료
 //   8) 이화학     = 컬러수 × 1컬러당 검사비 (컬러수 = 구간 가정, 없으면 수량 구간),  운임 = 수량 구간 금액(오더당),
 //                  외관검사 = YD당 단가 × 수량
@@ -391,14 +392,14 @@ const costAtQty = (p, qtyRaw, opts = {}) => {
   const freightTotal = getFreightAmount(s, qty);
   const visualTotal = s.visualInspectionPerYd * qty;
 
-  // ── 염색 최소 청구: 컬러마다 따로 염색 → 한 컬러의 가공지 kg가 최소 청구 kg(설정)보다 적으면 최소 kg로 청구 ──
-  //   기준 kg는 염가공료와 같은 가공지 kg. 'MCQ 충족' 가정이면 컬러마다 100kg 이상으로 보고 적용하지 않음
+  // ── 염색: 생지 kg 기준 청구. 컬러마다 따로 염색 → 한 컬러의 생지 kg가 최소 청구 kg(설정)보다 적으면 최소 kg로 청구 ──
+  //   'MCQ 충족' 가정이면 컬러마다 생지 100kg 이상(= MCQ 정의)으로 보고 적용하지 않음
   const assumeMcq = opts.assumeMcq === true;
   const dyeColors = Math.max(1, colors);
-  const perColorKg = finishedKg / dyeColors;
+  const perColorKg = greigeKg / dyeColors;
   const dyeMinKg = s.dyeMinKgPerColor;
   const dyeMinApplied = !assumeMcq && dyeMinKg > 0 && perColorKg < dyeMinKg;
-  const dyeBilledKg = dyeMinApplied ? dyeMinKg * dyeColors : finishedKg;
+  const dyeBilledKg = dyeMinApplied ? dyeMinKg * dyeColors : greigeKg;
   const dyeTotal = p.dyeingFee * dyeBilledKg;
 
   // ── 수입 원사 운반비: 원사마다 그 원사 kg(원사 kg × 혼용률)가 속한 수입 국가 구간의 kg당 금액 ──
