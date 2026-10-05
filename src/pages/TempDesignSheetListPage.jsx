@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Plus, Edit2, Trash2, FlaskConical, Calendar, User, FileText, X, Save, ArrowRight, Download } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, FlaskConical, User, FileText, X, ArrowRight, Download } from 'lucide-react';
 import { num, computeSellPrice, toTierRate } from '../utils/helpers';
 import { DESIGN_STAGES, STAGE_COLORS } from '../constants/common';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';

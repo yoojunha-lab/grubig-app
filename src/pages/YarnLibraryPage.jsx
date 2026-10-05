@@ -72,9 +72,11 @@ export const YarnLibraryPage = ({
     return map;
   }, [yarnLibrary, costSettings]);
 
-  // 외부(다른 뷰)에서 수정 요건 발생 시 모달 오픈
+  // 외부(다른 뷰)에서 수정 요건 발생 시 모달 오픈 — 수정할 원사가 정해지면(다른 화면에서 넘어와도) 창을 엶
+  //  (원사를 고르는 곳이 여러 화면이라 이 화면에서 한 번에 처리 — 의도한 effect)
   useEffect(() => {
     if (editingYarnId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsYarnFormModalOpen(true);
     }
   }, [editingYarnId]);
@@ -389,7 +391,7 @@ export const YarnLibraryPage = ({
                 </div>
 
                 <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-2 overflow-x-hidden min-w-[700px] md:min-w-0">
-                  {yarnInput.suppliers.map((sup, idx) => {
+                  {yarnInput.suppliers.map((sup) => {
                     // 수입사: 운반비 칸 대신 수입 국가 선택 → 원가 설정의 국가별 kg 구간 운반비
                     const isImport = isImportSupplier(sup);
                     const country = isImport ? findImportCountry(costSettings, sup.importCountry) : null;

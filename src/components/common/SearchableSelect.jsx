@@ -7,8 +7,10 @@ export const SearchableSelect = ({ value, options = [], onChange, placeholder, l
   const [search, setSearch] = useState('');
   const wrapperRef = useRef(null);
 
+  // 고른 값(또는 목록)이 바뀌면 칸 글자를 그 이름으로 맞춤 — 칸 글자는 검색어로도 쓰여서 따로 state로 둠 (의도한 effect)
   useEffect(() => {
     const selected = (options || []).find(o => String(o?.[valueKey]) === String(value));
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (selected) setSearch(String(selected[labelKey] || ''));
     else setSearch('');
   }, [value, options, labelKey, valueKey]);

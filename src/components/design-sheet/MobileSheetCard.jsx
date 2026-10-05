@@ -14,12 +14,10 @@ export const MobileSheetCard = ({
   handleEditSheet, 
   handleDeleteSheet, 
   getCompositionText,
-  getLinkedBuyer,
   isDropped = false,
   restoreFromDrop
 }) => {
   const [showHistory, setShowHistory] = useState(false);
-  const buyer = getLinkedBuyer ? getLinkedBuyer(sheet) : '';
 
   const prefix = viewMode === 'export' ? '$' : '₩';
   const priceFn = (val) => viewMode === 'export' ? (val || 0).toFixed(2) : num(val || 0);
@@ -144,7 +142,7 @@ export const MobileSheetCard = ({
                         </p>
                         {entry.reason && <p className="text-[9px] text-slate-600 bg-amber-50/50 px-1 py-0.5 rounded inline-block mb-1 italic">사유: {entry.reason}</p>}
                         <div className="space-y-0.5">
-                           {Object.entries(entry.fields || {}).map(([fieldKey, oldValue]) => (
+                           {Object.keys(entry.fields || {}).map((fieldKey) => (
                              <div key={fieldKey} className="text-[9px] flex flex-wrap gap-1">
                                <span className="font-bold text-slate-500">{fieldLabel(fieldKey)}:</span>
                                <span className="text-emerald-600">수정됨</span>

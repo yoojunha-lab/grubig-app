@@ -1,8 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
-  Boxes, Plus, Edit2, Trash2, X, Calendar, Tag, Package,
-  Search, Users, FolderPlus, ChevronRight, AlertTriangle, FileSpreadsheet, Printer,
-  ChevronUp, ChevronDown, StickyNote,
+  Boxes, Plus, Edit2, Trash2, X, Calendar, Tag, Package, Users, FolderPlus, ChevronRight, AlertTriangle,
+  FileSpreadsheet, Printer, ChevronUp, ChevronDown, StickyNote,
 } from 'lucide-react';
 import { AddArticleModal } from '../components/collection/AddArticleModal';
 import { CollectionPrintSheet } from '../components/collection/CollectionPrintSheet';

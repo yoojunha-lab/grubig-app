@@ -17,7 +17,7 @@ export const MobileFabricCard = React.memo(({
   designSheets,
   handleEditSheet,
   setIsDesignSheetModalOpen,
-  globalExchangeRate
+  // globalExchangeRate — 화면에서 직접 쓰지 않지만 아래 memo 비교에 써서 환율이 바뀌면 다시 그림
 }) => {
   const c = useMemo(() => calculateCost(f), [f, calculateCost]);
   const sym = viewMode === 'domestic' ? '￦' : '$';

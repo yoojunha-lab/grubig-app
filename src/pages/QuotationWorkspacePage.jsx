@@ -25,6 +25,8 @@ export const QuotationWorkspacePage = (props) => {
   //  이후 사용자의 편집은 nonce를 안 바꾸므로 기준은 로드시점 상태로 고정 → 현재 상태와 비교해 dirty 판정.
   const baselineRef = useRef(JSON.stringify(quoteInput));
   const [loadNonce, setLoadNonce] = useState(0);
+  // 의도적으로 loadNonce만 — 편집할 때마다 기준이 바뀌면 변경 감지가 안 됨 (FabricWorkspacePage와 같은 방식)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { baselineRef.current = JSON.stringify(quoteInput); }, [loadNonce]);
   const captureBaseline = () => setLoadNonce(n => n + 1);
   // 한 번도 저장 안 된 견적(새 견적·복제본)에 품목이 있으면 늘 '변경사항 있음'

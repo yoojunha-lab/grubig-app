@@ -1,10 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  Plus, Trash2, Save, FileSpreadsheet, Calculator,
-  RotateCcw, Layers, Edit2, Check, X, Box, Search, ChevronDown, ChevronUp,
-  TrendingUp, Users, Factory, FileText, Calendar, Upload,
-  Globe, Home, DollarSign, History, AlertCircle, Info, Filter, Truck, Download,
-  Cloud, LogOut, Database, ClipboardPaste, Menu, Eye, Settings
+  FileSpreadsheet, X, Users, Upload, History, Download,
 } from 'lucide-react';
 
 // 🔥 Firebase 모듈 (서비스 레이어 연동)
@@ -14,9 +10,9 @@ import { db, auth, googleProvider } from '../services/firebase';
 import { saveDocument, deleteDocument, saveBatchDocuments, updateYarnCategoryBatch } from '../services/db';
 
 // ⚙️ 공통 상수 & 유틸리티 연동
-import { ALLOWED_DOMAIN, DEFAULT_YARN_CATEGORIES, MARGIN_TIERS } from '../constants/common';
+import { ALLOWED_DOMAIN, DEFAULT_YARN_CATEGORIES } from '../constants/common';
 import { DEV_SAMPLE_FABRICS, DEV_SAMPLE_YARNS, DEV_SAMPLE_DEV_REQUESTS, DEV_SAMPLE_DESIGN_SHEETS, DEV_SAMPLE_ORDERS } from '../constants/devSamples';
-import { useXLSX, useHTML2PDF } from '../hooks/useExternalScripts';
+import { useXLSX } from '../hooks/useExternalScripts';
 
 // ⚓️ 도메인 로직 훅 연동
 import { useFabric } from '../hooks/domains/useFabric';
@@ -38,7 +34,6 @@ import { readFirstSheetRows, isBlankCell, parseNumCell, parsePercentCell, parseY
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
-import { SearchableSelect } from '../components/common/SearchableSelect';
 import { Toast } from '../components/common/Toast';
 import { Sidebar } from '../components/layout/Sidebar';
 import { LoginScreen } from '../components/layout/LoginScreen';
@@ -64,6 +59,14 @@ import { PISettingsModal } from '../components/pi/PISettingsModal';
 import { CostSettingsModal } from '../components/cost/CostSettingsModal';
 import { LabdipPage } from '../pages/LabdipPage';
 import { LabdipPrintSheet } from '../components/labdip/LabdipPrintSheet';
+
+// ── [DEV 검증 전용] 가짜 로그인 + 인메모리 데이터 모드 ─────────────────────
+// 개발 빌드(import.meta.env.DEV)이고 localStorage('grubig_dev_bypass')==='1'일 때만 활성.
+// 프로덕션 빌드(vite build)에선 import.meta.env.DEV===false → 아래 분기 전부 죽은 코드로 제거됨.
+// 실제 Firestore/운영 데이터는 일절 건드리지 않음. (켜고 끄려면 새로고침 — 예전과 같음)
+const DEV_BYPASS = import.meta.env.DEV &&
+  typeof window !== 'undefined' &&
+  window.localStorage?.getItem('grubig_dev_bypass') === '1';
 
 const App = () => {
   const [user, setUser] = useState(null);
@@ -151,7 +154,6 @@ const App = () => {
 
   const [fabricSearchTerm, setFabricSearchTerm] = useState('');
   const [yarnSearchTerm, setYarnSearchTerm] = useState('');
-  const [quickViewQuote, setQuickViewQuote] = useState(null);
 
   const [isDesignSheetModalOpen, setIsDesignSheetModalOpen] = useState(false);
   const [isTempDesignSheetModalOpen, setIsTempDesignSheetModalOpen] = useState(false);
@@ -160,15 +162,8 @@ const App = () => {
   const fileInputRef = useRef(null);
   const yarnFileInputRef = useRef(null);
   const isXlsxReady = useXLSX();
-  const isPdfReady = useHTML2PDF();
 
-  // ── [DEV 검증 전용] 가짜 로그인 + 인메모리 데이터 모드 ─────────────────────
-  // 개발 빌드(import.meta.env.DEV)이고 localStorage('grubig_dev_bypass')==='1'일 때만 활성.
-  // 프로덕션 빌드(vite build)에선 import.meta.env.DEV===false → 아래 분기 전부 죽은 코드로 제거됨.
-  // 실제 Firestore/운영 데이터는 일절 건드리지 않음.
-  const DEV_BYPASS = import.meta.env.DEV &&
-    typeof window !== 'undefined' &&
-    window.localStorage?.getItem('grubig_dev_bypass') === '1';
+  // ── [DEV 검증 전용] 가짜 로그인 + 인메모리 데이터 모드 — DEV_BYPASS (파일 위쪽, 컴포넌트 밖에서 한 번 계산) ──
 
   useEffect(() => {
     if (DEV_BYPASS) {
@@ -423,7 +418,7 @@ const App = () => {
 
   // ⚓️ 설계서 시스템 훅
   const {
-    devInput, setDevInput, editingDevId,
+    devInput, editingDevId,
     handleDevChange, handleSpecChange,
     handleSaveDevRequest, handleEditDevRequest, handleDeleteDevRequest,
     resetDevForm, generateDevOrderNo, createDesignSheetFromDev,
@@ -441,7 +436,6 @@ const App = () => {
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
     resetSheetForm, setStage, setSamplingSub,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
-    addOrderNumber, removeOrderNumber,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
     saveSheetAndRegisterFabric
   } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet, devRequests);
@@ -645,11 +639,9 @@ const App = () => {
 
 
   const [selectedFabricIdForQuote, setSelectedFabricIdForQuote] = useState('');
-  const [bulkArticleInput, setBulkArticleInput] = useState('');
 
   const [editingCategoryOld, setEditingCategoryOld] = useState(null);
   const [editingCategoryNew, setEditingCategoryNew] = useState('');
-  const [editingBuyerNew, setEditingBuyerNew] = useState('');
 
   // OLD CALCULATION LOGICS MOVED TO HOOKS
 
@@ -1100,7 +1092,6 @@ const App = () => {
       setSyncStatus('syncing');
       // arrayUnion: 서버에서 원자적으로 추가 — 로컬 state 무관, 다른 기기 동시 추가도 안전
       await writeSettingsList('buyers', { add: [safeNewName] });
-      setEditingBuyerNew('');
       setSyncStatus('saved'); showToast('새로운 바이어가 추가되었습니다.', 'success');
     } catch (e) {
       setSyncStatus('error'); alert(`오류 발생: ${e.message}`);
@@ -1432,8 +1423,6 @@ const App = () => {
             setQuoteAuthorFilter={setQuoteAuthorFilter}
             uniqueAuthors={uniqueAuthors}
             filteredQuotesList={filteredQuotesList}
-            quickViewQuote={quickViewQuote}
-            setQuickViewQuote={setQuickViewQuote}
             setActiveTab={setActiveTab}
             handleDeleteQuote={handleDeleteQuote}
             handleDuplicateQuote={handleDuplicateQuote}
@@ -1732,7 +1721,7 @@ const App = () => {
         {/* Buyer Manager Modal (Reusing MasterDataModal) */}
         <MasterDataModal
           isOpen={isBuyerModalOpen}
-          onClose={() => { setIsBuyerModalOpen(false); setEditingBuyerNew(''); }}
+          onClose={() => setIsBuyerModalOpen(false)}
           title="바이어 사전 등록 관리"
           description={<span>ℹ️ 이곳에 바이어를 등록해 두면 견적서 작성 시 <b>오타 없이 정확하고 빠르게</b> 바이어를 선택할 수 있습니다.</span>}
           icon={Users}

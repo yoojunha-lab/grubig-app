@@ -22,6 +22,57 @@ const DESIGN_STAGE_GUIDE = [
   { key: 'articled', label: '아이템화',        desc: '완성된 원단 설계서를 정식 등록 (최종, 보관함 이동)',  dot: 'bg-emerald-500' }
 ];
 
+// ── 날짜·긴급도·검색 (화면 상태와 무관한 순수 함수 — 목록 계산(useMemo)에서 그대로 씀) ──
+const getDaysUntil = (d) => { if(!d) return null; const t=new Date(d),n=new Date(); t.setHours(0,0,0,0); n.setHours(0,0,0,0); return Math.ceil((t-n)/864e5); };
+// 우선순위 (지연/임박/오늘 신규)
+const getDevReqDeadline = (d) =>
+  (d.status === 'pending' || d.status === 'analyzing') ? d.targetSpec?.analysisDeadline
+  : (d.status === 'hold' || d.status === 'confirmed') ? d.targetSpec?.sampleDeadline
+  : null;
+const getUrgency = (deadlineDate) => {
+  const days = getDaysUntil(deadlineDate);
+  if (days === null) return 'normal';
+  if (days < 0) return 'overdue';
+  if (days <= 3) return 'urgent';
+  return 'normal';
+};
+const getDevReqUrgency = (d) => getUrgency(getDevReqDeadline(d));
+const getSheetUrgency = (s) => getUrgency(s.deadline);
+const isCreatedToday = (iso) => {
+  if (!iso) return false;
+  const t = new Date(iso); const n = new Date();
+  return t.getFullYear() === n.getFullYear() && t.getMonth() === n.getMonth() && t.getDate() === n.getDate();
+};
+// 상단 요약 카드로 고른 우선순위 필터 통과 여부
+const passesPriorityFilter = (priorityFilter, urgency, item) => {
+  if (priorityFilter === 'all') return true;
+  if (priorityFilter === 'overdue') return urgency === 'overdue';
+  if (priorityFilter === 'urgent') return urgency === 'urgent';
+  if (priorityFilter === 'newToday') return isCreatedToday(item?.createdAt);
+  return true;
+};
+// 검색어 — 비었으면 모두 통과
+const devMatchesSearch = (d, searchTerm) => {
+  if (!searchTerm.trim()) return true;
+  const q = searchTerm.toLowerCase();
+  return String(d.buyerName || '').toLowerCase().includes(q) ||
+    String(d.devOrderNo || '').toLowerCase().includes(q) ||
+    String(d.devItem || '').toLowerCase().includes(q) ||
+    String(d.targetSpec?.composition || '').toLowerCase().includes(q);
+};
+const sheetMatchesSearch = (s, searchTerm, linkedDev) => {
+  if (!searchTerm.trim()) return true;
+  const q = searchTerm.toLowerCase();
+  return String(s.fabricName||'').toLowerCase().includes(q) ||
+    String(s.devOrderNo||'').toLowerCase().includes(q) ||
+    String(s.articleNo||'').toLowerCase().includes(q) ||
+    String(s.eztexOrderNo||'').toLowerCase().includes(q) ||
+    String(linkedDev?.buyerName||'').toLowerCase().includes(q);
+};
+// 단계순 정렬용 인덱스
+const devStageOrder = { pending: 0, analyzing: 1, hold: 2, confirmed: 3 };
+const sheetStageOrder = { draft: 0, eztex: 1, sampling: 2, articled: 3 };
+
 // 단계 진입 날짜 → "MM/DD · N일째" 포맷
 const formatStageEntry = (iso) => {
   if (!iso) return null;
@@ -66,8 +117,6 @@ export const DevStatusPage = ({
 
   const statusLabels = DEV_REQUEST_STATUS_LABELS;
   const statusCls = DEV_REQUEST_STATUS_BADGE_CLS;
-
-  const getDaysUntil = (d) => { if(!d) return null; const t=new Date(d),n=new Date(); t.setHours(0,0,0,0); n.setHours(0,0,0,0); return Math.ceil((t-n)/864e5); };
 
   const deadlineBadge = (d) => {
     const v=getDaysUntil(d); if(v===null) return null;
@@ -139,27 +188,6 @@ export const DevStatusPage = ({
     [confirmedDevReqs, designSheets]
   );
 
-  // 우선순위 (지연/임박/오늘 신규)
-  const getDevReqDeadline = (d) =>
-    (d.status === 'pending' || d.status === 'analyzing') ? d.targetSpec?.analysisDeadline
-    : (d.status === 'hold' || d.status === 'confirmed') ? d.targetSpec?.sampleDeadline
-    : null;
-  const getUrgency = (deadlineDate) => {
-    const days = getDaysUntil(deadlineDate);
-    if (days === null) return 'normal';
-    if (days < 0) return 'overdue';
-    if (days <= 3) return 'urgent';
-    return 'normal';
-  };
-  const getDevReqUrgency = (d) => getUrgency(getDevReqDeadline(d));
-  const getSheetUrgency = (s) => getUrgency(s.deadline);
-
-  const isCreatedToday = (iso) => {
-    if (!iso) return false;
-    const t = new Date(iso); const n = new Date();
-    return t.getFullYear() === n.getFullYear() && t.getMonth() === n.getMonth() && t.getDate() === n.getDate();
-  };
-
   // 의뢰 리스트 데이터: pending/analyzing/hold + confirmed(설계서 미연결)
   const devReqItems = useMemo(() => {
     const active = (devRequests||[]).filter(d => ['pending','analyzing','hold'].includes(d.status));
@@ -170,14 +198,6 @@ export const DevStatusPage = ({
   const sheetItems = useMemo(() =>
     activeSheets.filter(s => s.stage !== 'articled')
   , [activeSheets]);
-
-  const passesPriority = (urgency, item) => {
-    if (priorityFilter === 'all') return true;
-    if (priorityFilter === 'overdue') return urgency === 'overdue';
-    if (priorityFilter === 'urgent') return urgency === 'urgent';
-    if (priorityFilter === 'newToday') return isCreatedToday(item?.createdAt);
-    return true;
-  };
 
   // 요약 메트릭
   const metrics = useMemo(() => {
@@ -201,35 +221,8 @@ export const DevStatusPage = ({
 
   const getLinkedDev = (devReqId) => (devRequests||[]).find(d=>d.id===devReqId);
 
-  const filterSearchDev = (items) => {
-    if (!searchTerm.trim()) return items;
-    const q = searchTerm.toLowerCase();
-    return items.filter(d =>
-      String(d.buyerName || '').toLowerCase().includes(q) ||
-      String(d.devOrderNo || '').toLowerCase().includes(q) ||
-      String(d.devItem || '').toLowerCase().includes(q) ||
-      String(d.targetSpec?.composition || '').toLowerCase().includes(q)
-    );
-  };
-  const filterSearchSheet = (items) => {
-    if (!searchTerm.trim()) return items;
-    const q = searchTerm.toLowerCase();
-    return items.filter(s => {
-      const dev = getLinkedDev(s.devRequestId);
-      return String(s.fabricName||'').toLowerCase().includes(q) ||
-        String(s.devOrderNo||'').toLowerCase().includes(q) ||
-        String(s.articleNo||'').toLowerCase().includes(q) ||
-        String(s.eztexOrderNo||'').toLowerCase().includes(q) ||
-        String(dev?.buyerName||'').toLowerCase().includes(q);
-    });
-  };
-
-  // 의뢰의 통합 단계 인덱스 (단계순 정렬용)
-  const devStageOrder = { pending: 0, analyzing: 1, hold: 2, confirmed: 3 };
-  const sheetStageOrder = { draft: 0, eztex: 1, sampling: 2, articled: 3 };
-
   const visibleDevReqs = useMemo(() => {
-    const filtered = filterSearchDev(devReqItems).filter(d => passesPriority(getDevReqUrgency(d), d));
+    const filtered = devReqItems.filter(d => devMatchesSearch(d, searchTerm) && passesPriorityFilter(priorityFilter, getDevReqUrgency(d), d));
     const sorted = [...filtered];
     if (devSortBy === 'odno') {
       // O/D No.(개발번호) 오름차순 — 번호 없는 건 뒤로
@@ -250,7 +243,9 @@ export const DevStatusPage = ({
   }, [devReqItems, searchTerm, priorityFilter, devSortBy]);
 
   const visibleSheets = useMemo(() => {
-    const filtered = filterSearchSheet(sheetItems).filter(s => passesPriority(getSheetUrgency(s), s));
+    // 연결된 개발 의뢰(바이어명 검색·바이어순 정렬) — 개발 의뢰가 늦게 불러와지거나 바뀌어도 다시 계산되게 devRequests를 의존성에
+    const linkedDevOf = (devReqId) => (devRequests || []).find(d => d.id === devReqId);
+    const filtered = sheetItems.filter(s => sheetMatchesSearch(s, searchTerm, linkedDevOf(s.devRequestId)) && passesPriorityFilter(priorityFilter, getSheetUrgency(s), s));
     const sorted = [...filtered];
     if (sheetSortBy === 'eztex') {
       // EZ-TEX No. 오름차순 — 번호 있는 설계서 먼저, 없는 건 등록일 최신순으로 뒤에
@@ -274,13 +269,13 @@ export const DevStatusPage = ({
       sorted.sort((a, b) => (sheetStageOrder[a.stage] ?? 99) - (sheetStageOrder[b.stage] ?? 99));
     } else if (sheetSortBy === 'buyer') {
       sorted.sort((a, b) => {
-        const da = getLinkedDev(a.devRequestId)?.buyerName || (a.devRequestId ? '' : 'zzz_자체개발');
-        const db = getLinkedDev(b.devRequestId)?.buyerName || (b.devRequestId ? '' : 'zzz_자체개발');
+        const da = linkedDevOf(a.devRequestId)?.buyerName || (a.devRequestId ? '' : 'zzz_자체개발');
+        const db = linkedDevOf(b.devRequestId)?.buyerName || (b.devRequestId ? '' : 'zzz_자체개발');
         return String(da).localeCompare(String(db), 'ko');
       });
     }
     return sorted;
-  }, [sheetItems, searchTerm, priorityFilter, sheetSortBy]);
+  }, [sheetItems, searchTerm, priorityFilter, sheetSortBy, devRequests]);
 
   // 핸들러
   const handleGoToSheet = (devReq) => {
@@ -968,8 +963,6 @@ export const DevStatusPage = ({
           designSheets={designSheets}
           updateDevStatus={updateDevStatus}
           handleEditSheet={handleEditSheet}
-          statusLabels={statusLabels}
-          statusCls={statusCls}
         />
 
         {/* 개발 의뢰 수동 연결 모달 (설계서 → 기존 의뢰 선택) */}

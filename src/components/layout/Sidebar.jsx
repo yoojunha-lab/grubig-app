@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Cloud, Menu, Layers, Home, Globe, Calculator, FileSpreadsheet, Box, FileText,
-  Calendar, LogOut, DollarSign, Activity, Archive, FileCheck, FlaskConical,
-  LayoutDashboard, TrendingUp, ChevronDown, X, Boxes, FileSignature,
-  SwatchBook,
+  Cloud, Menu, Layers, Home, Globe, FileSpreadsheet, Box, FileText, LogOut, DollarSign, Activity, Archive,
+  FileCheck, FlaskConical, LayoutDashboard, TrendingUp, ChevronDown, X, Boxes, FileSignature, SwatchBook,
 } from 'lucide-react';
 
 // 그룹 정의: 활성 탭이 어느 그룹에 속하는지 판단 + 드롭다운 항목 렌더링

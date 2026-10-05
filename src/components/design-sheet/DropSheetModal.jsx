@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { X, RotateCcw, Trash2, Archive, Search, History, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Archive, Search } from 'lucide-react';
 import { MobileSheetCard } from './MobileSheetCard';
-import { FIELD_LABELS } from './constants';
 
 export const DropSheetModal = ({
   isOpen,

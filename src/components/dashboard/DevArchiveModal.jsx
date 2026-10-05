@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { X, Archive, Search, RotateCcw, FileText, Link, Award, ArrowRight, Calendar } from 'lucide-react';
+import { X, Archive, Search, RotateCcw, Link, Award, ArrowRight, Calendar } from 'lucide-react';
 
 // 진입 날짜 → "MM/DD" 단순 포맷
 const formatDate = (iso) => {
@@ -9,6 +9,9 @@ const formatDate = (iso) => {
   const dd = String(t.getDate()).padStart(2, '0');
   return `${mm}/${dd}`;
 };
+
+// 검색어(소문자) 포함 여부 — 비었으면 통과
+const textMatches = (q, text) => !q || String(text || '').toLowerCase().includes(q);
 
 const TABS = [
   { key: 'rejected',  label: 'Drop된 의뢰',     icon: X,      color: 'text-rose-600 bg-rose-100',     accent: 'rose' },
@@ -25,23 +28,20 @@ export const DevArchiveModal = ({
   designSheets = [],
   updateDevStatus,
   handleEditSheet,
-  statusLabels = {},
-  statusCls = {}
 }) => {
   const [activeTab, setActiveTab] = useState('rejected');
   const [searchTerm, setSearchTerm] = useState('');
 
   // 탭별 필터링 (Hook은 early return 이전에 호출되어야 함)
   const q = searchTerm.trim().toLowerCase();
-  const matchSearch = (text) => !q || String(text || '').toLowerCase().includes(q);
   const filteredRejected = useMemo(() => (rejectedDevs || []).filter(d =>
-    matchSearch(d.buyerName) || matchSearch(d.devOrderNo) || matchSearch(d.devItem) || matchSearch(d.targetSpec?.composition)
+    textMatches(q, d.buyerName) || textMatches(q, d.devOrderNo) || textMatches(q, d.devItem) || textMatches(q, d.targetSpec?.composition)
   ), [rejectedDevs, q]);
   const filteredInProgress = useMemo(() => (confirmedLinkedDevs || []).filter(d =>
-    matchSearch(d.buyerName) || matchSearch(d.devOrderNo) || matchSearch(d.devItem)
+    textMatches(q, d.buyerName) || textMatches(q, d.devOrderNo) || textMatches(q, d.devItem)
   ), [confirmedLinkedDevs, q]);
   const filteredArticled = useMemo(() => (articledSheets || []).filter(s =>
-    matchSearch(s.fabricName) || matchSearch(s.devOrderNo) || matchSearch(s.articleNo) || matchSearch(s.eztexOrderNo)
+    textMatches(q, s.fabricName) || textMatches(q, s.devOrderNo) || textMatches(q, s.articleNo) || textMatches(q, s.eztexOrderNo)
   ), [articledSheets, q]);
 
   if (!isOpen) return null;

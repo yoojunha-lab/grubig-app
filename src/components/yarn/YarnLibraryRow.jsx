@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { History, Edit2, Trash2 } from 'lucide-react';
 import { num, usd } from '../../utils/helpers';
 import { isImportSupplier, findImportCountry, getImportFreightRange, describeImportBrackets } from '../../utils/costModel';

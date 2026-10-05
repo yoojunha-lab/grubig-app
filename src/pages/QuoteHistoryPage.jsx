@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Search, X, Trash2, AlertCircle, Copy, ChevronDown, ChevronRight, CheckCircle2, FileText, FileSpreadsheet, FilePlus } from 'lucide-react';
-import { num, getQuoteValidUntil } from '../utils/helpers';
+import { Search, X, Trash2, Copy, ChevronDown, ChevronRight, CheckCircle2, FileText, FileSpreadsheet, FilePlus } from 'lucide-react';
+import { num } from '../utils/helpers';
 import { calcQuotePrice, formatQuotePrice, normalizeQuote, getShownTiers, getShownCustomItems, calcCustomQuotePrice } from '../utils/quoteModel';
 
 export const QuoteHistoryPage = ({
@@ -14,8 +14,6 @@ export const QuoteHistoryPage = ({
   setQuoteAuthorFilter,
   uniqueAuthors,
   filteredQuotesList,
-  quickViewQuote,
-  setQuickViewQuote,
   setQuoteInput,
   setActiveTab,
   handleDownloadPDF,
@@ -228,66 +226,6 @@ export const QuoteHistoryPage = ({
           </table>
         </div>
       </div>
-
-      {/* Quick View */}
-      {quickViewQuote && (
-        <div className="fixed inset-0 bg-black/60 z-[10000] p-4 md:p-12 overflow-y-auto flex justify-center items-start backdrop-blur-sm"
-          onClick={() => setQuickViewQuote(null)}>
-          <div className="bg-white w-full max-w-[210mm] min-h-[297mm] p-6 md:p-12 relative rounded-xl shadow-2xl my-auto" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setQuickViewQuote(null)} className="absolute right-4 md:right-6 top-4 md:top-6 text-slate-400 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-full p-2 transition-colors"><X className="w-6 h-6" /></button>
-
-            <div className="flex justify-center mb-6">
-              <img src="/logo.png" alt="GRUBIG Logo" className="h-16 object-contain mx-auto mb-2" onError={(e) => e.target.style.display = 'none'} />
-            </div>
-            <div className="text-center border-b-2 border-slate-800 pb-3 mb-6">
-              <h2 className="text-2xl font-bold text-slate-900 mb-1 tracking-tight">FABRIC QUOTATION</h2><p className="text-slate-500 text-sm font-bold">{quickViewQuote.currency === 'USD' ? 'FOB PRICE' : 'PRICE IN KRW · VAT EXCLUDED'}</p>
-            </div>
-            <div className="flex justify-between mb-6">
-              <div className="w-1/2">
-                <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">To</p>
-                <h2 className="text-xl font-bold text-slate-900 uppercase leading-none mb-1">{quickViewQuote.buyerName}</h2>
-                {quickViewQuote.attention && <p className="text-xs font-bold text-slate-600 uppercase">ATTN: {quickViewQuote.attention}</p>}
-              </div>
-              <div className="w-1/2 text-right">
-                <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">Date</p>
-                <h2 className="text-lg font-bold text-slate-900">{quickViewQuote.date}</h2>
-                <p className="text-[10px] text-slate-500 mt-1">Currency: {quickViewQuote.currency}</p>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-[11px] text-left mb-8 border-collapse min-w-[600px]">
-                <thead>
-                  <tr className="border-b-2 border-slate-800">
-                    <th className="py-2 font-bold text-slate-900">Article</th><th className="py-2 font-bold text-slate-900">Spec</th><th className="py-2 font-bold text-slate-900 text-center">Cut</th><th className="py-2 font-bold text-slate-900 text-center">Full</th><th className="py-2 font-bold text-slate-900 text-right">GSM</th><th className="py-2 font-bold text-slate-900 text-right">g/YD</th><th className="py-2 font-bold text-slate-900 text-right text-orange-600">MCQ</th>{getShownTiers(quickViewQuote).map(t => <th key={t.key} className="py-2 font-bold text-slate-900 text-right">{t.label}</th>)}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {(quickViewQuote.items || []).map((item, idx) => {
-                    // [R1] 헬퍼로 일원화 — 구간별 마진(매출이익율% + YD당 정액) 적용 + 통화별 반올림/포맷
-                    const cur = quickViewQuote.currency;
-                    return (
-                      <tr key={idx}>
-                        <td className="py-3 font-bold text-slate-800 uppercase">{item.article}</td><td className="py-3 text-slate-600 truncate max-w-[120px]">{item.itemName}</td><td className="py-3 text-center text-slate-500">{item.widthCut}"</td><td className="py-3 text-center text-slate-500">{item.widthFull}"</td><td className="py-3 text-right text-slate-500">{item.gsm}</td><td className="py-3 text-right text-slate-500 font-mono">{num(item.gYd)}</td><td className="py-3 text-right text-slate-900 font-mono font-bold">{num(item.mcqYd || 300)} YD</td>{getShownTiers(quickViewQuote).map(t => <td key={t.key} className={`py-3 text-right font-mono ${t.main ? 'font-bold' : ''}`}>{formatQuotePrice(calcQuotePrice(item, t.key, quickViewQuote, cur), cur)}</td>)}
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-            {/* 내부 참조용 메모는 퀵뷰에서만 보입니다 */}
-            {quickViewQuote.remarks && (
-              <div className="bg-yellow-50 p-4 border border-yellow-200 rounded-lg mb-8 text-xs text-yellow-800 whitespace-pre-wrap">
-                <span className="font-bold flex items-center gap-1 mb-1"><AlertCircle className="w-3.5 h-3.5" /> 내부 참조용 메모 (PDF 출력 안됨)</span>
-                {quickViewQuote.remarks}
-              </div>
-            )}
-            <div className="border-t-2 border-slate-800 pt-6 mt-10 text-[10px] text-slate-500 font-medium leading-relaxed">
-              <p className="mb-1">• VALID UNTIL: <span className="font-bold text-slate-800">{getQuoteValidUntil(quickViewQuote.date, quickViewQuote.validityOption)}</span></p>
-              <p className="mb-1">• ±5% WEIGHT AND WIDTH TOLERANCE</p><p className="mb-1">• BULK PRICING NEGOTIABLE</p><p>• UPCHARGE APPLIES FOR ORDERS BELOW MCQ/MOQ</p>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 };

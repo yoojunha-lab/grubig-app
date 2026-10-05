@@ -10,7 +10,6 @@ export const DesignSheetListPage = ({
   handleEditSheet,
   handleDeleteSheet,
   getDesignCost,
-  user,
   viewMode,
   yarnLibrary,
   restoreFromDrop,
@@ -27,27 +26,28 @@ export const DesignSheetListPage = ({
   const [expandedId, setExpandedId] = useState(null);
   const [isDropModalOpen, setIsDropModalOpen] = useState(false);
 
-  const filterSheet = (s) => {
-    if (knitFactoryFilter !== 'All' && s.knitting?.factory !== knitFactoryFilter) return false;
-    if (machineTypeFilter !== 'All' && s.knitting?.machineType !== machineTypeFilter) return false;
-    if (gaugeFilter !== 'All' && s.knitting?.gauge !== gaugeFilter) return false;
-
-    if (!searchTerm.trim()) return true;
-    const q = searchTerm.toLowerCase();
-    return String(s.devOrderNo || '').toLowerCase().includes(q) ||
-      String(s.articleNo || '').toLowerCase().includes(q) ||
-      String(s.eztexOrderNo || '').toLowerCase().includes(q) ||
-      String(s.fabricName || '').toLowerCase().includes(q);
-  };
 
   const factories = ['All', ...new Set((designSheets||[]).map(s=>s.knitting?.factory).filter(Boolean))];
   const machineTypes = ['All', ...new Set((designSheets||[]).map(s=>s.knitting?.machineType).filter(Boolean))];
   const gauges = ['All', ...new Set((designSheets||[]).map(s=>s.knitting?.gauge).filter(Boolean))];
 
-  const itemizedSheets = useMemo(() =>
-    (designSheets || []).filter(s => s.stage === 'articled' && s.status !== 'dropped' && !s.isArchived && filterSheet(s))
-      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')),
-  [designSheets, searchTerm, knitFactoryFilter, machineTypeFilter, gaugeFilter]);
+  const itemizedSheets = useMemo(() => {
+    // 편직처·기종·게이지 필터 + 검색어
+    const filterSheet = (s) => {
+      if (knitFactoryFilter !== 'All' && s.knitting?.factory !== knitFactoryFilter) return false;
+      if (machineTypeFilter !== 'All' && s.knitting?.machineType !== machineTypeFilter) return false;
+      if (gaugeFilter !== 'All' && s.knitting?.gauge !== gaugeFilter) return false;
+
+      if (!searchTerm.trim()) return true;
+      const q = searchTerm.toLowerCase();
+      return String(s.devOrderNo || '').toLowerCase().includes(q) ||
+        String(s.articleNo || '').toLowerCase().includes(q) ||
+        String(s.eztexOrderNo || '').toLowerCase().includes(q) ||
+        String(s.fabricName || '').toLowerCase().includes(q);
+    };
+    return (designSheets || []).filter(s => s.stage === 'articled' && s.status !== 'dropped' && !s.isArchived && filterSheet(s))
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  }, [designSheets, searchTerm, knitFactoryFilter, machineTypeFilter, gaugeFilter]);
 
   const droppedSheets = useMemo(() =>
     (designSheets || []).filter(s => s.status === 'dropped')

@@ -1,4 +1,4 @@
-import { doc, collection, setDoc, deleteDoc, writeBatch } from "firebase/firestore";
+import { doc, setDoc, deleteDoc, writeBatch } from "firebase/firestore";
 import { db } from "./firebase";
 
 // GRUBIG ERP - 공통 파이어베이스 CRUD 모듈
