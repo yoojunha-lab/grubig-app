@@ -1,9 +1,16 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { clampNum } from '../../utils/helpers';
 import { calculateCostTiers, computeCostAtQty, resolveKnitKgRate, normalizeExtraCosts } from '../../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
 
 // GRUBIG ERP - 원단(Fabric) 도메인 로직 및 비용 계산 훅
+
+// 원가 엔진에 넘기는 값 (원사 라이브러리 · 환율 · 원가 설정). 환율을 따로 주면(견적 환율 등) 그 값
+const makeCostCtx = (yarnLibrary, globalExchangeRate, costSettings, overrideExchangeRate) => ({
+  yarnLibrary,
+  exchangeRate: overrideExchangeRate !== null ? Number(overrideExchangeRate) : (Number(globalExchangeRate) || 1450),
+  settings: costSettings,
+});
 
 // 수치 필드별 입력 범위 (음수/이상값 차단)
 //   numeric clamp 표 — 입력 시점과 저장 시점 양쪽에서 사용
@@ -261,20 +268,19 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
   //  · 이화학·운임은 오더 총액 ÷ 수량, 외관검사는 YD당 (모두 원가 설정값)
   //  · 판매마진 없음(영업/견적에서 결정). 위험마진(%)만 가산 → 영업 기준원가(finalCostYd)
   // ----------------------------------------------------------------------
-  const costCtx = (overrideExchangeRate) => ({
-    yarnLibrary,
-    exchangeRate: overrideExchangeRate !== null ? Number(overrideExchangeRate) : (Number(globalExchangeRate) || 1450),
-    settings: costSettings,
-  });
+  //  두 함수는 원사 라이브러리·공통 환율·원가 설정이 바뀔 때만 새로 만듦 (useCallback)
+  //  → 계산기 원가(useMemo)·모바일 카드 등이 그 사이엔 다시 계산하지 않음 (계산식은 그대로)
 
   // 원가 표용 구간 — 300·500·800YD(2컬러 기준) + 1,000·3,000·5,000YD(MCQ 충족 기준, tier1k/tier3k/tier5k)
-  const calculateCost = (fabricData, overrideExchangeRate = null) =>
-    calculateCostTiers(fabricData, costCtx(overrideExchangeRate));
+  const calculateCost = useCallback((fabricData, overrideExchangeRate = null) =>
+    calculateCostTiers(fabricData, makeCostCtx(yarnLibrary, globalExchangeRate, costSettings, overrideExchangeRate)),
+  [yarnLibrary, globalExchangeRate, costSettings]);
 
   // 임의 수량(YD) 1개 — 나중에 '수량 직접 입력' 칸에서 바로 사용
   //  opts: { colors: 컬러수 가정, assumeMcq: 컬러마다 MCQ 충족 → 염색 최소 청구 없음 } (없으면 수량 구간 기본)
-  const calculateCostAtQty = (fabricData, qty, overrideExchangeRate = null, opts = {}) =>
-    computeCostAtQty(fabricData, qty, costCtx(overrideExchangeRate), opts);
+  const calculateCostAtQty = useCallback((fabricData, qty, overrideExchangeRate = null, opts = {}) =>
+    computeCostAtQty(fabricData, qty, makeCostCtx(yarnLibrary, globalExchangeRate, costSettings, overrideExchangeRate), opts),
+  [yarnLibrary, globalExchangeRate, costSettings]);
 
   return {
     fabricInput, setFabricInput,

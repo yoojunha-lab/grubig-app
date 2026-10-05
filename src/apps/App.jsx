@@ -215,7 +215,12 @@ const App = () => {
         setStructures(Array.isArray(d.structures) ? d.structures : []);
         setYarnSuppliers(Array.isArray(d.yarnSuppliers) ? d.yarnSuppliers : []);
         setPiSettings(d.piSettings || null);                     // PI 은행/약관 설정
-        setCostSettingsRaw(d.costSettings || null);              // 원가 설정
+        // 원가 설정 — 내용이 같으면 그대로 둠 (바이어 추가 등 다른 칸이 바뀔 때마다 새 객체가 되어
+        //  원단·원사 목록 전체가 원가를 다시 계산하던 것 방지)
+        setCostSettingsRaw(prev => {
+          const next = d.costSettings || null;
+          return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+        });
         // 공통 환율 — 저장된 값이 있으면 모든 직원이 그 값을 씀 (없으면 이 PC 값 유지)
         const er = d.exchangeRate;
         if (er && Number(er.value) > 0) {
@@ -1238,7 +1243,8 @@ const App = () => {
   // [R1] 견적 판매가·표기(calcQuotePrice / formatQuotePrice 등)는 utils/quoteModel.js 에 있음.
   //   각 자식 컴포넌트(PDFRenderer/QuotationPage/QuoteHistoryPage)가 직접 import해서 사용
 
-  const currentCalcFull = calculateCost(fabricInput);
+  // 원가 계산기(편집 중인 원단) 원가 — 원단 입력이나 원가 기준이 바뀔 때만 다시 계산
+  const currentCalcFull = useMemo(() => calculateCost(fabricInput), [calculateCost, fabricInput]);
   const uniqueSuppliers = ['All', ...new Set(yarnLibrary.flatMap(y => (y.suppliers || []).map(s => String(s.name).toUpperCase())).filter(Boolean))];
   const dynamicCategories = [...new Set([...(categories || [])])].filter(Boolean);
 
