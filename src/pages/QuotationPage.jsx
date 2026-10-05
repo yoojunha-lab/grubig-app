@@ -8,7 +8,7 @@ import { num, usd, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
 import { QUOTE_TIERS, QUOTE_TIER_GROUPS } from '../constants/quote';
 import {
   calcQuotePrice, formatQuotePrice, getBasePrice, getItemTierRate, getShownTiers, isNewMarginModel,
-  calcCustomQuotePrice, getCustomRowRate, getCustomRowAdd,
+  calcCustomQuotePrice, getCustomRowRate, getCustomRowAddRaw, getMarginAddCurrency, toQuoteCurrencyAdd,
 } from '../utils/quoteModel';
 import { FabricPickerModal } from '../components/quote/FabricPickerModal';
 import { CostWarningBadge } from '../components/cost/CostWarnings';
@@ -175,6 +175,12 @@ export const QuotationPage = ({
   // 입력칸 표시값 (0은 "0", 빈값은 "")
   const tierValue = (obj, key) => (obj && typeof obj === 'object' ? (obj[key] ?? '') : '');
   const fmtMoney = (v) => (isUsd ? usd(v) : num(v));
+  // YD당 정액은 원화로 적음 (예전 수출 견적만 $) — 수출 견적이면 칸 아래에 견적 환율로 환산한 $를 보여 줌
+  const addBasis = getMarginAddCurrency(quoteInput);
+  const addSym = addBasis === 'USD' ? '$' : '￦';
+  const fmtAdd = (v) => (addBasis === 'USD' ? usd(v) : num(v));
+  const showAddUsd = isUsd && addBasis === 'KRW';
+  const addInUsd = (v) => `≈ $${usd(Number(toQuoteCurrencyAdd(v, { ...quoteInput, exchangeRate: quoteRate || quoteInput.exchangeRate }).toFixed(2)))}`;
 
   // 기준 견적 표 열 너비 (구간 수에 따라)
   const stdMinWidth = 580 + shownTiers.length * 100;
@@ -340,18 +346,23 @@ export const QuotationPage = ({
                       ))}
                     </tr>
                     <tr>
-                      <td className="px-3 py-1.5 font-bold text-slate-600">YD당 정액 ({cSym})</td>
+                      <td className="px-3 py-1.5 font-bold text-slate-600 leading-tight">
+                        YD당 정액 ({addSym})
+                        {showAddUsd && <span className="block text-[9px] font-semibold text-slate-400">견적 환율 ￦{num(quoteRate)}로 $ 환산</span>}
+                        {addBasis === 'USD' && <span className="block text-[9px] font-semibold text-amber-600">예전 수출 견적 — $로 적혀 있음</span>}
+                      </td>
                       {QUOTE_TIERS.map((t, i) => (
                         <td key={t.key} className={`px-1.5 py-1 ${i > 0 && QUOTE_TIERS[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${shownKeys.includes(t.key) ? 'bg-indigo-50/60' : ''}`}>
                           <input type="number" step="any" value={tierValue(quoteInput.marginAdd, t.key)} onChange={(e) => handleQuoteMarginChange('add', t.key, e.target.value)}
                             className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-right text-xs font-bold text-slate-700 outline-none focus:border-indigo-400" placeholder="0" />
+                          {showAddUsd && <div className="text-[9px] text-slate-400 text-right mt-0.5">{addInUsd(quoteInput.marginAdd?.[t.key])}</div>}
                         </td>
                       ))}
                     </tr>
                   </tbody>
                 </table>
               </div>
-              <p className="text-[10px] text-slate-400 mt-1">판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액. 품목마다 아래 표에서 이익율을 따로 바꿀 수 있어요.</p>
+              <p className="text-[10px] text-slate-400 mt-1">판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액. YD당 정액은 원화로 적고, 수출 견적은 견적 환율로 나눠 $로 더해요. 품목마다 아래 표에서 이익율을 따로 바꿀 수 있어요.</p>
             </div>
 
             {/* 기준 견적 전체 — 외관검사·시험성적서 제외 */}
@@ -531,7 +542,7 @@ export const QuotationPage = ({
                 <th className="px-2 py-2">원단</th>
                 <th className="px-2 py-2 w-[196px]">수량 (YD) · 컬러</th>
                 <th className="px-2 py-2 w-[78px] text-right">이익율 %</th>
-                <th className="px-2 py-2 w-[90px] text-right">YD당 정액 ({cSym})</th>
+                <th className="px-2 py-2 w-[90px] text-right">YD당 정액 ({addSym})</th>
                 <th className="px-2 py-2 w-[112px] text-right">판가 / YD</th>
                 <th className="px-2 py-2 w-[110px] text-right">총액</th>
                 <th className="px-2 py-2 w-[52px] text-center" title="별도 견적서(바이어용)에 이 줄을 넣을지">견적서</th>
@@ -556,7 +567,7 @@ export const QuotationPage = ({
                 const mcq = Number(row.mcqYd) || 0;
                 const belowMcq = perColor > 0 && mcq > 0 && perColor < mcq;
                 const rateDefault = getCustomRowRate({ ...row, marginRate: null }, quoteInput);
-                const addDefault = getCustomRowAdd({ ...row, marginAdd: null }, quoteInput);
+                const addDefault = getCustomRowAddRaw({ ...row, marginAdd: null }, quoteInput);
                 const qtyBad = !(qtyNum > 0);
                 const colorsBad = !(colorsNum > 0);
                 return (
@@ -593,7 +604,8 @@ export const QuotationPage = ({
                     <td className="px-2 py-2">
                       <input type="number" step="any" value={row.marginAdd ?? ''} onChange={(e) => handleCustomItemChange(row.id, { marginAdd: e.target.value })}
                         className={`w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-right text-xs font-bold outline-none focus:border-indigo-400 ${row.marginAdd === null || row.marginAdd === undefined ? 'text-slate-400' : 'text-slate-700'}`}
-                        placeholder={fmtMoney(addDefault)} title={`비워 두면 수량 구간 기본값 ${cSym}${fmtMoney(addDefault)}`} />
+                        placeholder={fmtAdd(addDefault)} title={`비워 두면 수량 구간 기본값 ${addSym}${fmtAdd(addDefault)}`} />
+                      {showAddUsd && <div className="text-[9px] text-slate-400 text-right mt-0.5">{addInUsd(row.marginAdd ?? addDefault)}</div>}
                     </td>
                     <td className="px-2 py-2 text-right">
                       <div className="font-mono text-[14px] font-extrabold text-amber-800">{formatQuotePrice(price, currency)}</div>

@@ -34,30 +34,6 @@ const TSelect = ({ children, ...props }) => (
   </select>
 );
 
-// [가설계서 영업견적] YD당 정액 입력칸 — 값은 항상 원화로 저장, 수출 보기에서는 환율로 환산한 $로 보여주고 $로 입력받음
-//  (입력하는 동안은 친 글자 그대로 들고 있다가(draft) 원화로 바꿔 저장 → '0.' 같은 중간 입력도 끊기지 않음)
-const KrwMoneyInput = ({ krw, isExport, rate, onChangeKrw, className = '' }) => {
-  const [draft, setDraft] = React.useState(null);
-  const r = Number(rate) > 0 ? Number(rate) : 1450;
-  const hasValue = krw !== '' && krw !== null && krw !== undefined;
-  const shown = !hasValue ? '' : (isExport ? Number((Number(krw) / r).toFixed(2)) : krw);
-  return (
-    <input
-      type="number"
-      value={draft ?? shown}
-      onFocus={() => setDraft(String(shown))}
-      onBlur={() => setDraft(null)}
-      onChange={e => {
-        const v = e.target.value;
-        setDraft(v);
-        onChangeKrw(v === '' ? '' : (isExport ? Math.round(Number(v) * r) : Number(v)));
-      }}
-      placeholder="0"
-      className={className}
-    />
-  );
-};
-
 // 변경 감사 툴팁 텍스트 만들기 (누가·언제·무엇→무엇)
 const buildAuditTip = (meta) => {
   if (!meta) return '';
@@ -671,21 +647,23 @@ export const DesignSheetPage = ({
                 </div>
               ))}
               {/* YD당 정액 입력 — 구간별 */}
-              <div className="bg-white py-1 text-[10px] font-bold text-slate-500 flex flex-col items-center justify-center leading-tight" title="원화로 저장돼요. 수출 보기에서는 환율로 환산한 $로 보여 주고 $로 입력받아요.">
-                <span>YD당 정액({quoteSym})</span>
-                {viewMode === 'export' && <span className="text-[9px] font-semibold text-slate-400">환율 ₩{num(globalExchangeRate)} 환산</span>}
+              <div className="bg-white py-1 text-[10px] font-bold text-slate-500 flex flex-col items-center justify-center leading-tight" title="YD당 정액은 원화로 적어요. 수출 보기에서는 판매가를 낼 때 환율로 나눠 $로 더해요.">
+                <span>YD당 정액(₩)</span>
+                {viewMode === 'export' && <span className="text-[9px] font-semibold text-slate-400">환율 ₩{num(globalExchangeRate)}로 $ 환산</span>}
               </div>
-              {['1k', '3k', '5k'].map((tk, i) => (
-                <div key={tk} className={`py-0.5 flex items-center justify-center ${i === 1 ? 'bg-emerald-50/50' : 'bg-white'}`}>
-                  <KrwMoneyInput
-                    krw={readQuoteTier('quoteMarginAdd', tk)}
-                    isExport={viewMode === 'export'}
-                    rate={globalExchangeRate}
-                    onChangeKrw={v => setQuoteTier('quoteMarginAdd', tk, v)}
-                    className="w-16 border border-emerald-300 rounded px-1 py-0.5 text-center font-mono text-[11px] outline-none focus:ring-2 ring-emerald-200 bg-white"
-                  />
-                </div>
-              ))}
+              {['1k', '3k', '5k'].map((tk, i) => {
+                const krw = readQuoteTier('quoteMarginAdd', tk);
+                const rate = Number(globalExchangeRate) > 0 ? Number(globalExchangeRate) : 1450;
+                return (
+                  <div key={tk} className={`py-0.5 flex flex-col items-center justify-center ${i === 1 ? 'bg-emerald-50/50' : 'bg-white'}`}>
+                    <input type="number" min="0" value={krw} onChange={e => setQuoteTier('quoteMarginAdd', tk, e.target.value === '' ? '' : Number(e.target.value))} placeholder="0"
+                      className="w-16 border border-emerald-300 rounded px-1 py-0.5 text-center font-mono text-[11px] outline-none focus:ring-2 ring-emerald-200 bg-white" />
+                    {viewMode === 'export' && krw !== '' && Number(krw) > 0 && (
+                      <span className="text-[9px] text-slate-400 font-mono">≈ ${(Number(krw) / rate).toFixed(2)}</span>
+                    )}
+                  </div>
+                );
+              })}
               {/* 최종 판매가 */}
               <div className="bg-emerald-600 py-1.5 text-[10px] font-extrabold text-white flex items-center justify-center">최종 판매가</div>
               {['tier1k', 'tier3k', 'tier5k'].map((tk, i) => (

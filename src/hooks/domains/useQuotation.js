@@ -4,7 +4,7 @@ import { QUOTE_TIERS, QUOTE_TIER_KEYS, DEFAULT_SHOWN_TIERS, DEFAULT_CUSTOM_QTY, 
 import {
   normalizeQuote, isNewMarginModel, convertMarginAdd, convertAmount, convertCostParts,
   makeDefaultTierRates, makeDefaultTierAdds, toQuoteTierRate, computeBaseFromParts, partsFromCost,
-  getBasePrice, getShownTiers, getCustomExclude, describeTierDefaults,
+  getBasePrice, getShownTiers, getCustomExclude, describeTierDefaults, getMarginAddCurrency,
 } from '../../utils/quoteModel';
 
 // GRUBIG ERP - 견적서(Quotation) 도메인 로직 및 훅
@@ -27,6 +27,7 @@ const makeBlankQuote = () => ({
   // 구간별 매출이익율·YD당 정액 기본값 (대표님 지정 2026-10-05)
   //  300·500·800YD 25% · 2,000원 / 1,000YD 20% · 1,000원 / 3,000YD 20% · 800원 / 5,000YD 20% · 500원
   bulkMarginRate: makeDefaultTierRates(), marginAdd: makeDefaultTierAdds('KRW'),
+  marginAddCurrency: 'KRW',                   // YD당 정액은 항상 원화로 적음 — 수출 견적은 견적 환율로 나눠 $로 더함
   shownTiers: [...DEFAULT_SHOWN_TIERS],      // 바이어 견적서에 보여줄 구간 (기본 500·800·1,000·3,000YD)
   excludeVisual: false, excludeChem: false,   // 기준 견적 전체: 외관검사·시험성적서(이화학) 제외
   customExcludeVisual: false, customExcludeChem: false, // 별도 견적 전체: 외관검사·시험성적서(이화학) 제외
@@ -163,11 +164,11 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   };
 
   // 별도 견적 줄을 지금 원가로 다시 계산 (줄의 수량·컬러·이익율·정액·표시는 그대로)
-  const rebuildCustomItems = (rows, rate, marketType, toUsd = null, exclude = {}) => {
+  //  toUsd: 통화가 바뀔 때 원단이 삭제된 줄의 기준원가 환산 / addToUsd: 줄에 직접 넣은 정액을 환산할 때만 (예전 $ 정액 → 원화)
+  const rebuildCustomItems = (rows, rate, marketType, toUsd = null, exclude = {}, addToUsd = null) => {
     let missing = 0;
     const next = (rows || []).map(row => {
-      // 줄에 직접 넣은 YD당 정액은 통화가 바뀌면 같은 환율로 환산
-      const marginAdd = (toUsd !== null && !isBlank(row.marginAdd)) ? convertAmount(row.marginAdd, toUsd, rate) : row.marginAdd;
+      const marginAdd = (addToUsd !== null && !isBlank(row.marginAdd)) ? convertAmount(row.marginAdd, addToUsd, rate) : row.marginAdd;
       const fabric = findFabric(row.fabricId);
       if (fabric) return createCustomItem(fabric, { ...row, marginAdd }, { rate, marketType, exclude });
       missing++;
@@ -187,11 +188,13 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     }
     if (value === quoteInput.marketType) return;
     // 시장 구분(내수/수출) 변경: 기준원가는 통화·관세 기준이 달라 다시 계산해야 함 → 확인 후 '견적 환율'로 계산.
-    //  YD당 정액은 같은 환율로 환산 (₩300 → $0.21). 예전엔 숫자가 그대로 남아 ₩300이 $300이 됐음.
+    //  YD당 정액은 원화로 적어 두므로 그대로 (수출이면 판매가 낼 때 환율로 나눔).
+    //  예전 수출 견적($로 적은 정액)을 내수로 바꿀 때만 같은 환율로 원화로 바꿔 두고, 그다음부터는 원화로 적음.
     const items = quoteInput.items || [];
     const rows = quoteInput.customItems || [];
     const hasItems = items.length > 0 || rows.length > 0;
-    const hasAdd = QUOTE_TIER_KEYS.some(t => Number(quoteInput.marginAdd?.[t]) > 0) || rows.some(r => Number(r.marginAdd) > 0);
+    const convertAdd = getMarginAddCurrency(quoteInput) === 'USD' && value !== 'export';
+    const hasAdd = convertAdd && (QUOTE_TIER_KEYS.some(t => Number(quoteInput.marginAdd?.[t]) > 0) || rows.some(r => Number(r.marginAdd) > 0));
     if (items.length > 0 && !isNewMarginModel(quoteInput)) {
       showToast('아주 옛날 방식(추가 마크업) 견적이라 시장 구분을 바꿀 수 없어요. 새 견적으로 작성해 주세요.', 'error');
       return;
@@ -201,17 +204,18 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     if ((hasItems || hasAdd) && !window.confirm(
       `시장 구분을 ${toUsd ? '수출($)' : '내수(₩)'}로 바꿉니다.\n\n` +
       (hasItems ? `· 기준 견적·별도 견적 단가를 현재 원가로 다시 계산해요 (이 견적의 환율 ₩${num(rate)} 기준)\n` : '') +
-      (hasAdd ? `· YD당 정액도 같은 환율로 환산해요\n` : '') +
+      (hasAdd ? `· 예전 수출 견적의 YD당 정액($)을 같은 환율로 원화로 바꿔요\n` : '') +
       `\n계속할까요?`
     )) return;
     const rebuilt = rebuildItems(items, rate, value, toUsd, excludeOf(quoteInput));
-    const rebuiltRows = rebuildCustomItems(rows, rate, value, toUsd, getCustomExclude(quoteInput));
+    const rebuiltRows = rebuildCustomItems(rows, rate, value, toUsd, getCustomExclude(quoteInput), convertAdd ? false : null);
     setQuoteInput(prev => ({
       ...prev,
       marketType: value,
       currency: currencyOf(value),
       exchangeRate: hasItems ? rate : prev.exchangeRate,
-      marginAdd: convertMarginAdd(prev.marginAdd, toUsd, rate),
+      ...(convertAdd ? { marginAdd: convertMarginAdd(prev.marginAdd, false, rate) } : {}),
+      marginAddCurrency: 'KRW',
       items: rebuilt.items,
       customItems: rebuiltRows.rows,
     }));
@@ -301,16 +305,22 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   const handleResetTierDefaults = () => {
     if (!window.confirm(
       '구간별 매출이익율·YD당 정액을 기본값으로 되돌립니다.\n' +
-      `(${describeTierDefaults()}${quoteInput.currency === 'USD' ? ' — 수출은 견적 환율로 환산' : ''})\n` +
+      `(${describeTierDefaults()}${quoteInput.currency === 'USD' ? ' — 수출은 판매가를 낼 때 견적 환율로 환산' : ''})\n` +
       '품목마다 따로 바꾼 이익율도 기본값으로 바뀌어요. 계속할까요?'
     )) return;
     const rates = makeDefaultTierRates();
     const rate = quoteRateOf(quoteInput);
+    // 기본 정액은 원화. 예전 수출 견적($ 정액)이면 줄에 직접 넣은 정액도 원화로 바꿔 둠
+    const wasUsdAdd = getMarginAddCurrency(quoteInput) === 'USD';
     setQuoteInput(prev => ({
       ...prev,
       bulkMarginRate: rates,
-      marginAdd: makeDefaultTierAdds(prev.currency, rate),
+      marginAdd: makeDefaultTierAdds('KRW'),
+      marginAddCurrency: 'KRW',
       items: (prev.items || []).map(it => ({ ...it, marginRate: { ...rates } })),
+      ...(wasUsdAdd ? {
+        customItems: (prev.customItems || []).map(r => (isBlank(r.marginAdd) ? r : { ...r, marginAdd: convertAmount(r.marginAdd, false, rate) })),
+      } : {}),
     }));
     showToast('구간별 이익율·정액을 기본값으로 바꿨어요.', 'success');
   };

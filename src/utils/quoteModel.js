@@ -3,7 +3,9 @@
 // ■ 기준 견적: 품목마다 구간별 영업 기준원가(basePrice{구간})를 넣을 때의 값으로 저장
 //   판매가 = 기준원가 ÷ (1 − 매출이익율%) + YD당 정액 → 통화별 반올림 (원 100원 / $ 센트)
 //   · 매출이익율: 품목 값 → 견적 일괄값 → 구간 기본값 순으로 찾음 (빈 구간이 0%가 되지 않게)
-//   · YD당 정액: 견적 값 (견적 통화 금액)
+//   · YD당 정액: 항상 원화로 적음 (marginAddCurrency 'KRW', 대표님 요청 2026-10-05).
+//     수출 견적은 판매가를 낼 때 견적 환율로 나눠 $로 더함. 예전 수출 견적은 $로 적혀 있어
+//     (marginAddCurrency 없음 + 통화 USD) 그 값 그대로 씀 → 예전 견적 판매가는 바뀌지 않음
 // ■ 별도 견적: 줄마다 수량·컬러수를 넣어 원가부터 다시 계산한 기준원가(basePrice)
 //   이익율·정액을 비워 두면 수량이 속한 기준 구간의 견적 일괄값을 씀
 // ■ 외관검사·시험성적서(이화학) 제외: 기준 견적 전체(excludeVisual/excludeChem) · 별도 견적 전체
@@ -76,6 +78,23 @@ export const describeTierDefaults = () => {
   return groups.map(g => `${g.labels.join('·')}YD ${g.rate}% · ${num(g.add)}원`).join(' / ');
 };
 
+/** YD당 정액을 적어 둔 통화 — 'KRW'(2026-10-05부터 항상 원화) / 'USD'(예전 수출 견적: $로 적혀 있음) */
+export const getMarginAddCurrency = (quote) =>
+  quote?.marginAddCurrency || (quote?.currency === 'USD' ? 'USD' : 'KRW');
+
+/**
+ * 적어 둔 YD당 정액 → 견적 통화 금액 (반올림 전). 원화로 적은 정액을 수출 견적에서는 견적 환율로 나눔.
+ * (예전 수출 견적의 $ 정액은 그대로)
+ */
+export const toQuoteCurrencyAdd = (value, quote) => {
+  const v = Math.max(0, Number(value) || 0);
+  const basis = getMarginAddCurrency(quote);
+  const isUsdQuote = quote?.currency === 'USD';
+  if (isUsdQuote && basis === 'KRW') return v / safeRate(quote?.exchangeRate);
+  if (!isUsdQuote && basis === 'USD') return v * safeRate(quote?.exchangeRate); // 안전장치 (내수로 바꿀 때 원화로 바꿔 두므로 보통 없음)
+  return v;
+};
+
 /** 견적이 지금 마진 방식(매출이익율·YD당 정액)인지 — 아니면 아주 옛날 extraMargin(마크업) 견적 */
 export const isNewMarginModel = (quote) =>
   quote?.bulkMarginRate !== undefined ||
@@ -98,12 +117,13 @@ export const normalizeQuote = (quote) => {
   if (!quote) return quote;
   const base = { ...quote, customItems: Array.isArray(quote.customItems) ? quote.customItems : [] };
   if (!isNewMarginModel(quote)) return base;
-  const currency = quote.currency || 'KRW';
+  const addBasis = getMarginAddCurrency(quote);
   const bulk = toQuoteTierRate(quote.bulkMarginRate);
   return {
     ...base,
     bulkMarginRate: bulk,
-    marginAdd: toQuoteTierAdd(quote.marginAdd, (k) => (LEGACY_TIER_KEYS.includes(k) ? 0 : defaultTierAdd(k, currency, quote.exchangeRate))),
+    marginAddCurrency: addBasis,
+    marginAdd: toQuoteTierAdd(quote.marginAdd, (k) => (LEGACY_TIER_KEYS.includes(k) ? 0 : defaultTierAdd(k, addBasis, quote.exchangeRate))),
     shownTiers: getShownTiers(quote).map(t => t.key),
     excludeVisual: quote.excludeVisual === true,
     excludeChem: quote.excludeChem === true,
@@ -170,12 +190,15 @@ export const getItemTierRate = (item, quote, tier) => {
   return defaultTierRate(tier);
 };
 
-/** 견적의 구간 YD당 정액 — 저장값이 없으면 예전 3구간은 0, 새 구간은 기본값 */
-export const getTierAdd = (quote, tier) => {
+/** 견적의 구간 YD당 정액 — 적어 둔 값 그대로 (원화 / 예전 수출 견적은 $). 없으면 예전 3구간 0, 새 구간 기본값 */
+export const getTierAddRaw = (quote, tier) => {
   const v = quote?.marginAdd?.[tier];
   if (!isBlank(v)) return Math.max(0, Number(v) || 0);
-  return LEGACY_TIER_KEYS.includes(tier) ? 0 : defaultTierAdd(tier, quote?.currency, quote?.exchangeRate);
+  return LEGACY_TIER_KEYS.includes(tier) ? 0 : defaultTierAdd(tier, getMarginAddCurrency(quote), quote?.exchangeRate);
 };
+
+/** 견적 통화로 바꾼 구간 YD당 정액 (판매가 계산용) */
+export const getTierAdd = (quote, tier) => toQuoteCurrencyAdd(getTierAddRaw(quote, tier), quote);
 
 /**
  * 기준 견적 판매가 (화면·PDF·엑셀·견적 목록 공통). 기준원가가 없으면 null ('—' 표시).
@@ -216,9 +239,12 @@ export const tierForQty = (qty) => {
 export const getCustomRowRate = (row, quote) =>
   (isBlank(row?.marginRate) ? getItemTierRate(null, quote, tierForQty(row?.qty).key) : clampRate(row.marginRate));
 
-/** 별도 견적 줄 YD당 정액 — 줄에 넣은 값, 비었으면 수량 구간의 견적 정액 */
-export const getCustomRowAdd = (row, quote) =>
-  (isBlank(row?.marginAdd) ? getTierAdd(quote, tierForQty(row?.qty).key) : Math.max(0, Number(row.marginAdd) || 0));
+/** 별도 견적 줄 YD당 정액 — 적어 둔 값 (줄에 넣은 값, 비었으면 수량 구간의 견적 정액). 원화 / 예전 수출 견적은 $ */
+export const getCustomRowAddRaw = (row, quote) =>
+  (isBlank(row?.marginAdd) ? getTierAddRaw(quote, tierForQty(row?.qty).key) : Math.max(0, Number(row.marginAdd) || 0));
+
+/** 견적 통화로 바꾼 별도 견적 줄 YD당 정액 (판매가 계산용) */
+export const getCustomRowAdd = (row, quote) => toQuoteCurrencyAdd(getCustomRowAddRaw(row, quote), quote);
 
 /** 별도 견적 판매가 (YD당). 기준원가가 없으면(수량·컬러 미입력) null */
 export const calcCustomQuotePrice = (row, quote, currency) => {
