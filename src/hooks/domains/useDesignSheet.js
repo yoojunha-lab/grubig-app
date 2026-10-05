@@ -208,11 +208,6 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
   // --- 진행 단계 관리 ---
 
-  // 현재 단계의 인덱스 구하기
-  const getStageIndex = (stageKey) => {
-    return DESIGN_STAGES.findIndex(s => s.key === stageKey);
-  };
-
   // 단계 직접 선택 (수동 전이) — 사용자가 스텝퍼에서 임의의 단계를 클릭하면 호출됨
   // 앞/뒤 양방향 이동 모두 허용. articled 진입 시에만 필수값 검증 + 원단 자동 등록.
   const setStage = async (sheetId, targetStage) => {
@@ -688,50 +683,6 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   // --- 버전(개선) 관리 제거됨 → 변경 이력 방식으로 대체 ---
   // 설계서 수정 시 handleSaveSheet 내부에서 자동으로 changeHistory에 이력 축적
 
-  // --- 오더넘버(O/N) 연결 ---
-
-  const addOrderNumber = (sheetId, orderNumber) => {
-    const sheet = designSheets.find(s => s.id === sheetId);
-    if (!sheet) return;
-
-    const trimmed = String(orderNumber).trim().toUpperCase();
-    if (!trimmed) {
-      showToast('오더넘버를 입력해주세요.', 'error');
-      return;
-    }
-
-    const existing = sheet.orderNumbers || [];
-    if (existing.includes(trimmed)) {
-      showToast('이미 연결된 오더넘버입니다.', 'error');
-      return;
-    }
-
-    const updatedSheet = {
-      ...sheet,
-      orderNumbers: [...existing, trimmed],
-      updatedAt: new Date().toISOString()
-    };
-
-    saveDocToCloud('designSheets', updatedSheet);
-    syncOpenSheet(sheetId, { orderNumbers: updatedSheet.orderNumbers });
-    showToast(`오더 ${trimmed}가 연결되었습니다.`, 'success');
-  };
-
-  const removeOrderNumber = (sheetId, orderNumber) => {
-    const sheet = designSheets.find(s => s.id === sheetId);
-    if (!sheet) return;
-
-    const updatedSheet = {
-      ...sheet,
-      orderNumbers: (sheet.orderNumbers || []).filter(o => o !== orderNumber),
-      updatedAt: new Date().toISOString()
-    };
-
-    saveDocToCloud('designSheets', updatedSheet);
-    syncOpenSheet(sheetId, { orderNumbers: updatedSheet.orderNumbers });
-    showToast(`오더 ${orderNumber} 연결이 해제되었습니다.`, 'success');
-  };
-
   // --- Cost 연동 ---
   // 설계서의 costInput + yarns 데이터를 기존 calculateCost에 전달
   const getDesignCost = (sheet) => {
@@ -947,10 +898,9 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     handleSheetYarnChange, handleCostInputChange, handleCostNestedChange,
     handleActualDataChange,
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
-    resetSheetForm, getStageIndex, setStage, setSamplingSub,
+    resetSheetForm, setStage, setSamplingSub,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
-    addOrderNumber, removeOrderNumber,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
-    registerFabricFromSheet, saveSheetAndRegisterFabric
+    saveSheetAndRegisterFabric
   };
 };

@@ -402,7 +402,7 @@ const App = () => {
   // ⚓️ 커스텀 도메인 훅 사용
   const {
     fabricInput, setFabricInput, editingFabricId, expandedFabricId, setExpandedFabricId,
-    handleFabricChange, handleNestedChange, handleYarnSlotChange,
+    handleFabricChange, handleYarnSlotChange,
     handleSaveFabric, handleEditFabric, handleDeleteFabric, resetFabricForm, calculateCost, calculateCostAtQty
   } = useFabric(yarnLibrary, savedFabrics, designSheets, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate, savedQuotes, costSettings);
 
@@ -1330,7 +1330,6 @@ const App = () => {
             currentCalcFull={currentCalcFull}
             yarnSelectOptions={yarnSelectOptions}
             handleYarnSlotChange={handleYarnSlotChange}
-            handleNestedChange={handleNestedChange}
             setFabricInput={setFabricInput}
             handleSaveFabric={handleSaveFabric}
             globalExchangeRate={globalExchangeRate}

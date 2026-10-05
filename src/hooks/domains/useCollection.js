@@ -160,10 +160,7 @@ export const useCollection = (collections, savedFabrics, saveDocToCloud, deleteD
 
   return {
     collectionInput,
-    setCollectionInput,
     editingCollectionId,
-    setEditingCollectionId,
-    getInitialCollectionInput,
     handleCollectionChange,
     resetCollectionForm,
     handleSaveCollection,

@@ -282,7 +282,6 @@ export const useProformaInvoice = (proformaInvoices, saveDocToCloud, deleteDocFr
 
   return {
     piInput, setPIInput, editingPIId,
-    getInitialPIInput,
     resetPIForm, handlePIChange, setMarketType,
     handleNewPI, handleRegeneratePINo,
     addPIItem, removePIItem, handleItemChange, addItemFromFabric,

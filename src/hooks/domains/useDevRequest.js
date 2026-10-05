@@ -224,7 +224,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
   };
 
   return {
-    devInput, setDevInput,
+    devInput,
     editingDevId,
     handleDevChange, handleSpecChange,
     handleSaveDevRequest, handleEditDevRequest, handleDeleteDevRequest,

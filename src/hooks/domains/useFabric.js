@@ -27,10 +27,6 @@ const FABRIC_NUM_RANGE = {
   extraFee3k:    [0, Infinity],
   extraFee5k:    [0, Infinity],
 };
-// loss%는 0~99로 제한 (분모 0 방지). 한 tier의 knit+dye 합도 99 이하 권장이지만 개별 입력 단계에선 99까지
-const LOSS_RANGE = [0, 99];
-// brandExtra는 추가비용 — 음수 차단
-const BRAND_EXTRA_RANGE = [0, Infinity];
 // yarn ratio는 0~100
 const RATIO_RANGE = [0, 100];
 
@@ -84,20 +80,6 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     setFabricInput(prev => ({ ...prev, [name]: finalValue }));
   };
 
-  // section: 'losses' | 'brandExtra' (수치 중첩 필드)
-  // tier:    'tier1k' | 'tier3k' | 'tier5k'
-  // field:   'knit' | 'dye' | null  (losses는 객체, brandExtra는 단일 숫자)
-  const handleNestedChange = (section, tier, field, value) => {
-    const range = section === 'losses' ? LOSS_RANGE : BRAND_EXTRA_RANGE;
-    const safeNum = clampNum(value, range[0], range[1]);
-    setFabricInput(prev => ({
-      ...prev,
-      [section]: {
-        ...prev[section],
-        [tier]: field ? { ...prev[section][tier], [field]: safeNum } : safeNum
-      }
-    }));
-  };
 
   const handleYarnSlotChange = (index, field, value) => {
     const newYarns = [...fabricInput.yarns];
@@ -285,7 +267,7 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
   return {
     fabricInput, setFabricInput,
     editingFabricId, expandedFabricId, setExpandedFabricId,
-    handleFabricChange, handleNestedChange, handleYarnSlotChange,
+    handleFabricChange, handleYarnSlotChange,
     handleSaveFabric, handleEditFabric, handleDeleteFabric, resetFabricForm,
     calculateCost, calculateCostAtQty
   };
