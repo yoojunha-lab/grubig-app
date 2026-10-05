@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { PI_DEFAULT_TERMS } from '../../constants/proformaInvoice';
+import { todayLocalISO } from '../../utils/helpers';
 
 // 품목 임시 id 생성용 (모듈 로드 시 1회 세션값 + 증가 카운터 → render 중 Date.now/Math.random 호출 회피)
 const PI_ITEM_SESSION = Date.now().toString(36);
@@ -17,7 +18,7 @@ export const useProformaInvoice = (proformaInvoices, saveDocToCloud, deleteDocFr
   const [editingPIId, setEditingPIId] = useState(null);
   const savingRef = useRef(false); // 저장 in-flight 가드 (빠른 더블클릭 중복 저장 방지)
 
-  const today = () => new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const today = () => todayLocalISO(); // YYYY-MM-DD (현지 날짜)
 
   // 새 품목 빈 행
   const makeEmptyItem = () => ({

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { clampNum } from '../../utils/helpers';
+import { useState, useRef, useEffect } from 'react';
+import { clampNum, todayLocalISO } from '../../utils/helpers';
 import { isImportSupplier, findImportCountry } from '../../utils/costModel';
 
 // GRUBIG ERP - 원사(Yarn) 도메인 로직 및 훅
@@ -10,8 +10,12 @@ import { isImportSupplier, findImportCountry } from '../../utils/costModel';
 // costSettings: 원가 설정 (수입 국가 목록 — 수입 체크 시 기본 국가)
 export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast, designSheets, costSettings = null) => {
   const [editingYarnId, setEditingYarnId] = useState(null);
-  // Y4: 빠른 더블클릭 삭제 race 방지 — 진행 중 yarn id 추적
-  const [deletingYarnId, setDeletingYarnId] = useState(null);
+  // Y4: 빠른 더블클릭 삭제 race 방지 — 진행 중 yarn id (ref라 원사 행(memo)에 남은 옛 함수에서도 바로 보임)
+  const deletingYarnRef = useRef(null);
+  // 삭제 확인에 쓰는 최신 목록 — 원사 행은 원단·설계서가 바뀌어도 다시 그려지지 않아(memo) 옛 함수가 불릴 수 있음
+  //  → 누른 순간의 최신 목록으로 '사용 중'을 판단 (그 사이 새 원단에 쓰인 원사가 지워지는 일 방지). 그리기가 끝난 뒤 갱신
+  const latestRef = useRef({ savedFabrics, designSheets });
+  useEffect(() => { latestRef.current = { savedFabrics, designSheets }; });
 
   const initialYarnInput = {
     category: '소모', name: '', remarks: '',
@@ -68,7 +72,7 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
 
     // [Step 1] 단가 변경 자동 히스토리 기록 (변경일 = 오늘 날짜)
     const existingYarn = editingYarnId ? (yarnLibrary || []).find(y => y.id === editingYarnId) : null;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayLocalISO();
 
     const suppliersWithHistory = yarnInput.suppliers.map(s => {
       const updatedSupplier = { ...s, name: String(s.name).toUpperCase(), history: [...(s.history || [])] };
@@ -115,23 +119,21 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
 
   const handleDeleteYarn = async (id, syncYarnLibraryStateCallback) => {
     // Y4: 같은 yarn 삭제가 이미 진행 중이면 무시 (빠른 더블클릭 race 방지)
-    if (deletingYarnId === id) return;
+    if (deletingYarnRef.current === id) return;
 
-    // [방어] savedFabrics/fabric.yarns가 null/undefined일 때 크래시 방지
-    const isUsed = (savedFabrics || []).some(fabric =>
-      (fabric.yarns || []).some(y => y?.yarnId && String(y.yarnId).split('::')[0] === String(id) && y.ratio > 0)
-    );
+    // [방어] savedFabrics/fabric.yarns가 null/undefined일 때 크래시 방지 — 누른 순간의 최신 목록으로 확인
+    const { savedFabrics: fabricsNow, designSheets: sheetsNow } = latestRef.current;
+    const usesYarn = (doc) => (doc?.yarns || []).some(y => y?.yarnId && String(y.yarnId).split('::')[0] === String(id) && y.ratio > 0);
+    const isUsed = (fabricsNow || []).some(usesYarn);
     // [기획오류 #11 수정] 설계서에서도 원사 사용 체크
-    const isUsedInSheet = (designSheets || []).some(sheet =>
-      (sheet.yarns || []).some(y => y?.yarnId && String(y.yarnId).split('::')[0] === String(id) && y.ratio > 0)
-    );
+    const isUsedInSheet = (sheetsNow || []).some(usesYarn);
     if (isUsed || isUsedInSheet) {
       alert("🚨 경고: 이 원사를 사용 중인 원단 또는 설계서가 있습니다! 삭제 불가.");
       return;
     }
     if (!window.confirm("이 원사와 등록된 모든 공급처 정보가 삭제됩니다. 삭제하시겠습니까?")) return;
 
-    setDeletingYarnId(id);
+    deletingYarnRef.current = id;
     try {
       // deleteDocFromCloud는 실패 시 false (실패 알림은 그쪽에서) → 지워졌을 때만 목록에서 뺌
       const ok = await deleteDocFromCloud('yarns', id);
@@ -139,7 +141,7 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
       if (syncYarnLibraryStateCallback) syncYarnLibraryStateCallback(id);
       showToast('삭제 완료', 'success');
     } finally {
-      setDeletingYarnId(null);
+      deletingYarnRef.current = null;
     }
   };
 

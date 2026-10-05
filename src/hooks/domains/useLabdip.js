@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { todayLocalISO } from '../../utils/helpers';
 
 // ============================================================
 // GRUBIG ERP - Lab-Dip(랩딥 발송) 도메인 로직 훅
@@ -30,7 +31,7 @@ const makeBlankLabdip = () => ({
   buyerName: '',                                   // 바이어 (거래처)
   article: '',                                     // ARTICLE
   style: '',                                       // STYLE
-  date: new Date().toISOString().split('T')[0],    // 작성일 (헤더 DATE)
+  date: todayLocalISO(),    // 작성일 (헤더 DATE)
   sentDate: '',                                    // 발송일 (기록용)
   sentMethod: '',                                  // 발송 방법 (기록용)
   remarks: '',                                     // 특이사항 (기록용)
@@ -153,7 +154,7 @@ export const useLabdip = (labdips, saveDocToCloud, deleteDocFromCloud, showToast
     const copy = {
       ...src,
       id: `labdip_${Date.now()}`,
-      date: now.toISOString().split('T')[0],
+      date: todayLocalISO(now),
       sentDate: '',        // 복제본은 '미발송' 상태로 시작
       sentMethod: '',
       authorName: '',      // 복제본의 작성자는 (저장 시) 현재 사용자 — 원본 작성자를 물려받지 않음

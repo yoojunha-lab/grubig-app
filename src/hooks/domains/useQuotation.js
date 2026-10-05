@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { calculateMcqYd, num } from '../../utils/helpers';
+import { calculateMcqYd, num, todayLocalISO } from '../../utils/helpers';
 import { QUOTE_TIERS, QUOTE_TIER_KEYS, DEFAULT_SHOWN_TIERS, DEFAULT_CUSTOM_QTY, DEFAULT_CUSTOM_COLORS } from '../../constants/quote';
 import {
   normalizeQuote, isNewMarginModel, convertMarginAdd, convertAmount, convertCostParts,
@@ -23,9 +23,9 @@ import {
 // validityOption 기본값 '2weeks' = 작성일로부터 2주
 const makeBlankQuote = () => ({
   buyerName: '', attention: '', marketType: 'domestic',
-  currency: 'KRW', date: new Date().toISOString().split('T')[0],
+  currency: 'KRW', date: todayLocalISO(),
   // 구간별 매출이익율·YD당 정액 기본값 (대표님 지정 2026-10-05)
-  //  300·500·800YD 25% · 2,000원 / 1,000YD 20% · 1,000원 / 3,000YD 20% · 800원 / 5,000YD 20% · 500원
+  //  300·500YD 25% · 2,000원 / 800YD 23% · 1,500원 / 1,000YD 20% · 1,000원 / 3,000YD 20% · 800원 / 5,000YD 20% · 500원
   bulkMarginRate: makeDefaultTierRates(), marginAdd: makeDefaultTierAdds('KRW'),
   marginAddCurrency: 'KRW',                   // YD당 정액은 항상 원화로 적음 — 수출 견적은 견적 환율로 나눠 $로 더함
   shownTiers: [...DEFAULT_SHOWN_TIERS],      // 바이어 견적서에 보여줄 구간 (기본 500·800·1,000·3,000YD)
@@ -150,14 +150,18 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       if (fabric) return createQuoteItem(fabric, { rate, marketType, marginRate: item.marginRate, ...exclude });
       missing++;
       if (toUsd === null) return item;
+      // 원단이 삭제된 품목: 통화만 바꿈. 원가 조각이 있으면 환산한 조각으로 기준원가를 다시 만듦
+      //  (반올림된 기준원가를 나누면 나중에 제외 버튼을 눌렀을 때 값과 어긋남) — 조각이 없는 구간만 기준원가를 바로 환산
       const patch = {};
+      const parts = item.costParts
+        ? Object.fromEntries(Object.entries(item.costParts).map(([k, pt]) => [k, convertCostParts(pt, toUsd, rate)]))
+        : null;
+      if (parts) patch.costParts = parts;
       QUOTE_TIER_KEYS.forEach(k => {
+        if (parts?.[k]) { patch[`basePrice${k}`] = computeBaseFromParts(parts[k], item.riskPct, exclude, toUsd ? 'USD' : 'KRW'); return; }
         const v = getBasePrice(item, k);
         if (v !== null) patch[`basePrice${k}`] = toUsd ? Number((v / rate).toFixed(2)) : Math.round((v * rate) / 100) * 100;
       });
-      if (item.costParts) {
-        patch.costParts = Object.fromEntries(Object.entries(item.costParts).map(([k, pt]) => [k, convertCostParts(pt, toUsd, rate)]));
-      }
       return { ...item, ...patch, costWarnings: addNote(item.costWarnings, DELETED_NOTE) };
     });
     return { items: next, missing };
@@ -174,8 +178,13 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       missing++;
       if (toUsd === null) return row;
       const patch = { marginAdd };
-      if (!isBlank(row.basePrice)) patch.basePrice = toUsd ? Number((row.basePrice / rate).toFixed(2)) : Math.round((row.basePrice * rate) / 100) * 100;
-      if (row.costParts) patch.costParts = convertCostParts(row.costParts, toUsd, rate);
+      // 원가 조각이 있으면 환산한 조각으로 기준원가 (기준 견적 품목과 같은 방식)
+      if (row.costParts) {
+        patch.costParts = convertCostParts(row.costParts, toUsd, rate);
+        patch.basePrice = computeBaseFromParts(patch.costParts, row.riskPct, exclude, toUsd ? 'USD' : 'KRW');
+      } else if (!isBlank(row.basePrice)) {
+        patch.basePrice = toUsd ? Number((row.basePrice / rate).toFixed(2)) : Math.round((row.basePrice * rate) / 100) * 100;
+      }
       return { ...row, ...patch, costWarnings: addNote(row.costWarnings, DELETED_NOTE) };
     });
     return { rows: next, missing };
@@ -437,11 +446,13 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   };
 
   // 기준 견적에서 체크한 품목 삭제 (fabricId 목록)
+  // 반환: 뺐으면 true (취소면 false — 화면의 체크 선택은 그대로)
   const handleRemoveItemsFromQuote = (fabricIds) => {
     const ids = new Set((fabricIds || []).map(String));
-    if (ids.size === 0) return;
-    if (!window.confirm(`기준 견적에서 품목 ${ids.size}개를 뺄까요?`)) return;
+    if (ids.size === 0) return false;
+    if (!window.confirm(`기준 견적에서 품목 ${ids.size}개를 뺄까요?`)) return false;
     setQuoteInput(prev => ({ ...prev, items: (prev.items || []).filter(it => !ids.has(String(it.fabricId))) }));
+    return true;
   };
 
   // ── 별도 견적 ──
@@ -481,16 +492,18 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   };
 
   // 기준 견적에서 체크한 품목 → 별도 견적으로 복사
+  // 반환: 복사했으면(이미 있던 원단 포함) true — 막혔거나 복사할 원단이 없으면 false (체크 선택 그대로)
   const handleCopyToCustom = (fabricIds) => {
     const ids = (fabricIds || []).map(String);
-    if (ids.length === 0) { showToast('기준 견적에서 복사할 원단을 체크해 주세요.', 'error'); return; }
+    if (ids.length === 0) { showToast('기준 견적에서 복사할 원단을 체크해 주세요.', 'error'); return false; }
     const fabrics = [];
     let deleted = 0;
     ids.forEach(id => { const f = findFabric(id); if (f) fabrics.push(f); else deleted++; });
     const { rows, duplicates, blocked } = addCustomRows(fabrics);
-    if (blocked) return;
-    if (rows.length === 0 && duplicates === 0 && deleted > 0) { showToast('원단이 삭제되어 별도 견적으로 복사할 수 없어요.', 'error'); return; }
+    if (blocked) return false;
+    if (rows.length === 0 && duplicates === 0 && deleted > 0) { showToast('원단이 삭제되어 별도 견적으로 복사할 수 없어요.', 'error'); return false; }
     toastCustomAdded(rows, duplicates, deleted > 0 ? ` (삭제된 원단 ${deleted}개 제외)` : '');
+    return true;
   };
 
   // 원단 검색 팝업에서 별도 견적에 추가 (이미 있으면 '추가됨'으로 막힘 — 기준 견적과 같음)
@@ -537,11 +550,13 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   };
 
   // 별도 견적 줄 삭제 (id 목록)
+  // 반환: 지웠으면 true (취소면 false — 체크 선택 그대로)
   const handleRemoveCustomItems = (rowIds) => {
     const ids = new Set(rowIds || []);
-    if (ids.size === 0) return;
-    if (ids.size > 1 && !window.confirm(`별도 견적 ${ids.size}줄을 지울까요?`)) return;
+    if (ids.size === 0) return false;
+    if (ids.size > 1 && !window.confirm(`별도 견적 ${ids.size}줄을 지울까요?`)) return false;
     setQuoteInput(prev => ({ ...prev, customItems: (prev.customItems || []).filter(r => !ids.has(r.id)) }));
+    return true;
   };
 
   // [신규] 현재 작성 중인 견적서를 비우고 새 견적서 시작
@@ -613,7 +628,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     let duplicatedQuote = normalizeQuote({
       ...rest,
       id: Date.now(),
-      date: new Date().toISOString().split('T')[0],
+      date: todayLocalISO(),
       buyerName
     });
     // 단가: 원본 견적 당시 값 그대로 / 지금 원가로 다시 계산 — 물어봄 (아주 옛날 방식 견적은 그대로 복제)

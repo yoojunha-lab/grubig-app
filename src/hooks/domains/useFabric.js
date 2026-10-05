@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { clampNum } from '../../utils/helpers';
 import { calculateCostTiers, computeCostAtQty, resolveKnitKgRate, normalizeExtraCosts } from '../../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
@@ -39,6 +39,10 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
   const [editingFabricId, setEditingFabricId] = useState(null);
   const [expandedFabricId, setExpandedFabricId] = useState(null);
   const savingRef = useRef(false); // 저장 in-flight 가드 (빠른 더블클릭 중복 방지)
+  // 삭제 확인·연결 정리에 쓰는 최신 목록 — 원단 행(memo)은 견적 목록이 바뀌어도 다시 그려지지 않아 옛 함수가 불릴 수 있음
+  //  → 누른 순간의 최신 목록으로 판단 (옛 설계서 내용으로 덮어쓰는 일 방지). 그리기가 끝난 뒤 갱신
+  const latestRef = useRef({ savedFabrics, designSheets, savedQuotes });
+  useEffect(() => { latestRef.current = { savedFabrics, designSheets, savedQuotes }; });
 
   const getInitialFabricInput = () => ({
     article: '', itemName: '', widthFull: 58, widthCut: 56, gsm: 300, costGYd: '', mcqYd: '', remarks: '',
@@ -209,42 +213,44 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
   };
 
   const handleDeleteFabric = async (id) => {
-    // 견적(quotes)에서 사용 중인지 검사 — items[*].fabricId 또는 items[*].id (legacy) 모두 확인
-    const usedInQuotes = (savedQuotes || []).filter(q =>
-      (q.items || []).some(it => String(it.fabricId ?? it.id ?? '') === String(id))
+    const { savedFabrics: fabricsNow, designSheets: sheetsNow, savedQuotes: quotesNow } = latestRef.current;
+    // 견적(quotes)에서 사용 중인지 — 기준 견적 items[*].fabricId(예전 견적은 items[*].id) + 별도 견적 customItems[*].fabricId
+    const usedInQuotes = (quotesNow || []).filter(q =>
+      [...(q.items || []), ...(q.customItems || [])].some(it => String(it.fabricId ?? it.id ?? '') === String(id))
     );
     const usedCount = usedInQuotes.length;
+    // 연결된 설계서 — 지우면 연결이 풀리고, 아이템화 단계였으면 샘플 진행으로 돌아감 (아래 [B2])
+    const fabric = (fabricsNow || []).find(f => f.id === id);
+    const sheet = fabric?.linkedSheetId ? (sheetsNow || []).find(s => String(s.id) === String(fabric.linkedSheetId)) : null;
+    const linkedSheet = sheet?.linkedFabricId && String(sheet.linkedFabricId) === String(id) ? sheet : null;
     const baseMsg = "정말로 이 원단을 삭제하시겠습니까? (이 결정은 되돌릴 수 없습니다.)";
-    const warnMsg = usedCount > 0
-      ? `⚠️ 이 원단은 견적 ${usedCount}건에서 사용 중입니다. (기존 견적 이력은 유지됩니다)\n\n${baseMsg}`
-      : baseMsg;
+    const notes = [];
+    if (usedCount > 0) notes.push(`⚠️ 이 원단은 견적 ${usedCount}건에서 사용 중입니다. (기존 견적 이력은 유지됩니다)`);
+    if (linkedSheet) notes.push(`🔗 연결된 설계서(${linkedSheet.fabricName || linkedSheet.articleNo || '이름 없음'})는 연결이 풀려요${linkedSheet.stage === 'articled' ? " — '샘플 진행' 단계로 돌아가요" : ''}.`);
+    const warnMsg = notes.length > 0 ? `${notes.join('\n')}\n\n${baseMsg}` : baseMsg;
     if (!window.confirm(warnMsg)) return;
 
     // 먼저 지우고, 지워졌을 때만 설계서 연결 정리 (삭제가 실패했는데 연결만 끊기는 일 방지)
     //  deleteDocFromCloud는 실패 시 throw 하지 않고 false를 돌려줌 (실패 알림은 그쪽에서)
-    const fabric = (savedFabrics || []).find(f => f.id === id);
     const deleted = await deleteDocFromCloud('fabrics', id);
     if (deleted === false) return;
 
     // [B2 수정] 연결된 설계서의 linkedFabricId를 해제 → 유령 참조 방지
-    if (fabric?.linkedSheetId && designSheets) {
-      const linkedSheet = designSheets.find(s => String(s.id) === String(fabric.linkedSheetId));
-      if (linkedSheet?.linkedFabricId && String(linkedSheet.linkedFabricId) === String(id)) {
-        const now = new Date().toISOString();
-        // [연동 보호] 원단이 사라졌으므로, 아이템화 상태였다면 직전 단계(sampling)로 되돌린다.
-        //   articled로 남으면 원단도 없는데 삭제/DROP이 막혀 설계서가 고립되므로,
-        //   재편집·재등록이 가능한 상태로 복구한다.
-        const wasArticled = linkedSheet.stage === 'articled';
-        saveDocToCloud('designSheets', {
-          ...linkedSheet,
-          linkedFabricId: null,
-          stage: wasArticled ? 'sampling' : linkedSheet.stage,
-          stageEnteredAt: wasArticled
-            ? { ...(linkedSheet.stageEnteredAt || {}), sampling: now }
-            : linkedSheet.stageEnteredAt,
-          updatedAt: now
-        });
-      }
+    if (linkedSheet) {
+      const now = new Date().toISOString();
+      // [연동 보호] 원단이 사라졌으므로, 아이템화 상태였다면 직전 단계(sampling)로 되돌린다.
+      //   articled로 남으면 원단도 없는데 삭제/DROP이 막혀 설계서가 고립되므로,
+      //   재편집·재등록이 가능한 상태로 복구한다.
+      const wasArticled = linkedSheet.stage === 'articled';
+      saveDocToCloud('designSheets', {
+        ...linkedSheet,
+        linkedFabricId: null,
+        stage: wasArticled ? 'sampling' : linkedSheet.stage,
+        stageEnteredAt: wasArticled
+          ? { ...(linkedSheet.stageEnteredAt || {}), sampling: now }
+          : linkedSheet.stageEnteredAt,
+        updatedAt: now
+      });
     }
     showToast("삭제되었습니다.", "success");
   };
@@ -270,20 +276,11 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
   const calculateCostAtQty = (fabricData, qty, overrideExchangeRate = null, opts = {}) =>
     computeCostAtQty(fabricData, qty, costCtx(overrideExchangeRate), opts);
 
-  const getMergedYarnName = (slotId) => {
-    if (!slotId) return '';
-    const yId = String(slotId).split('::')[0];
-    const yarn = yarnLibrary.find(y => String(y.id) === String(yId));
-    if (!yarn) return '';
-    const sup = yarn.suppliers?.find(s => s.isDefault) || yarn.suppliers?.[0];
-    return sup ? `${yarn.name} [${sup.name}]` : yarn.name;
-  };
-
   return {
     fabricInput, setFabricInput,
     editingFabricId, expandedFabricId, setExpandedFabricId,
     handleFabricChange, handleNestedChange, handleYarnSlotChange,
     handleSaveFabric, handleEditFabric, handleDeleteFabric, resetFabricForm,
-    calculateCost, calculateCostAtQty, getMergedYarnName
+    calculateCost, calculateCostAtQty
   };
 };

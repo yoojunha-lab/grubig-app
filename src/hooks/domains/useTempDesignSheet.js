@@ -341,7 +341,19 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
       };
     });
 
-    showToast(`가설계서 "${tempSheet.fabricName || ''}" 스펙이 불러와졌습니다.`, 'success');
+    // 단가 직접입력(priceOverride)은 가설계서 전용 → 정식 설계서에서는 원사 라이브러리 단가로 다시 계산.
+    //  원사를 고르지 않고 단가만 넣은 칸은 정식 설계서에서 '원사를 고르지 않은 칸'(그 칸 재료비 0원)이 되므로 알려 줌
+    const slots = Array.isArray(tempSheet.yarns) ? tempSheet.yarns : [];
+    const priceOnly = slots.filter(sl => sl && !sl.yarnId && Number(sl.priceOverride) > 0 && Number(sl.ratio) > 0).length;
+    const priceWithYarn = slots.filter(sl => sl && sl.yarnId && Number(sl.priceOverride) > 0).length;
+    if (priceOnly > 0 || priceWithYarn > 0) {
+      const lines = [];
+      if (priceOnly > 0) lines.push(`• 원사를 고르지 않고 단가만 넣은 칸 ${priceOnly}개 → 정식 설계서에서 원사를 골라야 원가가 계산돼요 (지금은 그 칸 재료비 0원).`);
+      if (priceWithYarn > 0) lines.push(`• 단가를 직접 넣은 칸 ${priceWithYarn}개 → 원사 라이브러리 단가로 다시 계산돼요.`);
+      alert(`가설계서 "${tempSheet.fabricName || ''}" 스펙을 불러왔어요.\n\n단가 직접입력은 가설계서에서만 써요:\n${lines.join('\n')}`);
+    } else {
+      showToast(`가설계서 "${tempSheet.fabricName || ''}" 스펙이 불러와졌습니다.`, 'success');
+    }
     return true;
   };
 

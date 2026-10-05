@@ -2,7 +2,7 @@ import React from 'react';
 import { Plus, Trash2, Settings, AlertTriangle } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { num, calculateGYd, clampNum, fmtMan as man } from '../../utils/helpers';
-import { normalizeExtraCosts, findKnitGrade, findProcessType, isImportSupplier, findImportCountry } from '../../utils/costModel';
+import { normalizeExtraCosts, normalizeKnitRateTiers, findKnitGrade, findProcessType, isImportSupplier, findImportCountry } from '../../utils/costModel';
 import { COST_DISPLAY_TIERS, COST_TIER_GROUPS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, KNIT_FEE_MODE_LABEL } from '../../constants/costing';
 import { COST_WARNING_TITLE } from './CostWarnings';
 
@@ -120,7 +120,18 @@ export const CostBreakdownTable = ({
   // kg단가 칸을 비우면 엔진이 기본값(예전 편직료 → 2,000원)으로 계산 → 안내·전환점도 그 단가로
   const kgRateBlank = String(baseKgRate ?? '').trim() === '';
   const effKgRate = kgRateBlank ? (Number(calc?.knitKgRate) || 0) : (Number(baseKgRate) || 0);
-  const crossKg = effKgRate > 0 ? grade.fixedFee / effKgRate : 0; // 정액 → kg 계산 전환 생지 kg
+  // 정액 → kg 계산으로 바뀌는 생지 kg — kg단가 구간까지 반영 (구간마다 그 구간 단가로 정액을 넘는 첫 지점)
+  const crossKg = (() => {
+    const fixed = Number(grade.fixedFee) || 0;
+    const steps = [{ fromKg: 0, rate: effKgRate }, ...normalizeKnitRateTiers(cost.knitKgRateTiers)];
+    for (let i = 0; i < steps.length; i++) {
+      if (!(steps[i].rate > 0)) continue;
+      const end = i + 1 < steps.length ? steps[i + 1].fromKg : Infinity;
+      const kg = Math.max(steps[i].fromKg, fixed / steps[i].rate);
+      if (kg < end) return kg;
+    }
+    return 0;
+  })();
 
   // ---- 계산 결과 읽기 ----
   const tier = (tk) => calc?.[tk] || {};
@@ -385,7 +396,9 @@ export const CostBreakdownTable = ({
               const d = tier(tk).dye || {};
               const fee = num(cost.dyeingFee);
               if (d.minApplied) return `${d.colors}컬러 × 컬러당 생지 ${num(d.perColorKg)}kg → 최소 ${num(d.minKg)}kg로 청구 = ${num(d.billedKg)}kg × ${fee}원 = ${num(d.total)}원 ÷ ${num(t.qty)}YD`;
-              const why = d.assumeMcq ? 'MCQ 충족 기준 — 최소 청구 없음' : `컬러당 생지 ${num(d.perColorKg)}kg라 최소 ${num(d.minKg)}kg 이상`;
+              const why = d.assumeMcq ? 'MCQ 충족 기준 — 최소 청구 없음'
+                : !(Number(d.minKg) > 0) ? '염색 최소 청구 없음 (원가 설정 0kg)'
+                : `컬러당 생지 ${num(d.perColorKg)}kg라 최소 ${num(d.minKg)}kg 이상`;
               return `생지 ${num(d.billedKg)}kg × ${fee}원 = ${num(d.total)}원 ÷ ${num(t.qty)}YD (${why})`;
             },
           })}
@@ -412,7 +425,7 @@ export const CostBreakdownTable = ({
         {!compact && (
           <div className="text-[10px] text-slate-400 mt-1 space-y-0.5">
             <div>
-              <b className="text-amber-700">2컬러 기준</b> ({smallQtys.join('·')}YD): 2컬러로 나눠 염색한다고 보고, 컬러당 생지 {num(dyeMinKg)}kg 미만이면 {num(dyeMinKg)}kg로 청구해요. 이화학도 2컬러.
+              <b className="text-amber-700">2컬러 기준</b> ({smallQtys.join('·')}YD): 2컬러로 나눠 염색한다고 보고, {Number(dyeMinKg) > 0 ? `컬러당 생지 ${num(dyeMinKg)}kg 미만이면 ${num(dyeMinKg)}kg로 청구해요` : '염색 최소 청구는 없어요 (원가 설정 0kg)'}. 이화학도 2컬러.
               {' '}<b className="text-blue-700">MCQ 충족 기준</b> ({num(mcqFromQty)}YD 이상): 컬러마다 MCQ를 맞췄다고 보고 염색 최소 청구가 없어요.
             </div>
             <div>편직비·이화학·운임은 오더 총액을 수량으로 나눈 값이에요. 칸에 마우스를 올리면 계산 과정이 보여요.</div>

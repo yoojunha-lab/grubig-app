@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   FileText, Save, Download, X, Plus, ClipboardPaste, FileSpreadsheet, FilePlus, DollarSign, Search, ArrowLeft, RefreshCw,
   Tags, Calculator, ChevronDown, ChevronRight, Copy, Trash2, RotateCcw, AlertTriangle, Square, CheckSquare,
@@ -21,6 +21,32 @@ import { CostWarningBadge } from '../components/cost/CostWarnings';
 //  · 원단 추가는 두 칸이 같은 방식: [원단 검색·추가] 팝업 + 표 아래 Article 입력(Enter)·엑셀 세로 복붙, 같은 원단은 한 줄만
 //  · 두 칸은 머리줄을 눌러 접고 펴기, PDF·엑셀은 칸마다 따로 (기준 견적서 / 별도 견적서)
 // ============================================================
+
+// 숫자 칸 — 지우고 새로 칠 수 있게. 칠 때마다 숫자면 바로 반영(가격도 바로 바뀜),
+//  비운 채로 칸을 떠나면 칸에 들어올 때의 값으로 되돌림 (한 글자씩 지우며 지나간 '2' 같은 값이 남지 않게)
+//  (예전엔 칸을 지우는 순간 0이 들어가서 이어서 치면 '05'가 됐음)
+const DraftNumberInput = ({ value, onValue, ...rest }) => {
+  const [draft, setDraft] = useState(null);
+  const valueOnFocus = useRef('');
+  return (
+    <input
+      type="number"
+      {...rest}
+      value={draft ?? value}
+      onFocus={() => { valueOnFocus.current = value; }}
+      onChange={(e) => {
+        const t = e.target.value;
+        setDraft(t);
+        if (t.trim() !== '' && Number.isFinite(Number(t))) onValue(t);
+      }}
+      onBlur={() => {
+        const start = String(valueOnFocus.current ?? '');
+        if (draft !== null && draft.trim() === '' && start !== '') onValue(start);
+        setDraft(null);
+      }}
+    />
+  );
+};
 
 // 접고 펴는 칸 — 머리줄(아이콘·제목·개수) + 오른쪽 버튼
 const QuoteSection = ({ icon: Icon, title, count, desc, tone = 'blue', open, onToggle, actions, children }) => {
@@ -337,7 +363,7 @@ export const QuotationPage = ({
                       {QUOTE_TIERS.map((t, i) => (
                         <td key={t.key} className={`px-1.5 py-1 border-b border-slate-100 ${i > 0 && QUOTE_TIERS[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${shownKeys.includes(t.key) ? 'bg-indigo-50/60' : ''}`}>
                           <div className="relative">
-                            <input type="number" step="any" value={tierValue(quoteInput.bulkMarginRate, t.key)} onChange={(e) => handleBulkMarginRateChange(t.key, e.target.value)}
+                            <DraftNumberInput step="any" value={tierValue(quoteInput.bulkMarginRate, t.key)} onValue={(v) => handleBulkMarginRateChange(t.key, v)}
                               title="모든 품목의 이 구간 이익율을 한 번에 바꿔요 (품목마다 따로 바꾼 값도 덮어씀)"
                               className="w-full bg-white border border-indigo-200 rounded px-1.5 py-1 pr-5 text-right text-xs font-bold text-indigo-700 outline-none focus:border-indigo-500" placeholder="0" />
                             <span className="absolute right-1.5 top-1.5 text-[9px] text-indigo-300 font-bold pointer-events-none">%</span>
@@ -353,7 +379,7 @@ export const QuotationPage = ({
                       </td>
                       {QUOTE_TIERS.map((t, i) => (
                         <td key={t.key} className={`px-1.5 py-1 ${i > 0 && QUOTE_TIERS[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${shownKeys.includes(t.key) ? 'bg-indigo-50/60' : ''}`}>
-                          <input type="number" step="any" value={tierValue(quoteInput.marginAdd, t.key)} onChange={(e) => handleQuoteMarginChange('add', t.key, e.target.value)}
+                          <DraftNumberInput step="any" value={tierValue(quoteInput.marginAdd, t.key)} onValue={(v) => handleQuoteMarginChange('add', t.key, v)}
                             className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-right text-xs font-bold text-slate-700 outline-none focus:border-indigo-400" placeholder="0" />
                           {showAddUsd && <div className="text-[9px] text-slate-400 text-right mt-0.5">{addInUsd(quoteInput.marginAdd?.[t.key])}</div>}
                         </td>
@@ -381,12 +407,12 @@ export const QuotationPage = ({
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <span className="text-slate-400 font-bold mr-1">선택 {selStd.length}개</span>
             {!isLegacy && (
-              <button type="button" disabled={selStd.length === 0} onClick={() => { handleCopyToCustom(selStd); setSelectedStd([]); setOpenCustom(true); }}
+              <button type="button" disabled={selStd.length === 0} onClick={() => { if (handleCopyToCustom(selStd)) { setSelectedStd([]); setOpenCustom(true); } }}
                 className="px-2.5 py-1.5 rounded-lg font-bold border flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100">
                 <Copy className="w-3.5 h-3.5" /> 별도 견적으로 복사
               </button>
             )}
-            <button type="button" disabled={selStd.length === 0} onClick={() => { handleRemoveItemsFromQuote(selStd); setSelectedStd([]); }}
+            <button type="button" disabled={selStd.length === 0} onClick={() => { if (handleRemoveItemsFromQuote(selStd)) setSelectedStd([]); }}
               className="px-2.5 py-1.5 rounded-lg font-bold border flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed bg-white text-slate-500 border-slate-200 hover:bg-red-50 hover:text-red-600">
               <Trash2 className="w-3.5 h-3.5" /> 선택 삭제
             </button>
@@ -462,10 +488,10 @@ export const QuotationPage = ({
                           )}
                           {!isLegacy && (
                             <div className="relative mt-1">
-                              <input
-                                type="number" step="any"
+                              <DraftNumberInput
+                                step="any"
                                 value={rate}
-                                onChange={(e) => handleQuoteItemMarginChange(idx, t.key, e.target.value)}
+                                onValue={(v) => handleQuoteItemMarginChange(idx, t.key, v)}
                                 className="w-full bg-white border border-indigo-200 rounded pl-1.5 pr-4 py-0.5 text-right text-[11px] font-bold text-indigo-700 outline-none focus:border-indigo-500"
                                 placeholder="0"
                                 title="이 원단의 해당 구간 매출이익율(%)"
@@ -523,7 +549,7 @@ export const QuotationPage = ({
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <span className="text-slate-400 font-bold mr-1">선택 {selCustom.length}줄</span>
-            <button type="button" disabled={selCustom.length === 0} onClick={() => { handleRemoveCustomItems(selCustom); setSelectedCustom([]); }}
+            <button type="button" disabled={selCustom.length === 0} onClick={() => { if (handleRemoveCustomItems(selCustom)) setSelectedCustom([]); }}
               className="px-2.5 py-1.5 rounded-lg font-bold border flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed bg-white text-slate-500 border-slate-200 hover:bg-red-50 hover:text-red-600">
               <Trash2 className="w-3.5 h-3.5" /> 선택 삭제
             </button>

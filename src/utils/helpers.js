@@ -132,6 +132,13 @@ export const toTierAdd = (val) => {
 };
 
 /**
+ * 날짜 → 'YYYY-MM-DD' (이 PC의 현지 시간 기준). 기본은 오늘.
+ * toISOString()은 UTC라 한국 시간 오전 9시 전에는 어제 날짜가 나옴 → 날짜만 필요한 곳은 이 함수로.
+ */
+export const todayLocalISO = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/**
  * 특정 날짜 문자열(YYYY-MM-DD 등)을 입력받아 해당 달의 마지막 날짜를
  * 'MMM DD, YYYY' 영문 대문자 포맷으로 반환합니다. (견적서 유효기간 표기용)
  */

@@ -120,7 +120,7 @@ export const MobileFabricCard = React.memo(({
             <div className="space-y-2 text-xs">
               <div className="flex justify-between items-center"><span className="text-slate-500">생지 kg</span><span className="font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{num(c.tier3k.kg?.greige)} kg</span></div>
               <div className="flex justify-between items-center"><span className="text-slate-500">편직비</span><span className="font-mono font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{KNIT_FEE_MODE_LABEL[c.tier3k.knit?.mode]} {fmtMan(c.tier3k.knit?.total)}</span></div>
-              <div className="flex justify-between items-center"><span className="text-slate-500">LOSS (가공 + 편직)</span><span className="font-mono font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded">{c.processLossPct}% + {c.tier3k.kg?.knitLossPct ?? 0}%</span></div>
+              <div className="flex justify-between items-center"><span className="text-slate-500">{c.finishingLossPct > 0 ? 'LOSS (가공 + 후가공 + 편직)' : 'LOSS (가공 + 편직)'}</span><span className="font-mono font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded">{c.processLossPct}%{c.finishingLossPct > 0 ? ` + ${c.finishingLossPct}%` : ''} + {c.tier3k.kg?.knitLossPct ?? 0}%</span></div>
             </div>
           </div>
 

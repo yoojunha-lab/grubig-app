@@ -212,7 +212,7 @@ export const DesktopFabricRow = React.memo(({
                         <div className="text-[10px]">{row.v(c.tier5k)}</div>
                       </div>
                     ))}
-                    <div className="text-[9px] text-slate-400 mt-1">가공 LOSS {c.processLossPct}% ({c.processType?.name}) 포함 · 기준값은 ⚙ 원가 설정</div>
+                    <div className="text-[9px] text-slate-400 mt-1">가공 LOSS {c.processLossPct}% ({c.processType?.name}){c.finishingLossPct > 0 ? ` + 후가공 LOSS ${c.finishingLossPct}%` : ''} 포함 · 기준값은 ⚙ 원가 설정</div>
                   </div>
 
                   <div className="bg-rose-50/30 rounded-lg p-2.5 border border-rose-100/50">

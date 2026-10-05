@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, Edit2, Trash2, History, RotateCcw } from 'lucide-react';
 import { num } from '../../utils/helpers';
-import { FIELD_LABELS } from './constants';
+import { fieldLabel } from './constants';
 import { STAGE_COLORS } from '../../constants/common';
 
 export const MobileSheetCard = ({
@@ -84,7 +84,7 @@ export const MobileSheetCard = ({
             </div>
             {!isDropped && (
                <div className="text-right shrink-0">
-                 <span className="text-[9px] font-bold text-slate-400 block">3K 도매가</span>
+                 <span className="text-[9px] font-bold text-slate-400 block">3K 영업 기준원가</span>
                  <span className="font-mono font-black text-blue-600 text-[13px]">
                    {costData ? `${prefix}${priceFn(viewMode === 'export' ? costData.tier3k?.export?.priceBrand : costData.tier3k?.domestic?.priceBrand)}` : '-'}
                  </span>
@@ -107,7 +107,7 @@ export const MobileSheetCard = ({
            {/* 모바일용 단가 카드 */}
            {costData && !isDropped && (
              <div className="space-y-2">
-               <h5 className="text-[10px] font-bold text-slate-500 pl-1">구간별 도매가 / 제조원가</h5>
+               <h5 className="text-[10px] font-bold text-slate-500 pl-1">구간별 영업 기준원가 / 순원가</h5>
                <div className="grid grid-cols-3 gap-2">
                  {[{ label: '1K', tier: 'tier1k' }, { label: '3K', tier: 'tier3k' }, { label: '5K', tier: 'tier5k' }].map(({ label, tier }) => {
                     const data = viewMode === 'export' ? costData[tier]?.export : costData[tier]?.domestic;
@@ -146,7 +146,7 @@ export const MobileSheetCard = ({
                         <div className="space-y-0.5">
                            {Object.entries(entry.fields || {}).map(([fieldKey, oldValue]) => (
                              <div key={fieldKey} className="text-[9px] flex flex-wrap gap-1">
-                               <span className="font-bold text-slate-500">{FIELD_LABELS[fieldKey] || fieldKey}:</span>
+                               <span className="font-bold text-slate-500">{fieldLabel(fieldKey)}:</span>
                                <span className="text-emerald-600">수정됨</span>
                              </div>
                            ))}

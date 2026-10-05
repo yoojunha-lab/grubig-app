@@ -5,7 +5,7 @@ import { SearchableSelect } from '../components/common/SearchableSelect';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
 import { MainDetailFormModal } from '../components/main-detail/MainDetailFormModal';
 import { num, calculateGYd, computeSellPrice } from '../utils/helpers';
-import { computeCostAtQty, resolveKnitKgRate, normalizeExtraCosts } from '../utils/costModel';
+import { computeCostAtQty, resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete } from '../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
 
@@ -258,9 +258,10 @@ export const DesignSheetPage = ({
   };
 
   const getCompStatus = () => {
-    const total = (sheetInput.yarns || []).reduce((s, y) => s + (Number(y?.ratio) || 0), 0);
+    // 저장 검사와 같은 합계 (소수 둘째 자리 반올림 — 33.33 + 33.33 + 33.34도 100으로)
+    const total = sumYarnRatio(sheetInput.yarns);
     if (total === 0) return null;
-    if (total !== 100) return <span className="text-red-500 font-extrabold ml-2 text-[10px]">⚠ 총합 {total}% (오류)</span>;
+    if (!isYarnRatioComplete(sheetInput.yarns)) return <span className="text-red-500 font-extrabold ml-2 text-[10px]">⚠ 총합 {total}% (오류)</span>;
     return <span className="text-emerald-600 font-extrabold ml-2 text-[10px]">✓ 총합 100%</span>;
   };
 

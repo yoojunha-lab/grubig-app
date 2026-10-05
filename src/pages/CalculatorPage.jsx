@@ -28,7 +28,9 @@ export const CalculatorPage = ({
     ? Number(fabricInput.costGYd)
     : Number(currentCalcFull?.theoreticalGYd) || 0;
   const mcqProcessLoss = Number(currentCalcFull?.processLossPct) || 0;
-  const autoMcqYd = calculateMcqYd(mcqGYdSource, mcqProcessLoss);
+  const mcq100kgYd = calculateMcqYd(mcqGYdSource, mcqProcessLoss);
+  // 견적서에 들어가는 자동 MCQ와 같은 값 — 최소 300YD (useQuotation.resolveMcqYd). 예전엔 화면만 300 미만으로 보였음
+  const autoMcqYd = mcq100kgYd > 0 ? Math.max(300, mcq100kgYd) : 0;
 
   const handleSaveSafe = () => {
     if (!isRatioValid) {
@@ -120,10 +122,13 @@ export const CalculatorPage = ({
             </div>
             <div className="col-span-1 flex items-end">
               <div className="w-full bg-amber-50/60 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-800 leading-snug">
-                💡 <strong>100kg 기준 ≈ {num(autoMcqYd)} YD</strong>
+                💡 <strong>100kg 기준 ≈ {num(mcq100kgYd)} YD</strong>
                 <span className="text-amber-600 font-normal ml-1">
                   (G/YD {num(mcqGYdSource)} × 가공 LOSS {mcqProcessLoss}% / 100단위 올림)
                 </span>
+                {mcq100kgYd > 0 && mcq100kgYd < 300 && (
+                  <span className="block text-amber-700 font-bold mt-0.5">→ 견적 MCQ는 최소 300 YD</span>
+                )}
               </div>
             </div>
           </div>

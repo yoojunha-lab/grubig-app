@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { DESIGN_STAGES, SAMPLING_SUBSTAGES } from '../../constants/common';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
 import { resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete, normalizeYarnSlots, clampYarnRatio } from '../../utils/costModel';
+import { todayLocalISO, num } from '../../utils/helpers';
 
 // GRUBIG ERP - 원단 설계서 도메인 로직 훅
 
@@ -23,7 +24,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     status: 'active',        // active | dropped
     devRequestId: null,      // 연결된 개발의뢰 ID
     deadline: '',            // 납기 (설계서 전체 납기 관리)
-    registeredDate: new Date().toISOString().slice(0, 10), // 등록 날짜 (사용자 수동 입력, YYYY-MM-DD)
+    registeredDate: todayLocalISO(), // 등록 날짜 (사용자 수동 입력, YYYY-MM-DD)
 
     // (1) 원사 정보 (기존 원사 라이브러리 연동)
     yarns: [
@@ -517,6 +518,22 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
           // [요청2] 내폭·외폭·GSM은 확인칸이므로 감사 기록
           if (key === 'widthCut' || key === 'widthFull' || key === 'gsm') stampMeta(`costInput.${key}`, oldVal, newVal);
         }
+      });
+      // 원가 표의 나머지 항목 — 위험마진(%)·kg단가 구간·후가공·추가비용 (예전엔 바꿔도 이력에 안 남았음)
+      //  목록은 내용을 통째로 비교하고(줄 id 제외), 이력에는 바뀌기 전 내용을 짧은 글자로
+      const prevRisk = existing.costInput?.riskMarginPct ?? '';
+      if (String(finalInput.costInput?.riskMarginPct ?? '') !== String(prevRisk)) changedFields['costInput.riskMarginPct'] = prevRisk;
+      const toList = (v) => (Array.isArray(v) ? v : []);
+      const costLists = {
+        knitKgRateTiers: { read: toList, summary: (list) => list.map(t => `${num(t.fromKg)}kg~ ${num(t.rate)}원`).join(', ') },
+        finishing: { read: toList, summary: (list) => list.map(f => `${f.name || '후가공'} ${num(f.fee)}원·LOSS ${Number(f.lossPct) || 0}%`).join(', ') },
+        etcCosts: { read: normalizeExtraCosts, summary: (list) => list.map(e => `${e.name || '추가비용'} ${num(e.perYd)}원/yd`).join(', ') },
+      };
+      Object.entries(costLists).forEach(([key, { read, summary }]) => {
+        const comparable = (list) => JSON.stringify(list.map(({ id: _id, ...rest }) => rest));
+        const oldList = read(existing.costInput?.[key]);
+        const newList = read(finalInput.costInput?.[key]);
+        if (comparable(oldList) !== comparable(newList)) changedFields[`costInput.${key}`] = summary(oldList) || '(없음)';
       });
       // [원사 배합] 비율 확인칸 — 원사별 비율 변경 감사 기록
       (finalInput.yarns || []).forEach((y, idx) => {

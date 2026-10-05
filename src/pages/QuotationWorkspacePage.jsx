@@ -27,7 +27,12 @@ export const QuotationWorkspacePage = (props) => {
   const [loadNonce, setLoadNonce] = useState(0);
   useEffect(() => { baselineRef.current = JSON.stringify(quoteInput); }, [loadNonce]);
   const captureBaseline = () => setLoadNonce(n => n + 1);
-  const isDirty = () => JSON.stringify(quoteInput) !== baselineRef.current;
+  // 한 번도 저장 안 된 견적(새 견적·복제본)에 품목이 있으면 늘 '변경사항 있음'
+  //  — 복제본은 열리자마자 기준이 잡혀서, 저장 안 하고 나가도 묻지 않고 사라지던 문제
+  const isUnsavedWithRows = () =>
+    !savedQuotes.some(q => String(q.id) === String(quoteInput.id)) &&
+    ((quoteInput.items || []).length + (quoteInput.customItems || []).length) > 0;
+  const isDirty = () => JSON.stringify(quoteInput) !== baselineRef.current || isUnsavedWithRows();
 
   const [pendingLeave, setPendingLeave] = useState(null); // 나가기 대기 액션 (dirty일 때)
 
@@ -181,7 +186,9 @@ export const QuotationWorkspacePage = (props) => {
       <div className="flex flex-col lg:flex-row gap-4 items-start">
         <aside className="w-full lg:w-72 shrink-0">{compactList}</aside>
         <div className="flex-1 min-w-0 w-full">
+          {/* 견적이 바뀌면 화면 안의 체크 선택·팝업 상태를 새로 (다른 견적에 선택이 남지 않게) */}
           <QuotationPage
+            key={quoteInput.id || 'new'}
             {...props}
             handleNewQuote={openNew}
             handleSaveQuote={guardedSave}

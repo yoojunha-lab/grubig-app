@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, Edit2, Trash2, History } from 'lucide-react';
 import { num } from '../../utils/helpers';
-import { FIELD_LABELS } from './constants';
+import { fieldLabel } from './constants';
 
 export const DesktopSheetRow = ({
   sheet, 
@@ -64,9 +64,9 @@ export const DesktopSheetRow = ({
           <p className="text-[10px] text-slate-600 mt-0.5">{sheet.finishing?.type || '후가공 없음'}</p>
         </td>
 
-        {/* 6. 단가 요약 (3K 도매가) */}
+        {/* 6. 단가 요약 (3K 영업 기준원가 — 엔진의 priceBrand/priceConverter는 finalCostYd 별칭, 판매가 아님) */}
         <td className="p-3 align-middle border-r border-slate-100 text-right bg-slate-50/50">
-          <span className="text-[9px] font-bold text-slate-400 block mb-0.5">3K 도매가</span>
+          <span className="text-[9px] font-bold text-slate-400 block mb-0.5">3K 영업 기준원가</span>
           <span className="text-sm font-black text-blue-600">
              {costData ? `${prefix}${priceFn(viewMode === 'export' ? costData.tier3k?.export?.priceBrand : costData.tier3k?.domestic?.priceBrand)}` : '-'}
           </span>
@@ -116,15 +116,11 @@ export const DesktopSheetRow = ({
                        </p>
                        <div className="space-y-1.5 mt-2">
                          <div className="flex justify-between text-[11px] bg-slate-50 px-1 py-0.5 rounded">
-                           <span className="font-bold text-slate-700">도매가</span>
-                           <span className="font-mono font-bold text-blue-600">{prefix}{priceFn(data?.priceBrand)}</span>
-                         </div>
-                         <div className="flex justify-between text-[11px] px-1 py-0.5 mt-2">
-                           <span className="text-slate-500">기본단가</span>
-                           <span className="font-mono text-slate-600">{prefix}{priceFn(data?.priceConverter)}</span>
+                           <span className="font-bold text-slate-700">영업 기준원가</span>
+                           <span className="font-mono font-bold text-blue-600">{prefix}{priceFn(data?.finalCostYd)}</span>
                          </div>
                          <div className="flex justify-between text-[11px] px-1 py-0.5 border-t border-dashed border-slate-200 mt-1 pt-1">
-                           <span className="text-slate-500">제조원가(Total)</span>
+                           <span className="text-slate-500">순원가 (위험마진 전)</span>
                            <span className="font-mono text-slate-600 font-bold">{prefix}{priceFn(data?.totalCostYd)}</span>
                          </div>
                          <div className="flex justify-between text-[10px] px-1 text-slate-400 pl-3">
@@ -175,7 +171,7 @@ export const DesktopSheetRow = ({
                         <div className="space-y-0.5 mt-1">
                           {Object.entries(entry.fields || {}).map(([fieldKey, oldValue]) => (
                             <div key={fieldKey} className="flex flex-wrap items-center gap-1 text-[10px]">
-                              <span className="font-bold text-slate-500 shrink-0">{FIELD_LABELS[fieldKey] || fieldKey}:</span>
+                              <span className="font-bold text-slate-500 shrink-0">{fieldLabel(fieldKey)}:</span>
                               <span className="text-red-400 line-through truncate max-w-[100px]">{oldValue || '(비어있음)'}</span>
                               <span className="text-slate-300 text-[8px]">▶</span>
                               <span className="text-emerald-600 font-bold">변경됨</span>

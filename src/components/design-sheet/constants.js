@@ -11,8 +11,18 @@ export const FIELD_LABELS = {
   'actualData.finishedGsm': 'GSM', 'actualData.remarks': '실측 메모',
   'costInput.widthFull': '외폭(Cost)', 'costInput.widthCut': '내폭(Cost)', 'costInput.gsm': 'GSM(Cost)',
   'costInput.costGYd': 'G/YD', 'costInput.knittingFee1k': '편직비1K', 'costInput.knittingFee3k': '편직비3K',
-  'costInput.knittingFee5k': '편직비5K', 'costInput.dyeingFee': '염가공비',
+  'costInput.knittingFee5k': '편직비5K', 'costInput.dyeingFee': '염가공료',
   'costInput.knitGrade': '편직 난이도', 'costInput.knitKgRate': '편직 kg단가', 'costInput.processType': '가공 유형',
   'costInput.extraFee1k': '부대비1K', 'costInput.extraFee3k': '부대비3K', 'costInput.extraFee5k': '부대비5K',
-  'costInput.marginTier': '도매(Conv) 마진 단계'
+  'costInput.marginTier': '도매(Conv) 마진 단계',
+  // 원가 표의 나머지 항목 (2026-10-06부터 이력에 남김 — 값은 바뀌기 전 내용을 요약한 글자)
+  'costInput.riskMarginPct': '위험마진(%)', 'costInput.knitKgRateTiers': '편직 kg단가 구간',
+  'costInput.finishing': '후가공(원가)', 'costInput.etcCosts': '품목별 추가비용',
+};
+
+/** 변경 이력 항목 이름 — 이름표에 없으면 원사 혼용률(yarns.0.ratio → '원사1 혼용률') 또는 키 그대로 */
+export const fieldLabel = (key) => {
+  if (FIELD_LABELS[key]) return FIELD_LABELS[key];
+  const m = /^yarns\.(\d+)\.ratio$/.exec(String(key));
+  return m ? `원사${Number(m[1]) + 1} 혼용률` : key;
 };

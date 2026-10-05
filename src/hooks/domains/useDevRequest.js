@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { todayLocalISO } from '../../utils/helpers';
 
 // GRUBIG ERP - 바이어 R&D 개발 의뢰 관리 훅
 // 상태: pending(대기) → analyzing(분석) → confirmed(개발투입확정, 설계서 저장 시 자동) / rejected(미진행)
@@ -11,7 +12,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     buyerName: '',
     assignee: '',
     devItem: '',
-    requestDate: new Date().toISOString().slice(0, 10),
+    requestDate: todayLocalISO(),
     targetSpec: {
       composition: '',
       targetPrice: '',
@@ -113,7 +114,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       buyerName: devReq.buyerName || '',
       assignee: devReq.assignee || '',
       devItem: devReq.devItem || '',
-      requestDate: devReq.requestDate || new Date().toISOString().slice(0, 10),
+      requestDate: devReq.requestDate || todayLocalISO(),
       targetSpec: { ...defaultSpec, ...(devReq.targetSpec || {}) },
       swatchNote: devReq.swatchNote || '',
       status: devReq.status || 'pending'
