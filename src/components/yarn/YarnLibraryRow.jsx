@@ -1,7 +1,8 @@
 import React from 'react';
 import { History, Edit2, Trash2 } from 'lucide-react';
 import { num, usd } from '../../utils/helpers';
-import { isImportSupplier, findImportCountry, getImportFreightRange, describeImportBrackets } from '../../utils/costModel';
+import { describeImportBrackets, isImportSupplier } from '../../utils/costModel';
+import { getYarnRowInfo, getCategoryColor } from './yarnRowModel';
 
 export const YarnLibraryRow = React.memo(({
   y,
@@ -12,37 +13,12 @@ export const YarnLibraryRow = React.memo(({
   setYarnLibrary,
   costSettings = null, // 수입 원사 운반비 구간 (원가 설정)
 }) => {
-  const defSup = y.suppliers?.find(s => s.isDefault) || y.suppliers?.[0] || {};
-  // Number()로 명시적 변환 — Firestore에서 문자열로 올 수 있음
-  const rawPrice = Number(defSup.price) || 0;
-  const rate = Number(globalExchangeRate) || 1450;
-  const convertedPrice = defSup.currency === 'USD' ? rawPrice * rate : rawPrice;
-  const tariffAmt = convertedPrice * (Number(defSup.tariff || 0) / 100);
-  // 수입사는 운반비가 원사 kg 구간(원가 설정 · 국가별) → 운반비·내수 단가를 범위로 표시
-  const isImport = isImportSupplier(defSup);
-  const importCountry = isImport ? findImportCountry(costSettings, defSup.importCountry) : null;
-  const importRange = isImport ? getImportFreightRange(costSettings, importCountry.id) : null;
+  // 대표 공급처 단가·관세·운반비·내수 단가·최종 수정일 — yarnRowModel (PC 행·모바일 카드 공통)
+  const { defSup, isImport, importCountry, importRange, freightAmt, domPrice, lastPriceDate } =
+    getYarnRowInfo(y, globalExchangeRate, costSettings);
   const importTip = isImport
     ? [`${importCountry.name} 운반비 (원사 kg 구간)`, ...describeImportBrackets(importCountry).map(b => `${b.label}: ${num(b.perKg)}원/kg`)].join('\n')
     : undefined;
-  const freightAmt = isImport ? 0 : (Number(defSup.freight) || 0);
-  // 관세는 내수(Dom)에만 포함, 수출(Export)에는 미포함
-  const domPrice = Math.round(convertedPrice + tariffAmt + freightAmt);
-  // 대표 공급처 기준 최종 단가 수정일 (history[0] = 최신, 없으면 원사 updatedAt 폴백)
-  const lastPriceDate = (defSup.history && defSup.history.length > 0) ? defSup.history[0].date : (y.updatedAt || null);
-
-  const getCategoryColor = (cat) => {
-    const colors = [
-      'bg-blue-100 text-blue-800 border-blue-200',
-      'bg-emerald-100 text-emerald-800 border-emerald-200',
-      'bg-purple-100 text-purple-800 border-purple-200',
-      'bg-amber-100 text-amber-800 border-amber-200',
-      'bg-rose-100 text-rose-800 border-rose-200',
-      'bg-indigo-100 text-indigo-800 border-indigo-200',
-    ];
-    const hash = String(cat).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    return colors[hash % colors.length];
-  };
   const catColor = getCategoryColor(y.category || '-');
 
   return (

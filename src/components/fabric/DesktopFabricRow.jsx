@@ -3,6 +3,7 @@ import { ChevronUp, ChevronDown, Edit2, Trash2, Factory, TrendingUp } from 'luci
 import { num, fmtMan } from '../../utils/helpers';
 import { KNIT_FEE_MODE_LABEL } from '../../constants/costing';
 import { CostWarningBadge, CostWarningBox } from '../cost/CostWarnings';
+import { fabricYarnMix, findLinkedSheet } from './fabricRowModel';
 
 export const DesktopFabricRow = React.memo(({
   f,
@@ -45,10 +46,8 @@ export const DesktopFabricRow = React.memo(({
         {/* 새 연동 설계서 컬럼 */}
         <td className="p-2 border-r border-slate-50 text-center align-middle">
           {(() => {
-            const sheet = f.linkedSheetId 
-              ? (designSheets || []).find(s => String(s.id) === String(f.linkedSheetId))
-              : (designSheets || []).find(s => String(s.linkedFabricId) === String(f.id));
-              
+            const sheet = findLinkedSheet(f, designSheets);
+
             return sheet ? (
               <div className="flex flex-col items-center justify-center gap-0.5">
                 <button
@@ -88,17 +87,12 @@ export const DesktopFabricRow = React.memo(({
 
         <td className="p-2 border-r border-slate-50 align-middle">
           <div className="flex flex-col gap-1 w-full text-[11px]">
-            {(f.yarns || []).filter(y => y?.yarnId && y.ratio > 0).map((y, idx) => {
-              const realYarnId = String(y.yarnId).split('::')[0];
-              const realYarn = yarnLibrary.find(yl => String(yl.id) === String(realYarnId));
-              const yarnName = realYarn?.name || '미등록 원사';
-              return (
-                <span key={idx} className="text-blue-900 leading-tight">
-                  <span className="font-medium mr-1.5">{yarnName}</span>
-                  <span className="font-extrabold text-blue-700 bg-blue-50 px-1 rounded">{y.ratio}%</span>
-                </span>
-              );
-            })}
+            {fabricYarnMix(f, yarnLibrary).map((y, idx) => (
+              <span key={idx} className="text-blue-900 leading-tight">
+                <span className="font-medium mr-1.5">{y.name}</span>
+                <span className="font-extrabold text-blue-700 bg-blue-50 px-1 rounded">{y.ratio}%</span>
+              </span>
+            ))}
           </div>
         </td>
 

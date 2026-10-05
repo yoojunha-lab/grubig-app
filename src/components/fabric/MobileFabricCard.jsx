@@ -3,6 +3,7 @@ import { ChevronUp, ChevronDown, Edit2, Trash2, Factory, TrendingUp, DollarSign,
 import { num, fmtMan } from '../../utils/helpers';
 import { KNIT_FEE_MODE_LABEL } from '../../constants/costing';
 import { CostWarningBadge, CostWarningBox } from '../cost/CostWarnings';
+import { fabricYarnMix, findLinkedSheet } from './fabricRowModel';
 
 export const MobileFabricCard = React.memo(({
   f,
@@ -41,10 +42,8 @@ export const MobileFabricCard = React.memo(({
           </div>
           {/* 모바일 뷰 연동 설계서 표시 */}
           {(() => {
-            const sheet = f.linkedSheetId 
-              ? (designSheets || []).find(s => String(s.id) === String(f.linkedSheetId))
-              : (designSheets || []).find(s => String(s.linkedFabricId) === String(f.id));
-              
+            const sheet = findLinkedSheet(f, designSheets);
+
             return sheet ? (
               <div className="mt-1.5">
                 <button
@@ -73,17 +72,12 @@ export const MobileFabricCard = React.memo(({
       <div className="p-3 bg-white border-b border-slate-50 cursor-pointer" onClick={onToggleExpand}>
         <div className="flex flex-col gap-1.5 mb-3">
           <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold self-start mb-0.5">사용 원사 (Yarn Mix)</span>
-          {(f.yarns || []).filter(y => y?.yarnId && y.ratio > 0).map((y, idx) => {
-            const realYarnId = String(y.yarnId).split('::')[0];
-            const realYarn = yarnLibrary?.find(yl => String(yl.id) === String(realYarnId));
-            const yarnName = realYarn?.name || '미등록 원사';
-            return (
-              <div key={idx} className="flex justify-between items-center bg-blue-50/50 text-blue-900 text-[11px] px-2 py-1 rounded border border-blue-100/50">
-                <span className="truncate pr-2 font-medium tracking-tight h-full">{yarnName}</span>
-                <span className="font-extrabold shrink-0 text-blue-700">{y.ratio}%</span>
-              </div>
-            );
-          })}
+          {fabricYarnMix(f, yarnLibrary).map((y, idx) => (
+            <div key={idx} className="flex justify-between items-center bg-blue-50/50 text-blue-900 text-[11px] px-2 py-1 rounded border border-blue-100/50">
+              <span className="truncate pr-2 font-medium tracking-tight h-full">{y.name}</span>
+              <span className="font-extrabold shrink-0 text-blue-700">{y.ratio}%</span>
+            </div>
+          ))}
         </div>
 
         <div className="grid grid-cols-2 gap-2 mb-3">
