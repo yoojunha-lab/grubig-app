@@ -5,6 +5,8 @@ import { ModalBackdrop } from '../common/ModalBackdrop';
 import { num } from '../../utils/helpers';
 import { resolveCostSettings, resolveOrderColors, getFreightAmount, isImportSupplier } from '../../utils/costModel';
 import { COST_DISPLAY_TIERS, COST_TIER_GROUPS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, DEFAULT_IMPORT_COUNTRY_ID } from '../../constants/costing';
+import { buildNext, isBlank, checkBrackets, checkNames, nextGradeName } from './costSettingsForm';
+import { inCls, txtCls, Section, BracketEditor } from './CostSettingsParts';
 
 // ============================================================
 // 원가 설정 모달 — 전 품목 공통 원가 기준값 편집
@@ -16,130 +18,6 @@ import { COST_DISPLAY_TIERS, COST_TIER_GROUPS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PR
 //  · 부모(App)에서 열릴 때만 마운트 → useState 초기화로 편집 상태 시드
 //  · initialFocus='importFreight' 면 열자마자 ⑧ 수입 원사 운반비로 스크롤 (원사 라이브러리에서 열 때)
 // ============================================================
-
-// 구간 경계값/금액 등 숫자 변환 (마지막 '초과' 구간은 max = null 유지)
-const toMax = (v) => (v === null ? null : Number(v));
-
-// 편집 상태 → 저장할 설정 객체
-const buildNext = (l) => ({
-  knitGrades: l.knitGrades.map(g => ({ id: g.id, name: String(g.name || '').trim(), fixedFee: Number(g.fixedFee) || 0, desc: String(g.desc || '').trim() })),
-  knitLossBrackets: l.knitLossBrackets.map(b => ({ max: toMax(b.max), pct: Number(b.pct) || 0 })),
-  processTypes: l.processTypes.map(t => ({ id: t.id, name: String(t.name || '').trim(), lossPct: Number(t.lossPct) || 0 })),
-  chemTest: {
-    feePerColor: Number(l.chemTest.feePerColor) || 0,
-    colorBrackets: l.chemTest.colorBrackets.map(b => ({ max: toMax(b.max), colors: Number(b.colors) || 0 })),
-  },
-  freightBrackets: l.freightBrackets.map(b => ({ max: toMax(b.max), amount: Number(b.amount) || 0 })),
-  visualInspectionPerYd: Number(l.visualInspectionPerYd) || 0,
-  dyeMinKgPerColor: Number(l.dyeMinKgPerColor) || 0,
-  importCountries: l.importCountries.map(c => ({
-    id: c.id,
-    name: String(c.name || '').trim(),
-    brackets: c.brackets.map(b => ({ max: toMax(b.max), perKg: Number(b.perKg) || 0 })),
-  })),
-});
-
-const isBlank = (v) => v === '' || v === null || v === undefined;
-
-// 구간 표 검사: 경계값은 0보다 크고 위→아래로 커져야 함, 값은 0 이상(상한 있으면 이하)
-const checkBrackets = (rows, valueKey, label, { maxValue = Infinity, integer = false } = {}) => {
-  const bounded = rows.slice(0, -1);
-  for (let i = 0; i < bounded.length; i++) {
-    const m = Number(bounded[i].max);
-    if (isBlank(bounded[i].max) || !(m > 0)) return `${label}: ${i + 1}번째 구간의 경계값을 0보다 크게 입력해 주세요.`;
-    if (i > 0 && !(m > Number(bounded[i - 1].max))) return `${label}: 경계값은 아래 줄로 갈수록 커져야 해요. (${num(bounded[i - 1].max)} 다음에 ${num(m)})`;
-  }
-  for (const r of rows) {
-    const v = Number(r[valueKey]);
-    if (isBlank(r[valueKey]) || !Number.isFinite(v) || v < 0 || v > maxValue) {
-      return `${label}: 값은 0${maxValue !== Infinity ? `~${maxValue}` : ' 이상'}으로 입력해 주세요.`;
-    }
-    if (integer && !Number.isInteger(v)) return `${label}: 정수로 입력해 주세요.`;
-  }
-  return null;
-};
-
-// 이름 목록 검사: 빈 이름·중복 이름 금지
-const checkNames = (list, label) => {
-  const names = list.map(x => String(x.name || '').trim());
-  if (names.some(n => !n)) return `${label}: 이름이 비어 있는 줄이 있어요.`;
-  const dup = names.find((n, i) => names.findIndex(m => m.toUpperCase() === n.toUpperCase()) !== i);
-  if (dup) return `${label}: '${dup}' 이름이 두 번 있어요.`;
-  return null;
-};
-
-// 다음 등급 이름 제안 (A, B 다음 → C …)
-const nextGradeName = (grades) => {
-  const used = new Set(grades.map(g => String(g.name || '').trim().toUpperCase()));
-  for (let c = 65; c <= 90; c++) {
-    const letter = String.fromCharCode(c);
-    if (!used.has(letter)) return letter;
-  }
-  return '';
-};
-
-const inCls = 'w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm font-mono text-right outline-none focus:ring-2 ring-blue-200';
-const txtCls = 'w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:ring-2 ring-blue-200';
-
-// 섹션 카드
-const Section = ({ no, title, hint, children }) => (
-  <section className="border border-slate-200 rounded-xl overflow-hidden">
-    <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200">
-      <h4 className="text-sm font-extrabold text-slate-800"><span className="text-blue-600 mr-1">{no}.</span>{title}</h4>
-      {hint && <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{hint}</p>}
-    </div>
-    <div className="p-4 space-y-2">{children}</div>
-  </section>
-);
-
-// 구간 편집 표 — 마지막 줄은 항상 '직전 경계 초과' (경계값 없음)
-//  · strict: 'N 미만' / 마지막 '직전 경계 이상' 으로 표시 (수입 원사 운반비 — 계산도 pickBracket strict)
-//  · allLabel: 경계 줄이 하나도 없을 때 마지막 줄 문구
-const BracketEditor = ({ rows, valueKey, unit, valueUnit, onChange, money = false, strict = false, allLabel }) => {
-  const upTo = strict ? '미만' : '이하';
-  const over = strict ? '이상' : '초과';
-  const bounded = rows.slice(0, -1);
-  const open = rows[rows.length - 1];
-  const lastMax = bounded.length ? bounded[bounded.length - 1].max : null;
-  const setRow = (i, field, value) => onChange(rows.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)));
-  const removeRow = (i) => onChange(rows.filter((_, idx) => idx !== i));
-  const addRow = () => {
-    const prev = Number(lastMax) || 0;
-    onChange([...bounded, { max: prev > 0 ? prev * 2 : 100, [valueKey]: open[valueKey] }, open]);
-  };
-  // 폰: 한 구간을 두 줄로 (경계값 / 값), 데스크톱: 한 줄 (경계값 | 값 | 삭제)
-  const rowCls = 'grid grid-cols-[1fr_28px] sm:grid-cols-[1fr_1fr_28px] gap-x-2 gap-y-1 items-center';
-  const valuePos = 'col-start-1 row-start-2 sm:col-start-2 sm:row-start-1 pl-[82px] sm:pl-0';
-  const ValueCell = ({ i, r }) => (
-    <div className={`flex items-center gap-1.5 ${valuePos}`}>
-      <input type="number" min="0" value={r[valueKey]} onChange={e => setRow(i, valueKey, e.target.value)} className={inCls} />
-      <span className="text-xs text-slate-500 min-w-[2rem] shrink-0 whitespace-nowrap">{valueUnit}</span>
-      {money && <span className="hidden sm:inline text-[11px] text-slate-400 w-24 shrink-0 text-right">{num(r[valueKey])}원</span>}
-    </div>
-  );
-  return (
-    <div className="space-y-2 sm:space-y-1.5">
-      {bounded.map((r, i) => (
-        <div key={i} className={rowCls}>
-          <div className="col-start-1 row-start-1 grid grid-cols-[76px_1fr_auto] gap-1.5 items-center">
-            <span className="text-[11px] text-slate-400 text-right whitespace-nowrap">{i > 0 ? `${num(bounded[i - 1].max)} ${over} ~` : ''}</span>
-            <input type="number" min="0" value={r.max ?? ''} onChange={e => setRow(i, 'max', e.target.value)} className={inCls} />
-            <span className="text-xs text-slate-500 whitespace-nowrap">{unit} {upTo}</span>
-          </div>
-          {ValueCell({ i, r })}
-          <button type="button" onClick={() => removeRow(i)} title="이 구간 삭제" className="col-start-2 row-start-1 sm:col-start-3 text-slate-300 hover:text-red-500 justify-self-center"><Trash2 className="w-4 h-4" /></button>
-        </div>
-      ))}
-      <div className={rowCls}>
-        <div className="col-start-1 row-start-1 text-sm font-bold text-slate-600 pl-[82px]">{lastMax !== null && !isBlank(lastMax) ? `${num(lastMax)} ${unit} ${over}` : (allLabel || `모든 ${unit === 'kg' ? '생지 kg' : '수량'}`)}</div>
-        {ValueCell({ i: rows.length - 1, r: open })}
-      </div>
-      <button type="button" onClick={addRow} className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100">
-        <Plus className="w-3.5 h-3.5" /> 구간 추가
-      </button>
-    </div>
-  );
-};
 
 export const CostSettingsModal = ({
   onClose, costSettings, onSave, showToast,
