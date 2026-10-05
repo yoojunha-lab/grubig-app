@@ -288,7 +288,10 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
     기준 견적에서 체크 → [별도 견적으로 복사]. 300YD · 2컬러로 시작. **같은 원단은 한 줄만** (조건은 그 줄의 수량·컬러를 바꿈).
 - **바이어 견적서 문구** (영문): 원화 = 'PRICE IN KRW · VAT EXCLUDED' + 'VAT EXCLUDED', 수출 = 'FOB PRICE'.
   기준: 'PRICES ARE PER YARD, BASED ON TOTAL ORDER QUANTITY', '{300~800 중 표시 구간} YD: UP TO 2 COLORS (SMALL-LOT DYEING CHARGE INCLUDED)',
-  '{1,000 이상 표시 구간} YD: MCQ PER COLOR REQUIRED' + 기존 약관. 별도: 'PRICES APPLY ONLY TO THE QUANTITY (TOTAL PER ORDER) AND NUMBER OF COLORS STATED'.
+  '{1,000 이상 표시 구간} YD: MCQ PER COLOR REQUIRED' + 기존 약관. 별도: 'PRICES APPLY ONLY TO THE QUANTITY (TOTAL PER ORDER) AND NUMBER OF COLORS STATED',
+  'PRICES ASSUME THE QUANTITY IS SPLIT EVENLY ACROSS THE STATED COLORS', 'IF AN UNEVEN SPLIT LEAVES ANY COLOR BELOW MCQ (YD PER COLOR),
+  THE PRICE MAY BE ADJUSTED' (대표님 결정 2026-10-06 — 별도 견적 단가는 컬러별로 고르게 나눈다고 보고 낸 값이라, 고르지 않게 나눠 어느 컬러가
+  MCQ보다 적어지면 염색 최소 청구가 더 붙음: 예) GB-2405 1,000YD 3컬러 450/450/100이면 원가 약 +9%). 별도 견적서 PDF·엑셀에 **MCQ(컬러당 YD) 칸**도 있음.
   문구는 `quoteModel.buildQuoteTerms(quote, kind)` · `quotePriceBasis(currency)` 한 곳에서 만들어 PDF·엑셀이 같이 씀.
 - **예전 견적 호환** (`normalizeQuote`): 판가는 그대로. 새 구간(300·500·800)의 이익율·정액은 기본값으로 채움(0% 방지),
   새 구간을 켜면 단가 '—' + [현재 원가로 다시 계산] 안내. 아주 옛날(extraMargin) 견적은 구간 설정·별도 견적을 막음.

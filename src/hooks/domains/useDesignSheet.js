@@ -878,6 +878,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     resetSheetForm, setStage, setSamplingSub,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
-    saveSheetAndRegisterFabric
+    saveSheetAndRegisterFabric,
+    getBlankSheetInput: getInitialSheetInput, // 저장 안 한 변경 확인용 빈 양식 (새 설계서 기준)
   };
 };

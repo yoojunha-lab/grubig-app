@@ -116,12 +116,13 @@ export const DesignSheetPage = ({
   devRequests,
   linkAndConfirm,
   closeModal,
+  onRequestClose, // 닫기 버튼 — 부모가 '저장 안 한 변경' 확인 후 닫음 (없으면 예전처럼 바로 닫기)
   setSheetInput,
   mainDetails,
   // 메인 디테일 시트 작성 팝업 (useMainDetail 핸들러 주입)
   detailInput, setDetailInput, editingDetailId,
   handleDetailChange, handleTestChange, addTest, removeTest,
-  handleSaveDetail, resetDetailForm,
+  handleSaveDetail, resetDetailForm, getBlankDetailInput,
   // 마스터 데이터 프롭스
   knittingFactories,
   dyeingFactories,
@@ -295,7 +296,7 @@ export const DesignSheetPage = ({
             <button onClick={async () => { if (!(await handleDeleteSheet(editingSheetId))) return; if (closeModal) closeModal(); }} className="px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded shadow-sm transition-colors flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> 삭제</button>
           )}
           {/* [REF-3] 닫기 버튼 — 가설계서 모드에서는 closeModal만, 정식에서는 devStatus로 fallback */}
-          <button onClick={() => { resetSheetForm(); if (closeModal) closeModal(); else if (!isTempMode && setActiveTab) setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded shadow-sm transition-colors flex items-center gap-1"><X className="w-3.5 h-3.5" /> 닫기</button>
+          <button onClick={() => { if (onRequestClose) { onRequestClose(); return; } resetSheetForm(); if (closeModal) closeModal(); else if (!isTempMode && setActiveTab) setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded shadow-sm transition-colors flex items-center gap-1"><X className="w-3.5 h-3.5" /> 닫기</button>
           <button onClick={handleSaveAndGo} className={`px-5 py-2 text-xs font-bold text-white rounded shadow-md transition-colors flex items-center gap-1.5 ${isTempMode ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}><Save className="w-3.5 h-3.5" /> {isTempMode ? '가설계서 저장' : '설계서 저장'}</button>
         </div>
       </div>
@@ -885,6 +886,7 @@ export const DesignSheetPage = ({
           removeTest={removeTest}
           handleSaveDetail={handleSaveDetail}
           resetDetailForm={resetDetailForm}
+          getBlankDetailInput={getBlankDetailInput}
           savedFabrics={savedFabrics}
         />
       )}

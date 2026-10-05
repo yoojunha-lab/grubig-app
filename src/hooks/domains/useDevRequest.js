@@ -57,7 +57,8 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
   };
 
   // 저장 — boolean 반환 (true=성공, false=실패 → 모달 유지)
-  const handleSaveDevRequest = (user) => {
+  //  서버 저장이 끝날 때까지 기다리고 성공했을 때만 폼 비우기·성공 알림 (예전엔 기다리지 않아 실패해도 지워졌음)
+  const handleSaveDevRequest = async (user) => {
     if (!devInput.buyerName) {
       showToast('바이어명을 선택해주세요.', 'error');
       return false;
@@ -101,7 +102,8 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       updatedAt: now
     };
 
-    saveDocToCloud('devRequests', itemToSave);
+    const ok = await saveDocToCloud('devRequests', itemToSave);
+    if (ok === false) return false; // 저장 실패 — 입력값 그대로 (실패 알림은 saveDocToCloud)
     resetDevForm();
     showToast(isNew ? '개발 의뢰가 등록되었습니다.' : '개발 의뢰가 수정되었습니다.', 'success');
     return true;
@@ -229,6 +231,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     handleDevChange, handleSpecChange,
     handleSaveDevRequest, handleEditDevRequest, handleDeleteDevRequest,
     resetDevForm, generateDevOrderNo, createDesignSheetFromDev,
-    updateDevStatus, linkAndConfirm
+    updateDevStatus, linkAndConfirm,
+    getBlankDevInput: getInitialDevInput, // 저장 안 한 변경 확인용 빈 양식 (새 의뢰 기준)
   };
 };

@@ -23,7 +23,7 @@
 - "생산 스케줄 다음 단계 하자" / "오더 관련 기능 추가해줘" / "간트 차트 만들자" / "알람 붙이자" → 위 docs 2개를 먼저 읽고 작업 시작
 - "원가 계산 바꾸자" / "편직비·LOSS·운임 수정" / "원가 설정에 항목 추가" / "수량 직접 입력 칸 만들자" / "원사 운반비·수입사·수입 국가" / "환율·견적 다시 계산" / "원가 확인 경고·혼용률" / "견적서 구간·기준 견적·별도 견적" → `docs/costing-model.md` 먼저 읽고 작업 시작
 - 라벨/용어를 바꾸거나 새 화면을 만들 때 → `docs/terminology.md` 를 먼저 확인하고 같은 기능은 같은 용어로 맞출 것
-- 새 팝업 창을 만들 때 → 배경은 `components/common/ModalBackdrop` 사용 (`docs/terminology.md` §4 팝업 창 규약)
+- 새 팝업 창을 만들 때 → 배경은 `components/common/ModalBackdrop`, 입력하는 창이면 `useUnsavedGuard` + `UnsavedChangesDialog`로 '저장할까요?' (`docs/terminology.md` §4 팝업 창 규약)
 - 새 도메인 문서가 추가되면 이 표에 계속 업데이트할 것
 
 ---
@@ -61,6 +61,7 @@ GRUBIG-APP/
 │   │
 │   ├── hooks/
 │   │   ├── useExternalScripts.js       # SheetJS 외부 스크립트 로더
+│   │   ├── useUnsavedGuard.js          # 팝업 '저장 안 한 변경' 확인 (UnsavedChangesDialog와 같이)
 │   │   └── domains/                    # 도메인별 비즈니스 로직 훅
 │   │       ├── useDevRequest.js        # 개발 의뢰 CRUD + 상태 전이
 │   │       ├── useDesignSheet.js       # 설계서 CRUD + 단계 전이 + 원단 연동
@@ -73,7 +74,7 @@ GRUBIG-APP/
 │   │       └── useQuotation.js         # 견적
 │   │
 │   ├── components/
-│   │   ├── common/              # 공통 UI (Toast, SearchableSelect, MasterDataModal, ModalBackdrop(팝업 배경) 등)
+│   │   ├── common/              # 공통 UI (Toast, SearchableSelect, MasterDataModal, ModalBackdrop(팝업 배경), UnsavedChangesDialog(저장할까요?) 등)
 │   │   ├── layout/              # Sidebar, LoginScreen
 │   │   ├── dashboard/           # DevReqSummaryCard
 │   │   ├── design/              # DesignStepper (진행 단계 바)

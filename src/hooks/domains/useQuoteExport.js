@@ -113,9 +113,10 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
         'g/YD': Number(r.gYd) || 0,
         "Q'TY(YD)": Number(r.qty) || 0,
         'Colors': Number(r.colors) || 0,
+        'MCQ(YD/color)': Number(r.mcqYd || 300), // 컬러당 최소 수량 — 약관: 고르지 않게 나눠 MCQ 미만이면 단가 조정
         [`Price/YD (${cur})`]: cell(calcCustomQuotePrice(r, targetQuote, cur)),
       }));
-      cols = [{ wch: 5 }, { wch: 16 }, { wch: 28 }, { wch: 9 }, { wch: 9 }, { wch: 7 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 16 }];
+      cols = [{ wch: 5 }, { wch: 16 }, { wch: 28 }, { wch: 9 }, { wch: 9 }, { wch: 7 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 13 }, { wch: 16 }];
     }
 
     const validUntil = getQuoteValidUntil(targetQuote.date, targetQuote.validityOption);

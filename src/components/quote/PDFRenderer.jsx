@@ -146,19 +146,20 @@ export const PDFRenderer = ({
             /* ── 별도 견적서: 줄마다 수량·컬러·조건이 다른 단가 ── */
             <table className="w-full text-[11px] text-left border-collapse" style={{ tableLayout: 'fixed' }}>
               <colgroup>
-                <col style={{ width: '14%' }} />{/* Article */}
-                <col style={{ width: '27%' }} />{/* Spec */}
+                <col style={{ width: '13%' }} />{/* Article */}
+                <col style={{ width: '22%' }} />{/* Spec */}
                 <col style={{ width: '6%' }} />{/* Cut */}
                 <col style={{ width: '6%' }} />{/* Full */}
-                <col style={{ width: '7%' }} />{/* GSM */}
+                <col style={{ width: '6%' }} />{/* GSM */}
                 <col style={{ width: '7%' }} />{/* g/YD */}
-                <col style={{ width: '11%' }} />{/* Q'TY */}
-                <col style={{ width: '8%' }} />{/* COLORS */}
-                <col style={{ width: '14%' }} />{/* PRICE/YD */}
+                <col style={{ width: '10%' }} />{/* Q'TY */}
+                <col style={{ width: '7%' }} />{/* COLORS */}
+                <col style={{ width: '10%' }} />{/* MCQ / COLOR */}
+                <col style={{ width: '13%' }} />{/* PRICE/YD */}
               </colgroup>
               <thead>
                 <tr>
-                  <th colSpan={9} className="text-left font-bold text-slate-400 uppercase pt-0 pb-1" style={{ fontSize: '9px', letterSpacing: '0.04em' }}>
+                  <th colSpan={10} className="text-left font-bold text-slate-400 uppercase pt-0 pb-1" style={{ fontSize: '9px', letterSpacing: '0.04em' }}>
                     {quoteInput.buyerName || ''} · {quoteInput.date} · {quoteInput.currency} · SPECIAL CONDITIONS
                   </th>
                 </tr>
@@ -171,6 +172,7 @@ export const PDFRenderer = ({
                   <th className="py-2 font-bold text-slate-900 text-right uppercase">g/YD</th>
                   <th className="py-2 font-bold text-slate-900 text-right uppercase">Q'TY</th>
                   <th className="py-2 font-bold text-slate-900 text-center uppercase">Colors</th>
+                  <th className="py-2 font-bold text-slate-900 text-right text-orange-600 uppercase">MCQ<span className="block text-[8px] font-semibold">PER COLOR</span></th>
                   <th className="py-2 font-bold text-slate-900 text-right uppercase">Price / YD</th>
                 </tr>
               </thead>
@@ -185,6 +187,7 @@ export const PDFRenderer = ({
                     <td className="py-3 text-right text-slate-500 font-mono">{num(row.gYd)}</td>
                     <td className="py-3 text-right text-slate-900 font-mono font-bold">{num(row.qty)} YD</td>
                     <td className="py-3 text-center text-slate-900 font-mono font-bold">{num(row.colors)}</td>
+                    <td className="py-3 text-right text-slate-900 font-mono">{num(row.mcqYd || 300)} YD</td>
                     <td className="py-3 text-right font-mono font-bold">{formatQuotePrice(calcCustomQuotePrice(row, quoteInput, currency), currency)}</td>
                   </tr>
                 ))}

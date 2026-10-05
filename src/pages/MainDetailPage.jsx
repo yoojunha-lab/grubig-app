@@ -17,6 +17,7 @@ export const MainDetailPage = ({
   handleEditDetail,
   handleDeleteDetail,
   resetDetailForm,
+  getBlankDetailInput,
   handleQuickStatusChange,
   handleBulkPaste
 }) => {
@@ -324,6 +325,7 @@ export const MainDetailPage = ({
           removeTest={removeTest}
           handleSaveDetail={handleSaveDetail}
           resetDetailForm={resetDetailForm}
+          getBlankDetailInput={getBlankDetailInput}
           savedFabrics={savedFabrics}
         />
 

@@ -29,11 +29,13 @@ import { usePartner } from '../hooks/domains/usePartner';
 import { useLabdip } from '../hooks/domains/useLabdip';
 import { useExcelIO } from '../hooks/domains/useExcelIO';
 import { useQuoteExport } from '../hooks/domains/useQuoteExport';
+import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
 import { num } from '../utils/helpers';
 import { resolveCostSettings } from '../utils/costModel';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
 import { Toast } from '../components/common/Toast';
+import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
 import { Sidebar } from '../components/layout/Sidebar';
 import { LoginScreen } from '../components/layout/LoginScreen';
 import { MasterDataModal } from '../components/common/MasterDataModal';
@@ -424,7 +426,7 @@ const App = () => {
     handleDevChange, handleSpecChange,
     handleSaveDevRequest, handleEditDevRequest, handleDeleteDevRequest,
     resetDevForm, generateDevOrderNo, createDesignSheetFromDev,
-    updateDevStatus, linkAndConfirm
+    updateDevStatus, linkAndConfirm, getBlankDevInput
   } = useDevRequest(devRequests, saveDocToCloud, deleteDocFromCloud, showToast, designSheets);
 
   // 아이템화 시 원단 자동 등록용 함수
@@ -439,7 +441,7 @@ const App = () => {
     resetSheetForm, setStage, setSamplingSub,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
-    saveSheetAndRegisterFabric
+    saveSheetAndRegisterFabric, getBlankSheetInput
   } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet, devRequests);
 
   // ⚓️ 메인 디테일 훅
@@ -447,7 +449,7 @@ const App = () => {
     detailInput, setDetailInput, editingDetailId, setEditingDetailId,
     handleDetailChange, handleTestChange, addTest, removeTest,
     handleSaveDetail, handleEditDetail, handleDeleteDetail, resetDetailForm,
-    handleQuickStatusChange, handleBulkPaste
+    handleQuickStatusChange, handleBulkPaste, getBlankDetailInput
   } = useMainDetail(mainDetails, saveDocToCloud, deleteDocFromCloud, showToast);
 
   // ⚓️ 가설계서(레시피) 전용 훅 — 기존 useDesignSheet와 완전 독립
@@ -456,8 +458,26 @@ const App = () => {
     handleTempChange, handleTempSectionChange,
     handleTempYarnChange, handleTempCostInputChange, handleTempCostNestedChange,
     handleSaveTemp, handleEditTemp, handleDeleteTemp,
-    resetTempForm, getTempDesignCost, loadTempToSheet, loadSheetToTemp
+    resetTempForm, getTempDesignCost, loadTempToSheet, loadSheetToTemp, getBlankTempInput
   } = useTempDesignSheet(tempDesignSheets, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost);
+
+  // 설계서 작성 창(정식) — 닫기 때 저장 안 한 변경이 있으면 '저장할까요?' (원단 편집과 같음, 2026-10-06)
+  //  새 설계서(개발 의뢰·가설계서에서 채운 것 포함)는 빈 양식 기준.
+  //  단계·연결·상태·이력은 누르는 즉시 저장되면서 열린 화면도 바뀌는 칸이라 비교에서 뺌
+  const SHEET_INSTANT_SAVE_KEYS = ['stage', 'stageEnteredAt', 'samplingSub', 'samplingSubEnteredAt', 'devRequestId', 'devOrderNo', 'linkedFabricId', 'status', 'changeHistory', 'fieldMeta', 'createdBy'];
+  const [sheetLeavePending, setSheetLeavePending] = useState(false);
+  const sheetGuard = useUnsavedGuard(sheetInput, isDesignSheetModalOpen, {
+    initial: !editingSheetId && getBlankSheetInput ? getBlankSheetInput() : null,
+    ignoreKeys: SHEET_INSTANT_SAVE_KEYS,
+  });
+  const closeSheetEditor = () => { setSheetLeavePending(false); resetSheetForm(); setIsDesignSheetModalOpen(false); };
+  const requestCloseSheet = () => { if (sheetGuard.isDirty()) setSheetLeavePending(true); else closeSheetEditor(); };
+  const saveSheetAndClose = async () => {
+    setSheetLeavePending(false);
+    const onLink = (devReqId, sheetId) => { if (linkAndConfirm) linkAndConfirm(devReqId, sheetId); };
+    const savedId = await handleSaveSheet(user, onLink); // 설계서 화면의 저장 버튼과 같은 저장 (검증·변경 이력 포함)
+    if (savedId) setIsDesignSheetModalOpen(false);
+  };
 
   // ⚓️ 생산 오더(스케줄) 훅 — v8 엑셀형 현황표 (칸 단위 즉시 저장, 레거시 오더 자동 변환)
   const {
@@ -1048,6 +1068,7 @@ const App = () => {
         {/* TAB: 개발 현황 (의뢰 등록 + 진행현황 통합) */}
         {activeTab === 'devStatus' && (
           <DevStatusPage
+            getBlankDevInput={getBlankDevInput}
             devRequests={devRequests}
             designSheets={designSheets}
             devInput={devInput}
@@ -1104,6 +1125,7 @@ const App = () => {
                 setSheetInput={setSheetInput}
                 linkAndConfirm={linkAndConfirm}
                 closeModal={() => setIsDesignSheetModalOpen(false)}
+                onRequestClose={requestCloseSheet}
                 designSheets={designSheets}
                 knittingFactories={knittingFactories}
                 dyeingFactories={dyeingFactories}
@@ -1123,12 +1145,20 @@ const App = () => {
                 removeTest={removeTest}
                 handleSaveDetail={handleSaveDetail}
                 resetDetailForm={resetDetailForm}
+                getBlankDetailInput={getBlankDetailInput}
                 costSettings={costSettings}
                 onOpenCostSettings={openCostSettings}
               />
             </div>
           </div>
         )}
+        <UnsavedChangesDialog
+          open={sheetLeavePending}
+          message="작성 중인 설계서에 저장하지 않은 변경사항이 있어요. 저장할까요?"
+          onSave={saveSheetAndClose}
+          onDiscard={closeSheetEditor}
+          onKeepEditing={() => setSheetLeavePending(false)}
+        />
 
         {/* TAB: 설계서 목록 */}
         {activeTab === 'designList' && (
@@ -1150,6 +1180,7 @@ const App = () => {
         {/* TAB: 가설계서(레시피) 관리 */}
         {activeTab === 'tempDesign' && (
           <TempDesignSheetListPage
+            getBlankTempInput={getBlankTempInput}
             tempDesignSheets={tempDesignSheets}
             tempInput={tempInput}
             setTempInput={setTempInput}
@@ -1190,6 +1221,7 @@ const App = () => {
 
         {activeTab === 'mainDetail' && (
           <MainDetailPage
+            getBlankDetailInput={getBlankDetailInput}
             mainDetails={mainDetails}
             savedFabrics={savedFabrics}
             detailInput={detailInput} setDetailInput={setDetailInput}

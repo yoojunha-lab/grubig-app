@@ -380,6 +380,7 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
     handleTempChange, handleTempSectionChange,
     handleTempYarnChange, handleTempCostInputChange, handleTempCostNestedChange,
     handleSaveTemp, handleEditTemp, handleDeleteTemp,
-    resetTempForm, getTempDesignCost, loadTempToSheet, loadSheetToTemp
+    resetTempForm, getTempDesignCost, loadTempToSheet, loadSheetToTemp,
+    getBlankTempInput: getInitialTempInput, // 저장 안 한 변경 확인용 빈 양식 (새 가설계서 기준)
   };
 };

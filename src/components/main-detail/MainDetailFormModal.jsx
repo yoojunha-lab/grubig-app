@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Plus, Save, X, Edit2 } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { ModalBackdrop } from '../common/ModalBackdrop';
+import { UnsavedChangesDialog } from '../common/UnsavedChangesDialog';
+import { useUnsavedGuard } from '../../hooks/useUnsavedGuard';
 
 /**
  * 메인 디테일 시트 작성/수정 공용 모달
@@ -24,19 +26,33 @@ export const MainDetailFormModal = ({
   handleSaveDetail,
   resetDetailForm,
   savedFabrics,
+  getBlankDetailInput, // 새 시트의 빈 양식 (저장 안 한 변경 확인 기준)
 }) => {
   const [formTab, setFormTab] = useState('greige');       // 'greige' | 'finished'
   const [keepIdentityNext, setKeepIdentityNext] = useState(false); // 저장 후 같은 Order/Article로 연속 작성
+  // 저장 안 한 변경 확인 — 닫기(X·취소·배경) 때 '저장할까요?' (원단 편집과 같음). 새 시트는 빈 양식 기준
+  const [leavePending, setLeavePending] = useState(false);
+  const guard = useUnsavedGuard(detailInput, isOpen, {
+    initial: !editingDetailId && getBlankDetailInput ? getBlankDetailInput() : null,
+  });
 
   if (!isOpen) return null;
 
-  const cancel = () => { resetDetailForm(); onClose(); };
+  const discardAndClose = () => { setLeavePending(false); resetDetailForm(); onClose(); };
+  const cancel = () => { if (guard.isDirty()) setLeavePending(true); else discardAndClose(); };
 
-  const handleSave = () => {
-    const ok = handleSaveDetail({ keepIdentity: keepIdentityNext });
+  const handleSave = async () => {
+    const ok = await handleSaveDetail({ keepIdentity: keepIdentityNext });
     if (!ok) return;
     // 신규 + keepIdentity 체크 상태면 모달 유지(컬러만 다른 건 연속 등록), 그 외에는 닫기
     if (!keepIdentityNext || editingDetailId) onClose();
+    else guard.rebase(); // 연속 작성: 남겨 둔 Order/Article은 '저장 안 한 변경'이 아님
+  };
+  // 확인창의 '저장하고 나가기' — 연속 작성 체크와 상관없이 저장 후 닫기
+  const saveAndClose = async () => {
+    setLeavePending(false);
+    const ok = await handleSaveDetail({ keepIdentity: false });
+    if (ok) onClose();
   };
 
   return (
@@ -213,6 +229,13 @@ export const MainDetailFormModal = ({
           </div>
         </div>
       </div>
+      <UnsavedChangesDialog
+        open={leavePending}
+        message="작성 중인 메인 디테일 시트에 저장하지 않은 변경사항이 있어요. 저장할까요?"
+        onSave={saveAndClose}
+        onDiscard={discardAndClose}
+        onKeepEditing={() => setLeavePending(false)}
+      />
     </ModalBackdrop>
   );
 };

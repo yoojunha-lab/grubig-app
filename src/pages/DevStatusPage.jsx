@@ -6,6 +6,8 @@ import { DevRequestFormModal } from '../components/dashboard/DevRequestFormModal
 import { DevArchiveModal } from '../components/dashboard/DevArchiveModal';
 import { DevRequestPrintSheet } from '../components/dashboard/DevRequestPrintSheet';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
+import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
+import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
 
 // 개발 의뢰 단계 설명 (바이어 의뢰 접수~개발 가능 여부 확인까지)
 const DEV_REQ_STAGE_GUIDE = [
@@ -100,8 +102,16 @@ export const DevStatusPage = ({
   generateDevOrderNo, setIsBuyerModalOpen,
   setIsDesignSheetModalOpen,
   partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
+  getBlankDevInput,   // 새 의뢰의 빈 양식 (저장 안 한 변경 확인 기준)
 }) => {
   const [showDevModal, setShowDevModal] = useState(false);
+  // 의뢰 등록/수정 창 — 닫기(X·취소·배경) 때 저장 안 한 변경이 있으면 '저장할까요?' (원단 편집과 같음)
+  const [devLeavePending, setDevLeavePending] = useState(false);
+  const devGuard = useUnsavedGuard(devInput, showDevModal, {
+    initial: !editingDevId && getBlankDevInput ? getBlankDevInput() : null,
+  });
+  const closeDevModal = () => { setDevLeavePending(false); resetDevForm(); setShowDevModal(false); };
+  const requestCloseDevModal = () => { if (devGuard.isDirty()) setDevLeavePending(true); else closeDevModal(); };
   const [searchTerm, setSearchTerm] = useState('');
   const [printTarget, setPrintTarget] = useState(null);
   const [printMode, setPrintMode] = useState('knit');   // knit(편직처 전달용) | internal(내부 전달용)
@@ -288,8 +298,14 @@ export const DevStatusPage = ({
   const openNewModal = () => { resetDevForm(); setShowDevModal(true); };
   const openEditModal = (d) => { handleEditDevRequest(d); setShowDevModal(true); };
 
-  const handleModalSave = () => {
-    if (handleSaveDevRequest(user)) setShowDevModal(false);
+  // 저장이 실제로 끝나고 성공했을 때만 창 닫기
+  const handleModalSave = async () => {
+    if (await handleSaveDevRequest(user)) setShowDevModal(false);
+  };
+  // 확인창의 '저장하고 나가기'
+  const saveDevAndClose = async () => {
+    setDevLeavePending(false);
+    if (await handleSaveDevRequest(user)) setShowDevModal(false);
   };
 
   /**
@@ -937,7 +953,7 @@ export const DevStatusPage = ({
         {/* 의뢰 등록/수정 모달 */}
         <DevRequestFormModal
           isOpen={showDevModal}
-          onClose={() => setShowDevModal(false)}
+          onClose={requestCloseDevModal}
           editingDevId={editingDevId}
           devInput={devInput}
           handleDevChange={handleDevChange}
@@ -951,6 +967,14 @@ export const DevStatusPage = ({
           savePartner={savePartner}
           deletePartner={deletePartner}
           makeEmptyPartner={makeEmptyPartner}
+        />
+
+        <UnsavedChangesDialog
+          open={devLeavePending}
+          message="작성 중인 개발 의뢰에 저장하지 않은 변경사항이 있어요. 저장할까요?"
+          onSave={saveDevAndClose}
+          onDiscard={closeDevModal}
+          onKeepEditing={() => setDevLeavePending(false)}
         />
 
         {/* 통합 보관함 모달 */}

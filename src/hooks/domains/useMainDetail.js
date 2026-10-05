@@ -102,7 +102,8 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
 
   // [BULK-A] options.keepIdentity: 저장 후 폼을 완전 초기화하지 않고
   //   Order/Article/Type만 유지 → 같은 시트에 컬러만 다른 건을 연속 등록
-  const handleSaveDetail = (options = {}) => {
+  //  서버 저장이 끝날 때까지 기다리고 성공했을 때만 폼 비우기·성공 알림 (예전엔 기다리지 않아 실패해도 지워졌음)
+  const handleSaveDetail = async (options = {}) => {
     if (detailInput.type === 'main' && !detailInput.articleNo?.trim()) {
       showToast('메인(Main) 시트는 Article 번호를 필수로 입력해야 합니다.', 'error');
       return false;
@@ -124,7 +125,8 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
       updatedAt: new Date().toISOString()
     };
 
-    saveDocToCloud('mainDetails', dataToSave);
+    const ok = await saveDocToCloud('mainDetails', dataToSave);
+    if (ok === false) return false; // 저장 실패 — 입력값 그대로 (실패 알림은 saveDocToCloud)
     showToast(editingDetailId ? '메인 디테일 시트 수정 완료' : '메인 디테일 시트 등록 완료', 'success');
 
     if (options.keepIdentity && !editingDetailId) {
@@ -341,6 +343,7 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
     handleDeleteDetail,
     resetDetailForm,
     handleQuickStatusChange,
-    handleBulkPaste
+    handleBulkPaste,
+    getBlankDetailInput: getInitialMainDetailInput, // 저장 안 한 변경 확인용 빈 양식 (새 시트 기준)
   };
 };

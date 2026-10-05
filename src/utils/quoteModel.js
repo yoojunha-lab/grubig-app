@@ -316,6 +316,10 @@ export const buildQuoteTerms = (quote, kind = 'standard') => {
   if (kind === 'special') {
     const ex = getCustomExclude(quote);
     lines.push('PRICES APPLY ONLY TO THE QUANTITY (TOTAL PER ORDER) AND NUMBER OF COLORS STATED');
+    // 컬러별 수량 (대표님 요청 2026-10-06): 단가는 수량을 컬러별로 고르게 나눈다고 보고 낸 값 →
+    //  고르지 않게 나눠 어느 컬러가 MCQ보다 적어지면 염색 최소 청구가 더 붙으므로 단가 조정
+    lines.push('PRICES ASSUME THE QUANTITY IS SPLIT EVENLY ACROSS THE STATED COLORS');
+    lines.push('IF AN UNEVEN SPLIT LEAVES ANY COLOR BELOW MCQ (YD PER COLOR), THE PRICE MAY BE ADJUSTED');
     if (ex.excludeVisual) lines.push('VISUAL INSPECTION NOT INCLUDED');
     if (ex.excludeChem) lines.push('TEST REPORT NOT INCLUDED');
     if (isKrw) lines.push('VAT EXCLUDED');

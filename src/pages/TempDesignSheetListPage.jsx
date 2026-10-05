@@ -3,6 +3,8 @@ import { Search, Plus, Edit2, Trash2, FlaskConical, User, FileText, X, ArrowRigh
 import { num, computeSellPrice, toTierRate } from '../utils/helpers';
 import { DESIGN_STAGES, STAGE_COLORS } from '../constants/common';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
+import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
+import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
 
 // 단계 key → 한국어 라벨 (설계서 화면과 용어 통일)
 const STAGE_LABEL = Object.fromEntries(DESIGN_STAGES.map(s => [s.key, s.label]));
@@ -27,6 +29,7 @@ export const TempDesignSheetListPage = ({
   handleDeleteTemp,
   resetTempForm,
   getTempDesignCost,
+  getBlankTempInput, // 새 가설계서의 빈 양식 (저장 안 한 변경 확인 기준)
   // DesignSheetPage 렌더링에 필요한 props
   yarnSelectOptions,
   user,
@@ -56,6 +59,19 @@ export const TempDesignSheetListPage = ({
   onOpenCostSettings
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  // 가설계서 편집 창 — 닫기(닫기 버튼·배경) 때 저장 안 한 변경이 있으면 '저장할까요?' (원단 편집과 같음)
+  //  새 가설계서(불러오기로 채운 것 포함)는 빈 양식 기준
+  const [tempLeavePending, setTempLeavePending] = useState(false);
+  const tempGuard = useUnsavedGuard(tempInput, isTempModalOpen, {
+    initial: !editingTempId && getBlankTempInput ? getBlankTempInput() : null,
+  });
+  const closeTempEditor = () => { setTempLeavePending(false); resetTempForm(); setIsTempModalOpen(false); };
+  const requestCloseTemp = () => { if (tempGuard.isDirty()) setTempLeavePending(true); else closeTempEditor(); };
+  const saveTempAndClose = async () => {
+    setTempLeavePending(false);
+    const savedId = await handleSaveTemp(user);
+    if (savedId) setIsTempModalOpen(false); // 저장에 성공했을 때만 닫음 (실패면 창 그대로)
+  };
   const [sortBy, setSortBy] = useState('created'); // created(기본) | name | buyer | price
 
   // [불러오기] 정식 설계서 선택 팝업
@@ -358,9 +374,10 @@ export const TempDesignSheetListPage = ({
       {/* 4. 가설계서 작성/편집 모달 (DesignSheetPage 재사용, isTempMode=true) */}
       {isTempModalOpen && (
         <ModalBackdrop className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4 md:p-8 overflow-x-hidden"
-          onClose={() => setIsTempModalOpen(false)}>
+          onClose={requestCloseTemp}>
           <div className="w-full max-w-[1800px] relative bg-transparent mx-auto" onClick={e => e.stopPropagation()}>
             <DesignSheetPage
+              onRequestClose={requestCloseTemp}
               isTempMode={true}
               sheetInput={tempInput}
               editingSheetId={editingTempId}
@@ -400,6 +417,13 @@ export const TempDesignSheetListPage = ({
           </div>
         </ModalBackdrop>
       )}
+      <UnsavedChangesDialog
+        open={tempLeavePending}
+        message="작성 중인 가설계서에 저장하지 않은 변경사항이 있어요. 저장할까요?"
+        onSave={saveTempAndClose}
+        onDiscard={closeTempEditor}
+        onKeepEditing={() => setTempLeavePending(false)}
+      />
     </div>
   );
 };
