@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { DESIGN_STAGES, SAMPLING_SUBSTAGES } from '../../constants/common';
-import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
+import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
+import { makeInitialCostFields } from '../../utils/costFields';
 import { resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete, normalizeYarnSlots, clampYarnRatio } from '../../utils/costModel';
 import { todayLocalISO, num } from '../../utils/helpers';
 
@@ -84,31 +85,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       widthCut: 56,
       gsm: 300,
       costGYd: '',
-      // [원가 개편 2026-10] 편직 난이도(정액)·kg단가·구간 단가·가공 유형(가공 LOSS) — 정액·LOSS 값은 원가 설정
-      knitGrade: DEFAULT_KNIT_GRADE_ID,
-      knitKgRate: DEFAULT_KNIT_KG_RATE,
-      knitKgRateTiers: [],
-      processType: DEFAULT_PROCESS_TYPE_ID,
-      dyeingFee: 8800,
-      // (레거시 — 계산에 안 씀) 구간별 편직료·LOSS·extraFee·brandExtra. 기존 문서/동기화 호환용으로만 유지
-      knittingFee1k: 3000,
-      knittingFee3k: 2000,
-      knittingFee5k: 2000,
-      extraFee1k: 900,
-      extraFee3k: 700,
-      extraFee5k: 500,
-      losses: {
-        tier1k: { knit: 5, dye: 10 },
-        tier3k: { knit: 3, dye: 10 },
-        tier5k: { knit: 3, dye: 9 }
-      },
-      marginTier: 3,
-      brandExtra: { tier1k: 1000, tier3k: 700, tier5k: 500 },
-      // 후가공(추가/삭제) + 품목별 추가비용(YD당) + 오퍼가격. 외관검사·이화학·운임은 원가 설정에서 공통 계산
-      finishing: [],
-      etcCosts: [],
-      riskMarginPct: 0,
-      offerPrice: ''
+      ...makeInitialCostFields() // 원가 칸 초기값 (utils/costFields — 원단·설계서·가설계서 같음)
     }
   });
 
