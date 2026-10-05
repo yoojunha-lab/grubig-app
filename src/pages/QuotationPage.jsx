@@ -146,7 +146,7 @@ export const QuotationPage = ({
   savedQuotes,
   setSavedQuotes,
   handleDownloadPDF,
-  handleDownloadExcel,
+  handleDownloadQuoteExcel,
   handleNewQuote,
   handleQuoteSettingChange,
   handleRecalcQuote,
@@ -223,7 +223,7 @@ export const QuotationPage = ({
           <FileText className="w-6 h-6 text-indigo-600" /> Quotation
         </h2>
         <div className="flex gap-2 w-full sm:w-auto">
-          <button onClick={handleNewQuote} className="flex-1 sm:flex-none bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50 hover:border-slate-400 flex items-center justify-center gap-2 transition-colors"><FilePlus className="w-4 h-4" /> 새 견적서</button>
+          <button onClick={() => handleNewQuote()} className="flex-1 sm:flex-none bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50 hover:border-slate-400 flex items-center justify-center gap-2 transition-colors"><FilePlus className="w-4 h-4" /> 새 견적서</button>
           <button onClick={() => handleSaveQuote((item) => {
             // 기존 id가 있으면 수정(덮어쓰기), 없으면 신규 추가
             if (item.id && savedQuotes.some(q => q.id === item.id)) {
@@ -307,7 +307,7 @@ export const QuotationPage = ({
         desc="정해 둔 수량 구간별 단가 — 고른 구간만 바이어 견적서에 나가요"
         open={openStd}
         onToggle={() => setOpenStd(o => !o)}
-        actions={<ExportButtons label="기준 견적서" onPdf={() => handleDownloadPDF(null, 'standard')} onExcel={() => handleDownloadExcel(null, 'standard')} />}
+        actions={<ExportButtons label="기준 견적서" onPdf={() => handleDownloadPDF(null, 'standard')} onExcel={() => handleDownloadQuoteExcel(null, 'standard')} />}
       >
         {isLegacy ? (
           <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-xs">
@@ -533,7 +533,7 @@ export const QuotationPage = ({
         tone="amber"
         open={openCustom}
         onToggle={() => setOpenCustom(o => !o)}
-        actions={<ExportButtons label="별도 견적서" onPdf={() => handleDownloadPDF(null, 'special')} onExcel={() => handleDownloadExcel(null, 'special')} />}
+        actions={<ExportButtons label="별도 견적서" onPdf={() => handleDownloadPDF(null, 'special')} onExcel={() => handleDownloadQuoteExcel(null, 'special')} />}
       >
         {!isLegacy && (
           <ExcludeToggles

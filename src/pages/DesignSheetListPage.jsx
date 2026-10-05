@@ -158,7 +158,7 @@ export const DesignSheetListPage = ({
                     <th className="p-3 w-[160px]">원사 배합</th>
                     <th className="p-3 w-[140px]">편직 정보</th>
                     <th className="p-3 w-[130px]">염색 / 후가공</th>
-                    <th className="p-3 w-[100px] text-right">3K 도매가</th>
+                    <th className="p-3 w-[100px] text-right">3K 영업 기준원가</th>
                     <th className="p-3 w-[80px] text-right">관리</th>
                   </tr>
                 </thead>

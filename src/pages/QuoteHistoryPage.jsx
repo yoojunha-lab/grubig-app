@@ -17,7 +17,7 @@ export const QuoteHistoryPage = ({
   setQuoteInput,
   setActiveTab,
   handleDownloadPDF,
-  handleDownloadExcel,
+  handleDownloadQuoteExcel,
   handleDeleteQuote,
   savedQuotes,
   setSavedQuotes,
@@ -40,7 +40,7 @@ export const QuoteHistoryPage = ({
 
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full xl:w-auto">
             {onNewQuote && (
-              <button onClick={onNewQuote} className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-1.5 text-sm font-bold shadow-lg shadow-indigo-200 shrink-0 order-first xl:order-none">
+              <button onClick={() => onNewQuote()} className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-1.5 text-sm font-bold shadow-lg shadow-indigo-200 shrink-0 order-first xl:order-none">
                 <FilePlus className="w-4 h-4" /> 새 견적서
               </button>
             )}
@@ -113,13 +113,13 @@ export const QuoteHistoryPage = ({
                       {(quote.items || []).length > 0 && (
                         <>
                           <button onClick={(e) => { e.stopPropagation(); handleDownloadPDF(quote, 'standard'); }} title="기준 견적서 PDF" className="shrink-0 whitespace-nowrap bg-indigo-50 text-indigo-600 px-2.5 py-1 rounded text-[11px] font-bold hover:bg-indigo-100 transition-colors">PDF</button>
-                          <button onClick={(e) => { e.stopPropagation(); handleDownloadExcel(quote, 'standard'); }} className="shrink-0 whitespace-nowrap bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-[11px] font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1" title="기준 견적서 엑셀"><FileSpreadsheet className="w-3 h-3" /> <span className="hidden sm:inline">Excel</span></button>
+                          <button onClick={(e) => { e.stopPropagation(); handleDownloadQuoteExcel(quote, 'standard'); }} className="shrink-0 whitespace-nowrap bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-[11px] font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1" title="기준 견적서 엑셀"><FileSpreadsheet className="w-3 h-3" /> <span className="hidden sm:inline">Excel</span></button>
                         </>
                       )}
                       {getShownCustomItems(quote).length > 0 && (
                         <>
                           <button onClick={(e) => { e.stopPropagation(); handleDownloadPDF(quote, 'special'); }} title="별도 견적서 PDF" className="shrink-0 whitespace-nowrap bg-amber-50 text-amber-700 px-2 py-1 rounded text-[11px] font-bold hover:bg-amber-100 transition-colors">별도 PDF</button>
-                          <button onClick={(e) => { e.stopPropagation(); handleDownloadExcel(quote, 'special'); }} title="별도 견적서 엑셀" className="shrink-0 whitespace-nowrap bg-amber-50 text-amber-700 px-2 py-1 rounded text-[11px] font-bold hover:bg-amber-100 transition-colors flex items-center gap-1"><FileSpreadsheet className="w-3 h-3" /> <span className="hidden sm:inline">별도</span></button>
+                          <button onClick={(e) => { e.stopPropagation(); handleDownloadQuoteExcel(quote, 'special'); }} title="별도 견적서 엑셀" className="shrink-0 whitespace-nowrap bg-amber-50 text-amber-700 px-2 py-1 rounded text-[11px] font-bold hover:bg-amber-100 transition-colors flex items-center gap-1"><FileSpreadsheet className="w-3 h-3" /> <span className="hidden sm:inline">별도</span></button>
                         </>
                       )}
                       <button onClick={(e) => { e.stopPropagation(); handleDeleteQuote(quote.id, (id) => setSavedQuotes(savedQuotes.filter(q => q.id !== id))); }} className="shrink-0 text-slate-300 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors" title="삭제"><Trash2 className="w-3.5 h-3.5" /></button>

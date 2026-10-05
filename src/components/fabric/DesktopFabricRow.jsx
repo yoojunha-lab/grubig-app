@@ -148,7 +148,7 @@ export const DesktopFabricRow = React.memo(({
 
       {isExpanded && (
         <tr className="bg-slate-50/80 border-b-2 border-blue-200 shadow-inner">
-          <td colSpan="14" className="p-3 sm:p-4 cursor-default relative overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <td colSpan="12" className="p-3 sm:p-4 cursor-default relative overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <CostWarningBox warnings={c.costWarnings} className="max-w-[900px] mb-3 relative z-10" />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 lg:gap-4 max-w-[900px] w-full relative z-10">
 

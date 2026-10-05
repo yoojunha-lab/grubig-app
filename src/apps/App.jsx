@@ -150,6 +150,7 @@ const App = () => {
   const [isBuyerModalOpen, setIsBuyerModalOpen] = useState(false);
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
   const [pdfKind, setPdfKind] = useState('standard'); // 견적서 PDF 종류: 'standard' 기준 견적서 / 'special' 별도 견적서
+  const [pdfQuote, setPdfQuote] = useState(null);     // 인쇄할 견적 (목록에서 고른 견적) — 편집 중인 견적(quoteInput)은 건드리지 않음
   const [activeMasterModal, setActiveMasterModal] = useState(null);
 
   const [fabricSearchTerm, setFabricSearchTerm] = useState('');
@@ -1130,8 +1131,8 @@ const App = () => {
 
     if (!confirmQuoteExport(targetQuote, kind)) return;
 
-    // PDFRenderer가 올바른 데이터로 렌더링되도록 항상 setQuoteInput 실행
-    setQuoteInput(targetQuote);
+    // 인쇄할 견적은 따로 담음 — 예전엔 편집 중인 견적(quoteInput)을 목록의 견적으로 덮어썼음
+    setPdfQuote(targetQuote);
     setPdfKind(kind);
     setIsPdfGenerating(true);
     showToast("인쇄 다이얼로그에서 '대상 = PDF로 저장'을 선택해 주세요.", 'info');
@@ -1151,6 +1152,7 @@ const App = () => {
         // 인쇄 다이얼로그 닫힌 후 복원
         document.title = oldTitle;
         setIsPdfGenerating(false);
+        setPdfQuote(null);
       }
     }, 400);
   };
@@ -1384,7 +1386,7 @@ const App = () => {
             savedQuotes={savedQuotes}
             setSavedQuotes={setSavedQuotes}
             handleDownloadPDF={handleDownloadPDF}
-            handleDownloadExcel={handleDownloadQuoteExcel}
+            handleDownloadQuoteExcel={handleDownloadQuoteExcel}
             handleNewQuote={handleNewQuote}
             handleQuoteSettingChange={handleQuoteSettingChange}
             handleRecalcQuote={handleRecalcQuote}
@@ -1734,7 +1736,7 @@ const App = () => {
         <PDFRenderer
           isPdfGenerating={isPdfGenerating}
           printRef={printRef}
-          quoteInput={quoteInput}
+          quoteInput={pdfQuote || quoteInput}
           kind={pdfKind}
         />
 

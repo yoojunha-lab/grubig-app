@@ -151,7 +151,7 @@ export const FabricListPage = ({
             ))}
             {total === 0 && (
               <tr>
-                <td colSpan="13" className="p-14 text-center bg-slate-50/50">
+                <td colSpan="12" className="p-14 text-center bg-slate-50/50">
                   <div className="flex flex-col items-center justify-center text-slate-400">
                     <Search className="w-10 h-10 mb-3 text-slate-300" />
                     <p className="text-base font-bold text-slate-600 mb-1">검색 결과가 없거나 등록된 원단이 없습니다.</p>
