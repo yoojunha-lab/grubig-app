@@ -7,7 +7,7 @@
 //     수출 견적은 판매가를 낼 때 견적 환율로 나눠 $로 더함. 예전 수출 견적은 $로 적혀 있어
 //     (marginAddCurrency 없음 + 통화 USD) 그 값 그대로 씀 → 예전 견적 판매가는 바뀌지 않음
 // ■ 별도 견적: 줄마다 수량·컬러수를 넣어 원가부터 다시 계산한 기준원가(basePrice)
-//   이익율·정액을 비워 두면 수량이 속한 기준 구간의 견적 일괄값을 씀
+//   이익율을 비워 두면 수량이 속한 기준 구간의 견적 일괄값, YD당 정액은 비워 두면 0 (대표님 지정 2026-10-05)
 // ■ 외관검사·시험성적서(이화학) 제외: 기준 견적 전체(excludeVisual/excludeChem) · 별도 견적 전체
 //   (customExcludeVisual/customExcludeChem — 2026-10-05 대표님 요청으로 줄마다 → 칸 전체).
 //   원가 조각(costParts: 반올림·위험마진 전 YD당 순원가와 그중 이화학·외관검사 몫)을 같이 저장해 두고,
@@ -239,9 +239,9 @@ export const tierForQty = (qty) => {
 export const getCustomRowRate = (row, quote) =>
   (isBlank(row?.marginRate) ? getItemTierRate(null, quote, tierForQty(row?.qty).key) : clampRate(row.marginRate));
 
-/** 별도 견적 줄 YD당 정액 — 적어 둔 값 (줄에 넣은 값, 비었으면 수량 구간의 견적 정액). 원화 / 예전 수출 견적은 $ */
-export const getCustomRowAddRaw = (row, quote) =>
-  (isBlank(row?.marginAdd) ? getTierAddRaw(quote, tierForQty(row?.qty).key) : Math.max(0, Number(row.marginAdd) || 0));
+/** 별도 견적 줄 YD당 정액 — 적어 둔 값 (줄에 넣은 값, 비었으면 0 — 대표님 지정 2026-10-05). 원화 / 예전 수출 견적은 $ */
+export const getCustomRowAddRaw = (row, _quote) =>
+  (isBlank(row?.marginAdd) ? 0 : Math.max(0, Number(row.marginAdd) || 0));
 
 /** 견적 통화로 바꾼 별도 견적 줄 YD당 정액 (판매가 계산용) */
 export const getCustomRowAdd = (row, quote) => toQuoteCurrencyAdd(getCustomRowAddRaw(row, quote), quote);

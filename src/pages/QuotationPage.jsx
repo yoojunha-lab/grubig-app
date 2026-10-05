@@ -604,8 +604,8 @@ export const QuotationPage = ({
                     <td className="px-2 py-2">
                       <input type="number" step="any" value={row.marginAdd ?? ''} onChange={(e) => handleCustomItemChange(row.id, { marginAdd: e.target.value })}
                         className={`w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-right text-xs font-bold outline-none focus:border-indigo-400 ${row.marginAdd === null || row.marginAdd === undefined ? 'text-slate-400' : 'text-slate-700'}`}
-                        placeholder={fmtAdd(addDefault)} title={`비워 두면 수량 구간 기본값 ${addSym}${fmtAdd(addDefault)}`} />
-                      {showAddUsd && <div className="text-[9px] text-slate-400 text-right mt-0.5">{addInUsd(row.marginAdd ?? addDefault)}</div>}
+                        placeholder={fmtAdd(addDefault)} title="비워 두면 0 (별도 견적은 정액 기본값 없음)" />
+                      {showAddUsd && Number(row.marginAdd) > 0 && <div className="text-[9px] text-slate-400 text-right mt-0.5">{addInUsd(row.marginAdd)}</div>}
                     </td>
                     <td className="px-2 py-2 text-right">
                       <div className="font-mono text-[14px] font-extrabold text-amber-800">{formatQuotePrice(price, currency)}</div>
@@ -641,7 +641,7 @@ export const QuotationPage = ({
             </tbody>
           </table>
         </div>
-        <p className="text-[10px] text-slate-400">이익율·정액을 비워 두면 수량이 속한 기준 구간 값(위 구간 설정)을 써요. 총액 = 판가 × 수량 (화면에서만 보여요).</p>
+        <p className="text-[10px] text-slate-400">이익율을 비워 두면 수량이 속한 기준 구간 값(위 구간 설정), YD당 정액은 비워 두면 0이에요. 총액 = 판가 × 수량 (화면에서만 보여요).</p>
       </QuoteSection>
 
       {/* 원단 검색 팝업 — 기준·별도 견적 같은 방식 (그 칸에 이미 담긴 원단은 '추가됨') */}
