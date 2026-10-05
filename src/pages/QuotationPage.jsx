@@ -286,7 +286,7 @@ export const QuotationPage = ({
         {isLegacy ? (
           <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-xs">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-px" />
-            <span>아주 옛날 방식(추가 마크업) 견적이라 구간 설정·외관검사/시험성적서 제외·별도 견적을 쓸 수 없어요. 새 견적으로 작성해 주세요.</span>
+            <span>아주 옛날 방식(추가 마크업) 견적이라 원단 추가·구간 설정·외관검사/시험성적서 제외·별도 견적을 쓸 수 없어요. 새 견적으로 작성해 주세요.</span>
           </div>
         ) : (
           <>
@@ -391,7 +391,7 @@ export const QuotationPage = ({
               <Trash2 className="w-3.5 h-3.5" /> 선택 삭제
             </button>
           </div>
-          <AddFromListButton onClick={() => setPickerMode('standard')} />
+          {!isLegacy && <AddFromListButton onClick={() => setPickerMode('standard')} />}
         </div>
 
         <div className="overflow-hidden rounded-xl border border-slate-200 overflow-x-auto">
@@ -482,15 +482,17 @@ export const QuotationPage = ({
                 );
               })}
 
-              <tr>
-                <td colSpan="2" className="p-2 text-center text-slate-300 bg-slate-50 border-t border-slate-200 pointer-events-none"><Plus className="w-4 h-4 mx-auto" /></td>
-                <td className="p-2 border-t border-slate-200 bg-slate-50" colSpan="2">
-                  <ArticleQuickAdd onAdd={(text) => handleGridPaste(text, 'standard')} />
-                </td>
-                <td colSpan={6 + shownTiers.length} className="p-2 text-xs text-slate-400 border-t border-slate-200 bg-slate-50/50 h-[42px] align-middle overflow-hidden">
-                  <PasteHint />
-                </td>
-              </tr>
+              {!isLegacy && (
+                <tr>
+                  <td colSpan="2" className="p-2 text-center text-slate-300 bg-slate-50 border-t border-slate-200 pointer-events-none"><Plus className="w-4 h-4 mx-auto" /></td>
+                  <td className="p-2 border-t border-slate-200 bg-slate-50" colSpan="2">
+                    <ArticleQuickAdd onAdd={(text) => handleGridPaste(text, 'standard')} />
+                  </td>
+                  <td colSpan={6 + shownTiers.length} className="p-2 text-xs text-slate-400 border-t border-slate-200 bg-slate-50/50 h-[42px] align-middle overflow-hidden">
+                    <PasteHint />
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

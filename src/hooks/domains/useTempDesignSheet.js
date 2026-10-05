@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
-import { resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete } from '../../utils/costModel';
+import { resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete, normalizeYarnSlots, clampYarnRatio } from '../../utils/costModel';
 
 // [원가 개편] 다른 문서의 costInput에서 새 원가 필드를 꺼냄 — 값이 없는 옛 문서는 기본값(A · 옛 편직료 · 일반)
 const pickCostAttrs = (ci = {}) => ({
@@ -133,16 +133,17 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
   const handleTempYarnChange = (index, field, value) => {
     let nextValue;
     if (field === 'ratio') {
-      nextValue = Number(value);
+      nextValue = clampYarnRatio(value); // 0~100 (음수·100 초과 막기)
     } else if (field === 'priceOverride') {
-      // 빈 문자열은 그대로 둠 (override 없음) — 값이 있으면 숫자화
-      nextValue = value === '' || value === null || value === undefined ? '' : Number(value);
+      // 빈 문자열은 그대로 둠 (override 없음) — 값이 있으면 숫자화 (음수 막기)
+      nextValue = value === '' || value === null || value === undefined ? '' : Math.max(0, Number(value) || 0);
     } else {
       nextValue = String(value || '');
     }
     setTempInput(prev => {
-      const newYarns = [...(prev.yarns || [])];
-      newYarns[index] = { ...(newYarns[index] || {}), [field]: nextValue };
+      // 항상 4칸 이상 유지 — 건너뛴 칸에 빈 값(null)이 생겨 저장되는 일 방지
+      const newYarns = normalizeYarnSlots(prev.yarns, Math.max(4, index + 1)).map(y => ({ priceOverride: '', ...y }));
+      newYarns[index] = { ...newYarns[index], [field]: nextValue };
       return { ...prev, yarns: newYarns };
     });
   };
@@ -269,14 +270,13 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
 
   // 삭제 — deleteDocFromCloud 내부에서 에러 토스트를 이미 처리하므로,
   // 성공 시에만 별도 토스트 표시 (BUG-1 수정)
+  // 반환: 삭제했으면 true (취소·실패면 false — 편집 창은 그대로)
   const handleDeleteTemp = async (id) => {
-    if (!window.confirm('이 가설계서를 삭제하시겠습니까?\n(삭제된 가설계서는 복구할 수 없습니다.)')) return;
-    try {
-      await deleteDocFromCloud('tempDesignSheets', id);
-      showToast('가설계서가 삭제되었습니다.', 'success');
-    } catch {
-      // deleteDocFromCloud 내부에서 이미 에러 토스트 처리됨
-    }
+    if (!window.confirm('이 가설계서를 삭제하시겠습니까?\n(삭제된 가설계서는 복구할 수 없습니다.)')) return false;
+    const ok = await deleteDocFromCloud('tempDesignSheets', id);
+    if (ok === false) return false; // deleteDocFromCloud가 '삭제 실패' 알림
+    showToast('가설계서가 삭제되었습니다.', 'success');
+    return true;
   };
 
   // --- Cost 연동 ---

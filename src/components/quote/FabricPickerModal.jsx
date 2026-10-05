@@ -26,7 +26,7 @@ export const FabricPickerModal = ({
   // 원사 조성 문자열 (예: "CM 30S 60% / WOOL 40%")
   const getComposition = (fabric) => {
     return (fabric?.yarns || [])
-      .filter(y => y.yarnId && Number(y.ratio) > 0)
+      .filter(y => y?.yarnId && Number(y.ratio) > 0)
       .map(y => {
         const realYarnId = String(y.yarnId).split('::')[0];
         const realYarn = (yarnLibrary || []).find(yl => String(yl.id) === String(realYarnId));

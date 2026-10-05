@@ -78,9 +78,13 @@ export const Sidebar = ({
     if (rateDraft === null) return;
     const v = Number(rateDraft);
     setRateDraft(null);
-    if (!(v > 0) || v === Number(globalExchangeRate)) return;
+    // 같은 값이면 저장할 필요 없음 — 단, 아직 회사 공통으로 저장 전이면 지금 보이는 값 그대로도 공통으로 저장할 수 있게
+    if (!(v > 0) || (v === Number(globalExchangeRate) && exchangeRateMeta)) return;
+    const sameValue = v === Number(globalExchangeRate);
     if (!window.confirm(
-      `공통 환율을 ₩${fmtRate(globalExchangeRate)} → ₩${fmtRate(v)}로 바꿉니다.\n\n` +
+      (sameValue
+        ? `지금 환율 ₩${fmtRate(v)}을 회사 공통 환율로 저장합니다.\n\n`
+        : `공통 환율을 ₩${fmtRate(globalExchangeRate)} → ₩${fmtRate(v)}로 바꿉니다.\n\n`) +
       `모든 직원의 화면(원단 원가·새 견적)에 바로 적용돼요.\n이미 저장한 견적은 그 견적의 환율 그대로예요.\n\n계속할까요?`
     )) return;
     if (onCommitExchangeRate) onCommitExchangeRate(v);

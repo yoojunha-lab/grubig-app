@@ -225,8 +225,9 @@ export const resolveKnitKgRate = (item) => {
   return found === undefined ? DEFAULT_KNIT_KG_RATE : Math.max(0, Number(found));
 };
 
-/** 품목별 구간 단가 [{ fromKg, rate }] 정리 — fromKg 0 이하(작성 중인 칸)는 제외, kg 오름차순 */
+/** 품목별 구간 단가 [{ fromKg, rate }] 정리 — fromKg 0 이하·단가 빈칸(작성 중인 칸)은 제외, kg 오름차순 */
 export const normalizeKnitRateTiers = (tiers) => (Array.isArray(tiers) ? tiers : [])
+  .filter(t => t && !isBlank(t.rate))
   .map(t => ({ fromKg: toNum(t?.fromKg), rate: Math.max(0, toNum(t?.rate)) }))
   .filter(t => t.fromKg > 0)
   .sort((a, b) => a.fromKg - b.fromKg)
@@ -269,6 +270,20 @@ export const normalizeExtraCosts = (etcCosts) => (Array.isArray(etcCosts) ? etcC
     name: String(e.name || ''),
     perYd: Math.max(0, toNum(isBlank(e.perYd) ? (e.vals?.tier3k ?? e.vals?.tier1k) : e.perYd)),
   }));
+
+/**
+ * 원사 칸 정리 — 빈 칸(null·건너뛴 칸)을 { yarnId:'', ratio:0 } 으로 채워 최소 minSlots 칸 유지.
+ * (칸을 건너뛰어 입력하면 배열에 구멍이 생겨 null이 저장되고, 목록 화면이 멈출 수 있었음)
+ */
+export const normalizeYarnSlots = (yarns, minSlots = 4) => {
+  const list = Array.isArray(yarns) ? yarns : [];
+  return Array.from({ length: Math.max(minSlots, list.length) }, (_, i) => (
+    list[i] && typeof list[i] === 'object' ? list[i] : { yarnId: '', ratio: 0 }
+  ));
+};
+
+/** 혼용률 입력값 정리 — 숫자로, 0~100 (음수·100 초과 입력 막기) */
+export const clampYarnRatio = (value) => Math.min(100, Math.max(0, Number(value) || 0));
 
 /** 원사 혼용률 합계 (소수 둘째 자리 반올림 — 33.3+33.3+33.4 같은 경우도 100으로) */
 export const sumYarnRatio = (yarns) =>
@@ -343,6 +358,7 @@ const buildCostWarnings = (fabric, p) => {
   if (p.missingYarnNames.length > 0) warnings.push(`원사 라이브러리에 없는 원사: ${p.missingYarnNames.join(', ')}`);
   if (p.zeroPriceYarns.length > 0) warnings.push(`단가 0원 원사: ${p.zeroPriceYarns.join(', ')}`);
   if (!(p.effectiveGYd > 0)) warnings.push('중량(G/YD) 0 — GSM·외폭 또는 생산 G/YD 확인');
+  if (isBlank(fabric?.dyeingFee)) warnings.push('염가공료가 비어 있음 (0원으로 계산) — 염색이 없으면 0을 넣어 주세요');
   return warnings;
 };
 
@@ -542,7 +558,8 @@ export const computeCostAtQty = (fabric, qty, ctx = {}, opts = {}) => {
  */
 export const calculateCostTiers = (fabric, ctx = {}) => {
   if (!fabric || !fabric.yarns) {
-    const empty = { avgYarnCostDomestic: 0, avgYarnCostExport: 0, effectiveGYd: 0, theoreticalGYd: 0, ydPerKg: 0, missingYarnIds: [], processLossPct: 0, finishingLossPct: 0, knitKgRate: 0, hasImportFreight: false, costWarnings: [] };
+    // 원사 정보가 아예 없는 원단(옛·깨진 데이터)도 원가 0원으로 조용히 넘어가지 않게 '원가 확인 필요'로 표시
+    const empty = { avgYarnCostDomestic: 0, avgYarnCostExport: 0, effectiveGYd: 0, theoreticalGYd: 0, ydPerKg: 0, missingYarnIds: [], processLossPct: 0, finishingLossPct: 0, knitKgRate: 0, hasImportFreight: false, costWarnings: fabric ? ['원사 정보가 없음 — 원단을 열어 원사를 넣어 주세요 (원가 0원)'] : [] };
     COST_DISPLAY_TIERS.forEach(t => { empty[t.key] = emptyTier(t.qty); });
     return empty;
   }

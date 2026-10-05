@@ -116,7 +116,6 @@ export const DesignSheetPage = ({
   devRequests,
   linkAndConfirm,
   closeModal,
-  designSheets,
   setSheetInput,
   mainDetails,
   // 메인 디테일 시트 작성 팝업 (useMainDetail 핸들러 주입)
@@ -130,7 +129,7 @@ export const DesignSheetPage = ({
   structures: structuresList,
   setActiveMasterModal,
   savedFabrics,
-  registerFabricFromSheet,
+  saveSheetAndRegisterFabric,
   // === 가설계서(Temp) 관련 props (모두 optional) ===
   isTempMode = false,           // true이면 가설계서 작성 모드
   tempBuyerName = '',           // 가설계서 모드 전용 바이어명
@@ -285,14 +284,14 @@ export const DesignSheetPage = ({
             </button>
           )}
           {editingSheetId && !isFullyLocked && !isTempMode && (
-            <button onClick={() => { handleDeleteSheet(editingSheetId); if (closeModal) closeModal(); else setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded shadow-sm transition-colors flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> 삭제</button>
+            <button onClick={async () => { if (!(await handleDeleteSheet(editingSheetId))) return; if (closeModal) closeModal(); else setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded shadow-sm transition-colors flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> 삭제</button>
           )}
           {editingSheetId && !isTempMode && sheetInput?.stage === 'draft' && typeof setStage === 'function' && (
             <button onClick={() => setStage(editingSheetId, 'eztex')} className="px-4 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded shadow-sm transition-colors flex items-center gap-1"><Check className="w-3.5 h-3.5" /> 생산팀 이관하기</button>
           )}
           {/* 가설계서 모드: 삭제 버튼 */}
           {isTempMode && editingSheetId && (
-            <button onClick={() => { handleDeleteSheet(editingSheetId); if (closeModal) closeModal(); }} className="px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded shadow-sm transition-colors flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> 삭제</button>
+            <button onClick={async () => { if (!(await handleDeleteSheet(editingSheetId))) return; if (closeModal) closeModal(); }} className="px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded shadow-sm transition-colors flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> 삭제</button>
           )}
           {/* [REF-3] 닫기 버튼 — 가설계서 모드에서는 closeModal만, 정식에서는 devStatus로 fallback */}
           <button onClick={() => { resetSheetForm(); if (closeModal) closeModal(); else if (!isTempMode && setActiveTab) setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded shadow-sm transition-colors flex items-center gap-1"><X className="w-3.5 h-3.5" /> 닫기</button>
@@ -734,23 +733,16 @@ export const DesignSheetPage = ({
             <div className="flex flex-wrap gap-2">
               {/* 설계서 내용으로 새 원단 등록 */}
               {editingSheetId && (
-                <button type="button" onClick={() => {
+                <button type="button" onClick={async () => {
                   if (!sheetInput?.articleNo?.trim()) {
                     alert('원단을 등록하려면 상단의 [Article 번호]를 반드시 입력해야 합니다.');
                     return;
                   }
-                  if (window.confirm('입력된 스펙을 바탕으로 새 원단을 원단 장부에 등록하시겠습니까?\n(현재 작성 중인 설계서 내용도 함께 저장되며, [아이템화] 단계로 전환됩니다)')) {
-                    // 1. 설계서 최신 데이터 강제 저장 (이력 추적 등 시스템 동작 보장)
-                    if (handleSaveSheet) handleSaveSheet(user);
-
-                    // 2. 최신 입력값(sheetInput)을 병합하여 원단 시스템에 등록 (데이터 누락/구버전화 방지)
-                    const sheet = (designSheets || []).find(s => s.id === editingSheetId);
-                    if (sheet && registerFabricFromSheet) {
-                      // 등록 성공 시에만 모달을 닫는다 (Article 중복 등으로 막히면 수정할 수 있게 유지)
-                      if (registerFabricFromSheet({ ...sheet, ...sheetInput, id: editingSheetId })) {
-                        closeModal?.();
-                      }
-                    }
+                  if (!window.confirm('입력된 스펙을 바탕으로 새 원단을 원단 장부에 등록하시겠습니까?\n(현재 작성 중인 설계서 내용을 먼저 저장하고, 저장되면 원단을 등록한 뒤 [아이템화] 단계로 전환됩니다)')) return;
+                  // 설계서 저장(검증·변경 이력) → 성공했을 때만 그 저장본으로 원단 등록. 실패하면 폼 그대로
+                  if (saveSheetAndRegisterFabric) {
+                    const onLink = (devReqId, sheetId) => { if (linkAndConfirm) linkAndConfirm(devReqId, sheetId); };
+                    if (await saveSheetAndRegisterFabric(user, onLink)) closeModal?.();
                   }
                 }} className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 rounded-lg shadow-sm hover:bg-blue-700 active:scale-95 transition-all flex items-center gap-1">
                   <Plus className="w-3.5 h-3.5" /> 원단 리스트에 등록

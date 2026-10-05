@@ -119,11 +119,11 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
 
     // [방어] savedFabrics/fabric.yarns가 null/undefined일 때 크래시 방지
     const isUsed = (savedFabrics || []).some(fabric =>
-      (fabric.yarns || []).some(y => y.yarnId && String(y.yarnId).split('::')[0] === String(id) && y.ratio > 0)
+      (fabric.yarns || []).some(y => y?.yarnId && String(y.yarnId).split('::')[0] === String(id) && y.ratio > 0)
     );
     // [기획오류 #11 수정] 설계서에서도 원사 사용 체크
     const isUsedInSheet = (designSheets || []).some(sheet =>
-      (sheet.yarns || []).some(y => y.yarnId && String(y.yarnId).split('::')[0] === String(id) && y.ratio > 0)
+      (sheet.yarns || []).some(y => y?.yarnId && String(y.yarnId).split('::')[0] === String(id) && y.ratio > 0)
     );
     if (isUsed || isUsedInSheet) {
       alert("🚨 경고: 이 원사를 사용 중인 원단 또는 설계서가 있습니다! 삭제 불가.");
@@ -132,12 +132,12 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
     if (!window.confirm("이 원사와 등록된 모든 공급처 정보가 삭제됩니다. 삭제하시겠습니까?")) return;
 
     setDeletingYarnId(id);
-    if (syncYarnLibraryStateCallback) syncYarnLibraryStateCallback(id);
     try {
-      await deleteDocFromCloud('yarns', id);
+      // deleteDocFromCloud는 실패 시 false (실패 알림은 그쪽에서) → 지워졌을 때만 목록에서 뺌
+      const ok = await deleteDocFromCloud('yarns', id);
+      if (ok === false) return;
+      if (syncYarnLibraryStateCallback) syncYarnLibraryStateCallback(id);
       showToast('삭제 완료', 'success');
-    } catch (e) {
-      showToast(`삭제 실패: ${e?.message || '네트워크 오류'}`, 'error');
     } finally {
       setDeletingYarnId(null);
     }

@@ -73,7 +73,7 @@ export const MobileFabricCard = React.memo(({
       <div className="p-3 bg-white border-b border-slate-50 cursor-pointer" onClick={onToggleExpand}>
         <div className="flex flex-col gap-1.5 mb-3">
           <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-bold self-start mb-0.5">사용 원사 (Yarn Mix)</span>
-          {(f.yarns || []).filter(y => y.yarnId && y.ratio > 0).map((y, idx) => {
+          {(f.yarns || []).filter(y => y?.yarnId && y.ratio > 0).map((y, idx) => {
             const realYarnId = String(y.yarnId).split('::')[0];
             const realYarn = yarnLibrary?.find(yl => String(yl.id) === String(realYarnId));
             const yarnName = realYarn?.name || '미등록 원사';

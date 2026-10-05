@@ -261,6 +261,39 @@ export const getCustomExclude = (quote) => ({
   excludeChem: quote?.customExcludeChem === true,
 });
 
+/**
+ * 바이어 견적서(PDF·엑셀)로 내보내기 전에 확인
+ *  - errors: 하나라도 있으면 내보내지 않음 (바이어 이름 없음, 단가 '—' 칸, 수량·컬러 빈 별도 견적 줄 등)
+ *  - warnings: 확인 창을 띄우고 진행 ('원가 확인 필요' 품목 등)
+ * @param {'standard'|'special'} kind
+ */
+export const validateQuoteForExport = (quote, kind = 'standard') => {
+  const errors = [];
+  const warnings = [];
+  if (!String(quote?.buyerName || '').trim()) errors.push('바이어 이름을 넣어 주세요.');
+  const listOf = (arr, max = 8) => `${arr.slice(0, max).join(', ')}${arr.length > max ? ` 외 ${arr.length - max}개` : ''}`;
+  if (kind === 'special') {
+    const rows = getShownCustomItems(quote);
+    if (rows.length === 0) errors.push("별도 견적서에 넣을 줄이 없어요. (별도 견적의 '견적서' 체크 확인)");
+    const bad = rows.filter(r => isBlank(r.basePrice) || !(Number(r.qty) > 0) || !(Number(r.colors) > 0));
+    if (bad.length) errors.push(`수량·컬러가 비어 있거나 원가가 없는 줄이 있어요: ${listOf(bad.map(r => r.article))}`);
+    const warned = rows.filter(r => (r.costWarnings || []).length > 0);
+    if (warned.length) warnings.push(`'원가 확인 필요' 줄 ${warned.length}개: ${listOf(warned.map(r => r.article))}`);
+    return { errors, warnings };
+  }
+  const items = quote?.items || [];
+  if (items.length === 0) errors.push('기준 견적에 품목이 없어요.');
+  const tiers = getShownTiers(quote);
+  const missing = [];
+  items.forEach(it => tiers.forEach(t => { if (getBasePrice(it, t.key) === null) missing.push(`${it.article} ${t.label}`); }));
+  if (missing.length) {
+    errors.push(`단가가 없는 칸이 있어요 (예전에 넣은 품목): ${listOf(missing, 6)}\n→ [현재 원가로 다시 계산]을 누르거나, 그 구간의 '견적서 표시'를 끄세요.`);
+  }
+  const warned = items.filter(it => (it.costWarnings || []).length > 0);
+  if (warned.length) warnings.push(`'원가 확인 필요' 품목 ${warned.length}개: ${listOf(warned.map(it => it.article))}`);
+  return { errors, warnings };
+};
+
 // ----------------------------------------------------------------------
 // 5. 바이어 견적서 문구 (PDF·엑셀 공통 — 한 곳에서만 관리)
 // ----------------------------------------------------------------------

@@ -32,7 +32,7 @@ import { useProformaInvoice } from '../hooks/domains/useProformaInvoice';
 import { usePartner } from '../hooks/domains/usePartner';
 import { useLabdip } from '../hooks/domains/useLabdip';
 import { getQuoteValidUntil, num } from '../utils/helpers';
-import { calcQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice, quotePriceBasis, buildQuoteTerms } from '../utils/quoteModel';
+import { calcQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice, quotePriceBasis, buildQuoteTerms, validateQuoteForExport } from '../utils/quoteModel';
 import { resolveCostSettings, findKnitGrade, findProcessType, resolveKnitKgRate, isImportSupplier, findImportCountry, sumYarnRatio, isYarnRatioComplete } from '../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 
@@ -337,6 +337,40 @@ const App = () => {
 
   const showToast = (message, type = 'success') => { setNotification({ show: true, message, type }); setTimeout(() => setNotification(prev => ({ ...prev, show: false })), 3000); };
 
+  // settings/general 의 목록 필드 쓰기 (원사 분류·바이어·편직처·염색처·기종·조직·원사 업체)
+  //  op: { set: [...] } 통째로 바꾸기 / { add: [...] } 원자적 추가 / { remove: [...] } 원자적 제거
+  //  DEV(로그인 우회)에서는 실제 Firestore 대신 화면 state만 바꿈 — 예전엔 이 목록들이 DEV에서도 실제 DB에 써져서
+  //  DEV 기본 분류로 실제 분류 목록 전체가 덮일 수 있었음
+  const DEV_SETTINGS_LIST_SETTERS = {
+    yarnCategories: setCategories, buyers: setBuyers, knittingFactories: setKnittingFactories,
+    dyeingFactories: setDyeingFactories, machineTypes: setMachineTypes, structures: setStructures,
+    yarnSuppliers: setYarnSuppliers,
+  };
+  const writeSettingsList = async (field, op) => {
+    if (DEV_BYPASS) {
+      const setter = DEV_SETTINGS_LIST_SETTERS[field];
+      if (setter) setter(prev => {
+        const cur = Array.isArray(prev) ? prev : [];
+        if (op.set) return [...op.set];
+        if (op.add) return [...new Set([...cur, ...op.add])];
+        if (op.remove) return cur.filter(x => !op.remove.includes(x));
+        return cur;
+      });
+      return;
+    }
+    const value = op.set ? op.set : op.add ? arrayUnion(...op.add) : arrayRemove(...op.remove);
+    await setDoc(doc(db, 'settings', 'general'), { [field]: value }, { merge: true });
+  };
+  // 원사 분류 일괄 변경 (yarns 문서 여러 개) — DEV에서는 화면 state만
+  const updateYarnCategories = async (yarns, newCategory) => {
+    if (DEV_BYPASS) {
+      const ids = new Set((yarns || []).map(y => String(y.id)));
+      setYarnLibrary(prev => prev.map(y => (ids.has(String(y.id)) ? { ...y, category: newCategory } : y)));
+      return { success: ids.size, failed: [], totalAttempted: ids.size };
+    }
+    return updateYarnCategoryBatch(yarns, newCategory);
+  };
+
   // 마스터 데이터 등록/삭제 공용 함수 (settings/general 문서의 배열 필드)
   // arrayUnion/arrayRemove 원자 연산 사용 — 로컬 state에 의존하지 않아 race/오버라이트 안전
   const addMasterItem = async (field, name) => {
@@ -346,7 +380,7 @@ const App = () => {
     const current = currentMap[field] || [];
     if (current.includes(trimmed)) { showToast('이미 등록된 항목입니다.', 'error'); return false; }
     try {
-      await setDoc(doc(db, 'settings', 'general'), { [field]: arrayUnion(trimmed) }, { merge: true });
+      await writeSettingsList(field, { add: [trimmed] });
       showToast(`'${trimmed}' 등록 완료`, 'success');
       return true;
     } catch (e) {
@@ -356,7 +390,7 @@ const App = () => {
   };
   const removeMasterItem = async (field, name) => {
     try {
-      await setDoc(doc(db, 'settings', 'general'), { [field]: arrayRemove(name) }, { merge: true });
+      await writeSettingsList(field, { remove: [name] });
       showToast(`'${name}' 삭제됨`, 'success');
     } catch (e) {
       showToast(`삭제 실패: ${e.message}`, 'error');
@@ -396,9 +430,8 @@ const App = () => {
   } = useDevRequest(devRequests, saveDocToCloud, deleteDocFromCloud, showToast, designSheets);
 
   // 아이템화 시 원단 자동 등록용 함수
-  const saveFabricFromSheet = (fabricData) => {
-    saveDocToCloud('fabrics', fabricData);
-  };
+  // 설계서 아이템화 → 원단 저장. 저장 성공 여부(true/false)를 돌려줘야 설계서가 '없는 원단'에 연결되지 않음
+  const saveFabricFromSheet = (fabricData) => saveDocToCloud('fabrics', fabricData);
 
   const {
     sheetInput, setSheetInput, editingSheetId,
@@ -409,7 +442,7 @@ const App = () => {
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
     addOrderNumber, removeOrderNumber,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
-    registerFabricFromSheet
+    saveSheetAndRegisterFabric
   } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet, devRequests);
 
   // ⚓️ 메인 디테일 훅
@@ -868,7 +901,7 @@ const App = () => {
         const yarnsToUpdate = yarnLibrary.filter(y => String(y.category).toUpperCase() === upperOld);
 
         // Y1: 부분 실패 처리 — 청크 단위 결과 수신 후 사용자에게 명확히 안내
-        const result = await updateYarnCategoryBatch(yarnsToUpdate, upperNew);
+        const result = await updateYarnCategories(yarnsToUpdate, upperNew);
         if (result.failed.length > 0) {
           alert(
             `⚠️ 카테고리 일괄 변경 중 ${result.failed.length}/${result.totalAttempted}건 실패\n\n` +
@@ -881,7 +914,7 @@ const App = () => {
         if (!updatedCats.map(c => String(c).toUpperCase()).includes(upperNew)) updatedCats.push(upperNew);
       }
 
-      await setDoc(doc(db, 'settings', 'general'), { yarnCategories: [...new Set(updatedCats)] }, { merge: true });
+      await writeSettingsList('yarnCategories', { set: [...new Set(updatedCats)] });
       setEditingCategoryOld(null); setEditingCategoryNew(''); setIsCategoryModalOpen(false);
       setSyncStatus('saved'); showToast('카테고리가 저장되었습니다.', 'success');
     } catch (e) {
@@ -894,7 +927,7 @@ const App = () => {
     if (isUsed) { alert("🚨 이 카테고리를 사용 중인 원사가 있어서 삭제할 수 없습니다. 원사를 먼저 다른 카테고리로 변경하세요."); return; }
     if (window.confirm(`'${catName}' 카테고리를 삭제하시겠습니까?`)) {
       const newCats = categories.filter(c => String(c).toUpperCase() !== String(catName).toUpperCase());
-      await setDoc(doc(db, 'settings', 'general'), { yarnCategories: newCats }, { merge: true });
+      await writeSettingsList('yarnCategories', { set: newCats });
       showToast('카테고리가 삭제되었습니다.', 'success');
     }
   };
@@ -915,7 +948,7 @@ const App = () => {
       setSyncStatus('syncing');
       const yarnsToUpdate = yarnLibrary.filter(y => upperSources.includes(String(y.category || '').toUpperCase()));
       if (yarnsToUpdate.length > 0) {
-        const result = await updateYarnCategoryBatch(yarnsToUpdate, upperTarget);
+        const result = await updateYarnCategories(yarnsToUpdate, upperTarget);
         if (result.failed.length > 0) {
           alert(
             `⚠️ 카테고리 합치기 중 ${result.failed.length}/${result.totalAttempted}건 실패\n\n` +
@@ -927,7 +960,7 @@ const App = () => {
       // categories 목록에서 sources 제거, target 유지
       const remaining = categories.filter(c => !upperSources.includes(String(c).toUpperCase()));
       if (!remaining.map(c => String(c).toUpperCase()).includes(upperTarget)) remaining.push(upperTarget);
-      await setDoc(doc(db, 'settings', 'general'), { yarnCategories: [...new Set(remaining)] }, { merge: true });
+      await writeSettingsList('yarnCategories', { set: [...new Set(remaining)] });
 
       // 현재 보고 있던 필터가 합쳐져 사라진 카테고리면 전체로 되돌림
       if (upperSources.includes(String(yarnFilterCategory).toUpperCase())) setYarnFilterCategory('All');
@@ -947,7 +980,7 @@ const App = () => {
     try {
       setSyncStatus('syncing');
       // arrayUnion: 서버에서 원자적으로 추가 — 로컬 state 무관, 다른 기기 동시 추가도 안전
-      await setDoc(doc(db, 'settings', 'general'), { buyers: arrayUnion(safeNewName) }, { merge: true });
+      await writeSettingsList('buyers', { add: [safeNewName] });
       setEditingBuyerNew('');
       setSyncStatus('saved'); showToast('새로운 바이어가 추가되었습니다.', 'success');
     } catch (e) {
@@ -961,26 +994,31 @@ const App = () => {
     else if (!window.confirm(`'${buyerName}' 바이어를 목록에서 삭제하시겠습니까?`)) return;
 
     // arrayRemove: 서버에서 해당 항목만 원자적으로 제거 (다른 항목 보호)
-    await setDoc(doc(db, 'settings', 'general'), { buyers: arrayRemove(buyerName) }, { merge: true });
+    await writeSettingsList('buyers', { remove: [buyerName] });
     showToast('바이어가 삭제되었습니다.', 'success');
   };
 
   // OLD QUOTATION LOGICS MOVED TO HOOKS
+
+  // 바이어 견적서로 내보내기 전 확인 — 못 보내는 문제(errors)는 막고, 확인할 것(warnings)은 물어봄. 진행하면 true
+  const confirmQuoteExport = (quote, kind) => {
+    const { errors, warnings } = validateQuoteForExport(quote, kind);
+    if (errors.length > 0) {
+      alert(`${kind === 'special' ? '별도' : '기준'} 견적서를 만들 수 없어요.\n\n• ${errors.join('\n• ')}`);
+      return false;
+    }
+    if (warnings.length > 0) {
+      return window.confirm(`확인해 주세요.\n\n• ${warnings.join('\n• ')}\n\n그래도 견적서를 만들까요?`);
+    }
+    return true;
+  };
 
   // kind: 'standard' 기준 견적서 / 'special' 별도 견적서 — 바이어에게 따로 보냄 (대표님 요청 2026-10-05)
   const handleDownloadPDF = (targetQuoteFromHistory = null, kind = 'standard') => {
     // History 페이지 등에서 특정 견적서 출력 시 해당 견적서 데이터를 최우선으로 적용합니다.
     const targetQuote = (targetQuoteFromHistory && targetQuoteFromHistory.id) ? targetQuoteFromHistory : quoteInput;
 
-    if (kind === 'special') {
-      if (getShownCustomItems(targetQuote).length === 0) {
-        showToast("별도 견적서에 넣을 줄이 없어요. (별도 견적의 '견적서' 체크 확인)", 'error');
-        return;
-      }
-    } else if (!targetQuote.items || targetQuote.items.length === 0) {
-      showToast("기준 견적에 품목이 없습니다.", 'error');
-      return;
-    }
+    if (!confirmQuoteExport(targetQuote, kind)) return;
 
     // PDFRenderer가 올바른 데이터로 렌더링되도록 항상 setQuoteInput 실행
     setQuoteInput(targetQuote);
@@ -1020,10 +1058,7 @@ const App = () => {
     // kind: 'standard' 기준 견적서 / 'special' 별도 견적서 — PDF와 같이 따로 내보냄
     const isSpecial = kind === 'special';
     const specialRows = getShownCustomItems(targetQuote);
-    if (isSpecial ? specialRows.length === 0 : !(targetQuote.items || []).length) {
-      showToast(isSpecial ? "별도 견적서에 넣을 줄이 없어요. (별도 견적의 '견적서' 체크 확인)" : "기준 견적에 품목이 없습니다.", 'error');
-      return;
-    }
+    if (!confirmQuoteExport(targetQuote, kind)) return;
 
     const cur = targetQuote.currency;
     const priceBasis = quotePriceBasis(cur);
@@ -1426,7 +1461,7 @@ const App = () => {
                 structures={structures}
                 setActiveMasterModal={setActiveMasterModal}
                 savedFabrics={savedFabrics}
-                registerFabricFromSheet={registerFabricFromSheet}
+                saveSheetAndRegisterFabric={saveSheetAndRegisterFabric}
                 tempDesignSheets={tempDesignSheets}
                 onLoadTempSheet={loadTempToSheet}
                 detailInput={detailInput}

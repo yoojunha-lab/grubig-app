@@ -88,7 +88,7 @@ export const DesktopFabricRow = React.memo(({
 
         <td className="p-2 border-r border-slate-50 align-middle">
           <div className="flex flex-col gap-1 w-full text-[11px]">
-            {(f.yarns || []).filter(y => y.yarnId && y.ratio > 0).map((y, idx) => {
+            {(f.yarns || []).filter(y => y?.yarnId && y.ratio > 0).map((y, idx) => {
               const realYarnId = String(y.yarnId).split('::')[0];
               const realYarn = yarnLibrary.find(yl => String(yl.id) === String(realYarnId));
               const yarnName = realYarn?.name || '미등록 원사';

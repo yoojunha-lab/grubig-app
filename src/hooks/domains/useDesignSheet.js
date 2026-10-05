@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { DESIGN_STAGES, SAMPLING_SUBSTAGES } from '../../constants/common';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
-import { resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete } from '../../utils/costModel';
+import { resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete, normalizeYarnSlots, clampYarnRatio } from '../../utils/costModel';
 
 // GRUBIG ERP - 원단 설계서 도메인 로직 훅
 
@@ -132,14 +132,23 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     }));
   };
 
-  // 원사 슬롯 변경 (기존 useFabric 패턴과 동일)
+  // 원사 슬롯 변경 — 항상 4칸 이상 유지(건너뛴 칸에 null이 생기지 않게), 혼용률은 0~100
   const handleSheetYarnChange = (index, field, value) => {
-    const newYarns = [...sheetInput.yarns];
-    newYarns[index] = {
-      ...newYarns[index],
-      [field]: field === 'ratio' ? Number(value) : String(value || '')
-    };
-    setSheetInput(prev => ({ ...prev, yarns: newYarns }));
+    setSheetInput(prev => {
+      const yarns = normalizeYarnSlots(prev.yarns, Math.max(4, index + 1));
+      yarns[index] = {
+        ...yarns[index],
+        [field]: field === 'ratio' ? clampYarnRatio(value) : String(value || '')
+      };
+      return { ...prev, yarns };
+    });
+  };
+
+  // 편집 창에 열려 있는 설계서를 저장소와 같게 맞춤 — 단계 이동·원단 등록·연결 등이 저장소만 바꾸고
+  //  열린 폼은 옛 값으로 남아 있다가 [설계서 저장] 때 덮어쓰던 문제 방지
+  const syncOpenSheet = (sheetId, patch) => {
+    if (String(editingSheetId) !== String(sheetId)) return;
+    setSheetInput(prev => ({ ...prev, ...patch }));
   };
 
   // Cost 입력 필드 변경 (brandExtra_tier1k 같은 네스트 키도 처리)
@@ -205,7 +214,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
   // 단계 직접 선택 (수동 전이) — 사용자가 스텝퍼에서 임의의 단계를 클릭하면 호출됨
   // 앞/뒤 양방향 이동 모두 허용. articled 진입 시에만 필수값 검증 + 원단 자동 등록.
-  const setStage = (sheetId, targetStage) => {
+  const setStage = async (sheetId, targetStage) => {
     const sheet = designSheets.find(s => s.id === sheetId);
     if (!sheet) return;
     if (!DESIGN_STAGES.some(s => s.key === targetStage)) return;
@@ -244,21 +253,32 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
     // articled 진입: 이미 원단이 연결돼 있으면 신규 등록 없이 stage만 복원
     // (사용자가 역방향으로 이동 후 다시 articled로 돌아오는 자연스러운 흐름 지원)
+    const stagePatch = {
+      stage: updatedSheet.stage,
+      stageEnteredAt: updatedSheet.stageEnteredAt,
+      samplingSub: updatedSheet.samplingSub,
+      samplingSubEnteredAt: updatedSheet.samplingSubEnteredAt,
+      updatedAt: updatedSheet.updatedAt,
+    };
     if (targetStage === 'articled') {
       if (sheet.linkedFabricId) {
-        saveDocToCloud('designSheets', updatedSheet);
+        const ok = await saveDocToCloud('designSheets', updatedSheet);
+        if (ok === false) return;
+        syncOpenSheet(sheetId, stagePatch);
         showToast('아이템화 단계로 복원되었습니다 (기존 원단 유지).', 'success');
         return;
       }
       if (saveFabricFromSheet) {
         // 원단 등록이 가드(Article 중복 등)에 막히면 단계 이동도 취소 — 오해 소지 있는 성공 토스트 방지
-        if (!registerFabricFromSheet(updatedSheet)) return;
+        if (!(await registerFabricFromSheet(updatedSheet))) return;
         showToast(`'아이템화' 단계로 이동했습니다.`, 'success');
         return;
       }
     }
 
-    saveDocToCloud('designSheets', updatedSheet);
+    const ok = await saveDocToCloud('designSheets', updatedSheet);
+    if (ok === false) return;
+    syncOpenSheet(sheetId, stagePatch);
     showToast(`'${DESIGN_STAGES.find(s => s.key === targetStage).label}' 단계로 이동했습니다.`, 'success');
   };
 
@@ -271,12 +291,13 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     if (sheet.samplingSub === subKey) return;
 
     const now = new Date().toISOString();
-    saveDocToCloud('designSheets', {
-      ...sheet,
+    const patch = {
       samplingSub: subKey,
       samplingSubEnteredAt: { ...(sheet.samplingSubEnteredAt || {}), [subKey]: now },
       updatedAt: now
-    });
+    };
+    saveDocToCloud('designSheets', { ...sheet, ...patch });
+    syncOpenSheet(sheetId, patch);
     const label = SAMPLING_SUBSTAGES.find(s => s.key === subKey)?.label || subKey;
     showToast(`샘플 진행 세부단계가 '${label}'(으)로 변경되었습니다.`, 'success');
   };
@@ -300,12 +321,9 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
     const now = new Date().toISOString();
     // 설계서 쪽: 의뢰 ID + 개발번호 기록
-    saveDocToCloud('designSheets', {
-      ...sheet,
-      devRequestId: devReqId,
-      devOrderNo: dev.devOrderNo || sheet.devOrderNo || '',
-      updatedAt: now
-    });
+    const linkPatch = { devRequestId: devReqId, devOrderNo: dev.devOrderNo || sheet.devOrderNo || '', updatedAt: now };
+    saveDocToCloud('designSheets', { ...sheet, ...linkPatch });
+    syncOpenSheet(sheetId, linkPatch);
     // 의뢰 쪽: 설계서 ID 연결 + '개발투입확정' 승격 (confirmed 신규 진입 시에만 시점 기록)
     const statusEnteredAt = dev.status === 'confirmed'
       ? (dev.statusEnteredAt || {})
@@ -329,12 +347,9 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     const now = new Date().toISOString();
     const dev = (devRequests || []).find(d => d.id === sheet.devRequestId);
     // 설계서 쪽: 의뢰 참조 제거 (자체개발화)
-    saveDocToCloud('designSheets', {
-      ...sheet,
-      devRequestId: null,
-      devOrderNo: '',
-      updatedAt: now
-    });
+    const unlinkPatch = { devRequestId: null, devOrderNo: '', updatedAt: now };
+    saveDocToCloud('designSheets', { ...sheet, ...unlinkPatch });
+    syncOpenSheet(sheetId, unlinkPatch);
     // 의뢰 쪽: soft-unlink — linkedDesignSheetId만 해제하고 status(confirmed)는 유지
     if (dev && dev.linkedDesignSheetId === sheetId) {
       saveDocToCloud('devRequests', {
@@ -350,27 +365,29 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
   // 저장 (새로 생성 or 수정)
   // onLinkToDevRequest: (devReqId, sheetId) => void — 설계서 저장 시 의뢰에 자동 연결
-  const handleSaveSheet = (user, onLinkToDevRequest) => {
+  // opts.keepForm: true 면 저장 후 폼을 비우지 않음 (저장 → 원단 등록을 이어서 할 때)
+  // 반환: 저장한 설계서 문서(성공) / null(검증 실패·취소·저장 실패 — 폼은 그대로)
+  const handleSaveSheet = async (user, onLinkToDevRequest, opts = {}) => {
     let finalInput = { ...sheetInput };
 
     // [New] 자체 설계서인 경우 개발오더넘버를 필수값에서 제외
     // 의뢰가 연결된 설계서만 개발번호 필수 입력 검증
     if (finalInput.devRequestId && !finalInput.devOrderNo) {
       showToast('연결된 개발 의뢰의 개발번호(devOrderNo)가 누락되었습니다.', 'error');
-      return;
+      return null;
     }
 
     // [방어] 원단명 필수 입력 검증
     if (!finalInput.fabricName?.trim()) {
       showToast('원단명(Name)을 반드시 입력해주세요.', 'error');
-      return;
+      return null;
     }
 
     // [원가 확인] 원사 혼용률 합계가 100%가 아니면 저장 막기 (원단 등록과 같은 규칙 — 대표님 결정 2026-10-03)
     //   비율만큼 원가가 덜/더 잡히고, 연결 원단으로 동기화되면 견적까지 틀어짐
     if (!isYarnRatioComplete(finalInput.yarns)) {
       showToast(`원사 혼용률 합계가 100%가 아닙니다 (현재 ${sumYarnRatio(finalInput.yarns)}%). 비율을 맞춘 뒤 저장해 주세요.`, 'error');
-      return;
+      return null;
     }
 
     // [연동 보호] 이미 원단이 연결된(아이템화된) 설계서는 재편집 저장 시에도 필수값을 유지해야 한다.
@@ -380,11 +397,11 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       const ci = finalInput.costInput || {};
       if (!finalInput.articleNo?.trim()) {
         showToast('원단이 연결된 설계서는 Article 번호를 비울 수 없습니다.', 'error');
-        return;
+        return null;
       }
       if (!ci.gsm || !ci.widthCut || !ci.widthFull) {
         showToast('원단이 연결된 설계서는 최종 스펙(GSM, 내폭, 외폭)을 비울 수 없습니다.', 'error');
-        return;
+        return null;
       }
       // Article을 '다른' 원단과 중복되게 바꾸면 차단 (원단 Article 유일성 보호)
       const a = String(finalInput.articleNo).trim().toUpperCase();
@@ -394,7 +411,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       );
       if (collide) {
         showToast(`같은 Article의 다른 원단이 이미 있습니다: ${a}`, 'error');
-        return;
+        return null;
       }
     }
 
@@ -402,7 +419,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     const isEditing = !!editingSheetId;
     if (isEditing && !finalInput.changeReason?.trim()) {
       if (!window.confirm('설계 변경 사유가 비어있습니다.\n이력 관리를 위해 사유 입력을 권장합니다.\n\n그래도 저장하시겠습니까?')) {
-        return;
+        return null;
       }
     }
 
@@ -418,7 +435,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       );
       if (duplicate) {
         showToast('이 의뢰에는 이미 진행 중인 설계서가 존재합니다. 해당 설계서를 수정하거나 DROP 후 다시 시도하세요.', 'error');
-        return;
+        return null;
       }
     }
 
@@ -429,8 +446,17 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
     const itemToSave = {
       ...finalInput,
+      // 단계·세부단계·상태·오더넘버·연결 원단은 폼이 아니라 단계 버튼·원단 등록 등이 바꾸는 값 →
+      //  수정 저장 때는 저장소 값을 우선 (편집 창이 열린 사이 바뀐 값을 옛 폼 값으로 되돌리지 않게)
+      ...(existing ? {
+        stage: existing.stage || finalInput.stage,
+        samplingSub: existing.samplingSub ?? finalInput.samplingSub,
+        samplingSubEnteredAt: existing.samplingSubEnteredAt ?? finalInput.samplingSubEnteredAt,
+        orderNumbers: existing.orderNumbers ?? finalInput.orderNumbers,
+        linkedFabricId: finalInput.linkedFabricId || existing.linkedFabricId || null,
+      } : {}),
       id: editingSheetId || `ds_${Date.now()}`,
-      status: finalInput.status || 'active',
+      status: existing?.status || finalInput.status || 'active',
       stageEnteredAt,
       createdBy: isNew ? (user?.email || '') : (existing?.createdBy || ''),
       createdAt: isNew ? now : (existing?.createdAt || now),
@@ -518,7 +544,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     // changeReason은 임시 필드이므로 Firebase에 저장하지 않음
     delete itemToSave.changeReason;
 
-    saveDocToCloud('designSheets', itemToSave);
+    const saved = await saveDocToCloud('designSheets', itemToSave);
+    if (saved === false) return null; // 저장 실패 → 폼 그대로 (saveDocToCloud가 실패 알림)
     // [양방향 동기화] 연결된 원단이 있다면 해당 원단 DB도 같은 값으로 덮어씀
     // [B4 수정] ?? 연산자로 사용자가 의도한 0값을 보존
     if (itemToSave.linkedFabricId) {
@@ -557,7 +584,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
           riskMarginPct: ci.riskMarginPct ?? linkedFabric.riskMarginPct,
           yarns: itemToSave.yarns || linkedFabric.yarns || []
         };
-        saveDocToCloud('fabrics', fabricToSync);
+        await saveDocToCloud('fabrics', fabricToSync);
       }
     }
 
@@ -570,9 +597,9 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     // 이유: 설계서 저장 ≠ 단계 전환. 아직 작성 중인 설계서가 강제로 다음 단계로 넘어가는 것을 방지
     // 단계 전환은 생산관리자가 '다음 단계로' 버튼을 명시적으로 클릭해야만 진행됩니다.
 
-    resetSheetForm();
+    if (!opts.keepForm) resetSheetForm();
     showToast(isNew ? '설계서가 저장되었습니다.' : '설계서가 수정되었습니다.', 'success');
-    return itemToSave.id;
+    return itemToSave;
   };
 
   // 수정 모드 진입
@@ -605,13 +632,14 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     setEditingSheetId(sheet.id);
   };
 
+  // 반환: 삭제했으면 true (취소·차단·실패면 false — 편집 창은 그대로 두도록)
   const handleDeleteSheet = async (id) => {
     const sheet = designSheets.find(s => s.id === id);
 
     // [방어] 아이템화 완료 설계서는 삭제 차단 — 확정된 생산 데이터 보호
     if (sheet?.stage === 'articled') {
       showToast('아이템화가 완료된 설계서는 삭제할 수 없습니다. (데이터 보호)', 'error');
-      return;
+      return false;
     }
 
     // [방어] 샘플 진행 중인 설계서는 이중 경고
@@ -619,9 +647,13 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       ? '⚠️ 샘플 진행 중인 설계서입니다!\n정말로 영구 삭제하시겠습니까? (복구 불가)'
       : '정말로 이 설계서를 삭제하시겠습니까? (삭제된 설계서는 복구할 수 없습니다.)';
 
-    if (!window.confirm(msg)) return;
+    if (!window.confirm(msg)) return false;
 
-    // [A4 수정] 삭제 전 연결된 의뢰의 linkedDesignSheetId를 해제 → 의뢰 영구잠김 방지
+    // 먼저 지우고, 지워졌을 때만 연결 정리 (삭제가 실패했는데 연결만 끊기는 일 방지)
+    const ok = await deleteDocFromCloud('designSheets', id);
+    if (ok === false) return false; // deleteDocFromCloud가 '삭제 실패' 알림
+
+    // [A4 수정] 연결된 의뢰의 linkedDesignSheetId 해제 → 의뢰 영구잠김 방지
     if (sheet?.devRequestId && devRequests) {
       const linkedDev = devRequests.find(d => d.id === sheet.devRequestId);
       if (linkedDev?.linkedDesignSheetId === id) {
@@ -632,12 +664,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         });
       }
     }
-    try {
-      await deleteDocFromCloud('designSheets', id);
-      showToast('설계서가 삭제되었습니다.', 'success');
-    } catch {
-      // deleteDocFromCloud 내부에서 이미 에러 토스트 처리됨
-    }
+    showToast('설계서가 삭제되었습니다.', 'success');
+    return true;
   };
 
   // --- 버전(개선) 관리 제거됨 → 변경 이력 방식으로 대체 ---
@@ -668,6 +696,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     };
 
     saveDocToCloud('designSheets', updatedSheet);
+    syncOpenSheet(sheetId, { orderNumbers: updatedSheet.orderNumbers });
     showToast(`오더 ${trimmed}가 연결되었습니다.`, 'success');
   };
 
@@ -682,6 +711,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     };
 
     saveDocToCloud('designSheets', updatedSheet);
+    syncOpenSheet(sheetId, { orderNumbers: updatedSheet.orderNumbers });
     showToast(`오더 ${orderNumber} 연결이 해제되었습니다.`, 'success');
   };
 
@@ -711,8 +741,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   // [D3] generateSelfDevOrderNo 제거됨 — 자체 설계서는 빈칸 유지 정책 (데드코드 정리)
 
   // 아이템화 시 원단 자동 등록 (savedFabrics에 변환 저장)
-  // 반환값: 등록 성공 true / 가드에 막혀 미등록 false (호출부에서 단계 이동·모달 닫기 판단에 사용)
-  const registerFabricFromSheet = (sheet) => {
+  // 반환값: 등록 성공 true / 가드에 막혀 미등록·저장 실패 false (호출부에서 단계 이동·모달 닫기 판단에 사용)
+  const registerFabricFromSheet = async (sheet) => {
     if (!saveFabricFromSheet) return false;
 
     // [A2 방어] 이미 원단이 등록된 설계서는 중복 등록 차단
@@ -773,24 +803,57 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       finishing: Array.isArray(ci.finishing) ? ci.finishing : [],
       etcCosts: normalizeExtraCosts(ci.etcCosts),
       riskMarginPct: Number(ci.riskMarginPct || 0),
-      yarns: sheet.yarns || [],
+      yarns: normalizeYarnSlots(sheet.yarns),
       remarks: `설계서 아이템화 자동 등록 (${sheet.devOrderNo || ''})`
     };
-    saveFabricFromSheet(fabricData);
+    // 원단이 실제로 저장됐을 때만 설계서를 연결 (실패했는데 '없는 원단'에 연결된 채 아이템화로 굳는 일 방지)
+    const fabricSaved = await saveFabricFromSheet(fabricData);
+    if (fabricSaved === false) return false; // saveDocToCloud가 실패 알림
 
     // 설계서 쪽에도 linkedFabricId 기록
     const now = new Date().toISOString();
-    saveDocToCloud('designSheets', {
-        ...sheet,
-        stage: 'articled',
-        linkedFabricId: fabricId,
-        // articled 진입 시점 기록 (setStage에서 이미 기록됐을 수 있으나 보강)
-        stageEnteredAt: { ...(sheet.stageEnteredAt || {}), articled: sheet.stageEnteredAt?.articled || now },
-        updatedAt: now
-    });
+    const linkPatch = {
+      stage: 'articled',
+      linkedFabricId: fabricId,
+      // articled 진입 시점 기록 (setStage에서 이미 기록됐을 수 있으나 보강)
+      stageEnteredAt: { ...(sheet.stageEnteredAt || {}), articled: sheet.stageEnteredAt?.articled || now },
+      updatedAt: now
+    };
+    await saveDocToCloud('designSheets', { ...sheet, ...linkPatch });
+    syncOpenSheet(sheet.id, linkPatch);
 
     showToast(`Article ${sheet.articleNo} 원단이 자동 등록되었습니다.`, 'success');
     return true;
+  };
+
+  // [원단 리스트에 등록] 버튼 — 설계서를 먼저 저장(검증·변경 이력 포함)하고, 저장에 성공했을 때만 그 저장본으로 원단 등록
+  //  (예전: 저장이 실패·취소돼도 원단이 등록되고, 저장 직후 이력을 옛 내용으로 덮어쓰던 문제)
+  //  반환: 등록까지 끝났으면 true (편집 창 닫기), 아니면 false (폼 그대로)
+  const saveSheetAndRegisterFabric = async (user, onLinkToDevRequest) => {
+    if (!editingSheetId) return false;
+    if (!sheetInput.articleNo?.trim()) {
+      showToast('원단을 등록하려면 상단의 [Article 번호]를 입력해 주세요.', 'error');
+      return false;
+    }
+    const ci = sheetInput.costInput || {};
+    if (!ci.gsm || !ci.widthCut || !ci.widthFull) {
+      showToast('원단 등록 전에 최종 스펙(GSM, 내폭, 외폭)을 모두 입력해 주세요.', 'error');
+      return false;
+    }
+    if (sheetInput.linkedFabricId) {
+      showToast('이미 원단이 등록된 설계서입니다.', 'error');
+      return false;
+    }
+    const art = String(sheetInput.articleNo).trim().toUpperCase();
+    if ((savedFabrics || []).some(f => String(f.article || '').trim().toUpperCase() === art)) {
+      showToast(`이미 같은 Article의 원단이 있습니다: ${art}. 다른 Article로 변경 후 등록하세요.`, 'error');
+      return false;
+    }
+    const savedDoc = await handleSaveSheet(user, onLinkToDevRequest, { keepForm: true });
+    if (!savedDoc) return false;
+    const ok = await registerFabricFromSheet(savedDoc);
+    if (ok) resetSheetForm();
+    return ok;
   };
 
   // DROP 처리 (설계서를 보관함으로 이동, 현황에서 숨김)
@@ -819,11 +882,9 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       }
     }
 
-    saveDocToCloud('designSheets', {
-      ...sheet,
-      status: 'dropped',
-      updatedAt: new Date().toISOString()
-    });
+    const dropPatch = { status: 'dropped', updatedAt: new Date().toISOString() };
+    saveDocToCloud('designSheets', { ...sheet, ...dropPatch });
+    syncOpenSheet(sheetId, dropPatch);
     showToast('DROP 처리되었습니다.', 'success');
   };
 
@@ -839,12 +900,9 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       fields: { status: 'dropped' },
       reason: 'DROP 복원'
     };
-    saveDocToCloud('designSheets', {
-      ...sheet,
-      status: 'active',
-      changeHistory: [restoreHistory, ...(sheet.changeHistory || [])],
-      updatedAt: now
-    });
+    const restorePatch = { status: 'active', changeHistory: [restoreHistory, ...(sheet.changeHistory || [])], updatedAt: now };
+    saveDocToCloud('designSheets', { ...sheet, ...restorePatch });
+    syncOpenSheet(sheetId, restorePatch);
 
     // [Step 1] 복원 시 의뢰↔설계서 1:1 매핑 복구
     // DROP 시 해제되었던 linkedDesignSheetId를 다시 이 설계서 ID로 연결
@@ -876,6 +934,6 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
     addOrderNumber, removeOrderNumber,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
-    registerFabricFromSheet
+    registerFabricFromSheet, saveSheetAndRegisterFabric
   };
 };

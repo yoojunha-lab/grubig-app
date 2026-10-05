@@ -327,12 +327,17 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
   // 기준 견적 전체 — 외관검사 / 시험성적서(이화학) 제외. 원가 조각으로 기준원가만 다시 만듦 (다른 원가는 그대로)
   //  field: 'excludeVisual' | 'excludeChem'
+  //  원가 조각이 없는 예전 품목이 하나라도 있으면 바꾸지 않음 — 단가는 그대로인데 견적서에만 'NOT INCLUDED'가
+  //  찍히는 일 방지. [현재 원가로 다시 계산]을 먼저 하면 모든 품목에 원가 조각이 생김
   const handleQuoteExcludeChange = (field, checked) => {
+    const noParts = (quoteInput.items || []).filter(it => !it.costParts).length;
+    if (noParts > 0) {
+      showToast(`예전에 넣은 품목 ${noParts}개는 원가 조각이 없어 제외를 적용할 수 없어요. [현재 원가로 다시 계산]을 먼저 눌러 주세요.`, 'error');
+      return;
+    }
     const exclude = { ...excludeOf(quoteInput), [field]: checked };
     const currency = quoteInput.currency;
-    let noParts = 0;
     const items = (quoteInput.items || []).map(it => {
-      if (!it.costParts) { noParts++; return it; }
       const patch = {};
       QUOTE_TIER_KEYS.forEach(k => {
         if (it.costParts[k]) patch[`basePrice${k}`] = computeBaseFromParts(it.costParts[k], it.riskPct, exclude, currency);
@@ -340,11 +345,19 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       return { ...it, ...patch };
     });
     setQuoteInput(prev => ({ ...prev, [field]: checked, items }));
-    if (noParts > 0) showToast(`예전에 넣은 품목 ${noParts}개는 [현재 원가로 다시 계산]을 눌러야 반영돼요.`, 'error');
+  };
+
+  // 아주 옛날(추가 마크업 extraMargin) 견적인지 — 원단을 더 넣으면 기존 품목 단가가 새 방식으로 바뀌므로 추가를 막음
+  const isLegacyQuote = () => (quoteInput.items || []).length > 0 && !isNewMarginModel(quoteInput);
+  const blockLegacyAdd = () => {
+    if (!isLegacyQuote()) return false;
+    showToast('아주 옛날 방식(추가 마크업) 견적이라 원단을 더 넣을 수 없어요. 새 견적으로 작성해 주세요.', 'error');
+    return true;
   };
 
   const handleAddFabricToQuote = (selectedFabricIdForQuote, setSelectedFabricIdForQuote) => {
     if (!selectedFabricIdForQuote) { showToast("견적서에 추가할 원단을 선택해주세요.", 'error'); return; }
+    if (blockLegacyAdd()) return;
 
     // [기획 요구사항 2] 중복 추가 방어 로직
     const isDuplicate = (quoteInput.items || []).some(item => String(item.fabricId) === String(selectedFabricIdForQuote));
@@ -368,6 +381,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
   // Article 입력(Enter)·엑셀 세로 복붙 — 여러 줄이면 일괄 추가. target: 'standard' 기준 견적 / 'custom' 별도 견적
   const handleGridPaste = (text, target = 'standard') => {
+    if (blockLegacyAdd()) return;
     const articles = String(text).split('\n').map(a => String(a).trim().toUpperCase()).filter(a => a);
     if (target === 'custom') {
       const fabrics = [];
@@ -376,7 +390,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
         const fabric = savedFabrics.find(f => String(f.article).toUpperCase() === art);
         if (fabric) fabrics.push(fabric); else notFoundCustom.push(art);
       });
-      const { rows, duplicates } = addCustomRows(fabrics);
+      const { rows, duplicates, blocked } = addCustomRows(fabrics);
+      if (blocked) return;
       toastCustomAdded(rows, duplicates);
       if (notFoundCustom.length > 0) alert(`다음 Article은 리스트에 없습니다:\n\n${notFoundCustom.join('\n')}`);
       return;
@@ -432,6 +447,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   // ── 별도 견적 ──
   // 원단들을 별도 견적 줄로 추가 (수량 300YD · 2컬러로 시작). 기준 견적처럼 같은 원단은 한 줄만 — 이미 있으면 건너뜀
   const addCustomRows = (fabrics) => {
+    if (blockLegacyAdd()) return { rows: [], duplicates: 0, blocked: true };
     const existing = new Set((quoteInput.customItems || []).map(r => String(r.fabricId)));
     const fresh = [];
     let duplicates = 0;
@@ -471,7 +487,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     const fabrics = [];
     let deleted = 0;
     ids.forEach(id => { const f = findFabric(id); if (f) fabrics.push(f); else deleted++; });
-    const { rows, duplicates } = addCustomRows(fabrics);
+    const { rows, duplicates, blocked } = addCustomRows(fabrics);
+    if (blocked) return;
     if (rows.length === 0 && duplicates === 0 && deleted > 0) { showToast('원단이 삭제되어 별도 견적으로 복사할 수 없어요.', 'error'); return; }
     toastCustomAdded(rows, duplicates, deleted > 0 ? ` (삭제된 원단 ${deleted}개 제외)` : '');
   };
@@ -480,13 +497,18 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   const handleAddCustomFabric = (fabricId) => {
     const fabric = findFabric(fabricId);
     if (!fabric) return;
-    const { rows, duplicates } = addCustomRows([fabric]);
-    toastCustomAdded(rows, duplicates);
+    const { rows, duplicates, blocked } = addCustomRows([fabric]);
+    if (!blocked) toastCustomAdded(rows, duplicates);
   };
 
   // 별도 견적 전체 — 외관검사 / 시험성적서(이화학) 제외. 원가 조각으로 모든 줄의 기준원가만 다시 만듦
   //  field: 'excludeVisual' | 'excludeChem'
   const handleCustomExcludeChange = (field, checked) => {
+    const noParts = (quoteInput.customItems || []).filter(r => !r.costParts && r.basePrice !== null && r.basePrice !== undefined).length;
+    if (noParts > 0) {
+      showToast(`원가 조각이 없는 별도 견적 줄 ${noParts}개가 있어 제외를 적용할 수 없어요. [현재 원가로 다시 계산]을 먼저 눌러 주세요.`, 'error');
+      return;
+    }
     const quoteKey = field === 'excludeVisual' ? 'customExcludeVisual' : 'customExcludeChem';
     const exclude = { ...getCustomExclude(quoteInput), [field]: checked };
     const currency = quoteInput.currency;

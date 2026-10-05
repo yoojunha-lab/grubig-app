@@ -56,7 +56,12 @@ export const QuotationWorkspacePage = (props) => {
 
   const backToList = () => guard(() => setMode('list'));
   const openNew = () => guard(() => { handleNewQuote(true); enterForm(); });
-  const loadQuote = (quote) => guard(() => { setQuoteInput(normalizeQuote(quote)); enterForm(); });
+  // 이미 열려 있는 견적을 목록에서 다시 누르면 아무것도 안 함 — 다시 불러오면 '저장하고 나가기' 뒤에
+  //  저장 전 내용으로 화면이 돌아가 고친 내용이 사라지고, 다음 저장 때 옛 내용으로 덮어쓰던 문제
+  const loadQuote = (quote) => {
+    if (mode === 'form' && quoteInput.id && String(quote.id) === String(quoteInput.id)) return;
+    guard(() => { setQuoteInput(normalizeQuote(quote)); enterForm(); });
+  };
 
   // 상단 네비 등 화면 밖으로 이탈할 때도 변경사항 확인 (App의 requestSetActiveTab이 이 가드를 통과)
   //  dep 배열 없음 → 매 렌더마다 최신 mode/quoteInput 클로저로 갱신, 언마운트 시 해제

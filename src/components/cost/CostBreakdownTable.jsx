@@ -76,8 +76,11 @@ export const CostBreakdownTable = ({
   // [입력 검증] 혼용률 0~100. (음수/100 초과 차단)
   const setYarn = (i, field, value) => setYarns(prev => (prev || []).map((y, idx) => idx === i ? { ...y, [field]: field === 'ratio' ? clampNum(value, 0, 100) : value } : y));
 
-  // [입력 검증] kg단가/염가공료/위험마진(%) 등은 음수 차단(0 이상)
-  const setField = (name, value) => setCost(prev => ({ ...prev, [name]: clampNum(value, 0) }));
+  // [입력 검증] kg단가/염가공료/위험마진(%) 등은 음수 차단(0 이상).
+  //  칸을 비우면 ''로 둠 (예전엔 0이 강제로 들어가 지울 수 없었고, kg단가가 0으로 저장돼 편직비가 정액만 잡혔음)
+  //  → kg단가 빈칸 = 기본값(예전 편직료 → 2,000원), 염가공료 빈칸 = '원가 확인 필요' 경고
+  const numOrBlank = (value, min = 0, max = Infinity) => (value === '' || value === null || value === undefined ? '' : clampNum(value, min, max));
+  const setField = (name, value) => setCost(prev => ({ ...prev, [name]: numOrBlank(value, 0) }));
   const setChoice = (name, value) => setCost(prev => ({ ...prev, [name]: value }));
 
   // 편직 kg단가 구간 (품목별, 선택) — 예: 1,000kg 이상 1,800원
@@ -89,20 +92,21 @@ export const CostBreakdownTable = ({
     return { ...prev, knitKgRateTiers: [...list, { fromKg: lastKg > 0 ? lastKg * 2 : 1000, rate: Number(prev.knitKgRate ?? calc?.knitKgRate) || 0 }] };
   });
   const removeKnitTier = (i) => setCost(prev => ({ ...prev, knitKgRateTiers: (prev.knitKgRateTiers || []).filter((_, idx) => idx !== i) }));
-  const setKnitTier = (i, field, value) => setCost(prev => ({ ...prev, knitKgRateTiers: (prev.knitKgRateTiers || []).map((t, idx) => idx === i ? { ...t, [field]: clampNum(value, 0) } : t) }));
+  const setKnitTier = (i, field, value) => setCost(prev => ({ ...prev, knitKgRateTiers: (prev.knitKgRateTiers || []).map((t, idx) => idx === i ? { ...t, [field]: numOrBlank(value, 0) } : t) }));
 
   const finishing = Array.isArray(cost.finishing) ? cost.finishing : [];
-  const addFinishing = () => setCost(prev => ({ ...prev, finishing: [...(prev.finishing || []), { id: `fin_${(prev.finishing || []).length}_${(prev.finishing || []).length + 1}`, name: '', fee: 0, lossPct: 0 }] }));
+  // 줄 id는 지웠다 다시 넣어도 겹치지 않게 (예전: 개수로 만들어 삭제 후 추가하면 같은 id → 줄이 엉킴)
+  const addFinishing = () => setCost(prev => ({ ...prev, finishing: [...(prev.finishing || []), { id: `fin_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, name: '', fee: 0, lossPct: 0 }] }));
   const removeFinishing = (i) => setCost(prev => ({ ...prev, finishing: (prev.finishing || []).filter((_, idx) => idx !== i) }));
   // [입력 검증] 후가공 fee 0 이상, lossPct 0~99
-  const setFinishing = (i, field, value) => setCost(prev => ({ ...prev, finishing: (prev.finishing || []).map((f, idx) => idx === i ? { ...f, [field]: field === 'name' ? value : (field === 'lossPct' ? clampNum(value, 0, 99) : clampNum(value, 0)) } : f) }));
+  const setFinishing = (i, field, value) => setCost(prev => ({ ...prev, finishing: (prev.finishing || []).map((f, idx) => idx === i ? { ...f, [field]: field === 'name' ? value : (field === 'lossPct' ? numOrBlank(value, 0, 99) : numOrBlank(value, 0)) } : f) }));
 
   // 품목별 추가비용 (YD당) — 예전 외관검사·이화학·운임 기본 3항목은 원가 설정으로 옮겨져 여기선 제외
   const extras = normalizeExtraCosts(cost.etcCosts);
   const addExtra = () => setCost(prev => ({ ...prev, etcCosts: [...normalizeExtraCosts(prev.etcCosts), { id: `etc_${Date.now()}`, name: '', perYd: 0 }] }));
   const removeExtra = (i) => setCost(prev => ({ ...prev, etcCosts: normalizeExtraCosts(prev.etcCosts).filter((_, idx) => idx !== i) }));
   // [입력 검증] 추가비용 원/yd 0 이상
-  const setExtra = (i, field, value) => setCost(prev => ({ ...prev, etcCosts: normalizeExtraCosts(prev.etcCosts).map((e, idx) => idx === i ? { ...e, [field]: field === 'name' ? value : clampNum(value, 0) } : e) }));
+  const setExtra = (i, field, value) => setCost(prev => ({ ...prev, etcCosts: normalizeExtraCosts(prev.etcCosts).map((e, idx) => idx === i ? { ...e, [field]: field === 'name' ? value : numOrBlank(value, 0) } : e) }));
 
   // ---- 설정 (편직 난이도 / 가공 유형) ----
   const grades = costSettings?.knitGrades || [];
@@ -113,7 +117,10 @@ export const CostBreakdownTable = ({
   const ptype = findProcessType(costSettings, typeId);
   const gradeKnown = grades.some(g => g.id === gradeId);
   const typeKnown = types.some(t => t.id === typeId);
-  const crossKg = Number(baseKgRate) > 0 ? grade.fixedFee / Number(baseKgRate) : 0; // 정액 → kg 계산 전환 생지 kg
+  // kg단가 칸을 비우면 엔진이 기본값(예전 편직료 → 2,000원)으로 계산 → 안내·전환점도 그 단가로
+  const kgRateBlank = String(baseKgRate ?? '').trim() === '';
+  const effKgRate = kgRateBlank ? (Number(calc?.knitKgRate) || 0) : (Number(baseKgRate) || 0);
+  const crossKg = effKgRate > 0 ? grade.fixedFee / effKgRate : 0; // 정액 → kg 계산 전환 생지 kg
 
   // ---- 계산 결과 읽기 ----
   const tier = (tk) => calc?.[tk] || {};
@@ -223,8 +230,8 @@ export const CostBreakdownTable = ({
         </div>
         {(yarns || []).map((slot, i) => (
           <div key={i} className="grid grid-cols-[2.4fr_0.8fr_1.1fr_1.1fr_0.3fr] gap-2 items-center mb-1.5">
-            <SearchableSelect value={slot.yarnId} options={yarnSelectOptions} onChange={(id) => setYarn(i, 'yarnId', id)} placeholder="원사 검색..." />
-            <input type="number" value={slot.ratio || ''} onChange={(e) => setYarn(i, 'ratio', e.target.value)} className={inCls} placeholder="0" />
+            <SearchableSelect value={slot?.yarnId || ''} options={yarnSelectOptions} onChange={(id) => setYarn(i, 'yarnId', id)} placeholder="원사 검색..." />
+            <input type="number" value={slot?.ratio || ''} onChange={(e) => setYarn(i, 'ratio', e.target.value)} className={inCls} placeholder="0" />
             <div className="text-right text-sm font-mono text-slate-500">
               {sym}{fmt(toView(unitLandedKRW(slot)))}
               {slotImportCountry(slot) && <div className="text-[10px] font-sans font-bold text-emerald-600 leading-tight">+ {slotImportCountry(slot)} 운반비 (kg 구간)</div>}
@@ -258,8 +265,8 @@ export const CostBreakdownTable = ({
           </div>
           <div>
             <div className={subLbl}>편직 kg단가 (원/kg)</div>
-            <input type="number" value={baseKgRate} onChange={(e) => setField('knitKgRate', e.target.value)} className={inCls} placeholder="2000" />
-            {!compact && crossKg > 0 && <div className="text-[10px] text-slate-400 mt-0.5">생지 {num(crossKg)}kg 넘으면 kg 계산 (아래는 정액)</div>}
+            <input type="number" value={baseKgRate} onChange={(e) => setField('knitKgRate', e.target.value)} className={inCls} placeholder={String(effKgRate || 2000)} />
+            {!compact && crossKg > 0 && <div className="text-[10px] text-slate-400 mt-0.5">{kgRateBlank ? `빈칸이라 기본 ${num(effKgRate)}원 · ` : ''}생지 {num(crossKg)}kg 넘으면 kg 계산 (아래는 정액)</div>}
           </div>
           <div>
             <div className={subLbl}>가공 유형</div>
@@ -270,7 +277,7 @@ export const CostBreakdownTable = ({
           </div>
           <div>
             <div className={subLbl}>염가공료 (원/kg, 생지 기준)</div>
-            <input type="number" value={cost.dyeingFee ?? ''} onChange={(e) => setField('dyeingFee', e.target.value)} className={inCls} placeholder="8800" />
+            <input type="number" value={cost.dyeingFee ?? ''} onChange={(e) => setField('dyeingFee', e.target.value)} className={inCls} placeholder="예: 8800" />
           </div>
         </div>
 

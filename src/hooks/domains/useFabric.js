@@ -220,8 +220,13 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
       : baseMsg;
     if (!window.confirm(warnMsg)) return;
 
-    // [B2 수정] 삭제 전 연결된 설계서의 linkedFabricId를 해제 → 유령 참조 방지
+    // 먼저 지우고, 지워졌을 때만 설계서 연결 정리 (삭제가 실패했는데 연결만 끊기는 일 방지)
+    //  deleteDocFromCloud는 실패 시 throw 하지 않고 false를 돌려줌 (실패 알림은 그쪽에서)
     const fabric = (savedFabrics || []).find(f => f.id === id);
+    const deleted = await deleteDocFromCloud('fabrics', id);
+    if (deleted === false) return;
+
+    // [B2 수정] 연결된 설계서의 linkedFabricId를 해제 → 유령 참조 방지
     if (fabric?.linkedSheetId && designSheets) {
       const linkedSheet = designSheets.find(s => String(s.id) === String(fabric.linkedSheetId));
       if (linkedSheet?.linkedFabricId && String(linkedSheet.linkedFabricId) === String(id)) {
@@ -241,13 +246,7 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
         });
       }
     }
-    try {
-      await deleteDocFromCloud('fabrics', id);
-      showToast("삭제되었습니다.", "success");
-    } catch (e) {
-      // deleteDocFromCloud 내부에서 일반 토스트가 표시되지만, 명시적 fallback도 추가 (L3)
-      showToast(`삭제 실패: ${e?.message || '네트워크 오류'}`, 'error');
-    }
+    showToast("삭제되었습니다.", "success");
   };
 
   // ----------------------------------------------------------------------
