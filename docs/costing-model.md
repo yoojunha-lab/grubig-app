@@ -191,7 +191,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 원단 등록·수정 | 저장 버튼, 변경사항 확인 창의 '저장하고 나가기' (`CalculatorPage`, `FabricWorkspacePage`) |
 | 설계서 | 설계서 저장, 아이템화 단계 전환, '설계서 내용으로 새 원단 등록' (`useDesignSheet`) |
 | 가설계서 | 저장 (`useTempDesignSheet`) |
-| 원단 엑셀 일괄 등록 | 그 행만 등록하지 않고, 끝나면 Article(합계%) 목록으로 알림 (`App.jsx` 업로드) |
+| 원단 엑셀 일괄 등록 | 그 행만 등록하지 않고, 끝나면 Article(합계%) 목록으로 알림 (`hooks/domains/useExcelIO.js` 업로드) |
 
 - 합계는 소수 둘째 자리에서 반올림해서 본다 (`sumYarnRatio`) — 33.33 + 33.33 + 33.34 = 100 → 통과.
 - 새 원단·설계서·가설계서는 첫 칸이 100%로 시작 → **원사를 아직 안 고른 초안도 저장은 됨** (아래 경고만 뜸).
@@ -320,17 +320,18 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 엑셀 업로드 칸 읽기 | `src/utils/excelIO.js` — `readFirstSheetRows`, `parseNumCell`, `parsePercentCell`, `parseYesCell`·`parseNoCell`, `parseCurrencyCell` |
 | 견적 구간·기본 마진 | `src/constants/quote.js` — `QUOTE_TIERS`(key·costKey·수량·묶음·기본 이익율/정액), `DEFAULT_SHOWN_TIERS` |
 | 견적 계산 (순수 함수) | `src/utils/quoteModel.js` — `calcQuotePrice`, `calcCustomQuotePrice`, `computeBaseFromParts`, `normalizeQuote`, `getShownTiers`, `tierForQty`, `validateQuoteForExport`(출력 전 확인), `buildQuoteTerms`·`quotePriceBasis`(견적서 문구) 등 |
-| 견적서 화면·출력 | `src/pages/QuotationPage.jsx`(기준/별도 칸), `src/components/quote/PDFRenderer.jsx`(kind: standard/special), `App.jsx` `handleDownloadQuoteExcel(quote, kind)` |
+| 견적서 화면·출력 | `src/pages/QuotationPage.jsx`(기준/별도 칸) + `src/components/quote/QuoteParts.jsx`(공용 부품), `src/components/quote/PDFRenderer.jsx`(kind: standard/special), `src/hooks/domains/useQuoteExport.js` — `handleDownloadPDF`·`handleDownloadQuoteExcel(quote, kind)`(인쇄할 견적은 `pdfQuote`로 따로) |
 | 설계서 소요 중량 | `src/pages/DesignSheetPage.jsx` — 입력 YD → 원사 kg (같은 kg 흐름) |
-| 원단 엑셀 양식 | `src/apps/App.jsx` — `KnitGrade`·`KnitKgRate`·`ProcessType` 열 (이름으로 입력, 예전 양식도 등록됨) |
+| 원단 엑셀 양식 | `src/hooks/domains/useExcelIO.js` — `KnitGrade`·`KnitKgRate`·`ProcessType` 열 (이름으로 입력, 예전 양식도 등록됨) |
 | 원사 수입 지정 (공급처 줄·일괄변경) | `src/pages/YarnLibraryPage.jsx`, `src/hooks/domains/useYarn.js` |
 | 원사 목록 표시 (운반비·내수 단가 범위) | `src/components/yarn/YarnLibraryRow.jsx`, `MobileYarnCard.jsx` (memo 비교에 `costSettings` 포함) |
-| 원사 엑셀 양식 | `src/apps/App.jsx` — `Import`·`ImportCountry` 열 (`handleBackupYarns`, `handleYarnFileUpload`) |
+| 원사 엑셀 양식 | `src/hooks/domains/useExcelIO.js` — `Import`·`ImportCountry`·`IsDefault` 열 (`handleBackupYarns`, `handleYarnFileUpload` — 같은 이름 원사는 고치기) |
 | 혼용률 확인 · 원가 확인 필요 | `costModel.js` — `sumYarnRatio`, `isYarnRatioComplete`, `buildCostWarnings`(→ `costWarnings`) |
 | 경고 표시 (배지·사유 목록) | `src/components/cost/CostWarnings.jsx` — `CostWarningBadge`, `CostWarningBox`, `COST_WARNING_TITLE` |
-| 견적 환율·다시 계산·복제 | `src/hooks/domains/useQuotation.js` — `rebuildItems`, `handleRecalcQuote`, `handleQuoteSettingChange`(시장 구분), `handleDuplicateQuote` / `helpers.js` — `convertMarginAdd`, `isNewMarginModel` |
+| 견적 환율·다시 계산·복제 | `src/hooks/domains/useQuotation.js` — `rebuildItems`, `handleRecalcQuote`, `handleQuoteSettingChange`(시장 구분), `handleDuplicateQuote` / `quoteModel.js` — `convertMarginAdd`, `isNewMarginModel` |
 | 공통 환율 저장·입력 | `src/apps/App.jsx` — `saveExchangeRate`, `exchangeRateMeta` / `src/components/layout/Sidebar.jsx` (입력·확인 창) |
-| 가설계서 YD당 정액 환산 | `src/pages/DesignSheetPage.jsx` — `KrwMoneyInput` / `helpers.js` — `computeSellPrice(..., exchangeRate)` |
+| 가설계서 YD당 정액 환산 | `src/pages/DesignSheetPage.jsx` — 정액 칸(원화 입력 + '≈ $' 안내) / `helpers.js` — `computeSellPrice(..., exchangeRate)` |
+| 원가 칸 초기값 (원단·설계서·가설계서 새 양식) | `src/utils/costFields.js` — `makeInitialCostFields()` |
 
 ---
 

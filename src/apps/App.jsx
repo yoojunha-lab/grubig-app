@@ -812,8 +812,6 @@ const App = () => {
     return { id: y.id, name: `${y.name} [${defSup.name || '기본'}]`, price: defSup.price, currency: defSup.currency };
   });
 
-  // [R1] extraMarkup 계산은 helpers의 calcQuotePrice 안으로 이전됨 (각 자식 컴포넌트가 quoteInput.extraMargin을 직접 참조)
-
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white font-bold animate-pulse">GRUBIG 시스템 접속 중...</div>;
   if (!user) return <LoginScreen handleLogin={handleLogin} handleEmailLogin={handleEmailLogin} />;
 

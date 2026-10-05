@@ -16,13 +16,14 @@
 | 도메인 | 문서 위치 |
 |-------|---------|
 | 생산 스케줄 (오더/공정/차수/알람/간트) | `docs/production-schedule-spec.md` (기획서 원본), `docs/production-schedule-plan.md` (구현 플랜 & 진행상황) |
-| UI 용어 통일 (마진 단계 등) + 가설계서/저장 규약 | `docs/terminology.md` (용어 사전) |
+| UI 용어 통일 (마진 단계 등) + 가설계서/저장·삭제·날짜 규약 + 팝업 창 규약(ModalBackdrop) | `docs/terminology.md` (용어 사전) |
 | 원단 원가 계산 (편직 정액·LOSS 구간·가공 유형·이화학/운임·수입 원사 운반비·원가 설정·공통/견적 환율·원가 확인 필요) + 견적서 (기준 견적·별도 견적) | `docs/costing-model.md` (원가 모델 & 설정, 견적서는 §5-B) |
 
 트리거 예시:
 - "생산 스케줄 다음 단계 하자" / "오더 관련 기능 추가해줘" / "간트 차트 만들자" / "알람 붙이자" → 위 docs 2개를 먼저 읽고 작업 시작
 - "원가 계산 바꾸자" / "편직비·LOSS·운임 수정" / "원가 설정에 항목 추가" / "수량 직접 입력 칸 만들자" / "원사 운반비·수입사·수입 국가" / "환율·견적 다시 계산" / "원가 확인 경고·혼용률" / "견적서 구간·기준 견적·별도 견적" → `docs/costing-model.md` 먼저 읽고 작업 시작
 - 라벨/용어를 바꾸거나 새 화면을 만들 때 → `docs/terminology.md` 를 먼저 확인하고 같은 기능은 같은 용어로 맞출 것
+- 새 팝업 창을 만들 때 → 배경은 `components/common/ModalBackdrop` 사용 (`docs/terminology.md` §4 팝업 창 규약)
 - 새 도메인 문서가 추가되면 이 표에 계속 업데이트할 것
 
 ---
@@ -31,7 +32,7 @@
 
 - **Frontend**: React + Vite, JavaScript(JSX), Tailwind CSS
 - **Backend**: Firebase (Firestore, Authentication) - 이미 연결되어 있음
-- **라이브러리**: SheetJS(엑셀 내보내기), html2pdf.js(PDF 출력), Lucide-React(아이콘)
+- **라이브러리**: SheetJS(엑셀 내보내기·업로드), Lucide-React(아이콘). PDF는 브라우저 인쇄(window.print + `PDFRenderer`)
 - 라이브러리 관련 코드 작성 시 항상 **context7** 사용
 
 ---
@@ -59,7 +60,7 @@ GRUBIG-APP/
 │   │   └── QuoteHistoryPage.jsx        # 견적 이력
 │   │
 │   ├── hooks/
-│   │   ├── useExternalScripts.js       # SheetJS/html2pdf 등 외부 스크립트 로더
+│   │   ├── useExternalScripts.js       # SheetJS 외부 스크립트 로더
 │   │   └── domains/                    # 도메인별 비즈니스 로직 훅
 │   │       ├── useDevRequest.js        # 개발 의뢰 CRUD + 상태 전이
 │   │       ├── useDesignSheet.js       # 설계서 CRUD + 단계 전이 + 원단 연동
@@ -67,18 +68,20 @@ GRUBIG-APP/
 │   │       ├── useMainDetail.js        # 메인/QC 디테일
 │   │       ├── useFabric.js            # 원단 관리
 │   │       ├── useYarn.js              # 원사 라이브러리
+│   │       ├── useExcelIO.js           # 원단·원사 엑셀 (백업·양식·일괄 등록)
+│   │       ├── useQuoteExport.js       # 견적서 PDF 인쇄·엑셀 내보내기
 │   │       └── useQuotation.js         # 견적
 │   │
 │   ├── components/
-│   │   ├── common/              # 공통 UI (Toast, SearchableSelect, MasterDataModal 등)
+│   │   ├── common/              # 공통 UI (Toast, SearchableSelect, MasterDataModal, ModalBackdrop(팝업 배경) 등)
 │   │   ├── layout/              # Sidebar, LoginScreen
 │   │   ├── dashboard/           # DevReqSummaryCard
 │   │   ├── design/              # DesignStepper (진행 단계 바)
 │   │   ├── design-sheet/        # 설계서 전용 (DesktopSheetRow, MobileSheetCard, DropSheetModal)
-│   │   ├── fabric/              # 원단 행/카드
-│   │   ├── yarn/                # 원사 행/카드
-│   │   ├── quote/               # PDFRenderer (견적서 PDF)
-│   │   ├── cost/                # 원가 표·원가 설정·'원가 확인 필요' 경고 (CostBreakdownTable, CostSettingsModal, CostWarnings)
+│   │   ├── fabric/              # 원단 행/카드 (+ fabricRowModel: 행·카드 공통 계산)
+│   │   ├── yarn/                # 원사 행/카드 (+ yarnRowModel: 행·카드 공통 계산)
+│   │   ├── quote/               # PDFRenderer (견적서 PDF), QuoteParts (견적서 화면 공용 부품), FabricPickerModal
+│   │   ├── cost/                # 원가 표·원가 설정·'원가 확인 필요' 경고 (CostBreakdownTable, CostSettingsModal + costSettingsForm·CostSettingsParts, CostWarnings)
 │   │   └── domain/              # (도메인 컴포넌트 - 현재 비어있음)
 │   │
 │   ├── services/
@@ -86,8 +89,10 @@ GRUBIG-APP/
 │   │   └── db.js                # Firestore 추상화 (saveDocToCloud, deleteDocFromCloud 등)
 │   │
 │   ├── utils/
-│   │   ├── helpers.js           # num, calculateGYd 등 순수 함수
-│   │   ├── quoteModel.js        # 견적 계산 (기준 견적 판가 / 별도 견적 / 외관검사·시험성적서 제외 / 예전 견적 정규화)
+│   │   ├── helpers.js           # num, calculateGYd, todayLocalISO(오늘 날짜) 등 순수 함수
+│   │   ├── quoteModel.js        # 견적 계산 (기준 견적 판가 / 별도 견적 / 외관검사·시험성적서 제외 / 예전 견적 정규화 / 출력 전 확인)
+│   │   ├── excelIO.js           # 엑셀 업로드 칸 읽기 (숫자·%·예/아니오·통화)
+│   │   ├── costFields.js        # 원가 칸 초기값 (원단·설계서·가설계서 공통)
 │   │   └── costModel.js         # 원단 원가 엔진 (수량 함수 computeCostAtQty / 원가 표 6구간 calculateCostTiers)
 │   │
 │   ├── constants/

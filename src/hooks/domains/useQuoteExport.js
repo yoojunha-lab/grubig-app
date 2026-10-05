@@ -43,7 +43,7 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
     // [PDF v4] Chrome native 인쇄 기능 사용
     //   - window.print() + @media print 스타일 (index.css)
     //   - document.title 트릭으로 자동 파일명 제안
-    //   - html2pdf 라이브러리 우회 → element 위치 캡처 버그 회피
+    //   - (예전 html2pdf 방식은 화면 위치 캡처 버그가 있어 브라우저 인쇄로 바꿈)
     setTimeout(() => {
       const oldTitle = document.title;
       const safeBuyer = String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9\s-가-힣]/g, '');
@@ -62,7 +62,7 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
 
   // [신규] 견적서를 엑셀(.xlsx)로 내보내기
   //   - PDF와 동일한 내용(바이어/날짜/통화/유효기간 + 품목별 스펙·단가)
-  //   - 단가는 Extra Margin 반영 + 통화별 반올림된 최종가(PDF와 일치)
+  //   - 단가는 판매가(calcQuotePrice / calcCustomQuotePrice — 아주 옛날 견적의 추가 마크업 포함) — PDF와 같은 값
   //   - History 행에서 호출 시 해당 견적서, 작성 화면에서 호출 시 현재 quoteInput 사용
   const handleDownloadQuoteExcel = (targetQuoteFromHistory = null, kind = 'standard') => {
     if (!isXlsxReady || !window.XLSX) {
