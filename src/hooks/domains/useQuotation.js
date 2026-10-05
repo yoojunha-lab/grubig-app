@@ -4,16 +4,18 @@ import { QUOTE_TIERS, QUOTE_TIER_KEYS, DEFAULT_SHOWN_TIERS, DEFAULT_CUSTOM_QTY, 
 import {
   normalizeQuote, isNewMarginModel, convertMarginAdd, convertAmount, convertCostParts,
   makeDefaultTierRates, makeDefaultTierAdds, toQuoteTierRate, computeBaseFromParts, partsFromCost,
-  getBasePrice, getShownTiers,
+  getBasePrice, getShownTiers, getCustomExclude, describeTierDefaults,
 } from '../../utils/quoteModel';
 
 // GRUBIG ERP - 견적서(Quotation) 도메인 로직 및 훅
 //
 // [구조 — 2026-10-05 개편]
 //  · 기준 견적(items): 품목마다 300~5,000YD 6구간 기준원가(basePrice{구간})를 저장. 바이어 견적서에는 고른 구간(shownTiers)만.
-//  · 별도 견적(customItems): 줄마다 수량·컬러수·외관검사/시험성적서 빼기를 넣어 원가부터 다시 계산.
-//  · 외관검사·시험성적서(이화학) 빼기: 기준 견적은 견적 전체(excludeVisual/excludeChem), 별도 견적은 줄마다.
-//    원가 조각(costParts)을 같이 저장해서 체크를 바꾸면 다른 원가는 그대로 두고 그 항목만 빼고 넣음.
+//  · 별도 견적(customItems): 줄마다 수량·컬러수를 넣어 원가부터 다시 계산.
+//  · 외관검사·시험성적서(이화학) 제외: 기준 견적 전체(excludeVisual/excludeChem) · 별도 견적 전체
+//    (customExcludeVisual/customExcludeChem). 원가 조각(costParts)을 같이 저장해서 버튼을 바꾸면
+//    다른 원가는 그대로 두고 그 항목만 빼고 넣음.
+//  · 원단 추가는 두 칸이 같은 방식 — [원단 검색·추가] 팝업, Article 입력(Enter)·엑셀 세로 복붙, 같은 원단은 한 줄만.
 //  · 기준 견적서·별도 견적서는 PDF·엑셀을 따로 출력 (App.jsx handleDownloadPDF / handleDownloadQuoteExcel 의 kind)
 //  · 계산 규칙(판매가·기본값·정규화)은 utils/quoteModel.js, 구간·기본 마진은 constants/quote.js
 
@@ -26,7 +28,8 @@ const makeBlankQuote = () => ({
   //  300·500·800YD 25% · 2,000원 / 1,000YD 20% · 1,000원 / 3,000YD 20% · 800원 / 5,000YD 20% · 500원
   bulkMarginRate: makeDefaultTierRates(), marginAdd: makeDefaultTierAdds('KRW'),
   shownTiers: [...DEFAULT_SHOWN_TIERS],      // 바이어 견적서에 보여줄 구간 (기본 500·800·1,000·3,000YD)
-  excludeVisual: false, excludeChem: false,   // 기준 견적 전체: 외관검사·시험성적서(이화학) 빼기
+  excludeVisual: false, excludeChem: false,   // 기준 견적 전체: 외관검사·시험성적서(이화학) 제외
+  customExcludeVisual: false, customExcludeChem: false, // 별도 견적 전체: 외관검사·시험성적서(이화학) 제외
   remarks: '', items: [], customItems: [], validityOption: '2weeks'
 });
 
@@ -108,17 +111,18 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   // 별도 견적 줄 만들기 / 다시 계산 — 수량·컬러수를 그대로 원가 엔진에 넣음
   //  (컬러수만큼 이화학, 컬러당 생지가 최소 청구 kg 미만이면 염색 최소 청구가 자동으로 붙음)
   //  수량·컬러가 비었거나 0이면 기준원가 없이(null) 둠 → 판가 '—' (입력 중)
-  const createCustomItem = (fabric, row, { rate, marketType = 'domestic' }) => {
+  //  exclude: 별도 견적 전체의 외관검사·시험성적서 제외 (줄마다 하던 예전 값은 버림)
+  const createCustomItem = (fabric, row, { rate, marketType = 'domestic', exclude = {} }) => {
     const currency = currencyOf(marketType);
     const qty = Math.round(Number(row.qty) || 0);
     const colors = Math.round(Number(row.colors) || 0);
     const calc = calculateCost(fabric, rate);
+    const { excludeVisual: _oldVisual, excludeChem: _oldChem, ...rest } = row;
     const base = {
-      ...row,
+      ...rest,
       id: row.id || newRowId(),
       ...fabricSpec(fabric, calc),
       qty: row.qty, colors: row.colors,
-      excludeVisual: row.excludeVisual === true, excludeChem: row.excludeChem === true,
       marginRate: isBlank(row.marginRate) ? null : row.marginRate,   // 비우면 수량 구간의 견적 일괄값
       marginAdd: isBlank(row.marginAdd) ? null : row.marginAdd,      // 비우면 수량 구간의 견적 정액
       show: row.show !== false,                                       // 별도 견적서에 표시
@@ -131,7 +135,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       ...base,
       qty, colors,
       costParts, riskPct: Number(tc?.riskPct) || 0,
-      basePrice: computeBaseFromParts(costParts, tc?.riskPct, base, currency),
+      basePrice: computeBaseFromParts(costParts, tc?.riskPct, exclude, currency),
       dye: tc?.dye ? { perColorKg: tc.dye.perColorKg, minKg: tc.dye.minKg, minApplied: tc.dye.minApplied, billedKg: tc.dye.billedKg } : null,
     };
   };
@@ -158,14 +162,14 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     return { items: next, missing };
   };
 
-  // 별도 견적 줄을 지금 원가로 다시 계산 (줄의 수량·컬러·빼기·이익율·정액·표시는 그대로)
-  const rebuildCustomItems = (rows, rate, marketType, toUsd = null) => {
+  // 별도 견적 줄을 지금 원가로 다시 계산 (줄의 수량·컬러·이익율·정액·표시는 그대로)
+  const rebuildCustomItems = (rows, rate, marketType, toUsd = null, exclude = {}) => {
     let missing = 0;
     const next = (rows || []).map(row => {
       // 줄에 직접 넣은 YD당 정액은 통화가 바뀌면 같은 환율로 환산
       const marginAdd = (toUsd !== null && !isBlank(row.marginAdd)) ? convertAmount(row.marginAdd, toUsd, rate) : row.marginAdd;
       const fabric = findFabric(row.fabricId);
-      if (fabric) return createCustomItem(fabric, { ...row, marginAdd }, { rate, marketType });
+      if (fabric) return createCustomItem(fabric, { ...row, marginAdd }, { rate, marketType, exclude });
       missing++;
       if (toUsd === null) return row;
       const patch = { marginAdd };
@@ -201,7 +205,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       `\n계속할까요?`
     )) return;
     const rebuilt = rebuildItems(items, rate, value, toUsd, excludeOf(quoteInput));
-    const rebuiltRows = rebuildCustomItems(rows, rate, value, toUsd);
+    const rebuiltRows = rebuildCustomItems(rows, rate, value, toUsd, getCustomExclude(quoteInput));
     setQuoteInput(prev => ({
       ...prev,
       marketType: value,
@@ -234,7 +238,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       `매출이익율과 YD당 정액은 그대로 둡니다.\n\n계속할까요?`
     )) return;
     const rebuilt = rebuildItems(items, rate, quoteInput.marketType, null, excludeOf(quoteInput));
-    const rebuiltRows = rebuildCustomItems(rows, rate, quoteInput.marketType);
+    const rebuiltRows = rebuildCustomItems(rows, rate, quoteInput.marketType, null, getCustomExclude(quoteInput));
     setQuoteInput(prev => ({ ...prev, exchangeRate: rate, items: rebuilt.items, customItems: rebuiltRows.rows }));
     const missing = rebuilt.missing + rebuiltRows.missing;
     showToast(
@@ -297,8 +301,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   const handleResetTierDefaults = () => {
     if (!window.confirm(
       '구간별 매출이익율·YD당 정액을 기본값으로 되돌립니다.\n' +
-      '(300·500·800YD 25% · 2,000원 / 1,000YD 20% · 1,000원 / 3,000YD 20% · 800원 / 5,000YD 20% · 500원' +
-      (quoteInput.currency === 'USD' ? ' — 수출은 견적 환율로 환산' : '') + ')\n' +
+      `(${describeTierDefaults()}${quoteInput.currency === 'USD' ? ' — 수출은 견적 환율로 환산' : ''})\n` +
       '품목마다 따로 바꾼 이익율도 기본값으로 바뀌어요. 계속할까요?'
     )) return;
     const rates = makeDefaultTierRates();
@@ -312,7 +315,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     showToast('구간별 이익율·정액을 기본값으로 바꿨어요.', 'success');
   };
 
-  // 기준 견적 전체 — 외관검사 / 시험성적서(이화학) 빼기. 원가 조각으로 기준원가만 다시 만듦 (다른 원가는 그대로)
+  // 기준 견적 전체 — 외관검사 / 시험성적서(이화학) 제외. 원가 조각으로 기준원가만 다시 만듦 (다른 원가는 그대로)
   //  field: 'excludeVisual' | 'excludeChem'
   const handleQuoteExcludeChange = (field, checked) => {
     const exclude = { ...excludeOf(quoteInput), [field]: checked };
@@ -353,9 +356,21 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     else showToast(`원단이 추가되었습니다.`, 'success');
   };
 
-  // Article 입력(Enter)·엑셀 세로 복붙 — 여러 줄이면 일괄 추가
-  const handleGridPaste = (text) => {
+  // Article 입력(Enter)·엑셀 세로 복붙 — 여러 줄이면 일괄 추가. target: 'standard' 기준 견적 / 'custom' 별도 견적
+  const handleGridPaste = (text, target = 'standard') => {
     const articles = String(text).split('\n').map(a => String(a).trim().toUpperCase()).filter(a => a);
+    if (target === 'custom') {
+      const fabrics = [];
+      const notFoundCustom = [];
+      articles.forEach(art => {
+        const fabric = savedFabrics.find(f => String(f.article).toUpperCase() === art);
+        if (fabric) fabrics.push(fabric); else notFoundCustom.push(art);
+      });
+      const { rows, duplicates } = addCustomRows(fabrics);
+      toastCustomAdded(rows, duplicates);
+      if (notFoundCustom.length > 0) alert(`다음 Article은 리스트에 없습니다:\n\n${notFoundCustom.join('\n')}`);
+      return;
+    }
     // 추가 항목은 견적의 기존 환율(있으면)로 계산 → 환율 일관성 유지
     const rate = quoteInput.exchangeRate || globalExchangeRate;
     let newItems = [];
@@ -405,36 +420,73 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   };
 
   // ── 별도 견적 ──
-  // 원단들을 별도 견적 줄로 추가 (같은 원단을 조건만 바꿔 여러 줄 넣을 수 있음)
+  // 원단들을 별도 견적 줄로 추가 (수량 300YD · 2컬러로 시작). 기준 견적처럼 같은 원단은 한 줄만 — 이미 있으면 건너뜀
   const addCustomRows = (fabrics) => {
-    if (!fabrics.length) return [];
+    const existing = new Set((quoteInput.customItems || []).map(r => String(r.fabricId)));
+    const fresh = [];
+    let duplicates = 0;
+    fabrics.forEach(f => {
+      if (existing.has(String(f.id))) { duplicates++; return; }
+      existing.add(String(f.id));
+      fresh.push(f);
+    });
+    if (fresh.length === 0) return { rows: [], duplicates };
     const rate = quoteRateOf(quoteInput);
-    const rows = fabrics.map(f => createCustomItem(f, { qty: DEFAULT_CUSTOM_QTY, colors: DEFAULT_CUSTOM_COLORS }, { rate, marketType: quoteInput.marketType }));
+    const rows = fresh.map(f => createCustomItem(
+      f, { qty: DEFAULT_CUSTOM_QTY, colors: DEFAULT_CUSTOM_COLORS },
+      { rate, marketType: quoteInput.marketType, exclude: getCustomExclude(quoteInput) }
+    ));
     setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || globalExchangeRate, customItems: [...(prev.customItems || []), ...rows] }));
-    return rows;
+    return { rows, duplicates };
   };
 
-  // 기준 견적에서 체크한 품목 → 별도 견적으로 복사 (수량 300YD · 2컬러로 시작, 바로 고치면 됨)
+  // 추가 결과 알림 (기준 견적 추가와 같은 문구 규칙)
+  const toastCustomAdded = (rows, duplicates, extra = '') => {
+    if (rows.length === 0) {
+      if (duplicates > 0) showToast(`이미 별도 견적에 있는 원단이에요. (중복 제외됨: ${duplicates}건)${extra}`, 'error');
+      return;
+    }
+    const warned = rows.filter(r => (r.costWarnings || []).length > 0).length;
+    const head = rows.length === 1 ? `${rows[0].article} — 별도 견적에 넣었어요 (300YD · 2컬러로 시작)` : `별도 견적에 ${rows.length}줄을 넣었어요 (300YD · 2컬러로 시작)`;
+    showToast(
+      `${head}${duplicates > 0 ? ` (중복 제외됨: ${duplicates}건)` : ''}${extra}${warned > 0 ? ` ⚠ 원가 확인 필요 ${warned}개` : ''}`,
+      warned > 0 ? 'error' : 'success'
+    );
+  };
+
+  // 기준 견적에서 체크한 품목 → 별도 견적으로 복사
   const handleCopyToCustom = (fabricIds) => {
     const ids = (fabricIds || []).map(String);
     if (ids.length === 0) { showToast('기준 견적에서 복사할 원단을 체크해 주세요.', 'error'); return; }
     const fabrics = [];
     let deleted = 0;
     ids.forEach(id => { const f = findFabric(id); if (f) fabrics.push(f); else deleted++; });
-    const rows = addCustomRows(fabrics);
-    if (rows.length > 0) showToast(`별도 견적에 ${rows.length}줄을 넣었어요. 수량·컬러를 바꿔 보세요.${deleted > 0 ? ` (삭제된 원단 ${deleted}개 제외)` : ''}`, 'success');
-    else if (deleted > 0) showToast('원단이 삭제되어 별도 견적으로 복사할 수 없어요.', 'error');
+    const { rows, duplicates } = addCustomRows(fabrics);
+    if (rows.length === 0 && duplicates === 0 && deleted > 0) { showToast('원단이 삭제되어 별도 견적으로 복사할 수 없어요.', 'error'); return; }
+    toastCustomAdded(rows, duplicates, deleted > 0 ? ` (삭제된 원단 ${deleted}개 제외)` : '');
   };
 
-  // 원단 검색 팝업에서 별도 견적에 바로 추가
+  // 원단 검색 팝업에서 별도 견적에 추가 (이미 있으면 '추가됨'으로 막힘 — 기준 견적과 같음)
   const handleAddCustomFabric = (fabricId) => {
     const fabric = findFabric(fabricId);
     if (!fabric) return;
-    const [row] = addCustomRows([fabric]);
-    if (row) showToast(`${row.article} — 별도 견적에 넣었어요.`, 'success');
+    const { rows, duplicates } = addCustomRows([fabric]);
+    toastCustomAdded(rows, duplicates);
   };
 
-  // 별도 견적 줄 수정. 수량·컬러는 원가부터 다시 계산, 빼기 체크는 원가 조각으로, 이익율·정액·표시는 값만
+  // 별도 견적 전체 — 외관검사 / 시험성적서(이화학) 제외. 원가 조각으로 모든 줄의 기준원가만 다시 만듦
+  //  field: 'excludeVisual' | 'excludeChem'
+  const handleCustomExcludeChange = (field, checked) => {
+    const quoteKey = field === 'excludeVisual' ? 'customExcludeVisual' : 'customExcludeChem';
+    const exclude = { ...getCustomExclude(quoteInput), [field]: checked };
+    const currency = quoteInput.currency;
+    const rows = (quoteInput.customItems || []).map(r => (
+      r.costParts ? { ...r, basePrice: computeBaseFromParts(r.costParts, r.riskPct, exclude, currency) } : r
+    ));
+    setQuoteInput(prev => ({ ...prev, [quoteKey]: checked, customItems: rows }));
+  };
+
+  // 별도 견적 줄 수정. 수량·컬러는 원가부터 다시 계산, 이익율·정액·표시는 값만
   const handleCustomItemChange = (rowId, patch) => {
     const row = (quoteInput.customItems || []).find(r => r.id === rowId);
     if (!row) return;
@@ -443,9 +495,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     if ('qty' in patch || 'colors' in patch) {
       const fabric = findFabric(row.fabricId);
       if (!fabric) { showToast('원단이 삭제되어 수량·컬러를 바꿔 다시 계산할 수 없어요.', 'error'); return; }
-      updated = createCustomItem(fabric, next, { rate: quoteRateOf(quoteInput), marketType: quoteInput.marketType });
-    } else if ('excludeVisual' in patch || 'excludeChem' in patch) {
-      updated = next.costParts ? { ...next, basePrice: computeBaseFromParts(next.costParts, next.riskPct, next, quoteInput.currency) } : next;
+      updated = createCustomItem(fabric, next, { rate: quoteRateOf(quoteInput), marketType: quoteInput.marketType, exclude: getCustomExclude(quoteInput) });
     } else if ('marginRate' in patch) {
       updated = { ...next, marginRate: isBlank(patch.marginRate) ? null : Math.min(99, Math.max(0, Number(patch.marginRate) || 0)) };
     } else if ('marginAdd' in patch) {
@@ -547,7 +597,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
         `[취소] 원본 견적 당시 단가 그대로${oldRate ? ` (원본 환율 ₩${num(oldRate)})` : ''}`
       )) {
         const rebuilt = rebuildItems(duplicatedQuote.items, rate, duplicatedQuote.marketType, null, excludeOf(duplicatedQuote));
-        const rebuiltRows = rebuildCustomItems(duplicatedQuote.customItems, rate, duplicatedQuote.marketType);
+        const rebuiltRows = rebuildCustomItems(duplicatedQuote.customItems, rate, duplicatedQuote.marketType, null, getCustomExclude(duplicatedQuote));
         duplicatedQuote = { ...duplicatedQuote, exchangeRate: rate, items: rebuilt.items, customItems: rebuiltRows.rows };
         recalculated = true;
         missing = rebuilt.missing + rebuiltRows.missing;
@@ -566,7 +616,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     handleToggleShownTier, handleResetTierDefaults, handleQuoteExcludeChange,
     handleAddFabricToQuote, handleGridPaste,
     handleRemoveItemFromQuote, handleRemoveItemsFromQuote,
-    handleCopyToCustom, handleAddCustomFabric, handleCustomItemChange, handleRemoveCustomItems,
+    handleCopyToCustom, handleAddCustomFabric, handleCustomItemChange, handleRemoveCustomItems, handleCustomExcludeChange,
     handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
   };
 };

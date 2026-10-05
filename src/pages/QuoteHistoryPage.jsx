@@ -135,7 +135,11 @@ export const QuoteHistoryPage = ({
                       <div className="px-6 py-4 grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
                         <div className="space-y-3 min-w-0">
                           <div>
-                            <p className="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> 기준 견적 — 견적서에 나간 구간</p>
+                            <p className="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1 flex-wrap"><FileText className="w-3.5 h-3.5" /> 기준 견적 — 견적서에 나간 구간
+                              {(quote.excludeVisual === true || quote.excludeChem === true) && (
+                                <span className="font-bold text-rose-600">· {[quote.excludeVisual === true && '외관검사 제외', quote.excludeChem === true && '시험성적서 제외'].filter(Boolean).join(' · ')}</span>
+                              )}
+                            </p>
                             <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto shrink-0">
                               <table className="w-full text-xs text-left">
                                 <thead className="bg-slate-50 text-slate-500">
@@ -173,7 +177,11 @@ export const QuoteHistoryPage = ({
                           </div>
                           {(quote.customItems || []).length > 0 && (
                             <div>
-                              <p className="text-xs font-bold text-amber-700 mb-2 flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> 별도 견적 <span className="font-medium text-slate-400">(흐린 줄은 견적서에 안 나감)</span></p>
+                              <p className="text-xs font-bold text-amber-700 mb-2 flex items-center gap-1 flex-wrap"><FileText className="w-3.5 h-3.5" /> 별도 견적 <span className="font-medium text-slate-400">(흐린 줄은 견적서에 안 나감)</span>
+                                {(quote.customExcludeVisual === true || quote.customExcludeChem === true) && (
+                                  <span className="font-bold text-rose-600">· {[quote.customExcludeVisual === true && '외관검사 제외', quote.customExcludeChem === true && '시험성적서 제외'].filter(Boolean).join(' · ')}</span>
+                                )}
+                              </p>
                               <div className="bg-white border border-amber-200 rounded-lg overflow-x-auto shrink-0">
                                 <table className="w-full text-xs text-left">
                                   <thead className="bg-amber-50/60 text-slate-500">
@@ -181,7 +189,6 @@ export const QuoteHistoryPage = ({
                                       <th className="py-2 px-3 font-bold">Article</th>
                                       <th className="py-2 px-3 text-right">수량</th>
                                       <th className="py-2 px-3 text-center">컬러</th>
-                                      <th className="py-2 px-3">조건</th>
                                       <th className="py-2 px-3 text-right">판가/YD</th>
                                     </tr>
                                   </thead>
@@ -191,7 +198,6 @@ export const QuoteHistoryPage = ({
                                         <td className="py-2 px-3 font-bold text-slate-800 uppercase whitespace-nowrap">{row.article}</td>
                                         <td className="py-2 px-3 text-right font-mono whitespace-nowrap">{num(row.qty)} YD</td>
                                         <td className="py-2 px-3 text-center font-mono">{num(row.colors)}</td>
-                                        <td className="py-2 px-3 text-slate-500 text-[10px]">{[row.excludeVisual && '외관검사 제외', row.excludeChem && '시험성적서 제외'].filter(Boolean).join(' · ') || '-'}</td>
                                         <td className="py-2 px-3 text-right font-mono font-bold text-amber-800 whitespace-nowrap">{formatQuotePrice(calcCustomQuotePrice(row, quote, quote.currency), quote.currency)}</td>
                                       </tr>
                                     ))}

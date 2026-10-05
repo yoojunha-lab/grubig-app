@@ -32,7 +32,7 @@ import { useProformaInvoice } from '../hooks/domains/useProformaInvoice';
 import { usePartner } from '../hooks/domains/usePartner';
 import { useLabdip } from '../hooks/domains/useLabdip';
 import { getQuoteValidUntil, num } from '../utils/helpers';
-import { calcQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice, describeCustomConditions } from '../utils/quoteModel';
+import { calcQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice, quotePriceBasis, buildQuoteTerms } from '../utils/quoteModel';
 import { resolveCostSettings, findKnitGrade, findProcessType, resolveKnitKgRate, isImportSupplier, findImportCountry, sumYarnRatio, isYarnRatioComplete } from '../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 
@@ -382,7 +382,7 @@ const App = () => {
     handleToggleShownTier, handleResetTierDefaults, handleQuoteExcludeChange,
     handleAddFabricToQuote, handleGridPaste,
     handleRemoveItemFromQuote, handleRemoveItemsFromQuote,
-    handleCopyToCustom, handleAddCustomFabric, handleCustomItemChange, handleRemoveCustomItems,
+    handleCopyToCustom, handleAddCustomFabric, handleCustomItemChange, handleRemoveCustomItems, handleCustomExcludeChange,
     handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
   } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, calculateCostAtQty);
 
@@ -1026,13 +1026,12 @@ const App = () => {
     }
 
     const cur = targetQuote.currency;
-    const isKrw = cur !== 'USD';
-    const priceBasis = isKrw ? 'PRICE IN KRW · VAT EXCLUDED' : 'FOB PRICE';
+    const priceBasis = quotePriceBasis(cur);
     const cell = (v) => (v === null || v === undefined ? '' : v); // 기준원가가 없는 구간(예전 견적)은 빈칸
-    const tierLabels = (ts) => `${ts.map(t => t.label.replace(' YD', '')).join(' / ')} YD`;
+    // 표 아래 조건 — PDF 약관과 같은 문구 (quoteModel.buildQuoteTerms 한 곳에서 관리)
+    const notes = buildQuoteTerms(targetQuote, isSpecial ? 'special' : 'standard').map(line => `• ${line}`);
 
     let rows;
-    let notes;
     let cols;
     if (!isSpecial) {
       // 기준 견적서: 고른 구간만 (PDF와 같은 판매가·같은 조건 문구)
@@ -1051,19 +1050,6 @@ const App = () => {
         tiers.forEach(t => { row[`${t.label.replace(' YD', 'YD')} (${cur})`] = cell(calcQuotePrice(item, t.key, targetQuote, cur)); });
         return row;
       });
-      const small = tiers.filter(t => t.group === 'small');
-      const mcq = tiers.filter(t => t.group === 'mcq');
-      notes = [
-        '• ±5% WEIGHT AND WIDTH TOLERANCE',
-        '• PRICES ARE PER YARD, BASED ON TOTAL ORDER QUANTITY',
-        ...(small.length ? [`• ${tierLabels(small)}: UP TO 2 COLORS (SMALL-LOT DYEING CHARGE INCLUDED)`] : []),
-        ...(mcq.length ? [`• ${tierLabels(mcq)}: MCQ PER COLOR REQUIRED`] : []),
-        ...(targetQuote.excludeVisual === true ? ['• VISUAL INSPECTION NOT INCLUDED'] : []),
-        ...(targetQuote.excludeChem === true ? ['• TEST REPORT NOT INCLUDED'] : []),
-        ...(isKrw ? ['• VAT EXCLUDED'] : []),
-        '• BULK PRICING NEGOTIABLE',
-        '• UPCHARGE APPLIES FOR ORDERS BELOW MCQ/MOQ',
-      ];
       cols = [{ wch: 5 }, { wch: 16 }, { wch: 28 }, { wch: 9 }, { wch: 9 }, { wch: 7 }, { wch: 8 }, { wch: 13 }, ...tiers.map(() => ({ wch: 14 }))];
     } else {
       // 별도 견적서: '견적서' 체크한 줄만 (수량·컬러·조건·단가)
@@ -1077,16 +1063,9 @@ const App = () => {
         'g/YD': Number(r.gYd) || 0,
         "Q'TY(YD)": Number(r.qty) || 0,
         'Colors': Number(r.colors) || 0,
-        'Conditions': describeCustomConditions(r) || '-',
         [`Price/YD (${cur})`]: cell(calcCustomQuotePrice(r, targetQuote, cur)),
       }));
-      notes = [
-        '• ±5% WEIGHT AND WIDTH TOLERANCE',
-        '• PRICES APPLY ONLY TO THE QUANTITY (TOTAL PER ORDER) AND NUMBER OF COLORS STATED',
-        ...(isKrw ? ['• VAT EXCLUDED'] : []),
-        '• OTHER QUANTITIES OR COLORS: PLEASE ASK FOR A NEW QUOTATION',
-      ];
-      cols = [{ wch: 5 }, { wch: 16 }, { wch: 28 }, { wch: 9 }, { wch: 9 }, { wch: 7 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 34 }, { wch: 16 }];
+      cols = [{ wch: 5 }, { wch: 16 }, { wch: 28 }, { wch: 9 }, { wch: 9 }, { wch: 7 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 16 }];
     }
 
     const validUntil = getQuoteValidUntil(targetQuote.date, targetQuote.validityOption);
@@ -1275,6 +1254,7 @@ const App = () => {
             handleAddCustomFabric={handleAddCustomFabric}
             handleCustomItemChange={handleCustomItemChange}
             handleRemoveCustomItems={handleRemoveCustomItems}
+            handleCustomExcludeChange={handleCustomExcludeChange}
             selectedFabricIdForQuote={selectedFabricIdForQuote}
             setSelectedFabricIdForQuote={setSelectedFabricIdForQuote}
             savedFabrics={savedFabrics}

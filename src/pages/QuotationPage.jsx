@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   FileText, Save, Download, X, Plus, ClipboardPaste, FileSpreadsheet, FilePlus, DollarSign, Search, ArrowLeft, RefreshCw,
-  Tags, Calculator, ChevronDown, ChevronRight, Copy, Trash2, RotateCcw, AlertTriangle,
+  Tags, Calculator, ChevronDown, ChevronRight, Copy, Trash2, RotateCcw, AlertTriangle, Square, CheckSquare,
 } from 'lucide-react';
 import { PartnerSelectField } from '../components/common/PartnerSelectField';
 import { num, usd, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
@@ -15,8 +15,10 @@ import { CostWarningBadge } from '../components/cost/CostWarnings';
 
 // ============================================================
 // 견적서 작성 (2026-10-05 개편)
-//  · 기준 견적: 300~5,000YD 6구간 중 고른 구간만 바이어 견적서에 표시. 구간별 이익율·정액 + 견적 전체 외관검사·시험성적서 제외
-//  · 별도 견적: 원단마다 수량·컬러수·제외 항목을 바꿔 원가부터 다시 계산 (예: 300YD 3컬러)
+//  · 기준 견적: 300~5,000YD 6구간 중 고른 구간만 바이어 견적서에 표시. 구간별 이익율·정액
+//  · 별도 견적: 원단마다 수량·컬러수를 바꿔 원가부터 다시 계산 (예: 300YD 3컬러)
+//  · 외관검사·시험성적서 제외는 칸마다 전체에 적용하는 버튼 (기준 견적 전체 / 별도 견적 전체)
+//  · 원단 추가는 두 칸이 같은 방식: [원단 검색·추가] 팝업 + 표 아래 Article 입력(Enter)·엑셀 세로 복붙, 같은 원단은 한 줄만
 //  · 두 칸은 머리줄을 눌러 접고 펴기, PDF·엑셀은 칸마다 따로 (기준 견적서 / 별도 견적서)
 // ============================================================
 
@@ -55,6 +57,62 @@ const ExportButtons = ({ onPdf, onExcel, label }) => (
   </>
 );
 
+// 외관검사·시험성적서 제외 — 칸 전체에 적용하는 켜고 끄는 버튼 (켜지면 빨간색)
+const ToggleButton = ({ on, onClick, children }) => (
+  <button type="button" onClick={onClick} aria-pressed={on}
+    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors ${on ? 'bg-rose-600 text-white border-rose-600 hover:bg-rose-700' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}>
+    {on ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5 text-slate-400" />} {children}
+  </button>
+);
+
+const ExcludeToggles = ({ label, visual, chem, onChange, note }) => (
+  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs">
+    <span className="font-extrabold text-slate-600">{label}</span>
+    <ToggleButton on={visual} onClick={() => onChange('excludeVisual', !visual)}>외관검사 제외</ToggleButton>
+    <ToggleButton on={chem} onClick={() => onChange('excludeChem', !chem)}>시험성적서(이화학) 제외</ToggleButton>
+    <span className="text-[10px] text-slate-400">{note}</span>
+  </div>
+);
+
+// 표 아래 Article 입력(Enter)·엑셀 세로 복붙 칸 — 기준·별도 견적 공통
+const ArticleQuickAdd = ({ onAdd, tone = 'indigo' }) => (
+  <input
+    type="text"
+    placeholder="Article 입력 후 Enter 또는 엑셀(세로) 복붙..."
+    className={`w-full border rounded px-3 py-2 outline-none focus:ring-2 text-xs font-bold shadow-sm uppercase ${tone === 'amber' ? 'bg-amber-50 border-amber-200 text-amber-800 focus:ring-amber-400' : 'bg-indigo-50 border-indigo-200 text-indigo-800 focus:ring-indigo-400'}`}
+    onKeyDown={(e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const art = String(e.target.value).trim().toUpperCase();
+        if (!art) return;
+        onAdd(art);
+        e.target.value = '';
+      }
+    }}
+    onPaste={(e) => {
+      e.preventDefault();
+      onAdd(e.clipboardData.getData('text'));
+      e.target.value = '';
+    }}
+  />
+);
+
+const PasteHint = () => (
+  <div className="flex items-center gap-1 whitespace-nowrap">
+    <ClipboardPaste className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> <span className="hidden sm:inline">왼쪽 칸을 클릭하고</span> 엑셀 Article(원단명) 열을 복사 후 붙여넣어 보세요.
+  </div>
+);
+
+// [원단 검색·추가] 버튼 — 기준·별도 견적 공통
+const AddFromListButton = ({ onClick, tone = 'indigo' }) => (
+  <button
+    onClick={onClick}
+    className={`w-full sm:w-max px-3 py-1.5 rounded-lg font-bold text-sm border flex items-center justify-center gap-1.5 shrink-0 ${tone === 'amber' ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border-indigo-200'}`}
+  >
+    <Search className="w-4 h-4" /> 원단 검색·추가 (목록에서 선택)
+  </button>
+);
+
 export const QuotationPage = ({
   quoteInput,
   setQuoteInput,
@@ -80,6 +138,7 @@ export const QuotationPage = ({
   handleAddCustomFabric,
   handleCustomItemChange,
   handleRemoveCustomItems,
+  handleCustomExcludeChange,
   handleGridPaste,
   globalExchangeRate,
   yarnLibrary = [],
@@ -295,17 +354,14 @@ export const QuotationPage = ({
               <p className="text-[10px] text-slate-400 mt-1">판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액. 품목마다 아래 표에서 이익율을 따로 바꿀 수 있어요.</p>
             </div>
 
-            {/* 견적 전체 — 외관검사·시험성적서 제외 */}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs">
-              <span className="font-extrabold text-slate-600">기준 견적 전체</span>
-              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none font-bold text-slate-700">
-                <input type="checkbox" checked={quoteInput.excludeVisual === true} onChange={(e) => handleQuoteExcludeChange('excludeVisual', e.target.checked)} className="w-4 h-4 accent-rose-600" /> 외관검사 제외
-              </label>
-              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none font-bold text-slate-700">
-                <input type="checkbox" checked={quoteInput.excludeChem === true} onChange={(e) => handleQuoteExcludeChange('excludeChem', e.target.checked)} className="w-4 h-4 accent-rose-600" /> 시험성적서(이화학) 제외
-              </label>
-              <span className="text-[10px] text-slate-400">체크하면 모든 품목 기준원가에서 그 비용을 빼고, 바이어 견적서에 '불포함'으로 적혀요.</span>
-            </div>
+            {/* 기준 견적 전체 — 외관검사·시험성적서 제외 */}
+            <ExcludeToggles
+              label="기준 견적 전체"
+              visual={quoteInput.excludeVisual === true}
+              chem={quoteInput.excludeChem === true}
+              onChange={handleQuoteExcludeChange}
+              note="누르면 기준 견적 모든 품목의 기준원가에서 그 비용을 빼고, 기준 견적서에 '불포함'으로 적혀요."
+            />
           </>
         )}
 
@@ -324,12 +380,7 @@ export const QuotationPage = ({
               <Trash2 className="w-3.5 h-3.5" /> 선택 삭제
             </button>
           </div>
-          <button
-            onClick={() => setPickerMode('standard')}
-            className="w-full sm:w-max bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg font-bold text-sm hover:bg-indigo-100 border border-indigo-200 flex items-center justify-center gap-1.5 shrink-0"
-          >
-            <Search className="w-4 h-4" /> 원단 검색·추가 (목록에서 선택)
-          </button>
+          <AddFromListButton onClick={() => setPickerMode('standard')} />
         </div>
 
         <div className="overflow-hidden rounded-xl border border-slate-200 overflow-x-auto">
@@ -423,30 +474,10 @@ export const QuotationPage = ({
               <tr>
                 <td colSpan="2" className="p-2 text-center text-slate-300 bg-slate-50 border-t border-slate-200 pointer-events-none"><Plus className="w-4 h-4 mx-auto" /></td>
                 <td className="p-2 border-t border-slate-200 bg-slate-50" colSpan="2">
-                  <input
-                    type="text"
-                    placeholder="Article 입력 후 Enter 또는 엑셀(세로) 복붙..."
-                    className="w-full bg-indigo-50 border border-indigo-200 text-indigo-800 rounded px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-400 text-xs font-bold shadow-sm uppercase"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        const art = String(e.target.value).trim().toUpperCase();
-                        if (!art) return;
-                        handleGridPaste(art);
-                        e.target.value = '';
-                      }
-                    }}
-                    onPaste={(e) => {
-                      e.preventDefault();
-                      handleGridPaste(e.clipboardData.getData('text'));
-                      e.target.value = '';
-                    }}
-                  />
+                  <ArticleQuickAdd onAdd={(text) => handleGridPaste(text, 'standard')} />
                 </td>
                 <td colSpan={6 + shownTiers.length} className="p-2 text-xs text-slate-400 border-t border-slate-200 bg-slate-50/50 h-[42px] align-middle overflow-hidden">
-                  <div className="flex items-center gap-1 whitespace-nowrap">
-                    <ClipboardPaste className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> <span className="hidden sm:inline">왼쪽 칸을 클릭하고</span> 엑셀 Article(원단명) 열을 복사 후 붙여넣어 보세요.
-                  </div>
+                  <PasteHint />
                 </td>
               </tr>
             </tbody>
@@ -459,12 +490,23 @@ export const QuotationPage = ({
         icon={Calculator}
         title="별도 견적"
         count={customItems.length}
-        desc="수량·컬러·제외 항목을 바꿔 따로 계산 (예: 300YD 3컬러) — 기준 견적서와 따로 보내요"
+        desc="수량·컬러를 바꿔 따로 계산 (예: 300YD 3컬러) — 기준 견적서와 따로 보내요"
         tone="amber"
         open={openCustom}
         onToggle={() => setOpenCustom(o => !o)}
         actions={<ExportButtons label="별도 견적서" onPdf={() => handleDownloadPDF(null, 'special')} onExcel={() => handleDownloadExcel(null, 'special')} />}
       >
+        {!isLegacy && (
+          <ExcludeToggles
+            label="별도 견적 전체"
+            visual={quoteInput.customExcludeVisual === true}
+            chem={quoteInput.customExcludeChem === true}
+            onChange={handleCustomExcludeChange}
+            note="누르면 별도 견적 모든 줄의 기준원가에서 그 비용을 빼고, 별도 견적서에 '불포함'으로 적혀요."
+          />
+        )}
+
+        {/* 도구줄 — 기준 견적과 같은 자리·같은 버튼 */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <span className="text-slate-400 font-bold mr-1">선택 {selCustom.length}줄</span>
@@ -474,132 +516,128 @@ export const QuotationPage = ({
             </button>
             <span className="text-[11px] text-slate-400 ml-1">기준 견적에서 원단을 체크하고 [별도 견적으로 복사]를 눌러도 들어와요.</span>
           </div>
-          {!isLegacy && (
-            <button
-              onClick={() => setPickerMode('custom')}
-              className="w-full sm:w-max bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg font-bold text-sm hover:bg-amber-100 border border-amber-200 flex items-center justify-center gap-1.5 shrink-0"
-            >
-              <Plus className="w-4 h-4" /> 원단 추가
-            </button>
-          )}
+          {!isLegacy && <AddFromListButton tone="amber" onClick={() => setPickerMode('custom')} />}
         </div>
 
-        {customItems.length === 0 ? (
-          <div className="border-2 border-dashed border-slate-200 rounded-xl py-8 text-center text-xs text-slate-400 leading-relaxed">
-            아직 별도 견적이 없어요.<br />
-            기준 견적에서 원단을 체크하고 <b className="text-amber-700">[별도 견적으로 복사]</b>를 누르거나, 오른쪽 위 <b className="text-amber-700">[원단 추가]</b>를 누르세요.<br />
-            수량·컬러수를 바꾸면 이화학(시험성적서)·염색 최소 청구까지 그 조건으로 다시 계산해요.
-          </div>
-        ) : (
-          <div className="overflow-hidden rounded-xl border border-slate-200 overflow-x-auto">
-            <table className="w-full table-fixed text-sm text-left min-w-[1000px]">
-              <thead className="bg-amber-50/60 text-slate-500 font-bold border-b-2 border-amber-200 text-xs">
-                <tr className="divide-x divide-amber-100">
-                  <th className="px-2 py-2 w-8 text-center">
-                    <input type="checkbox" className="w-3.5 h-3.5 accent-amber-600" title="전체 선택"
-                      checked={customItems.length > 0 && selCustom.length === customItems.length}
-                      onChange={(e) => setSelectedCustom(e.target.checked ? customIds : [])} />
-                  </th>
-                  <th className="px-2 py-2">원단</th>
-                  <th className="px-2 py-2 w-[196px]">수량 (YD) · 컬러</th>
-                  <th className="px-2 py-2 w-[128px]">제외 항목</th>
-                  <th className="px-2 py-2 w-[78px] text-right">이익율 %</th>
-                  <th className="px-2 py-2 w-[90px] text-right">YD당 정액 ({cSym})</th>
-                  <th className="px-2 py-2 w-[112px] text-right">판가 / YD</th>
-                  <th className="px-2 py-2 w-[110px] text-right">총액</th>
-                  <th className="px-2 py-2 w-[52px] text-center" title="별도 견적서(바이어용)에 이 줄을 넣을지">견적서</th>
-                  <th className="px-2 py-2 w-9"></th>
+        <div className="overflow-hidden rounded-xl border border-slate-200 overflow-x-auto">
+          <table className="w-full table-fixed text-sm text-left min-w-[880px]">
+            <thead className="bg-amber-50/60 text-slate-500 font-bold border-b-2 border-amber-200 text-xs">
+              <tr className="divide-x divide-amber-100">
+                <th className="px-2 py-2 w-8 text-center">
+                  <input type="checkbox" className="w-3.5 h-3.5 accent-amber-600" title="전체 선택"
+                    checked={customItems.length > 0 && selCustom.length === customItems.length}
+                    onChange={(e) => setSelectedCustom(e.target.checked ? customIds : [])} />
+                </th>
+                <th className="px-2 py-2">원단</th>
+                <th className="px-2 py-2 w-[196px]">수량 (YD) · 컬러</th>
+                <th className="px-2 py-2 w-[78px] text-right">이익율 %</th>
+                <th className="px-2 py-2 w-[90px] text-right">YD당 정액 ({cSym})</th>
+                <th className="px-2 py-2 w-[112px] text-right">판가 / YD</th>
+                <th className="px-2 py-2 w-[110px] text-right">총액</th>
+                <th className="px-2 py-2 w-[52px] text-center" title="별도 견적서(바이어용)에 이 줄을 넣을지">견적서</th>
+                <th className="px-2 py-2 w-9"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {customItems.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="py-6 text-center text-xs text-slate-400 leading-relaxed">
+                    아직 별도 견적이 없어요. 아래 칸에 Article을 넣거나 <b className="text-amber-700">[원단 검색·추가]</b>, 또는 기준 견적에서 <b className="text-amber-700">[별도 견적으로 복사]</b>를 누르세요.<br />
+                    수량·컬러수를 바꾸면 시험성적서(이화학)·염색 최소 청구까지 그 조건으로 다시 계산해요.
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {customItems.map(row => {
-                  const checked = selCustom.includes(row.id);
-                  const price = calcCustomQuotePrice(row, quoteInput, currency);
-                  const qtyNum = Number(row.qty) || 0;
-                  const colorsNum = Number(row.colors) || 0;
-                  const perColor = qtyNum > 0 && colorsNum > 0 ? Math.round(qtyNum / colorsNum) : 0;
-                  const mcq = Number(row.mcqYd) || 0;
-                  const belowMcq = perColor > 0 && mcq > 0 && perColor < mcq;
-                  const rateDefault = getCustomRowRate({ ...row, marginRate: null }, quoteInput);
-                  const addDefault = getCustomRowAdd({ ...row, marginAdd: null }, quoteInput);
-                  const qtyBad = !(qtyNum > 0);
-                  const colorsBad = !(colorsNum > 0);
-                  return (
-                    <tr key={row.id} className={`align-top divide-x divide-slate-100 ${checked ? 'bg-amber-50/50' : 'hover:bg-slate-50'} ${row.show === false ? 'opacity-60' : ''}`}>
-                      <td className="px-2 py-2 text-center"><input type="checkbox" className="w-3.5 h-3.5 accent-amber-600" checked={checked} onChange={() => toggleSel(selectedCustom, setSelectedCustom, row.id)} /></td>
-                      <td className="px-2 py-2">
-                        <div className="font-bold text-slate-800 text-[13px] uppercase">{row.article}</div>
-                        <div className="text-[11px] text-slate-500 flex items-center gap-1 flex-wrap">
-                          <span>{row.itemName}</span>
-                          <CostWarningBadge warnings={row.costWarnings} />
+              )}
+              {customItems.map(row => {
+                const checked = selCustom.includes(row.id);
+                const price = calcCustomQuotePrice(row, quoteInput, currency);
+                const qtyNum = Number(row.qty) || 0;
+                const colorsNum = Number(row.colors) || 0;
+                const perColor = qtyNum > 0 && colorsNum > 0 ? Math.round(qtyNum / colorsNum) : 0;
+                const mcq = Number(row.mcqYd) || 0;
+                const belowMcq = perColor > 0 && mcq > 0 && perColor < mcq;
+                const rateDefault = getCustomRowRate({ ...row, marginRate: null }, quoteInput);
+                const addDefault = getCustomRowAdd({ ...row, marginAdd: null }, quoteInput);
+                const qtyBad = !(qtyNum > 0);
+                const colorsBad = !(colorsNum > 0);
+                return (
+                  <tr key={row.id} className={`align-top divide-x divide-slate-100 ${checked ? 'bg-amber-50/50' : 'hover:bg-slate-50'} ${row.show === false ? 'opacity-60' : ''}`}>
+                    <td className="px-2 py-2 text-center"><input type="checkbox" className="w-3.5 h-3.5 accent-amber-600" checked={checked} onChange={() => toggleSel(selectedCustom, setSelectedCustom, row.id)} /></td>
+                    <td className="px-2 py-2">
+                      <div className="font-bold text-slate-800 text-[13px] uppercase">{row.article}</div>
+                      <div className="text-[11px] text-slate-500 flex items-center gap-1 flex-wrap">
+                        <span>{row.itemName}</span>
+                        <CostWarningBadge warnings={row.costWarnings} />
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">{row.widthCut}/{row.widthFull}" · {row.gsm}g · MCQ {num(mcq)}YD/컬러</div>
+                    </td>
+                    <td className="px-2 py-2">
+                      <div className="flex items-center gap-1">
+                        <input type="number" min="1" step="1" value={row.qty ?? ''} onChange={(e) => handleCustomItemChange(row.id, { qty: e.target.value })}
+                          className={`w-[76px] bg-white border rounded px-1.5 py-1 text-right text-sm font-bold outline-none focus:border-amber-500 ${qtyBad ? 'border-red-300 text-red-600' : 'border-slate-300 text-slate-800'}`} placeholder="YD" title="오더 총수량 (YD)" />
+                        <span className="text-[11px] text-slate-400">YD</span>
+                        <input type="number" min="1" step="1" value={row.colors ?? ''} onChange={(e) => handleCustomItemChange(row.id, { colors: e.target.value })}
+                          className={`w-[44px] bg-white border rounded px-1.5 py-1 text-right text-sm font-bold outline-none focus:border-amber-500 ${colorsBad ? 'border-red-300 text-red-600' : 'border-slate-300 text-slate-800'}`} placeholder="컬러" title="컬러수 — 이화학·염색을 컬러마다 따로 계산" />
+                        <span className="text-[11px] text-slate-400">컬러</span>
+                      </div>
+                      {perColor > 0 && (
+                        <div className={`text-[10px] mt-1 ${belowMcq ? 'text-amber-700 font-bold' : 'text-slate-400'}`}>
+                          컬러당 {num(perColor)}YD{belowMcq ? ` · MCQ ${num(mcq)} 미달` : ''}
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">{row.widthCut}/{row.widthFull}" · {row.gsm}g · MCQ {num(mcq)}YD/컬러</div>
-                      </td>
-                      <td className="px-2 py-2">
-                        <div className="flex items-center gap-1">
-                          <input type="number" min="1" step="1" value={row.qty ?? ''} onChange={(e) => handleCustomItemChange(row.id, { qty: e.target.value })}
-                            className={`w-[76px] bg-white border rounded px-1.5 py-1 text-right text-sm font-bold outline-none focus:border-amber-500 ${qtyBad ? 'border-red-300 text-red-600' : 'border-slate-300 text-slate-800'}`} placeholder="YD" title="오더 총수량 (YD)" />
-                          <span className="text-[11px] text-slate-400">YD</span>
-                          <input type="number" min="1" step="1" value={row.colors ?? ''} onChange={(e) => handleCustomItemChange(row.id, { colors: e.target.value })}
-                            className={`w-[44px] bg-white border rounded px-1.5 py-1 text-right text-sm font-bold outline-none focus:border-amber-500 ${colorsBad ? 'border-red-300 text-red-600' : 'border-slate-300 text-slate-800'}`} placeholder="컬러" title="컬러수 — 이화학·염색을 컬러마다 따로 계산" />
-                          <span className="text-[11px] text-slate-400">컬러</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-2">
+                      <input type="number" step="any" value={row.marginRate ?? ''} onChange={(e) => handleCustomItemChange(row.id, { marginRate: e.target.value })}
+                        className={`w-full bg-white border border-indigo-200 rounded px-1.5 py-1 text-right text-xs font-bold outline-none focus:border-indigo-500 ${row.marginRate === null || row.marginRate === undefined ? 'text-slate-400' : 'text-indigo-700'}`}
+                        placeholder={String(rateDefault)} title={`비워 두면 수량 구간 기본값 ${rateDefault}%`} />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input type="number" step="any" value={row.marginAdd ?? ''} onChange={(e) => handleCustomItemChange(row.id, { marginAdd: e.target.value })}
+                        className={`w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-right text-xs font-bold outline-none focus:border-indigo-400 ${row.marginAdd === null || row.marginAdd === undefined ? 'text-slate-400' : 'text-slate-700'}`}
+                        placeholder={fmtMoney(addDefault)} title={`비워 두면 수량 구간 기본값 ${cSym}${fmtMoney(addDefault)}`} />
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      <div className="font-mono text-[14px] font-extrabold text-amber-800">{formatQuotePrice(price, currency)}</div>
+                      <div className="text-[9px] text-slate-400 mt-0.5">원가 {formatQuotePrice(row.basePrice ?? null, currency)}</div>
+                      {row.dye?.minApplied && (
+                        <div className="text-[9px] font-bold text-rose-600 mt-0.5" title={`컬러당 생지 ${num(row.dye.perColorKg)}kg → ${num(row.dye.minKg)}kg로 청구 (염색 최소 청구)`}>
+                          염색 최소 청구 포함
                         </div>
-                        {perColor > 0 && (
-                          <div className={`text-[10px] mt-1 ${belowMcq ? 'text-amber-700 font-bold' : 'text-slate-400'}`}>
-                            컬러당 {num(perColor)}YD{belowMcq ? ` · MCQ ${num(mcq)} 미달` : ''}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-2 py-2 text-[11px] font-bold text-slate-600 space-y-1">
-                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                          <input type="checkbox" className="w-3.5 h-3.5 accent-rose-600" checked={row.excludeVisual === true} onChange={(e) => handleCustomItemChange(row.id, { excludeVisual: e.target.checked })} /> 외관검사 제외
-                        </label>
-                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                          <input type="checkbox" className="w-3.5 h-3.5 accent-rose-600" checked={row.excludeChem === true} onChange={(e) => handleCustomItemChange(row.id, { excludeChem: e.target.checked })} /> 시험성적서 제외
-                        </label>
-                      </td>
-                      <td className="px-2 py-2">
-                        <input type="number" step="any" value={row.marginRate ?? ''} onChange={(e) => handleCustomItemChange(row.id, { marginRate: e.target.value })}
-                          className={`w-full bg-white border border-indigo-200 rounded px-1.5 py-1 text-right text-xs font-bold outline-none focus:border-indigo-500 ${row.marginRate === null || row.marginRate === undefined ? 'text-slate-400' : 'text-indigo-700'}`}
-                          placeholder={String(rateDefault)} title={`비워 두면 수량 구간 기본값 ${rateDefault}%`} />
-                      </td>
-                      <td className="px-2 py-2">
-                        <input type="number" step="any" value={row.marginAdd ?? ''} onChange={(e) => handleCustomItemChange(row.id, { marginAdd: e.target.value })}
-                          className={`w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-right text-xs font-bold outline-none focus:border-indigo-400 ${row.marginAdd === null || row.marginAdd === undefined ? 'text-slate-400' : 'text-slate-700'}`}
-                          placeholder={fmtMoney(addDefault)} title={`비워 두면 수량 구간 기본값 ${cSym}${fmtMoney(addDefault)}`} />
-                      </td>
-                      <td className="px-2 py-2 text-right">
-                        <div className="font-mono text-[14px] font-extrabold text-amber-800">{formatQuotePrice(price, currency)}</div>
-                        <div className="text-[9px] text-slate-400 mt-0.5">원가 {formatQuotePrice(row.basePrice ?? null, currency)}</div>
-                        {row.dye?.minApplied && (
-                          <div className="text-[9px] font-bold text-rose-600 mt-0.5" title={`컬러당 생지 ${num(row.dye.perColorKg)}kg → ${num(row.dye.minKg)}kg로 청구 (염색 최소 청구)`}>
-                            염색 최소 청구 포함
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-2 py-2 text-right font-mono text-[12px] text-slate-600">
-                        {price === null || !(qtyNum > 0) ? '—' : `${cSym}${fmtMoney(isUsd ? Number((price * qtyNum).toFixed(2)) : price * qtyNum)}`}
-                      </td>
-                      <td className="px-2 py-2 text-center">
-                        <input type="checkbox" className="w-4 h-4 accent-amber-600" checked={row.show !== false} onChange={(e) => handleCustomItemChange(row.id, { show: e.target.checked })} title="별도 견적서(바이어용)에 이 줄을 넣기" />
-                      </td>
-                      <td className="px-2 py-2 text-center"><button onClick={() => handleRemoveCustomItems([row.id])} title="이 줄 지우기" className="text-slate-300 hover:text-red-500 p-1 transition-colors"><X className="w-4 h-4" /></button></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                      )}
+                    </td>
+                    <td className="px-2 py-2 text-right font-mono text-[12px] text-slate-600">
+                      {price === null || !(qtyNum > 0) ? '—' : `${cSym}${fmtMoney(isUsd ? Number((price * qtyNum).toFixed(2)) : price * qtyNum)}`}
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      <input type="checkbox" className="w-4 h-4 accent-amber-600" checked={row.show !== false} onChange={(e) => handleCustomItemChange(row.id, { show: e.target.checked })} title="별도 견적서(바이어용)에 이 줄을 넣기" />
+                    </td>
+                    <td className="px-2 py-2 text-center"><button onClick={() => handleRemoveCustomItems([row.id])} title="이 줄 지우기" className="text-slate-300 hover:text-red-500 p-1 transition-colors"><X className="w-4 h-4" /></button></td>
+                  </tr>
+                );
+              })}
+
+              {!isLegacy && (
+                <tr>
+                  <td className="p-2 text-center text-slate-300 bg-slate-50 border-t border-slate-200 pointer-events-none"><Plus className="w-4 h-4 mx-auto" /></td>
+                  <td className="p-2 border-t border-slate-200 bg-slate-50" colSpan="2">
+                    <ArticleQuickAdd tone="amber" onAdd={(text) => handleGridPaste(text, 'custom')} />
+                  </td>
+                  <td colSpan={6} className="p-2 text-xs text-slate-400 border-t border-slate-200 bg-slate-50/50 h-[42px] align-middle overflow-hidden">
+                    <PasteHint />
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
         <p className="text-[10px] text-slate-400">이익율·정액을 비워 두면 수량이 속한 기준 구간 값(위 구간 설정)을 써요. 총액 = 판가 × 수량 (화면에서만 보여요).</p>
       </QuoteSection>
 
-      {/* 원단 검색 팝업 — 기준 견적(이미 담긴 원단은 '추가됨') / 별도 견적(같은 원단도 조건만 바꿔 여러 줄 가능) */}
+      {/* 원단 검색 팝업 — 기준·별도 견적 같은 방식 (그 칸에 이미 담긴 원단은 '추가됨') */}
       <FabricPickerModal
         isOpen={pickerMode !== null}
         onClose={() => setPickerMode(null)}
         fabrics={savedFabrics}
-        existingFabricIds={pickerMode === 'standard' ? items.map(i => i.fabricId) : []}
+        existingFabricIds={pickerMode === 'custom' ? customItems.map(r => r.fabricId) : items.map(i => i.fabricId)}
         yarnLibrary={yarnLibrary}
         title={pickerMode === 'custom' ? '별도 견적에 넣을 원단' : undefined}
         onPick={(fabricId) => (pickerMode === 'custom' ? handleAddCustomFabric(fabricId) : handleAddFabricToQuote(fabricId, () => {}))}

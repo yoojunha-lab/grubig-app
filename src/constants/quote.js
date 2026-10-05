@@ -7,15 +7,15 @@
 //     (1k/3k/5k 는 예전 견적과 같은 키 — 예전 견적도 그대로 읽힘)
 //   · costKey: 원가 엔진(calculateCostTiers) 결과의 구간 키
 //
-// ■ 기본 마진 (대표님 지정, 2026-10-05)
-//   · 매출이익율: 300·500·800YD 25% / 1,000YD 이상 20%
-//   · YD당 정액(원): 300·500·800YD 2,000 / 1,000YD 1,000 / 3,000YD 800 / 5,000YD 500
+// ■ 기본 마진 (대표님 지정, 2026-10-05 — 같은 날 800YD 23% · 1,500원으로 조정)
+//   · 매출이익율: 300·500YD 25% / 800YD 23% / 1,000YD 이상 20%
+//   · YD당 정액(원): 300·500YD 2,000 / 800YD 1,500 / 1,000YD 1,000 / 3,000YD 800 / 5,000YD 500
 //     (수출 견적은 견적 환율로 환산해서 $로 넣음)
 
 export const QUOTE_TIERS = [
   { key: '300', costKey: 'tier300', label: '300 YD', qty: 300, group: 'small', colors: 2, defaultRate: 25, defaultAddKrw: 2000 },
   { key: '500', costKey: 'tier500', label: '500 YD', qty: 500, group: 'small', colors: 2, defaultRate: 25, defaultAddKrw: 2000 },
-  { key: '800', costKey: 'tier800', label: '800 YD', qty: 800, group: 'small', colors: 2, defaultRate: 25, defaultAddKrw: 2000 },
+  { key: '800', costKey: 'tier800', label: '800 YD', qty: 800, group: 'small', colors: 2, defaultRate: 23, defaultAddKrw: 1500 },
   { key: '1k', costKey: 'tier1k', label: '1,000 YD', qty: 1000, group: 'mcq', assumeMcq: true, defaultRate: 20, defaultAddKrw: 1000 },
   { key: '3k', costKey: 'tier3k', label: '3,000 YD', qty: 3000, group: 'mcq', assumeMcq: true, main: true, defaultRate: 20, defaultAddKrw: 800 },
   { key: '5k', costKey: 'tier5k', label: '5,000 YD', qty: 5000, group: 'mcq', assumeMcq: true, defaultRate: 20, defaultAddKrw: 500 },

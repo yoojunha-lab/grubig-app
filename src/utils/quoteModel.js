@@ -6,8 +6,10 @@
 //   · YD당 정액: 견적 값 (견적 통화 금액)
 // ■ 별도 견적: 줄마다 수량·컬러수를 넣어 원가부터 다시 계산한 기준원가(basePrice)
 //   이익율·정액을 비워 두면 수량이 속한 기준 구간의 견적 일괄값을 씀
-// ■ 외관검사·시험성적서(이화학) 빼기: 원가 조각(costParts: 반올림·위험마진 전 YD당 순원가와 그중
-//   이화학·외관검사 몫)을 같이 저장해 두고, 체크를 바꾸면 조각으로 기준원가를 다시 만듦 (다른 원가는 그대로)
+// ■ 외관검사·시험성적서(이화학) 제외: 기준 견적 전체(excludeVisual/excludeChem) · 별도 견적 전체
+//   (customExcludeVisual/customExcludeChem — 2026-10-05 대표님 요청으로 줄마다 → 칸 전체).
+//   원가 조각(costParts: 반올림·위험마진 전 YD당 순원가와 그중 이화학·외관검사 몫)을 같이 저장해 두고,
+//   버튼을 바꾸면 조각으로 기준원가를 다시 만듦 (다른 원가는 그대로)
 
 import { smartRound, applyGrossMargin, num, usd } from './helpers';
 import { QUOTE_TIERS, QUOTE_TIER_KEYS, LEGACY_TIER_KEYS } from '../constants/quote';
@@ -62,6 +64,18 @@ export const toQuoteTierAdd = (val, fallback) =>
     return [k, Math.max(0, Number(isBlank(v) ? fallback(k) : v) || 0)];
   }));
 
+/** 구간 기본값 요약 (확인 창 문구용) — 예: '300·500YD 25% · 2,000원 / 800YD 23% · 1,500원 / …' */
+export const describeTierDefaults = () => {
+  const groups = [];
+  QUOTE_TIERS.forEach(t => {
+    const last = groups[groups.length - 1];
+    const label = t.label.replace(' YD', '');
+    if (last && last.rate === t.defaultRate && last.add === t.defaultAddKrw) last.labels.push(label);
+    else groups.push({ labels: [label], rate: t.defaultRate, add: t.defaultAddKrw });
+  });
+  return groups.map(g => `${g.labels.join('·')}YD ${g.rate}% · ${num(g.add)}원`).join(' / ');
+};
+
 /** 견적이 지금 마진 방식(매출이익율·YD당 정액)인지 — 아니면 아주 옛날 extraMargin(마크업) 견적 */
 export const isNewMarginModel = (quote) =>
   quote?.bulkMarginRate !== undefined ||
@@ -93,6 +107,8 @@ export const normalizeQuote = (quote) => {
     shownTiers: getShownTiers(quote).map(t => t.key),
     excludeVisual: quote.excludeVisual === true,
     excludeChem: quote.excludeChem === true,
+    customExcludeVisual: quote.customExcludeVisual === true,
+    customExcludeChem: quote.customExcludeChem === true,
     items: (quote.items || []).map(it => ({ ...it, marginRate: toQuoteTierRate(it.marginRate, (k) => bulk[k]) })),
   };
 };
@@ -213,10 +229,50 @@ export const calcCustomQuotePrice = (row, quote, currency) => {
 /** 바이어 별도 견적서에 나갈 줄 (견적서 표시 체크된 줄) */
 export const getShownCustomItems = (quote) => (quote?.customItems || []).filter(r => r && r.show !== false);
 
-/** 별도 견적 조건 문구 (바이어 견적서용 영문) */
-export const describeCustomConditions = (row) => {
-  const parts = [];
-  if (row?.excludeVisual) parts.push('EXCL. VISUAL INSPECTION');
-  if (row?.excludeChem) parts.push('EXCL. TEST REPORT');
-  return parts.join(' / ');
+/** 별도 견적 전체 — 외관검사 / 시험성적서 제외 */
+export const getCustomExclude = (quote) => ({
+  excludeVisual: quote?.customExcludeVisual === true,
+  excludeChem: quote?.customExcludeChem === true,
+});
+
+// ----------------------------------------------------------------------
+// 5. 바이어 견적서 문구 (PDF·엑셀 공통 — 한 곳에서만 관리)
+// ----------------------------------------------------------------------
+
+/** 가격 기준 문구: 원화 = 부가세 별도, 수출 = FOB */
+export const quotePriceBasis = (currency) => (currency === 'USD' ? 'FOB PRICE' : 'PRICE IN KRW · VAT EXCLUDED');
+
+/** 구간 이름 묶음 (예: '500 / 800 YD') */
+export const tierLabels = (tiers) => `${tiers.map(t => t.label.replace(' YD', '')).join(' / ')} YD`;
+
+/**
+ * 바이어 견적서 약관 줄 (VALID UNTIL 제외 — PDF는 굵게, 엑셀은 머리줄에 따로 씀)
+ * @param {Object} quote
+ * @param {'standard'|'special'} kind 기준 견적서 / 별도 견적서
+ * @returns {string[]}
+ */
+export const buildQuoteTerms = (quote, kind = 'standard') => {
+  const isKrw = quote?.currency !== 'USD';
+  const lines = ['±5% WEIGHT AND WIDTH TOLERANCE'];
+  if (kind === 'special') {
+    const ex = getCustomExclude(quote);
+    lines.push('PRICES APPLY ONLY TO THE QUANTITY (TOTAL PER ORDER) AND NUMBER OF COLORS STATED');
+    if (ex.excludeVisual) lines.push('VISUAL INSPECTION NOT INCLUDED');
+    if (ex.excludeChem) lines.push('TEST REPORT NOT INCLUDED');
+    if (isKrw) lines.push('VAT EXCLUDED');
+    lines.push('OTHER QUANTITIES OR COLORS: PLEASE ASK FOR A NEW QUOTATION');
+    return lines;
+  }
+  const tiers = getShownTiers(quote);
+  const small = tiers.filter(t => t.group === 'small');
+  const mcq = tiers.filter(t => t.group === 'mcq');
+  lines.push('PRICES ARE PER YARD, BASED ON TOTAL ORDER QUANTITY');
+  if (small.length) lines.push(`${tierLabels(small)}: UP TO 2 COLORS (SMALL-LOT DYEING CHARGE INCLUDED)`);
+  if (mcq.length) lines.push(`${tierLabels(mcq)}: MCQ PER COLOR REQUIRED`);
+  if (quote?.excludeVisual === true) lines.push('VISUAL INSPECTION NOT INCLUDED');
+  if (quote?.excludeChem === true) lines.push('TEST REPORT NOT INCLUDED');
+  if (isKrw) lines.push('VAT EXCLUDED');
+  lines.push('BULK PRICING NEGOTIABLE');
+  lines.push('UPCHARGE APPLIES FOR ORDERS BELOW MCQ/MOQ');
+  return lines;
 };
