@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, Home, Globe, Save, LogOut, X } from 'lucide-react';
 import { QuotationPage } from './QuotationPage';
 import { QuoteHistoryPage } from './QuoteHistoryPage';
-import { normalizeQuoteMargins } from '../utils/helpers';
+import { normalizeQuote } from '../utils/quoteModel';
 
 // ============================================================
 // 견적서 워크스페이스 — '견적서 작성' + '견적 히스토리'를 한 메뉴로 병합
@@ -55,7 +55,7 @@ export const QuotationWorkspacePage = (props) => {
 
   const backToList = () => guard(() => setMode('list'));
   const openNew = () => guard(() => { handleNewQuote(true); enterForm(); });
-  const loadQuote = (quote) => guard(() => { setQuoteInput(normalizeQuoteMargins(quote)); enterForm(); });
+  const loadQuote = (quote) => guard(() => { setQuoteInput(normalizeQuote(quote)); enterForm(); });
 
   // 상단 네비 등 화면 밖으로 이탈할 때도 변경사항 확인 (App의 requestSetActiveTab이 이 가드를 통과)
   //  dep 배열 없음 → 매 렌더마다 최신 mode/quoteInput 클로저로 갱신, 언마운트 시 해제
@@ -77,8 +77,8 @@ export const QuotationWorkspacePage = (props) => {
   // 확인 모달 액션들
   const closeGuard = () => setPendingLeave(null);
   const guardSaveAndLeave = async () => {
-    if (!quoteInput.buyerName || !(quoteInput.items || []).length) {
-      showToast && showToast('바이어 이름과 품목이 있어야 저장할 수 있어요.', 'error');
+    if (!quoteInput.buyerName || !((quoteInput.items || []).length + (quoteInput.customItems || []).length)) {
+      showToast && showToast('바이어 이름과 품목(기준 견적이나 별도 견적)이 있어야 저장할 수 있어요.', 'error');
       return;
     }
     const ok = await persistQuote();
@@ -162,7 +162,7 @@ export const QuotationWorkspacePage = (props) => {
             </div>
             <div className="flex items-center justify-between text-[10px] text-slate-400">
               <span>{q.date}</span>
-              <span className="text-slate-500">{(q.items || []).length} items · {q.currency}</span>
+              <span className="text-slate-500">{(q.items || []).length} items{(q.customItems || []).length > 0 ? ` + 별도 ${(q.customItems || []).length}` : ''} · {q.currency}</span>
             </div>
           </button>
         ))}

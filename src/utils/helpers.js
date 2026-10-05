@@ -101,28 +101,7 @@ export const computeSellPrice = (cost, sheet, viewMode, tierKey, exchangeRate = 
 };
 
 /**
- * 견적 YD당 정액(구간별)을 통화가 바뀔 때 환율로 환산. 원 → $ 는 센트, $ → 원 은 1원 단위 반올림.
- * @param {Object} marginAdd { '1k', '3k', '5k' }
- * @param {boolean} toUsd   true: 원 → $, false: $ → 원
- * @param {number} rate     원/$ (견적 환율)
- */
-export const convertMarginAdd = (marginAdd, toUsd, rate) => {
-  const r = Number(rate) > 0 ? Number(rate) : 1450;
-  const out = {};
-  ['1k', '3k', '5k'].forEach(t => {
-    const v = Number(marginAdd?.[t]) || 0;
-    out[t] = toUsd ? Number((v / r).toFixed(2)) : Math.round(v * r);
-  });
-  return out;
-};
-
-/** 견적이 지금 마진 방식(매출이익율·YD당 정액)인지 — 아니면 아주 옛날 extraMargin(마크업) 견적 */
-export const isNewMarginModel = (quote) =>
-  quote?.bulkMarginRate !== undefined ||
-  quote?.marginAdd !== undefined ||
-  (quote?.items || []).some(it => it && it.marginRate !== undefined);
-
-/**
+ * [가설계서 판매가 시뮬레이션 전용] 견적서는 utils/quoteModel.js 의 toQuoteTierRate (300~5,000YD 6구간)
  * 매출이익율(%) 값을 구간별 객체 { '1k', '3k', '5k' } 로 정규화합니다. (0~99 clamp)
  *  - 숫자(레거시 단일값) → 세 구간 모두 같은 값으로 펼침
  *  - 객체(신규 구간별) → 각 구간값을 clamp
@@ -150,21 +129,6 @@ export const toTierAdd = (val) => {
   }
   const v = n(val);
   return { '1k': v, '3k': v, '5k': v };
-};
-
-/**
- * 견적서를 에디터(작성/수정/복제)로 불러올 때, 매출이익율을 구간별 객체로 정규화합니다.
- *  - 일괄값(bulkMarginRate)과 각 품목(item.marginRate)을 { '1k','3k','5k' } 형태로 통일
- *  - 단, 아주 옛날 'extraMargin'만 가진 레거시 견적은 그대로 둠(가격 보존)
- */
-export const normalizeQuoteMargins = (quote) => {
-  if (!quote) return quote;
-  if (!isNewMarginModel(quote)) return quote; // extraMargin 기반 구버전 견적은 손대지 않음
-  return {
-    ...quote,
-    bulkMarginRate: toTierRate(quote.bulkMarginRate),
-    items: (quote.items || []).map(it => ({ ...it, marginRate: toTierRate(it.marginRate) })),
-  };
 };
 
 /**
@@ -223,61 +187,4 @@ export const getQuoteValidUntil = (dateString, option = '2weeks') => {
     .toUpperCase();
 };
 
-// ----------------------------------------------------------------------
-// 견적서 가격 표시 공통 헬퍼 (R1)
-// 견적 아이템의 신규/레거시 필드 호환 + extraMargin 가산 + 통화 포맷을
-// 단일 진실원에서 처리하여 Quotation/History/PDF 4곳에서 일관된 가격 표시.
-// ----------------------------------------------------------------------
-
-/**
- * 견적 아이템에서 tier별 base price를 안전하게 추출.
- * 신규 필드(basePrice1k/3k/5k) 우선, 레거시 필드(price1k/3k/5k) 폴백.
- * @param {Object} item - 견적 아이템 객체
- * @param {string} tier - '1k' | '3k' | '5k'
- */
-export const getBasePrice = (item, tier) => {
-  const newKey = `basePrice${tier}`;
-  const oldKey = `price${tier}`;
-  return Number(item?.[newKey] ?? item?.[oldKey] ?? 0);
-};
-
-/**
- * 견적 가격 계산: '매출이익율(%)'(원단별·구간별) + 'YD당 정액(원/$)'(구간별)을 적용한 뒤 통화별 스마트 반올림.
- * 공식: 판가 = base / (1 - rate%) + add
- *  - rate = 원단별 매출이익율(item.marginRate[tier]). 없으면 일괄값(quote.bulkMarginRate[tier])
- *           ※ 레거시 저장본은 객체가 아닌 단일 숫자일 수 있어 그 경우 모든 구간에 동일 적용
- *  - add  = 구간별 YD당 정액(quote.marginAdd[tier])
- *  - rate=0, add=0 → 판가 = base (영업 기준원가 그대로)
- * @param {Object} item - 견적 아이템 (basePrice1k/3k/5k, marginRate 보유)
- * @param {string} tier - '1k' | '3k' | '5k'
- * @param {Object} quote - 견적 객체 (bulkMarginRate/marginAdd). 구버전은 extraMargin(%) 폴백.
- * @param {string} currency - 'USD' | 'KRW'
- */
-export const calcQuotePrice = (item, tier, quote, currency) => {
-  const base = getBasePrice(item, tier);
-  const isNewModel =
-    (quote && (quote.marginAdd !== undefined || quote.bulkMarginRate !== undefined)) ||
-    (item && item.marginRate !== undefined);
-  if (!isNewModel) {
-    // 레거시 견적(extraMargin만 보유): 기존 마크업 방식으로 과거 숫자를 그대로 보존
-    const markup = 1 + (Number(quote?.extraMargin) || 0) / 100;
-    return smartRound(base * markup, currency);
-  }
-  // 매출이익율(%): 구간별 객체/단일 숫자 모두 지원. 원단별(item) 값 우선, 없으면 일괄값(quote).
-  const pickRate = (val) => {
-    if (val === undefined || val === null) return undefined;
-    return (typeof val === 'object') ? (Number(val[tier]) || 0) : (Number(val) || 0);
-  };
-  const rate = pickRate(item?.marginRate) ?? pickRate(quote?.bulkMarginRate) ?? 0;
-  const add = Number(quote?.marginAdd?.[tier]) || 0;
-  return smartRound(applyGrossMargin(base, rate) + add, currency);
-};
-
-/**
- * 견적 가격을 통화별 표기(￦/$)로 포맷팅.
- * @param {number} price
- * @param {string} currency - 'USD' | 'KRW'
- */
-export const formatQuotePrice = (price, currency) => {
-  return currency === 'USD' ? `$${usd(price)}` : `￦${num(price)}`;
-};
+// 견적서 가격 계산(기준원가·판매가·별도 견적)은 utils/quoteModel.js 로 옮김 (2026-10-05)

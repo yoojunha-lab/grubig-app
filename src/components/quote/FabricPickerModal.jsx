@@ -6,6 +6,7 @@ import { X, Search, Package, LogIn, CheckCircle2 } from 'lucide-react';
 //  - 각 행의 "원단추가" 버튼으로 즉시 추가(모달은 닫히지 않음 → 연속 추가 가능)
 //  - 이미 견적에 담긴 원단(existingFabricIds)은 "추가됨" 으로 비활성 표시
 //  - onPick(fabricId): 부모(견적서)에서 실제 추가 처리(중복차단·토스트 포함)
+//  - title: 팝업 제목 (별도 견적용 — 같은 원단을 조건만 바꿔 여러 번 넣을 수 있어 existingFabricIds 없이 씀)
 export const FabricPickerModal = ({
   isOpen,
   onClose,
@@ -13,6 +14,7 @@ export const FabricPickerModal = ({
   existingFabricIds = [],
   yarnLibrary = [],
   onPick,
+  title = '원단 선택',
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -59,7 +61,7 @@ export const FabricPickerModal = ({
         <div className="p-5 border-b border-slate-200 flex items-center justify-between shrink-0">
           <div>
             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <Package className="w-5 h-5 text-indigo-600" /> 원단 선택
+              <Package className="w-5 h-5 text-indigo-600" /> {title}
             </h3>
             <p className="text-xs text-slate-500 mt-1">견적서에 추가할 원단을 검색해서 <span className="font-bold text-indigo-600">원단추가</span> 버튼을 누르세요. (여러 개 연속 추가 가능)</p>
           </div>

@@ -31,7 +31,8 @@ import { useCollection } from '../hooks/domains/useCollection';
 import { useProformaInvoice } from '../hooks/domains/useProformaInvoice';
 import { usePartner } from '../hooks/domains/usePartner';
 import { useLabdip } from '../hooks/domains/useLabdip';
-import { calcQuotePrice, getQuoteValidUntil, num } from '../utils/helpers';
+import { getQuoteValidUntil, num } from '../utils/helpers';
+import { calcQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice, describeCustomConditions } from '../utils/quoteModel';
 import { resolveCostSettings, findKnitGrade, findProcessType, resolveKnitKgRate, isImportSupplier, findImportCountry, sumYarnRatio, isYarnRatioComplete } from '../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 
@@ -144,6 +145,7 @@ const App = () => {
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isBuyerModalOpen, setIsBuyerModalOpen] = useState(false);
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  const [pdfKind, setPdfKind] = useState('standard'); // 견적서 PDF 종류: 'standard' 기준 견적서 / 'special' 별도 견적서
   const [activeMasterModal, setActiveMasterModal] = useState(null);
 
   const [fabricSearchTerm, setFabricSearchTerm] = useState('');
@@ -365,7 +367,7 @@ const App = () => {
   const {
     fabricInput, setFabricInput, editingFabricId, expandedFabricId, setExpandedFabricId,
     handleFabricChange, handleNestedChange, handleYarnSlotChange,
-    handleSaveFabric, handleEditFabric, handleDeleteFabric, resetFabricForm, calculateCost, getMergedYarnName
+    handleSaveFabric, handleEditFabric, handleDeleteFabric, resetFabricForm, calculateCost, calculateCostAtQty, getMergedYarnName
   } = useFabric(yarnLibrary, savedFabrics, designSheets, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate, savedQuotes, costSettings);
 
   const {
@@ -377,9 +379,12 @@ const App = () => {
   const {
     quoteInput, setQuoteInput, handleQuoteSettingChange, handleRecalcQuote, createQuoteItem,
     handleQuoteMarginChange, handleBulkMarginRateChange, handleQuoteItemMarginChange,
+    handleToggleShownTier, handleResetTierDefaults, handleQuoteExcludeChange,
     handleAddFabricToQuote, handleGridPaste,
-    handleRemoveItemFromQuote, handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
-  } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate);
+    handleRemoveItemFromQuote, handleRemoveItemsFromQuote,
+    handleCopyToCustom, handleAddCustomFabric, handleCustomItemChange, handleRemoveCustomItems,
+    handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
+  } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, calculateCostAtQty);
 
   // ⚓️ 설계서 시스템 훅
   const {
@@ -962,17 +967,24 @@ const App = () => {
 
   // OLD QUOTATION LOGICS MOVED TO HOOKS
 
-  const handleDownloadPDF = (targetQuoteFromHistory = null) => {
+  // kind: 'standard' 기준 견적서 / 'special' 별도 견적서 — 바이어에게 따로 보냄 (대표님 요청 2026-10-05)
+  const handleDownloadPDF = (targetQuoteFromHistory = null, kind = 'standard') => {
     // History 페이지 등에서 특정 견적서 출력 시 해당 견적서 데이터를 최우선으로 적용합니다.
     const targetQuote = (targetQuoteFromHistory && targetQuoteFromHistory.id) ? targetQuoteFromHistory : quoteInput;
 
-    if (!targetQuote.items || targetQuote.items.length === 0) {
-      showToast("내용이 없습니다.", 'error');
+    if (kind === 'special') {
+      if (getShownCustomItems(targetQuote).length === 0) {
+        showToast("별도 견적서에 넣을 줄이 없어요. (별도 견적의 '견적서' 체크 확인)", 'error');
+        return;
+      }
+    } else if (!targetQuote.items || targetQuote.items.length === 0) {
+      showToast("기준 견적에 품목이 없습니다.", 'error');
       return;
     }
 
     // PDFRenderer가 올바른 데이터로 렌더링되도록 항상 setQuoteInput 실행
     setQuoteInput(targetQuote);
+    setPdfKind(kind);
     setIsPdfGenerating(true);
     showToast("인쇄 다이얼로그에서 '대상 = PDF로 저장'을 선택해 주세요.", 'info');
 
@@ -983,7 +995,7 @@ const App = () => {
     setTimeout(() => {
       const oldTitle = document.title;
       const safeBuyer = String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9\s-가-힣]/g, '');
-      const filename = `Quotation_${safeBuyer}_${targetQuote.date || ''}`.trim();
+      const filename = `Quotation${kind === 'special' ? '_Special' : ''}_${safeBuyer}_${targetQuote.date || ''}`.trim();
       try {
         document.title = filename;
         window.print();
@@ -999,56 +1011,105 @@ const App = () => {
   //   - PDF와 동일한 내용(바이어/날짜/통화/유효기간 + 품목별 스펙·단가)
   //   - 단가는 Extra Margin 반영 + 통화별 반올림된 최종가(PDF와 일치)
   //   - History 행에서 호출 시 해당 견적서, 작성 화면에서 호출 시 현재 quoteInput 사용
-  const handleDownloadQuoteExcel = (targetQuoteFromHistory = null) => {
+  const handleDownloadQuoteExcel = (targetQuoteFromHistory = null, kind = 'standard') => {
     if (!isXlsxReady || !window.XLSX) {
       showToast('엑셀 모듈을 불러오는 중입니다. 잠시 후 다시 시도해주세요.', 'error');
       return;
     }
     const targetQuote = (targetQuoteFromHistory && targetQuoteFromHistory.id) ? targetQuoteFromHistory : quoteInput;
-    if (!targetQuote.items || targetQuote.items.length === 0) {
-      showToast("내용이 없습니다.", 'error');
+    // kind: 'standard' 기준 견적서 / 'special' 별도 견적서 — PDF와 같이 따로 내보냄
+    const isSpecial = kind === 'special';
+    const specialRows = getShownCustomItems(targetQuote);
+    if (isSpecial ? specialRows.length === 0 : !(targetQuote.items || []).length) {
+      showToast(isSpecial ? "별도 견적서에 넣을 줄이 없어요. (별도 견적의 '견적서' 체크 확인)" : "기준 견적에 품목이 없습니다.", 'error');
       return;
     }
 
     const cur = targetQuote.currency;
+    const isKrw = cur !== 'USD';
+    const priceBasis = isKrw ? 'PRICE IN KRW · VAT EXCLUDED' : 'FOB PRICE';
+    const cell = (v) => (v === null || v === undefined ? '' : v); // 기준원가가 없는 구간(예전 견적)은 빈칸
+    const tierLabels = (ts) => `${ts.map(t => t.label.replace(' YD', '')).join(' / ')} YD`;
 
-    const rows = (targetQuote.items || []).map((item, idx) => ({
-      'No': idx + 1,
-      'Article': item.article || '',
-      'Spec': item.itemName || '',
-      'Cut(inch)': item.widthCut ?? '',
-      'Full(inch)': item.widthFull ?? '',
-      'GSM': item.gsm ?? '',
-      'g/YD': Number(item.gYd) || 0,
-      'MCQ(YD)': Number(item.mcqYd || 300),
-      [`1,000YD (${cur})`]: calcQuotePrice(item, '1k', targetQuote, cur),
-      [`3,000YD (${cur})`]: calcQuotePrice(item, '3k', targetQuote, cur),
-      [`5,000YD (${cur})`]: calcQuotePrice(item, '5k', targetQuote, cur),
-    }));
+    let rows;
+    let notes;
+    let cols;
+    if (!isSpecial) {
+      // 기준 견적서: 고른 구간만 (PDF와 같은 판매가·같은 조건 문구)
+      const tiers = getShownTiers(targetQuote);
+      rows = (targetQuote.items || []).map((item, idx) => {
+        const row = {
+          'No': idx + 1,
+          'Article': item.article || '',
+          'Spec': item.itemName || '',
+          'Cut(inch)': item.widthCut ?? '',
+          'Full(inch)': item.widthFull ?? '',
+          'GSM': item.gsm ?? '',
+          'g/YD': Number(item.gYd) || 0,
+          'MCQ(YD/color)': Number(item.mcqYd || 300),
+        };
+        tiers.forEach(t => { row[`${t.label.replace(' YD', 'YD')} (${cur})`] = cell(calcQuotePrice(item, t.key, targetQuote, cur)); });
+        return row;
+      });
+      const small = tiers.filter(t => t.group === 'small');
+      const mcq = tiers.filter(t => t.group === 'mcq');
+      notes = [
+        '• ±5% WEIGHT AND WIDTH TOLERANCE',
+        '• PRICES ARE PER YARD, BASED ON TOTAL ORDER QUANTITY',
+        ...(small.length ? [`• ${tierLabels(small)}: UP TO 2 COLORS (SMALL-LOT DYEING CHARGE INCLUDED)`] : []),
+        ...(mcq.length ? [`• ${tierLabels(mcq)}: MCQ PER COLOR REQUIRED`] : []),
+        ...(targetQuote.excludeVisual === true ? ['• VISUAL INSPECTION NOT INCLUDED'] : []),
+        ...(targetQuote.excludeChem === true ? ['• TEST REPORT NOT INCLUDED'] : []),
+        ...(isKrw ? ['• VAT EXCLUDED'] : []),
+        '• BULK PRICING NEGOTIABLE',
+        '• UPCHARGE APPLIES FOR ORDERS BELOW MCQ/MOQ',
+      ];
+      cols = [{ wch: 5 }, { wch: 16 }, { wch: 28 }, { wch: 9 }, { wch: 9 }, { wch: 7 }, { wch: 8 }, { wch: 13 }, ...tiers.map(() => ({ wch: 14 }))];
+    } else {
+      // 별도 견적서: '견적서' 체크한 줄만 (수량·컬러·조건·단가)
+      rows = specialRows.map((r, idx) => ({
+        'No': idx + 1,
+        'Article': r.article || '',
+        'Spec': r.itemName || '',
+        'Cut(inch)': r.widthCut ?? '',
+        'Full(inch)': r.widthFull ?? '',
+        'GSM': r.gsm ?? '',
+        'g/YD': Number(r.gYd) || 0,
+        "Q'TY(YD)": Number(r.qty) || 0,
+        'Colors': Number(r.colors) || 0,
+        'Conditions': describeCustomConditions(r) || '-',
+        [`Price/YD (${cur})`]: cell(calcCustomQuotePrice(r, targetQuote, cur)),
+      }));
+      notes = [
+        '• ±5% WEIGHT AND WIDTH TOLERANCE',
+        '• PRICES APPLY ONLY TO THE QUANTITY (TOTAL PER ORDER) AND NUMBER OF COLORS STATED',
+        ...(isKrw ? ['• VAT EXCLUDED'] : []),
+        '• OTHER QUANTITIES OR COLORS: PLEASE ASK FOR A NEW QUOTATION',
+      ];
+      cols = [{ wch: 5 }, { wch: 16 }, { wch: 28 }, { wch: 9 }, { wch: 9 }, { wch: 7 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 34 }, { wch: 16 }];
+    }
 
     const validUntil = getQuoteValidUntil(targetQuote.date, targetQuote.validityOption);
     const meta = [
-      ['GRUBIG FABRIC QUOTATION (FOB PRICE)'],
+      [`GRUBIG FABRIC QUOTATION${isSpecial ? ' - SPECIAL CONDITIONS' : ''} (${priceBasis})`],
       [`Buyer: ${targetQuote.buyerName || ''}${targetQuote.attention ? `    Attn: ${targetQuote.attention}` : ''}`],
       [`Date: ${targetQuote.date || ''}    Currency: ${cur}    Valid Until: ${validUntil}`],
       [],
     ];
     const ws = window.XLSX.utils.aoa_to_sheet(meta);
     window.XLSX.utils.sheet_add_json(ws, rows, { origin: 'A5' });
-    ws['!cols'] = [
-      { wch: 5 }, { wch: 16 }, { wch: 28 }, { wch: 9 }, { wch: 9 },
-      { wch: 7 }, { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 14 }
-    ];
+    window.XLSX.utils.sheet_add_aoa(ws, [[], ...notes.map(n => [n])], { origin: -1 }); // 표 아래 조건 (PDF 약관과 같은 문구)
+    ws['!cols'] = cols;
 
     const wb = window.XLSX.utils.book_new();
-    window.XLSX.utils.book_append_sheet(wb, ws, 'Quotation');
+    window.XLSX.utils.book_append_sheet(wb, ws, isSpecial ? 'Special Quotation' : 'Quotation');
     const safeBuyer = String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim();
-    const fileParts = ['Quotation', safeBuyer, targetQuote.date].filter(Boolean);
+    const fileParts = [isSpecial ? 'Quotation_Special' : 'Quotation', safeBuyer, targetQuote.date].filter(Boolean);
     window.XLSX.writeFile(wb, `${fileParts.join('_')}.xlsx`);
-    showToast(`${rows.length}개 품목을 엑셀로 내보냈습니다.`, 'success');
+    showToast(`${rows.length}개 ${isSpecial ? '별도 견적 줄' : '품목'}을 엑셀로 내보냈습니다.`, 'success');
   };
 
-  // [R1] formatQuotePrice / getBasePrice 정의는 helpers.js로 이전됨.
+  // [R1] 견적 판매가·표기(calcQuotePrice / formatQuotePrice 등)는 utils/quoteModel.js 에 있음.
   //   각 자식 컴포넌트(PDFRenderer/QuotationPage/QuoteHistoryPage)가 직접 import해서 사용
 
   const currentCalcFull = calculateCost(fabricInput);
@@ -1206,6 +1267,14 @@ const App = () => {
             handleQuoteMarginChange={handleQuoteMarginChange}
             handleBulkMarginRateChange={handleBulkMarginRateChange}
             handleQuoteItemMarginChange={handleQuoteItemMarginChange}
+            handleToggleShownTier={handleToggleShownTier}
+            handleResetTierDefaults={handleResetTierDefaults}
+            handleQuoteExcludeChange={handleQuoteExcludeChange}
+            handleRemoveItemsFromQuote={handleRemoveItemsFromQuote}
+            handleCopyToCustom={handleCopyToCustom}
+            handleAddCustomFabric={handleAddCustomFabric}
+            handleCustomItemChange={handleCustomItemChange}
+            handleRemoveCustomItems={handleRemoveCustomItems}
             selectedFabricIdForQuote={selectedFabricIdForQuote}
             setSelectedFabricIdForQuote={setSelectedFabricIdForQuote}
             savedFabrics={savedFabrics}
@@ -1543,6 +1612,7 @@ const App = () => {
           isPdfGenerating={isPdfGenerating}
           printRef={printRef}
           quoteInput={quoteInput}
+          kind={pdfKind}
         />
 
         {/* PI / 거래확인서 인쇄 문서 (off-screen, body.printing-pi 일 때만 노출) */}

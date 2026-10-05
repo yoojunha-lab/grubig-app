@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Search, X, Trash2, AlertCircle, Copy, ChevronDown, ChevronRight, CheckCircle2, FileText, FileSpreadsheet, FilePlus } from 'lucide-react';
-import { num, getQuoteValidUntil, calcQuotePrice, formatQuotePrice, normalizeQuoteMargins } from '../utils/helpers';
+import { num, getQuoteValidUntil } from '../utils/helpers';
+import { calcQuotePrice, formatQuotePrice, normalizeQuote, getShownTiers, getShownCustomItems, calcCustomQuotePrice } from '../utils/quoteModel';
 
 export const QuoteHistoryPage = ({
   quoteBuyerFilter,
@@ -70,7 +71,7 @@ export const QuoteHistoryPage = ({
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-x-auto">
           <table className="w-full text-xs text-left min-w-[820px] border-collapse">
             <thead className="bg-slate-50 text-slate-400 font-bold border-b-2 border-slate-200">
-              <tr className="text-[10px] uppercase tracking-wide divide-x divide-slate-200"><th className="py-2 px-3 w-24">Date</th><th className="py-2 px-3 w-36">Buyer</th><th className="py-2 px-3 w-28">ATTN (담당자)</th><th className="py-2 px-3">Remark (비고)</th><th className="py-2 px-3 w-28">Type</th><th className="py-2 px-3 w-14 text-center">Items</th><th className="py-2 px-3 w-24">Author</th><th className="py-2 px-3 w-72 text-center">Action</th></tr>
+              <tr className="text-[10px] uppercase tracking-wide divide-x divide-slate-200"><th className="py-2 px-3 w-24">Date</th><th className="py-2 px-3 w-36">Buyer</th><th className="py-2 px-3 w-28">ATTN (담당자)</th><th className="py-2 px-3">Remark (비고)</th><th className="py-2 px-3 w-28">Type</th><th className="py-2 px-3 w-20 text-center">Items</th><th className="py-2 px-3 w-24">Author</th><th className="py-2 px-3 w-[22rem] text-center">Action</th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {[...filteredQuotesList]
@@ -102,6 +103,7 @@ export const QuoteHistoryPage = ({
                   <td className="py-1.5 px-3 text-center">
                     <div className={`px-2 py-0.5 text-xs rounded-full font-bold flex items-center justify-center gap-0.5 w-max mx-auto select-none transition-colors ${isExpanded ? 'bg-slate-200 text-slate-700' : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'}`}>
                       {quote.items?.length || 0}
+                      {(quote.customItems || []).length > 0 && <span className="text-amber-600" title="별도 견적 줄 수">+{quote.customItems.length}</span>}
                       {isExpanded ? <ChevronDown className="w-3.5 h-3.5 opacity-70" /> : <ChevronRight className="w-3.5 h-3.5 opacity-70" />}
                     </div>
                   </td>
@@ -109,9 +111,19 @@ export const QuoteHistoryPage = ({
                   <td className="py-1.5 px-3">
                     <div className="flex gap-1 justify-center flex-nowrap">
                       <button onClick={(e) => { e.stopPropagation(); handleDuplicateQuote(quote, () => setActiveTab('quotation')); }} className="shrink-0 whitespace-nowrap bg-emerald-50 text-emerald-600 px-2 py-1 rounded text-[11px] font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1" title="이 견적서를 복사하여 새 견적서 작성하기"><Copy className="w-3 h-3" /> <span className="hidden sm:inline">복제</span></button>
-                      <button onClick={(e) => { e.stopPropagation(); setQuoteInput(normalizeQuoteMargins(quote)); setActiveTab('quotation'); }} className="shrink-0 whitespace-nowrap bg-slate-100 text-slate-600 px-2.5 py-1 rounded text-[11px] font-bold hover:bg-slate-200 transition-colors">수정</button>
-                      <button onClick={(e) => { e.stopPropagation(); handleDownloadPDF(quote); }} className="shrink-0 whitespace-nowrap bg-indigo-50 text-indigo-600 px-2.5 py-1 rounded text-[11px] font-bold hover:bg-indigo-100 transition-colors">PDF</button>
-                      <button onClick={(e) => { e.stopPropagation(); handleDownloadExcel(quote); }} className="shrink-0 whitespace-nowrap bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-[11px] font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1" title="엑셀로 다운로드"><FileSpreadsheet className="w-3 h-3" /> <span className="hidden sm:inline">Excel</span></button>
+                      <button onClick={(e) => { e.stopPropagation(); setQuoteInput(normalizeQuote(quote)); setActiveTab('quotation'); }} className="shrink-0 whitespace-nowrap bg-slate-100 text-slate-600 px-2.5 py-1 rounded text-[11px] font-bold hover:bg-slate-200 transition-colors">수정</button>
+                      {(quote.items || []).length > 0 && (
+                        <>
+                          <button onClick={(e) => { e.stopPropagation(); handleDownloadPDF(quote, 'standard'); }} title="기준 견적서 PDF" className="shrink-0 whitespace-nowrap bg-indigo-50 text-indigo-600 px-2.5 py-1 rounded text-[11px] font-bold hover:bg-indigo-100 transition-colors">PDF</button>
+                          <button onClick={(e) => { e.stopPropagation(); handleDownloadExcel(quote, 'standard'); }} className="shrink-0 whitespace-nowrap bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-[11px] font-bold hover:bg-emerald-100 transition-colors flex items-center gap-1" title="기준 견적서 엑셀"><FileSpreadsheet className="w-3 h-3" /> <span className="hidden sm:inline">Excel</span></button>
+                        </>
+                      )}
+                      {getShownCustomItems(quote).length > 0 && (
+                        <>
+                          <button onClick={(e) => { e.stopPropagation(); handleDownloadPDF(quote, 'special'); }} title="별도 견적서 PDF" className="shrink-0 whitespace-nowrap bg-amber-50 text-amber-700 px-2 py-1 rounded text-[11px] font-bold hover:bg-amber-100 transition-colors">별도 PDF</button>
+                          <button onClick={(e) => { e.stopPropagation(); handleDownloadExcel(quote, 'special'); }} title="별도 견적서 엑셀" className="shrink-0 whitespace-nowrap bg-amber-50 text-amber-700 px-2 py-1 rounded text-[11px] font-bold hover:bg-amber-100 transition-colors flex items-center gap-1"><FileSpreadsheet className="w-3 h-3" /> <span className="hidden sm:inline">별도</span></button>
+                        </>
+                      )}
                       <button onClick={(e) => { e.stopPropagation(); handleDeleteQuote(quote.id, (id) => setSavedQuotes(savedQuotes.filter(q => q.id !== id))); }} className="shrink-0 text-slate-300 hover:text-red-500 p-1 rounded hover:bg-red-50 transition-colors" title="삭제"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </td>
@@ -120,40 +132,74 @@ export const QuoteHistoryPage = ({
                 {isExpanded && (
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <td colSpan="8" className="p-0">
-                      <div className="px-6 py-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> 포함된 품목 리스트</p>
-                          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shrink-0">
-                            <table className="w-full text-xs text-left">
-                              <thead className="bg-slate-50 text-slate-500">
-                                <tr>
-                                  <th className="py-2 px-3 font-bold">Article</th>
-                                  <th className="py-2 px-3">Spec</th>
-                                  <th className="py-2 px-3 text-right">MCQ</th>
-                                  <th className="py-2 px-3 text-right">1k 단가</th>
-                                  <th className="py-2 px-3 text-right font-bold text-blue-600">3k (Main)</th>
-                                  <th className="py-2 px-3 text-right">5k 단가</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100">
-                                {(quote.items || []).map((item, idx) => {
-                                  // 실제 나간 단가로 표시: calcQuotePrice = 기준원가 + 매출이익율(%) + YD당 정액.
-                                  // (기존엔 getBasePrice=마진 미포함 기준원가만 보여 PDF/실제 견적가와 달랐음 → 버그 수정)
-                                  const cur = quote.currency;
-                                  return (
-                                    <tr key={idx} className="hover:bg-slate-50">
-                                      <td className="py-2 px-3 font-bold text-slate-800 uppercase">{item.article}</td>
-                                      <td className="py-2 px-3 text-slate-600 truncate max-w-[150px]" title={item.itemName}>{item.itemName}</td>
-                                      <td className="py-2 px-3 text-right text-orange-600 font-bold">{num(item.mcqYd || 300)} YD</td>
-                                      <td className="py-2 px-3 text-right text-slate-500 font-mono">{formatQuotePrice(calcQuotePrice(item, '1k', quote, cur), cur)}</td>
-                                      <td className="py-2 px-3 text-right text-blue-700 font-bold font-mono">{formatQuotePrice(calcQuotePrice(item, '3k', quote, cur), cur)}</td>
-                                      <td className="py-2 px-3 text-right text-slate-500 font-mono">{formatQuotePrice(calcQuotePrice(item, '5k', quote, cur), cur)}</td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
+                      <div className="px-6 py-4 grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
+                        <div className="space-y-3 min-w-0">
+                          <div>
+                            <p className="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> 기준 견적 — 견적서에 나간 구간</p>
+                            <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto shrink-0">
+                              <table className="w-full text-xs text-left">
+                                <thead className="bg-slate-50 text-slate-500">
+                                  <tr>
+                                    <th className="py-2 px-3 font-bold">Article</th>
+                                    <th className="py-2 px-3">Spec</th>
+                                    <th className="py-2 px-3 text-right">MCQ</th>
+                                    {getShownTiers(quote).map(t => (
+                                      <th key={t.key} className={`py-2 px-3 text-right whitespace-nowrap ${t.main ? 'font-bold text-blue-600' : ''}`}>{t.label}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {(quote.items || []).length === 0 && (
+                                    <tr><td colSpan={3 + getShownTiers(quote).length} className="py-3 px-3 text-center text-slate-400">기준 견적 품목 없음</td></tr>
+                                  )}
+                                  {(quote.items || []).map((item, idx) => {
+                                    // 실제 나간 단가로 표시: calcQuotePrice = 기준원가 + 매출이익율(%) + YD당 정액.
+                                    // (기존엔 getBasePrice=마진 미포함 기준원가만 보여 PDF/실제 견적가와 달랐음 → 버그 수정)
+                                    const cur = quote.currency;
+                                    return (
+                                      <tr key={idx} className="hover:bg-slate-50">
+                                        <td className="py-2 px-3 font-bold text-slate-800 uppercase whitespace-nowrap">{item.article}</td>
+                                        <td className="py-2 px-3 text-slate-600 truncate max-w-[150px]" title={item.itemName}>{item.itemName}</td>
+                                        <td className="py-2 px-3 text-right text-orange-600 font-bold whitespace-nowrap">{num(item.mcqYd || 300)} YD</td>
+                                        {getShownTiers(quote).map(t => (
+                                          <td key={t.key} className={`py-2 px-3 text-right font-mono whitespace-nowrap ${t.main ? 'text-blue-700 font-bold' : 'text-slate-500'}`}>{formatQuotePrice(calcQuotePrice(item, t.key, quote, cur), cur)}</td>
+                                        ))}
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
                           </div>
+                          {(quote.customItems || []).length > 0 && (
+                            <div>
+                              <p className="text-xs font-bold text-amber-700 mb-2 flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> 별도 견적 <span className="font-medium text-slate-400">(흐린 줄은 견적서에 안 나감)</span></p>
+                              <div className="bg-white border border-amber-200 rounded-lg overflow-x-auto shrink-0">
+                                <table className="w-full text-xs text-left">
+                                  <thead className="bg-amber-50/60 text-slate-500">
+                                    <tr>
+                                      <th className="py-2 px-3 font-bold">Article</th>
+                                      <th className="py-2 px-3 text-right">수량</th>
+                                      <th className="py-2 px-3 text-center">컬러</th>
+                                      <th className="py-2 px-3">조건</th>
+                                      <th className="py-2 px-3 text-right">판가/YD</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {quote.customItems.map((row, idx) => (
+                                      <tr key={row.id || idx} className={row.show === false ? 'opacity-50' : ''}>
+                                        <td className="py-2 px-3 font-bold text-slate-800 uppercase whitespace-nowrap">{row.article}</td>
+                                        <td className="py-2 px-3 text-right font-mono whitespace-nowrap">{num(row.qty)} YD</td>
+                                        <td className="py-2 px-3 text-center font-mono">{num(row.colors)}</td>
+                                        <td className="py-2 px-3 text-slate-500 text-[10px]">{[row.excludeVisual && '외관검사 제외', row.excludeChem && '시험성적서 제외'].filter(Boolean).join(' · ') || '-'}</td>
+                                        <td className="py-2 px-3 text-right font-mono font-bold text-amber-800 whitespace-nowrap">{formatQuotePrice(calcCustomQuotePrice(row, quote, quote.currency), quote.currency)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
                         </div>
                         <div className="flex flex-col justify-end">
                            <div className="bg-blue-50/50 border border-blue-100 p-3 rounded-lg flex items-start gap-2">
@@ -188,7 +234,7 @@ export const QuoteHistoryPage = ({
               <img src="/logo.png" alt="GRUBIG Logo" className="h-16 object-contain mx-auto mb-2" onError={(e) => e.target.style.display = 'none'} />
             </div>
             <div className="text-center border-b-2 border-slate-800 pb-3 mb-6">
-              <h2 className="text-2xl font-bold text-slate-900 mb-1 tracking-tight">FABRIC QUOTATION</h2><p className="text-slate-500 text-sm font-bold">FOB PRICE</p>
+              <h2 className="text-2xl font-bold text-slate-900 mb-1 tracking-tight">FABRIC QUOTATION</h2><p className="text-slate-500 text-sm font-bold">{quickViewQuote.currency === 'USD' ? 'FOB PRICE' : 'PRICE IN KRW · VAT EXCLUDED'}</p>
             </div>
             <div className="flex justify-between mb-6">
               <div className="w-1/2">
@@ -206,7 +252,7 @@ export const QuoteHistoryPage = ({
               <table className="w-full text-[11px] text-left mb-8 border-collapse min-w-[600px]">
                 <thead>
                   <tr className="border-b-2 border-slate-800">
-                    <th className="py-2 font-bold text-slate-900">Article</th><th className="py-2 font-bold text-slate-900">Spec</th><th className="py-2 font-bold text-slate-900 text-center">Cut</th><th className="py-2 font-bold text-slate-900 text-center">Full</th><th className="py-2 font-bold text-slate-900 text-right">GSM</th><th className="py-2 font-bold text-slate-900 text-right">g/YD</th><th className="py-2 font-bold text-slate-900 text-right text-orange-600">MCQ</th><th className="py-2 font-bold text-slate-900 text-right">1,000 YD</th><th className="py-2 font-bold text-slate-900 text-right">3,000 YD</th><th className="py-2 font-bold text-slate-900 text-right">5,000 YD</th>
+                    <th className="py-2 font-bold text-slate-900">Article</th><th className="py-2 font-bold text-slate-900">Spec</th><th className="py-2 font-bold text-slate-900 text-center">Cut</th><th className="py-2 font-bold text-slate-900 text-center">Full</th><th className="py-2 font-bold text-slate-900 text-right">GSM</th><th className="py-2 font-bold text-slate-900 text-right">g/YD</th><th className="py-2 font-bold text-slate-900 text-right text-orange-600">MCQ</th>{getShownTiers(quickViewQuote).map(t => <th key={t.key} className="py-2 font-bold text-slate-900 text-right">{t.label}</th>)}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -215,7 +261,7 @@ export const QuoteHistoryPage = ({
                     const cur = quickViewQuote.currency;
                     return (
                       <tr key={idx}>
-                        <td className="py-3 font-bold text-slate-800 uppercase">{item.article}</td><td className="py-3 text-slate-600 truncate max-w-[120px]">{item.itemName}</td><td className="py-3 text-center text-slate-500">{item.widthCut}"</td><td className="py-3 text-center text-slate-500">{item.widthFull}"</td><td className="py-3 text-right text-slate-500">{item.gsm}</td><td className="py-3 text-right text-slate-500 font-mono">{num(item.gYd)}</td><td className="py-3 text-right text-slate-900 font-mono font-bold">{num(item.mcqYd || 300)} YD</td><td className="py-3 text-right font-mono">{formatQuotePrice(calcQuotePrice(item, '1k', quickViewQuote, cur), cur)}</td><td className="py-3 text-right font-mono font-bold">{formatQuotePrice(calcQuotePrice(item, '3k', quickViewQuote, cur), cur)}</td><td className="py-3 text-right font-mono">{formatQuotePrice(calcQuotePrice(item, '5k', quickViewQuote, cur), cur)}</td>
+                        <td className="py-3 font-bold text-slate-800 uppercase">{item.article}</td><td className="py-3 text-slate-600 truncate max-w-[120px]">{item.itemName}</td><td className="py-3 text-center text-slate-500">{item.widthCut}"</td><td className="py-3 text-center text-slate-500">{item.widthFull}"</td><td className="py-3 text-right text-slate-500">{item.gsm}</td><td className="py-3 text-right text-slate-500 font-mono">{num(item.gYd)}</td><td className="py-3 text-right text-slate-900 font-mono font-bold">{num(item.mcqYd || 300)} YD</td>{getShownTiers(quickViewQuote).map(t => <td key={t.key} className={`py-3 text-right font-mono ${t.main ? 'font-bold' : ''}`}>{formatQuotePrice(calcQuotePrice(item, t.key, quickViewQuote, cur), cur)}</td>)}
                       </tr>
                     )
                   })}

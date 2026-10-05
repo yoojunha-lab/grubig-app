@@ -1,16 +1,59 @@
 import React, { useState } from 'react';
-import { FileText, Save, Download, X, Plus, ClipboardPaste, FileSpreadsheet, FilePlus, DollarSign, Search, ArrowLeft, RefreshCw } from 'lucide-react';
+import {
+  FileText, Save, Download, X, Plus, ClipboardPaste, FileSpreadsheet, FilePlus, DollarSign, Search, ArrowLeft, RefreshCw,
+  Tags, Calculator, ChevronDown, ChevronRight, Copy, Trash2, RotateCcw, AlertTriangle,
+} from 'lucide-react';
 import { PartnerSelectField } from '../components/common/PartnerSelectField';
-import { num, calcQuotePrice, formatQuotePrice, getBasePrice, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
+import { num, usd, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
+import { QUOTE_TIERS, QUOTE_TIER_GROUPS } from '../constants/quote';
+import {
+  calcQuotePrice, formatQuotePrice, getBasePrice, getItemTierRate, getShownTiers, isNewMarginModel,
+  calcCustomQuotePrice, getCustomRowRate, getCustomRowAdd,
+} from '../utils/quoteModel';
 import { FabricPickerModal } from '../components/quote/FabricPickerModal';
 import { CostWarningBadge } from '../components/cost/CostWarnings';
 
-// 견적 구간(오더 수량)
-const TIERS = [
-  { key: '1k', label: '1,000 YD' },
-  { key: '3k', label: '3,000 YD', main: true },
-  { key: '5k', label: '5,000 YD' },
-];
+// ============================================================
+// 견적서 작성 (2026-10-05 개편)
+//  · 기준 견적: 300~5,000YD 6구간 중 고른 구간만 바이어 견적서에 표시. 구간별 이익율·정액 + 견적 전체 외관검사·시험성적서 제외
+//  · 별도 견적: 원단마다 수량·컬러수·제외 항목을 바꿔 원가부터 다시 계산 (예: 300YD 3컬러)
+//  · 두 칸은 머리줄을 눌러 접고 펴기, PDF·엑셀은 칸마다 따로 (기준 견적서 / 별도 견적서)
+// ============================================================
+
+// 접고 펴는 칸 — 머리줄(아이콘·제목·개수) + 오른쪽 버튼
+const QuoteSection = ({ icon: Icon, title, count, desc, tone = 'blue', open, onToggle, actions, children }) => {
+  const head = tone === 'amber'
+    ? 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200'
+    : 'bg-gradient-to-r from-sky-50 to-blue-50 border-sky-200';
+  const iconColor = tone === 'amber' ? 'text-amber-600' : 'text-sky-700';
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-b ${head}`}>
+        <button type="button" onClick={onToggle} className="flex items-center gap-2 text-left min-w-0" title={open ? '접기' : '펼치기'}>
+          {open ? <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />}
+          <Icon className={`w-5 h-5 shrink-0 ${iconColor}`} />
+          <span className="text-base font-extrabold text-slate-800">{title}</span>
+          <span className="text-xs font-bold text-slate-400">({count})</span>
+          {desc && <span className="hidden lg:inline text-[11px] text-slate-500 font-medium truncate">{desc}</span>}
+        </button>
+        <div className="flex flex-wrap items-center gap-1.5">{actions}</div>
+      </div>
+      {open && <div className="p-4 space-y-3">{children}</div>}
+    </div>
+  );
+};
+
+// 칸 머리줄의 PDF·엑셀 버튼
+const ExportButtons = ({ onPdf, onExcel, label }) => (
+  <>
+    <button type="button" onClick={onPdf} title={`${label} PDF`} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 flex items-center gap-1.5 text-xs font-bold shadow-sm">
+      <Download className="w-3.5 h-3.5" /> {label} PDF
+    </button>
+    <button type="button" onClick={onExcel} title={`${label} 엑셀`} className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 flex items-center gap-1.5 text-xs font-bold shadow-sm">
+      <FileSpreadsheet className="w-3.5 h-3.5" /> 엑셀
+    </button>
+  </>
+);
 
 export const QuotationPage = ({
   quoteInput,
@@ -26,11 +69,17 @@ export const QuotationPage = ({
   handleQuoteMarginChange,
   handleBulkMarginRateChange,
   handleQuoteItemMarginChange,
+  handleToggleShownTier,
+  handleResetTierDefaults,
+  handleQuoteExcludeChange,
   savedFabrics,
   handleAddFabricToQuote,
   handleRemoveItemFromQuote,
-  createQuoteItem,
-  showToast,
+  handleRemoveItemsFromQuote,
+  handleCopyToCustom,
+  handleAddCustomFabric,
+  handleCustomItemChange,
+  handleRemoveCustomItems,
   handleGridPaste,
   globalExchangeRate,
   yarnLibrary = [],
@@ -38,20 +87,38 @@ export const QuotationPage = ({
   partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
 }) => {
   const currency = quoteInput.currency;
-  const cSym = currency === 'USD' ? '$' : '￦';
+  const isUsd = currency === 'USD';
+  const cSym = isUsd ? '$' : '￦';
   // 이 견적의 환율 (품목을 넣을 때 기록. 아직 없으면 지금 환율) — 환율이 바뀌어도 견적 단가는 그대로
   const quoteRate = Number(quoteInput.exchangeRate) || Number(globalExchangeRate) || 0;
   const rateDiffers = !!quoteInput.exchangeRate && Number(quoteInput.exchangeRate) !== Number(globalExchangeRate);
-  const hasItems = (quoteInput.items || []).length > 0;
+  const items = quoteInput.items || [];
+  const customItems = quoteInput.customItems || [];
+  const hasAnyRows = items.length > 0 || customItems.length > 0;
+  // 아주 옛날(추가 마크업) 견적 — 가격 보존을 위해 구간 설정·별도 견적은 막음
+  const isLegacy = items.length > 0 && !isNewMarginModel(quoteInput);
+  const shownTiers = getShownTiers(quoteInput);
+  const shownKeys = shownTiers.map(t => t.key);
 
-  // 단일 검색 추가용 원단 선택 팝업 상태
-  const [isFabricPickerOpen, setIsFabricPickerOpen] = useState(false);
+  // 칸 접기/펴기, 체크 선택, 원단 검색 팝업(기준/별도)
+  const [openStd, setOpenStd] = useState(true);
+  const [openCustom, setOpenCustom] = useState(true);
+  const [selectedStd, setSelectedStd] = useState([]);       // fabricId 목록
+  const [selectedCustom, setSelectedCustom] = useState([]); // 별도 견적 줄 id 목록
+  const [pickerMode, setPickerMode] = useState(null);       // null | 'standard' | 'custom'
 
-  // 매출이익율 입력칸 표시값: 구간별 객체면 해당 구간값, 레거시 단일 숫자면 그대로. (0은 "0"으로, 빈값은 "")
-  const getTierRate = (val, tier) => {
-    if (val && typeof val === 'object') return val[tier] ?? '';
-    return val ?? '';
-  };
+  const stdIds = items.map(it => String(it.fabricId));
+  const selStd = selectedStd.filter(id => stdIds.includes(id));
+  const customIds = customItems.map(r => r.id);
+  const selCustom = selectedCustom.filter(id => customIds.includes(id));
+  const toggleSel = (list, setList, id) => setList(list.includes(id) ? list.filter(x => x !== id) : [...list, id]);
+
+  // 입력칸 표시값 (0은 "0", 빈값은 "")
+  const tierValue = (obj, key) => (obj && typeof obj === 'object' ? (obj[key] ?? '') : '');
+  const fmtMoney = (v) => (isUsd ? usd(v) : num(v));
+
+  // 기준 견적 표 열 너비 (구간 수에 따라)
+  const stdMinWidth = 580 + shownTiers.length * 100;
 
   return (
     <div className="max-w-7xl mx-auto space-y-4 w-full print:hidden">
@@ -74,8 +141,6 @@ export const QuotationPage = ({
               setSavedQuotes([item, ...savedQuotes]);
             }
           })} className="flex-1 sm:flex-none bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800 flex items-center justify-center gap-2"><Save className="w-4 h-4" /> Save</button>
-          <button onClick={handleDownloadPDF} className="flex-1 sm:flex-none bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-2 shadow-lg shadow-indigo-200"><Download className="w-4 h-4" /> PDF</button>
-          <button onClick={() => handleDownloadExcel()} className="flex-1 sm:flex-none bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 flex items-center justify-center gap-2 shadow-lg shadow-emerald-200"><FileSpreadsheet className="w-4 h-4" /> Excel</button>
         </div>
       </div>
 
@@ -128,118 +193,235 @@ export const QuotationPage = ({
             <div className={`w-full border rounded-lg px-2 py-2 text-right font-mono font-bold text-sm ${rateDiffers ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>￦{num(quoteRate)}</div>
             {rateDiffers && <div className="text-[10px] text-amber-700 mt-0.5 text-right">지금 환율 ￦{num(globalExchangeRate)}</div>}
           </div>
-
-          {/* 마진 설정: 구간별 일괄 매출이익율(%) + 구간별 추가 영업마진(YD당 정액) */}
-          <div className="col-span-1 sm:col-span-2 lg:col-span-6 grid grid-cols-1 lg:grid-cols-2 gap-3 pt-2 mt-1 border-t border-slate-100">
-            <div>
-              <label className="block text-xs font-bold text-indigo-500 mb-1.5">일괄 매출이익율 · 구간별 (%) — 전체 적용</label>
-              <div className="grid grid-cols-3 gap-2">
-                {TIERS.map(t => (
-                  <div key={t.key}>
-                    <div className={`text-[11px] font-bold mb-0.5 ${t.main ? 'text-indigo-600' : 'text-slate-400'}`}>{t.label}</div>
-                    <div className="relative">
-                      <input type="number" step="any" value={getTierRate(quoteInput.bulkMarginRate, t.key)} onChange={(e) => handleBulkMarginRateChange(t.key, e.target.value)} className="w-full bg-indigo-50 border border-indigo-200 rounded px-2 py-1.5 pr-6 text-right text-sm font-bold text-indigo-700 outline-none focus:border-indigo-400" placeholder="0" />
-                      <span className="absolute right-2 top-2 text-[10px] text-indigo-400 font-bold pointer-events-none">%</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1.5">구간별 추가 영업마진 · YD당 정액 ({cSym}) — 전체 적용</label>
-              <div className="grid grid-cols-3 gap-2">
-                {TIERS.map(t => (
-                  <div key={t.key}>
-                    <div className={`text-[11px] font-bold mb-0.5 ${t.main ? 'text-indigo-600' : 'text-slate-400'}`}>{t.label}</div>
-                    <input type="number" value={quoteInput.marginAdd?.[t.key] ?? ''} onChange={(e) => handleQuoteMarginChange('add', t.key, e.target.value)} className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-right text-sm font-bold text-slate-700 outline-none focus:border-indigo-400" placeholder="0" />
-                  </div>
-                ))}
-              </div>
-            </div>
-            <p className="col-span-1 lg:col-span-2 text-[10px] text-slate-400">판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액. 원단별로 아래 표에서 따로 조정 가능.</p>
-          </div>
         </div>
-      </div>
-
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
-          <h3 className="text-sm font-bold text-slate-500 uppercase">견적 품목 리스트 <span className="text-slate-300 normal-case">({(quoteInput.items || []).length})</span></h3>
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-            {hasItems && handleRecalcQuote && (
-              <button
-                onClick={handleRecalcQuote}
-                title="모든 품목의 기준원가를 지금 원가(원가 설정·원사 단가)와 지금 환율로 다시 계산해요. 매출이익율·YD당 정액은 그대로."
-                className={`w-full sm:w-max px-3 py-1.5 rounded-lg font-bold text-sm border flex items-center justify-center gap-1.5 shrink-0 ${rateDiffers ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
-              >
-                <RefreshCw className="w-4 h-4" /> 현재 원가로 다시 계산
-              </button>
-            )}
+        {hasAnyRows && handleRecalcQuote && (
+          <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] text-slate-400">견적 단가는 품목을 넣을 때의 원가·견적 환율로 고정돼요. 원가나 환율이 바뀌었으면 다시 계산하세요. (기준·별도 견적 모두)</p>
             <button
-              onClick={() => setIsFabricPickerOpen(true)}
-              className="w-full sm:w-max bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg font-bold text-sm hover:bg-indigo-100 border border-indigo-200 flex items-center justify-center gap-1.5 shrink-0"
+              onClick={handleRecalcQuote}
+              title="모든 품목의 기준원가를 지금 원가(원가 설정·원사 단가)와 지금 환율로 다시 계산해요. 매출이익율·YD당 정액은 그대로."
+              className={`px-3 py-1.5 rounded-lg font-bold text-sm border flex items-center justify-center gap-1.5 shrink-0 ${rateDiffers ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
             >
-              <Search className="w-4 h-4" /> 원단 검색·추가 (목록에서 선택)
+              <RefreshCw className="w-4 h-4" /> 현재 원가로 다시 계산
             </button>
           </div>
+        )}
+      </div>
+
+      {/* ───────────── 기준 견적 ───────────── */}
+      <QuoteSection
+        icon={Tags}
+        title="기준 견적"
+        count={items.length}
+        desc="정해 둔 수량 구간별 단가 — 고른 구간만 바이어 견적서에 나가요"
+        open={openStd}
+        onToggle={() => setOpenStd(o => !o)}
+        actions={<ExportButtons label="기준 견적서" onPdf={() => handleDownloadPDF(null, 'standard')} onExcel={() => handleDownloadExcel(null, 'standard')} />}
+      >
+        {isLegacy ? (
+          <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-xs">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-px" />
+            <span>아주 옛날 방식(추가 마크업) 견적이라 구간 설정·외관검사/시험성적서 제외·별도 견적을 쓸 수 없어요. 새 견적으로 작성해 주세요.</span>
+          </div>
+        ) : (
+          <>
+            {/* 구간 설정: 견적서 표시 · 매출이익율 · YD당 정액 */}
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                <span className="text-xs font-extrabold text-slate-600">구간 설정 <span className="font-medium text-slate-400">— 체크한 구간만 표와 바이어 견적서에 나와요</span></span>
+                <button type="button" onClick={handleResetTierDefaults} className="text-[11px] font-bold text-slate-500 hover:text-indigo-600 flex items-center gap-1 border border-slate-200 rounded-md px-2 py-1 bg-white hover:bg-slate-50">
+                  <RotateCcw className="w-3 h-3" /> 기본값으로
+                </button>
+              </div>
+              <div className="border border-slate-200 rounded-xl overflow-x-auto">
+                <table className="w-full text-xs min-w-[660px] border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 text-[10px] font-bold">
+                      <th className="w-32 border-b border-slate-200"></th>
+                      {QUOTE_TIER_GROUPS.map(g => (
+                        <th key={g.key} colSpan={QUOTE_TIERS.filter(t => t.group === g.key).length} title={g.hint}
+                          className={`py-1 border-b border-l border-slate-200 ${g.key === 'mcq' ? 'text-blue-600' : 'text-amber-700'}`}>
+                          {g.label} <span className="font-medium text-slate-400">· {g.hint}</span>
+                        </th>
+                      ))}
+                    </tr>
+                    <tr className="bg-slate-50">
+                      <th className="text-left px-3 py-1.5 text-slate-500 font-bold border-b border-slate-200">구간</th>
+                      {QUOTE_TIERS.map((t, i) => (
+                        <th key={t.key} className={`px-2 py-1.5 text-center font-extrabold border-b border-slate-200 ${i > 0 && QUOTE_TIERS[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${t.main ? 'text-indigo-700' : 'text-slate-700'}`}>{t.label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="px-3 py-1.5 font-bold text-slate-600 border-b border-slate-100">견적서 표시</td>
+                      {QUOTE_TIERS.map((t, i) => {
+                        const on = shownKeys.includes(t.key);
+                        return (
+                          <td key={t.key} className={`text-center py-1.5 border-b border-slate-100 ${i > 0 && QUOTE_TIERS[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${on ? 'bg-indigo-50/60' : ''}`}>
+                            <label className="inline-flex items-center gap-1 cursor-pointer select-none">
+                              <input type="checkbox" checked={on} onChange={() => handleToggleShownTier(t.key)} className="w-4 h-4 accent-indigo-600" />
+                              <span className={`text-[10px] font-bold ${on ? 'text-indigo-700' : 'text-slate-400'}`}>{on ? '표시' : '숨김'}</span>
+                            </label>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-1.5 font-bold text-indigo-600 border-b border-slate-100">매출이익율 (%)</td>
+                      {QUOTE_TIERS.map((t, i) => (
+                        <td key={t.key} className={`px-1.5 py-1 border-b border-slate-100 ${i > 0 && QUOTE_TIERS[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${shownKeys.includes(t.key) ? 'bg-indigo-50/60' : ''}`}>
+                          <div className="relative">
+                            <input type="number" step="any" value={tierValue(quoteInput.bulkMarginRate, t.key)} onChange={(e) => handleBulkMarginRateChange(t.key, e.target.value)}
+                              title="모든 품목의 이 구간 이익율을 한 번에 바꿔요 (품목마다 따로 바꾼 값도 덮어씀)"
+                              className="w-full bg-white border border-indigo-200 rounded px-1.5 py-1 pr-5 text-right text-xs font-bold text-indigo-700 outline-none focus:border-indigo-500" placeholder="0" />
+                            <span className="absolute right-1.5 top-1.5 text-[9px] text-indigo-300 font-bold pointer-events-none">%</span>
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-1.5 font-bold text-slate-600">YD당 정액 ({cSym})</td>
+                      {QUOTE_TIERS.map((t, i) => (
+                        <td key={t.key} className={`px-1.5 py-1 ${i > 0 && QUOTE_TIERS[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${shownKeys.includes(t.key) ? 'bg-indigo-50/60' : ''}`}>
+                          <input type="number" step="any" value={tierValue(quoteInput.marginAdd, t.key)} onChange={(e) => handleQuoteMarginChange('add', t.key, e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-right text-xs font-bold text-slate-700 outline-none focus:border-indigo-400" placeholder="0" />
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1">판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액. 품목마다 아래 표에서 이익율을 따로 바꿀 수 있어요.</p>
+            </div>
+
+            {/* 견적 전체 — 외관검사·시험성적서 제외 */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs">
+              <span className="font-extrabold text-slate-600">기준 견적 전체</span>
+              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none font-bold text-slate-700">
+                <input type="checkbox" checked={quoteInput.excludeVisual === true} onChange={(e) => handleQuoteExcludeChange('excludeVisual', e.target.checked)} className="w-4 h-4 accent-rose-600" /> 외관검사 제외
+              </label>
+              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none font-bold text-slate-700">
+                <input type="checkbox" checked={quoteInput.excludeChem === true} onChange={(e) => handleQuoteExcludeChange('excludeChem', e.target.checked)} className="w-4 h-4 accent-rose-600" /> 시험성적서(이화학) 제외
+              </label>
+              <span className="text-[10px] text-slate-400">체크하면 모든 품목 기준원가에서 그 비용을 빼고, 바이어 견적서에 '불포함'으로 적혀요.</span>
+            </div>
+          </>
+        )}
+
+        {/* 품목 도구줄 */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-slate-400 font-bold mr-1">선택 {selStd.length}개</span>
+            {!isLegacy && (
+              <button type="button" disabled={selStd.length === 0} onClick={() => { handleCopyToCustom(selStd); setSelectedStd([]); setOpenCustom(true); }}
+                className="px-2.5 py-1.5 rounded-lg font-bold border flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100">
+                <Copy className="w-3.5 h-3.5" /> 별도 견적으로 복사
+              </button>
+            )}
+            <button type="button" disabled={selStd.length === 0} onClick={() => { handleRemoveItemsFromQuote(selStd); setSelectedStd([]); }}
+              className="px-2.5 py-1.5 rounded-lg font-bold border flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed bg-white text-slate-500 border-slate-200 hover:bg-red-50 hover:text-red-600">
+              <Trash2 className="w-3.5 h-3.5" /> 선택 삭제
+            </button>
+          </div>
+          <button
+            onClick={() => setPickerMode('standard')}
+            className="w-full sm:w-max bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg font-bold text-sm hover:bg-indigo-100 border border-indigo-200 flex items-center justify-center gap-1.5 shrink-0"
+          >
+            <Search className="w-4 h-4" /> 원단 검색·추가 (목록에서 선택)
+          </button>
         </div>
 
         <div className="overflow-hidden rounded-xl border border-slate-200 overflow-x-auto">
-          <table className="w-full table-fixed text-sm text-left min-w-[1000px]">
+          <table className="w-full table-fixed text-sm text-left" style={{ minWidth: `${stdMinWidth}px` }}>
             <thead className="bg-slate-50 text-slate-500 font-bold border-b-2 border-slate-200">
-              <tr className="divide-x divide-slate-200"><th className="px-2 py-2 w-10 text-center">No.</th><th className="px-2 py-2 w-20">Article</th><th className="px-2 py-2">Spec</th><th className="px-2 py-2 w-12 text-center">Cut</th><th className="px-2 py-2 w-12 text-center">Full</th><th className="px-2 py-2 w-14 text-right">GSM</th><th className="px-2 py-2 w-14 text-right">g/YD</th><th className="px-2 py-2 w-14 text-right text-orange-600 bg-orange-50/50">MCQ</th><th className="px-2 py-1.5 w-28 bg-slate-100 text-right">1,000 YD ({cSym})<span className="block text-[9px] font-normal text-slate-400 normal-case">판가 / 이익율%</span></th><th className="px-2 py-1.5 w-28 bg-indigo-50 text-indigo-900 text-right">3,000 YD ({cSym})<span className="block text-[9px] font-normal text-indigo-400 normal-case">판가 / 이익율%</span></th><th className="px-2 py-1.5 w-28 bg-slate-100 text-right">5,000 YD ({cSym})<span className="block text-[9px] font-normal text-slate-400 normal-case">판가 / 이익율%</span></th><th className="px-2 py-1.5 w-10 text-center"></th></tr>
+              <tr className="divide-x divide-slate-200">
+                <th className="px-2 py-2 w-8 text-center">
+                  <input type="checkbox" className="w-3.5 h-3.5 accent-indigo-600" title="전체 선택"
+                    checked={items.length > 0 && selStd.length === items.length}
+                    onChange={(e) => setSelectedStd(e.target.checked ? stdIds : [])} />
+                </th>
+                <th className="px-2 py-2 w-9 text-center">No.</th>
+                <th className="px-2 py-2 w-24">Article</th>
+                <th className="px-2 py-2">Spec</th>
+                <th className="px-2 py-2 w-11 text-center">Cut</th>
+                <th className="px-2 py-2 w-11 text-center">Full</th>
+                <th className="px-2 py-2 w-[52px] text-right">GSM</th>
+                <th className="px-2 py-2 w-[52px] text-right">g/YD</th>
+                <th className="px-2 py-2 w-14 text-right text-orange-600 bg-orange-50/50" title="컬러당 최소 수량">MCQ</th>
+                {shownTiers.map(t => (
+                  <th key={t.key} className={`px-2 py-1.5 w-[100px] text-right ${t.main ? 'bg-indigo-50 text-indigo-900' : 'bg-slate-100'}`}>
+                    {t.label} ({cSym})
+                    <span className={`block text-[9px] font-normal normal-case ${t.main ? 'text-indigo-400' : 'text-slate-400'}`}>{t.group === 'small' ? '2컬러까지 · ' : ''}판가 / 이익율%</span>
+                  </th>
+                ))}
+                <th className="px-2 py-1.5 w-9 text-center"></th>
+              </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {(quoteInput.items || []).map((item, idx) => (
-                <tr
-                  key={item.fabricId + '_' + idx}
-                  className="group hover:bg-slate-50 transition-colors divide-x divide-slate-100"
-                >
-                  <td className="px-2 py-2 text-slate-400 font-mono text-center text-[13px]">{idx + 1}</td>
-                  <td className="px-2 py-2 font-bold text-slate-800 text-[13px] uppercase">{item.article}</td>
-                  <td className="px-2 py-2 text-slate-600 text-[13px]">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span>{item.itemName}</span>
-                      {/* 원가 확인 필요 — 품목을 넣을 때의 사유를 저장해 둔 것 (마우스를 올리면 사유) */}
-                      <CostWarningBadge warnings={item.costWarnings} />
-                    </div>
-                  </td>
-                  <td className="px-2 py-2 text-slate-500 text-center text-[13px]">{item.widthCut}"</td>
-                  <td className="px-2 py-2 text-slate-500 text-center text-[13px]">{item.widthFull}"</td>
-                  <td className="px-2 py-2 text-right text-slate-500 text-[13px]">{item.gsm}</td>
-                  <td className="px-2 py-2 text-right text-slate-500 font-mono text-[13px]">{num(item.gYd)}</td>
-                  <td className="px-2 py-2 text-right text-orange-600 font-bold font-mono bg-orange-50/30 text-[13px]">{num(item.mcqYd || 300)}</td>
+              {items.map((item, idx) => {
+                const id = String(item.fabricId);
+                const checked = selStd.includes(id);
+                return (
+                  <tr key={item.fabricId + '_' + idx} className={`group transition-colors divide-x divide-slate-100 ${checked ? 'bg-indigo-50/40' : 'hover:bg-slate-50'}`}>
+                    <td className="px-2 py-2 text-center"><input type="checkbox" className="w-3.5 h-3.5 accent-indigo-600" checked={checked} onChange={() => toggleSel(selectedStd, setSelectedStd, id)} /></td>
+                    <td className="px-2 py-2 text-slate-400 font-mono text-center text-[13px]">{idx + 1}</td>
+                    <td className="px-2 py-2 font-bold text-slate-800 text-[13px] uppercase break-words">{item.article}</td>
+                    <td className="px-2 py-2 text-slate-600 text-[13px]">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span>{item.itemName}</span>
+                        {/* 원가 확인 필요 — 품목을 넣을 때의 사유를 저장해 둔 것 (마우스를 올리면 사유) */}
+                        <CostWarningBadge warnings={item.costWarnings} />
+                      </div>
+                    </td>
+                    <td className="px-2 py-2 text-slate-500 text-center text-[13px]">{item.widthCut}"</td>
+                    <td className="px-2 py-2 text-slate-500 text-center text-[13px]">{item.widthFull}"</td>
+                    <td className="px-2 py-2 text-right text-slate-500 text-[13px]">{item.gsm}</td>
+                    <td className="px-2 py-2 text-right text-slate-500 font-mono text-[13px]">{num(item.gYd)}</td>
+                    <td className="px-2 py-2 text-right text-orange-600 font-bold font-mono bg-orange-50/30 text-[13px]">{num(item.mcqYd || 300)}</td>
 
-                  {/* 구간별 판가 + 원가, 그 아래 작게 원단별 매출이익율(%) 개별 입력 */}
-                  {TIERS.map(t => {
-                    const price = calcQuotePrice(item, t.key, quoteInput, currency);
-                    const base = getBasePrice(item, t.key);
-                    const rate = getTierRate(item.marginRate, t.key);
-                    const showBase = (Number(rate) || 0) > 0 || (Number(quoteInput.marginAdd?.[t.key]) || 0) > 0;
-                    return (
-                      <td key={t.key} className={`p-2 align-top ${t.main ? 'bg-indigo-50/30' : 'bg-slate-50'}`}>
-                        <div className={`font-mono text-[13px] text-right ${t.main ? 'font-bold text-indigo-700' : 'text-slate-600'}`}>{formatQuotePrice(price, currency)}</div>
-                        {showBase && <div className="text-[9px] text-slate-400 mt-0.5 text-right">원가 {formatQuotePrice(base, currency)}</div>}
-                        <div className="relative mt-1">
-                          <input
-                            type="number" step="any"
-                            value={rate}
-                            onChange={(e) => handleQuoteItemMarginChange(idx, t.key, e.target.value)}
-                            className="w-full bg-white border border-indigo-200 rounded pl-1.5 pr-4 py-0.5 text-right text-[11px] font-bold text-indigo-700 outline-none focus:border-indigo-500"
-                            placeholder="0"
-                            title="이 원단의 해당 구간 매출이익율(%)"
-                          />
-                          <span className="absolute right-1 top-1 text-[8px] text-slate-300 font-bold pointer-events-none">%</span>
-                        </div>
-                      </td>
-                    );
-                  })}
+                    {/* 구간별 판가 + 원가, 그 아래 작게 원단별 매출이익율(%) 개별 입력 */}
+                    {shownTiers.map(t => {
+                      const price = calcQuotePrice(item, t.key, quoteInput, currency);
+                      const base = getBasePrice(item, t.key);
+                      const rate = tierValue(item.marginRate, t.key) === '' ? getItemTierRate(item, quoteInput, t.key) : tierValue(item.marginRate, t.key);
+                      return (
+                        <td key={t.key} className={`p-2 align-top ${t.main ? 'bg-indigo-50/30' : 'bg-slate-50'}`}>
+                          {base === null ? (
+                            <div className="text-right" title="예전에 넣은 품목이라 이 구간 단가가 없어요. [현재 원가로 다시 계산]을 누르면 채워져요.">
+                              <div className="font-mono text-[13px] text-slate-300">—</div>
+                              <div className="text-[9px] text-amber-600 mt-0.5">다시 계산 필요</div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className={`font-mono text-[13px] text-right ${t.main ? 'font-bold text-indigo-700' : 'text-slate-600'}`}>{formatQuotePrice(price, currency)}</div>
+                              <div className="text-[9px] text-slate-400 mt-0.5 text-right">원가 {formatQuotePrice(base, currency)}</div>
+                            </>
+                          )}
+                          {!isLegacy && (
+                            <div className="relative mt-1">
+                              <input
+                                type="number" step="any"
+                                value={rate}
+                                onChange={(e) => handleQuoteItemMarginChange(idx, t.key, e.target.value)}
+                                className="w-full bg-white border border-indigo-200 rounded pl-1.5 pr-4 py-0.5 text-right text-[11px] font-bold text-indigo-700 outline-none focus:border-indigo-500"
+                                placeholder="0"
+                                title="이 원단의 해당 구간 매출이익율(%)"
+                              />
+                              <span className="absolute right-1 top-1 text-[8px] text-slate-300 font-bold pointer-events-none">%</span>
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
 
-                  <td className="p-2 text-center"><button onClick={() => handleRemoveItemFromQuote(idx)} className="text-slate-300 hover:text-red-500 p-1 transition-colors"><X className="w-4 h-4" /></button></td>
-                </tr>
-              ))}
+                    <td className="p-2 text-center"><button onClick={() => handleRemoveItemFromQuote(idx)} title="빼기" className="text-slate-300 hover:text-red-500 p-1 transition-colors"><X className="w-4 h-4" /></button></td>
+                  </tr>
+                );
+              })}
 
               <tr>
-                <td className="p-2 text-center text-slate-300 bg-slate-50 border-t border-slate-200 pointer-events-none rounded-bl-xl"><Plus className="w-4 h-4 mx-auto" /></td>
+                <td colSpan="2" className="p-2 text-center text-slate-300 bg-slate-50 border-t border-slate-200 pointer-events-none"><Plus className="w-4 h-4 mx-auto" /></td>
                 <td className="p-2 border-t border-slate-200 bg-slate-50" colSpan="2">
                   <input
                     type="text"
@@ -250,20 +432,8 @@ export const QuotationPage = ({
                         e.preventDefault();
                         const art = String(e.target.value).trim().toUpperCase();
                         if (!art) return;
-                        const fabric = savedFabrics.find(f => String(f.article).toUpperCase() === art);
-                        if (fabric) {
-                          // 중복 차단
-                          if ((quoteInput.items || []).some(i => String(i.article).toUpperCase() === art)) {
-                             showToast('이미 추가된 품목입니다. 기존 항목을 확인해 주세요.', 'error');
-                             e.target.value = '';
-                             return;
-                          }
-                          const newItem = createQuoteItem(fabric, quoteInput.exchangeRate || globalExchangeRate, quoteInput.marketType, quoteInput.bulkMarginRate);
-                          setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || globalExchangeRate, items: [...(prev.items || []), newItem] }));
-                          const warns = newItem.costWarnings || [];
-                          showToast(warns.length > 0 ? `추가 완료 — ⚠ 원가 확인 필요: ${warns[0]}` : '추가 완료', warns.length > 0 ? 'error' : 'success');
-                          e.target.value = '';
-                        } else alert(`'${art}' 원단을 찾을 수 없습니다.`);
+                        handleGridPaste(art);
+                        e.target.value = '';
                       }
                     }}
                     onPaste={(e) => {
@@ -273,7 +443,7 @@ export const QuotationPage = ({
                     }}
                   />
                 </td>
-                <td colSpan="9" className="p-2 text-xs text-slate-400 border-t border-slate-200 bg-slate-50/50 h-[42px] rounded-br-xl align-middle overflow-hidden">
+                <td colSpan={6 + shownTiers.length} className="p-2 text-xs text-slate-400 border-t border-slate-200 bg-slate-50/50 h-[42px] align-middle overflow-hidden">
                   <div className="flex items-center gap-1 whitespace-nowrap">
                     <ClipboardPaste className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> <span className="hidden sm:inline">왼쪽 칸을 클릭하고</span> 엑셀 Article(원단명) 열을 복사 후 붙여넣어 보세요.
                   </div>
@@ -282,16 +452,157 @@ export const QuotationPage = ({
             </tbody>
           </table>
         </div>
-      </div>
+      </QuoteSection>
 
-      {/* 단일 검색 추가 → 원단 선택 팝업 */}
+      {/* ───────────── 별도 견적 ───────────── */}
+      <QuoteSection
+        icon={Calculator}
+        title="별도 견적"
+        count={customItems.length}
+        desc="수량·컬러·제외 항목을 바꿔 따로 계산 (예: 300YD 3컬러) — 기준 견적서와 따로 보내요"
+        tone="amber"
+        open={openCustom}
+        onToggle={() => setOpenCustom(o => !o)}
+        actions={<ExportButtons label="별도 견적서" onPdf={() => handleDownloadPDF(null, 'special')} onExcel={() => handleDownloadExcel(null, 'special')} />}
+      >
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-slate-400 font-bold mr-1">선택 {selCustom.length}줄</span>
+            <button type="button" disabled={selCustom.length === 0} onClick={() => { handleRemoveCustomItems(selCustom); setSelectedCustom([]); }}
+              className="px-2.5 py-1.5 rounded-lg font-bold border flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed bg-white text-slate-500 border-slate-200 hover:bg-red-50 hover:text-red-600">
+              <Trash2 className="w-3.5 h-3.5" /> 선택 삭제
+            </button>
+            <span className="text-[11px] text-slate-400 ml-1">기준 견적에서 원단을 체크하고 [별도 견적으로 복사]를 눌러도 들어와요.</span>
+          </div>
+          {!isLegacy && (
+            <button
+              onClick={() => setPickerMode('custom')}
+              className="w-full sm:w-max bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg font-bold text-sm hover:bg-amber-100 border border-amber-200 flex items-center justify-center gap-1.5 shrink-0"
+            >
+              <Plus className="w-4 h-4" /> 원단 추가
+            </button>
+          )}
+        </div>
+
+        {customItems.length === 0 ? (
+          <div className="border-2 border-dashed border-slate-200 rounded-xl py-8 text-center text-xs text-slate-400 leading-relaxed">
+            아직 별도 견적이 없어요.<br />
+            기준 견적에서 원단을 체크하고 <b className="text-amber-700">[별도 견적으로 복사]</b>를 누르거나, 오른쪽 위 <b className="text-amber-700">[원단 추가]</b>를 누르세요.<br />
+            수량·컬러수를 바꾸면 이화학(시험성적서)·염색 최소 청구까지 그 조건으로 다시 계산해요.
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-slate-200 overflow-x-auto">
+            <table className="w-full table-fixed text-sm text-left min-w-[1000px]">
+              <thead className="bg-amber-50/60 text-slate-500 font-bold border-b-2 border-amber-200 text-xs">
+                <tr className="divide-x divide-amber-100">
+                  <th className="px-2 py-2 w-8 text-center">
+                    <input type="checkbox" className="w-3.5 h-3.5 accent-amber-600" title="전체 선택"
+                      checked={customItems.length > 0 && selCustom.length === customItems.length}
+                      onChange={(e) => setSelectedCustom(e.target.checked ? customIds : [])} />
+                  </th>
+                  <th className="px-2 py-2">원단</th>
+                  <th className="px-2 py-2 w-[196px]">수량 (YD) · 컬러</th>
+                  <th className="px-2 py-2 w-[128px]">제외 항목</th>
+                  <th className="px-2 py-2 w-[78px] text-right">이익율 %</th>
+                  <th className="px-2 py-2 w-[90px] text-right">YD당 정액 ({cSym})</th>
+                  <th className="px-2 py-2 w-[112px] text-right">판가 / YD</th>
+                  <th className="px-2 py-2 w-[110px] text-right">총액</th>
+                  <th className="px-2 py-2 w-[52px] text-center" title="별도 견적서(바이어용)에 이 줄을 넣을지">견적서</th>
+                  <th className="px-2 py-2 w-9"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {customItems.map(row => {
+                  const checked = selCustom.includes(row.id);
+                  const price = calcCustomQuotePrice(row, quoteInput, currency);
+                  const qtyNum = Number(row.qty) || 0;
+                  const colorsNum = Number(row.colors) || 0;
+                  const perColor = qtyNum > 0 && colorsNum > 0 ? Math.round(qtyNum / colorsNum) : 0;
+                  const mcq = Number(row.mcqYd) || 0;
+                  const belowMcq = perColor > 0 && mcq > 0 && perColor < mcq;
+                  const rateDefault = getCustomRowRate({ ...row, marginRate: null }, quoteInput);
+                  const addDefault = getCustomRowAdd({ ...row, marginAdd: null }, quoteInput);
+                  const qtyBad = !(qtyNum > 0);
+                  const colorsBad = !(colorsNum > 0);
+                  return (
+                    <tr key={row.id} className={`align-top divide-x divide-slate-100 ${checked ? 'bg-amber-50/50' : 'hover:bg-slate-50'} ${row.show === false ? 'opacity-60' : ''}`}>
+                      <td className="px-2 py-2 text-center"><input type="checkbox" className="w-3.5 h-3.5 accent-amber-600" checked={checked} onChange={() => toggleSel(selectedCustom, setSelectedCustom, row.id)} /></td>
+                      <td className="px-2 py-2">
+                        <div className="font-bold text-slate-800 text-[13px] uppercase">{row.article}</div>
+                        <div className="text-[11px] text-slate-500 flex items-center gap-1 flex-wrap">
+                          <span>{row.itemName}</span>
+                          <CostWarningBadge warnings={row.costWarnings} />
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">{row.widthCut}/{row.widthFull}" · {row.gsm}g · MCQ {num(mcq)}YD/컬러</div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-1">
+                          <input type="number" min="1" step="1" value={row.qty ?? ''} onChange={(e) => handleCustomItemChange(row.id, { qty: e.target.value })}
+                            className={`w-[76px] bg-white border rounded px-1.5 py-1 text-right text-sm font-bold outline-none focus:border-amber-500 ${qtyBad ? 'border-red-300 text-red-600' : 'border-slate-300 text-slate-800'}`} placeholder="YD" title="오더 총수량 (YD)" />
+                          <span className="text-[11px] text-slate-400">YD</span>
+                          <input type="number" min="1" step="1" value={row.colors ?? ''} onChange={(e) => handleCustomItemChange(row.id, { colors: e.target.value })}
+                            className={`w-[44px] bg-white border rounded px-1.5 py-1 text-right text-sm font-bold outline-none focus:border-amber-500 ${colorsBad ? 'border-red-300 text-red-600' : 'border-slate-300 text-slate-800'}`} placeholder="컬러" title="컬러수 — 이화학·염색을 컬러마다 따로 계산" />
+                          <span className="text-[11px] text-slate-400">컬러</span>
+                        </div>
+                        {perColor > 0 && (
+                          <div className={`text-[10px] mt-1 ${belowMcq ? 'text-amber-700 font-bold' : 'text-slate-400'}`}>
+                            컬러당 {num(perColor)}YD{belowMcq ? ` · MCQ ${num(mcq)} 미달` : ''}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 text-[11px] font-bold text-slate-600 space-y-1">
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                          <input type="checkbox" className="w-3.5 h-3.5 accent-rose-600" checked={row.excludeVisual === true} onChange={(e) => handleCustomItemChange(row.id, { excludeVisual: e.target.checked })} /> 외관검사 제외
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                          <input type="checkbox" className="w-3.5 h-3.5 accent-rose-600" checked={row.excludeChem === true} onChange={(e) => handleCustomItemChange(row.id, { excludeChem: e.target.checked })} /> 시험성적서 제외
+                        </label>
+                      </td>
+                      <td className="px-2 py-2">
+                        <input type="number" step="any" value={row.marginRate ?? ''} onChange={(e) => handleCustomItemChange(row.id, { marginRate: e.target.value })}
+                          className={`w-full bg-white border border-indigo-200 rounded px-1.5 py-1 text-right text-xs font-bold outline-none focus:border-indigo-500 ${row.marginRate === null || row.marginRate === undefined ? 'text-slate-400' : 'text-indigo-700'}`}
+                          placeholder={String(rateDefault)} title={`비워 두면 수량 구간 기본값 ${rateDefault}%`} />
+                      </td>
+                      <td className="px-2 py-2">
+                        <input type="number" step="any" value={row.marginAdd ?? ''} onChange={(e) => handleCustomItemChange(row.id, { marginAdd: e.target.value })}
+                          className={`w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-right text-xs font-bold outline-none focus:border-indigo-400 ${row.marginAdd === null || row.marginAdd === undefined ? 'text-slate-400' : 'text-slate-700'}`}
+                          placeholder={fmtMoney(addDefault)} title={`비워 두면 수량 구간 기본값 ${cSym}${fmtMoney(addDefault)}`} />
+                      </td>
+                      <td className="px-2 py-2 text-right">
+                        <div className="font-mono text-[14px] font-extrabold text-amber-800">{formatQuotePrice(price, currency)}</div>
+                        <div className="text-[9px] text-slate-400 mt-0.5">원가 {formatQuotePrice(row.basePrice ?? null, currency)}</div>
+                        {row.dye?.minApplied && (
+                          <div className="text-[9px] font-bold text-rose-600 mt-0.5" title={`컬러당 생지 ${num(row.dye.perColorKg)}kg → ${num(row.dye.minKg)}kg로 청구 (염색 최소 청구)`}>
+                            염색 최소 청구 포함
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 text-right font-mono text-[12px] text-slate-600">
+                        {price === null || !(qtyNum > 0) ? '—' : `${cSym}${fmtMoney(isUsd ? Number((price * qtyNum).toFixed(2)) : price * qtyNum)}`}
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <input type="checkbox" className="w-4 h-4 accent-amber-600" checked={row.show !== false} onChange={(e) => handleCustomItemChange(row.id, { show: e.target.checked })} title="별도 견적서(바이어용)에 이 줄을 넣기" />
+                      </td>
+                      <td className="px-2 py-2 text-center"><button onClick={() => handleRemoveCustomItems([row.id])} title="이 줄 지우기" className="text-slate-300 hover:text-red-500 p-1 transition-colors"><X className="w-4 h-4" /></button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="text-[10px] text-slate-400">이익율·정액을 비워 두면 수량이 속한 기준 구간 값(위 구간 설정)을 써요. 총액 = 판가 × 수량 (화면에서만 보여요).</p>
+      </QuoteSection>
+
+      {/* 원단 검색 팝업 — 기준 견적(이미 담긴 원단은 '추가됨') / 별도 견적(같은 원단도 조건만 바꿔 여러 줄 가능) */}
       <FabricPickerModal
-        isOpen={isFabricPickerOpen}
-        onClose={() => setIsFabricPickerOpen(false)}
+        isOpen={pickerMode !== null}
+        onClose={() => setPickerMode(null)}
         fabrics={savedFabrics}
-        existingFabricIds={(quoteInput.items || []).map(i => i.fabricId)}
+        existingFabricIds={pickerMode === 'standard' ? items.map(i => i.fabricId) : []}
         yarnLibrary={yarnLibrary}
-        onPick={(fabricId) => handleAddFabricToQuote(fabricId, () => {})}
+        title={pickerMode === 'custom' ? '별도 견적에 넣을 원단' : undefined}
+        onPick={(fabricId) => (pickerMode === 'custom' ? handleAddCustomFabric(fabricId) : handleAddFabricToQuote(fabricId, () => {}))}
       />
     </div>
   );

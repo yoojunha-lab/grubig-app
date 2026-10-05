@@ -386,6 +386,7 @@ const prepareCost = (fabric, { yarnLibrary = [], exchangeRate = 1450, settings }
 const emptyMode = () => ({
   yarnCostYd: 0, knitCostYd: 0, dyeCostYd: 0, extraFeeYd: 0, totalCostYd: 0, riskAmtYd: 0, finalCostYd: 0,
   priceConverter: 0, priceBrand: 0, pricePerM: 0, pricePerKg: 0,
+  rawCostYd: 0, chemYd: 0, visualYd: 0,
   lines: { material: [], knit: [], proc: [], etc: [] },
 });
 
@@ -400,6 +401,7 @@ const emptyTier = (qty = 0) => ({
   importFreight: { lines: [], total: 0 },
   domestic: emptyMode(),
   export: emptyMode(),
+  riskPct: 0,
   requiredKg: 0,
 });
 
@@ -503,6 +505,9 @@ const costAtQty = (p, qtyRaw, opts = {}) => {
       // 판매가가 아니라 '영업 기준원가'(판매마진은 견적에서 적용). 견적/리스트 호환 위해 필드명 유지.
       priceConverter: domFinal, priceBrand: domFinal,
       pricePerM: smartRound(domFinal * ydPerM, 'KRW'), pricePerKg: smartRound(domFinal * perKgFactor, 'KRW'),
+      // 견적 '외관검사·시험성적서 제외'용 — 반올림·위험마진 전 YD당 순원가와 그중 이화학·외관검사 몫
+      //  (기준원가 = 반올림((rawCostYd − 뺄 항목) × (1 + 위험마진%)) → 아무것도 안 빼면 finalCostYd와 같음)
+      rawCostYd: dom.total, chemYd: chemTotal / qty, visualYd: visualTotal / qty,
       lines: { material: dom.material, knit: dom.knit, proc: dom.proc, etc: dom.etc },
     },
     export: {
@@ -510,8 +515,10 @@ const costAtQty = (p, qtyRaw, opts = {}) => {
       totalCostYd: expTotal, riskAmtYd: Number((expFinal - expTotal).toFixed(2)), finalCostYd: expFinal,
       priceConverter: expFinal, priceBrand: expFinal,
       pricePerM: Number((expFinal * ydPerM).toFixed(2)), pricePerKg: Number((expFinal * perKgFactor).toFixed(2)),
+      rawCostYd: expUSDraw, chemYd: toUsd(chemTotal / qty), visualYd: toUsd(visualTotal / qty),
       lines: { material: usdLines(exp.material), knit: usdLines(exp.knit), proc: usdLines(exp.proc), etc: usdLines(exp.etc) },
     },
+    riskPct: p.riskPct, // 품목 위험마진(%) — 견적에서 뺄 항목을 반영해 기준원가를 다시 만들 때 사용
     requiredKg: Math.round(yarnKg), // 원사 투입 kg (LOSS 포함)
   };
 };
