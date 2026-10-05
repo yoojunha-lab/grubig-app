@@ -1,6 +1,7 @@
 import React from 'react';
 import { Edit2, Plus, X, Check, Trash2 } from 'lucide-react';
 import { PartnerSelectField } from '../common/PartnerSelectField';
+import { ModalBackdrop } from '../common/ModalBackdrop';
 
 /**
  * 개발 의뢰 등록/수정 모달
@@ -32,9 +33,9 @@ export const DevRequestFormModal = ({
   if (!isOpen) return null;
 
   return (
-    <div
+    <ModalBackdrop
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-      onClick={onClose}
+      onClose={onClose}
     >
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
@@ -215,6 +216,6 @@ export const DevRequestFormModal = ({
           </button>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 };

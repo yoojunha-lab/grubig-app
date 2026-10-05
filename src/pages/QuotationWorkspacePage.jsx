@@ -3,6 +3,7 @@ import { Plus, Home, Globe, Save, LogOut, X } from 'lucide-react';
 import { QuotationPage } from './QuotationPage';
 import { QuoteHistoryPage } from './QuoteHistoryPage';
 import { normalizeQuote } from '../utils/quoteModel';
+import { ModalBackdrop } from '../components/common/ModalBackdrop';
 
 // ============================================================
 // 견적서 워크스페이스 — '견적서 작성' + '견적 히스토리'를 한 메뉴로 병합
@@ -106,7 +107,7 @@ export const QuotationWorkspacePage = (props) => {
 
   // ── 변경사항 확인 모달 ──
   const leaveGuardModal = pendingLeave && (
-    <div className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={closeGuard}>
+    <ModalBackdrop className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClose={closeGuard}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
         <h3 className="text-lg font-bold text-slate-800 mb-1">변경사항이 있습니다</h3>
         <p className="text-sm text-slate-500 mb-5">작성 중인 견적서에 저장하지 않은 변경사항이 있어요. 저장할까요?</p>
@@ -124,7 +125,7 @@ export const QuotationWorkspacePage = (props) => {
           </div>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 
   // ── 기본: 견적 히스토리 전체 표 ──

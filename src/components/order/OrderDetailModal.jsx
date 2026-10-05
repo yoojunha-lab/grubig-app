@@ -14,6 +14,7 @@ import {
 import { shortDate, isYmd, round1, toNumberOrNull, fmtKg, todayYmd } from '../../utils/orderCalculations';
 import { CHANGE_ACTIONS } from '../../utils/auditLog';
 import { PartnerPickerModal } from '../common/PartnerPickerModal';
+import { ModalBackdrop } from '../common/ModalBackdrop';
 import { ConfirmPopover } from './sheet/ColorPopovers';
 
 // GRUBIG ERP - 생산 오더 상세창 (v8: 엑셀형 현황표)
@@ -781,7 +782,6 @@ const OrderDetailBody = ({
   savedFabrics, onOpenLots,
 }) => {
   const panelRef = useRef(null);
-  const backdropDownRef = useRef(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmColorId, setConfirmColorId] = useState(null);
   const [stepOpen, setStepOpen] = useState({});      // { [stepKey]: true/false } — 없으면 "사용 중이면 펼침"
@@ -870,21 +870,12 @@ const OrderDetailBody = ({
     if (ok) onClose?.();
   };
 
-  // 바깥(어두운 배경)을 눌렀다 뗐을 때만 닫기 — 입력칸에서 드래그하다 밖에서 떼는 경우는 무시
-  const handleBackdropDown = (e) => { backdropDownRef.current = e.target === e.currentTarget; };
-  const handleBackdropClick = (e) => {
-    const fromBackdrop = backdropDownRef.current && e.target === e.currentTarget;
-    backdropDownRef.current = false;
-    if (fromBackdrop) onClose?.();
-  };
-
   // z-[90]: 저장 결과 토스트(z-[100], "order# 중복" 등)가 상세창에 가려지지 않도록 한 단계 아래
   //         (컨펌·LOT 팝오버는 z-[200] 이라 그대로 위에 뜸)
   return (
-    <div
+    <ModalBackdrop
       className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-stretch md:items-center justify-center md:p-6"
-      onMouseDown={handleBackdropDown}
-      onClick={handleBackdropClick}
+      onClose={onClose}
     >
       <div
         ref={panelRef}
@@ -1109,7 +1100,7 @@ const OrderDetailBody = ({
           onSave={rounds => actions.setColorField(order.id, confirmColor.id, { confirmRounds: rounds })}
         />
       )}
-    </div>
+    </ModalBackdrop>
   );
 };
 

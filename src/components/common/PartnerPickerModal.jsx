@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { X, Search, Plus, Pencil, Trash2, Check, ArrowLeft, Building2 } from 'lucide-react';
+import { ModalBackdrop } from './ModalBackdrop';
 
 // ============================================================
 // 거래처 선택 모달 (ezTex '고객사 선택' 스타일)
@@ -61,7 +62,7 @@ export const PartnerPickerModal = ({
   );
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-black/50 backdrop-blur-sm flex items-start justify-center p-3 md:p-6 overflow-y-auto" onClick={onClose}>
+    <ModalBackdrop className="fixed inset-0 z-[9999] bg-black/50 backdrop-blur-sm flex items-start justify-center p-3 md:p-6 overflow-y-auto" onClose={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl my-2 md:my-6" onClick={e => e.stopPropagation()}>
         {/* 헤더 */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
@@ -160,6 +161,6 @@ export const PartnerPickerModal = ({
           </div>
         )}
       </div>
-    </div>
+    </ModalBackdrop>
   );
 };

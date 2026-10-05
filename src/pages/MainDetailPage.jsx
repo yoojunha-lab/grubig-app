@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, X, Trash2, Edit2, FileCheck, CheckCircle2, XCircle, Upload, ClipboardPaste, AlertTriangle } from 'lucide-react';
 import { MainDetailFormModal } from '../components/main-detail/MainDetailFormModal';
+import { ModalBackdrop } from '../components/common/ModalBackdrop';
 
 export const MainDetailPage = ({
   mainDetails,
@@ -172,7 +173,7 @@ export const MainDetailPage = ({
 
       {/* 엑셀 복붙 그리드 모달 */}
       {isBulkModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4" onClick={closeBulkModal}>
+        <ModalBackdrop className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4" onClose={closeBulkModal}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[95vw] xl:max-w-6xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
             {/* 모달 헤더 */}
             <div className="flex justify-between items-center px-6 py-3 border-b border-slate-200 bg-emerald-50">
@@ -305,7 +306,7 @@ export const MainDetailPage = ({
               </div>
             </div>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
 
       <div className="gap-6">

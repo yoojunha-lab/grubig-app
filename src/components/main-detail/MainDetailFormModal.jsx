@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Save, X, Edit2 } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
+import { ModalBackdrop } from '../common/ModalBackdrop';
 
 /**
  * 메인 디테일 시트 작성/수정 공용 모달
@@ -39,7 +40,7 @@ export const MainDetailFormModal = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4" onClick={cancel}>
+    <ModalBackdrop className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4" onClose={cancel}>
       <div className="bg-white p-5 rounded-2xl shadow-xl border border-slate-200 relative w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <button onClick={cancel} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600">
           <X className="w-6 h-6" />
@@ -212,6 +213,6 @@ export const MainDetailFormModal = ({
           </div>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 };

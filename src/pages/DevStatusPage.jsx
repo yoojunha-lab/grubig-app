@@ -5,6 +5,7 @@ import { PendingProgressBar } from '../components/design-sheet/PendingProgressBa
 import { DevRequestFormModal } from '../components/dashboard/DevRequestFormModal';
 import { DevArchiveModal } from '../components/dashboard/DevArchiveModal';
 import { DevRequestPrintSheet } from '../components/dashboard/DevRequestPrintSheet';
+import { ModalBackdrop } from '../components/common/ModalBackdrop';
 
 // 개발 의뢰 단계 설명 (바이어 의뢰 접수~개발 가능 여부 확인까지)
 const DEV_REQ_STAGE_GUIDE = [
@@ -981,7 +982,7 @@ export const DevStatusPage = ({
             String(d.targetSpec?.composition || '').toLowerCase().includes(q)
           );
           return (
-            <div className="fixed inset-0 z-[120] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setLinkTargetSheet(null)}>
+            <ModalBackdrop className="fixed inset-0 z-[120] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClose={() => setLinkTargetSheet(null)}>
               <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
                 <div className="p-4 border-b border-slate-200 flex items-center justify-between shrink-0">
                   <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
@@ -1020,7 +1021,7 @@ export const DevStatusPage = ({
                   ))}
                 </div>
               </div>
-            </div>
+            </ModalBackdrop>
           );
         })()}
       </div>

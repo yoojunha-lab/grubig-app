@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Save, Plus, Trash2, Settings, AlertTriangle } from 'lucide-react';
+import { ModalBackdrop } from '../common/ModalBackdrop';
 import { num } from '../../utils/helpers';
 import { resolveCostSettings, resolveOrderColors, getFreightAmount, isImportSupplier } from '../../utils/costModel';
 import { COST_DISPLAY_TIERS, COST_TIER_GROUPS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, DEFAULT_IMPORT_COUNTRY_ID } from '../../constants/costing';
@@ -281,7 +282,7 @@ export const CostSettingsModal = ({
     : '아직 저장한 적 없음 (기본값 사용 중)';
 
   return createPortal(
-    <div className="fixed inset-0 z-[9995] bg-black/40 flex items-start justify-center p-3 md:p-4 overflow-y-auto print:hidden" onClick={requestClose}>
+    <ModalBackdrop className="fixed inset-0 z-[9995] bg-black/40 flex items-start justify-center p-3 md:p-4 overflow-y-auto print:hidden" onClose={requestClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl my-4 md:my-6 flex flex-col max-h-[92vh]" onClick={e => e.stopPropagation()}>
         {/* 헤더 */}
         <div className="flex items-start justify-between px-5 py-3.5 border-b border-slate-200 shrink-0">
@@ -449,7 +450,7 @@ export const CostSettingsModal = ({
           </div>
         </div>
       </div>
-    </div>,
+    </ModalBackdrop>,
     document.body
   );
 };

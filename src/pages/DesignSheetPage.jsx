@@ -7,6 +7,7 @@ import { MainDetailFormModal } from '../components/main-detail/MainDetailFormMod
 import { num, calculateGYd, computeSellPrice } from '../utils/helpers';
 import { computeCostAtQty, resolveKnitKgRate, normalizeExtraCosts } from '../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
+import { ModalBackdrop } from '../components/common/ModalBackdrop';
 
 // 편직 조직도 관련 부호
 const KNIT_SYMBOLS = ['︹', '︺', '︿', '﹀', '━', '┃', '╋', '○', '●', '◎', '△', '▽'];
@@ -835,7 +836,7 @@ export const DesignSheetPage = ({
 
       {/* === 편직 사양 조직/기종 선택 모달 (칩 나열 대신 클릭→창에서 선택) === */}
       {optionPicker && (
-        <div className="fixed inset-0 z-[140] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setOptionPicker(null)}>
+        <ModalBackdrop className="fixed inset-0 z-[140] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClose={() => setOptionPicker(null)}>
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-slate-200 flex items-center justify-between shrink-0">
               <h3 className="text-sm font-extrabold text-slate-800">{optionPicker.title}</h3>
@@ -874,7 +875,7 @@ export const DesignSheetPage = ({
               </div>
             </div>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
 
       {/* === 메인 디테일 시트 작성 팝업 (공용 컴포넌트 재사용) === */}
@@ -897,7 +898,7 @@ export const DesignSheetPage = ({
 
       {/* === 메인 디테일 시트 연동 현황 보기 팝업 === */}
       {mdViewOpen && (
-        <div className="fixed inset-0 z-[130] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setMdViewOpen(false)}>
+        <ModalBackdrop className="fixed inset-0 z-[130] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClose={() => setMdViewOpen(false)}>
           <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-slate-200 flex items-center justify-between shrink-0">
               <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
@@ -945,12 +946,12 @@ export const DesignSheetPage = ({
               })}
             </div>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
 
       {/* === 가설계서 불러오기 모달 (정식 모드 전용) === */}
       {!isTempMode && isTempLoadModalOpen && (
-        <div className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setIsTempLoadModalOpen(false)}>
+        <ModalBackdrop className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClose={() => setIsTempLoadModalOpen(false)}>
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 relative max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <button onClick={() => setIsTempLoadModalOpen(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600">
               <X className="w-5 h-5" />
@@ -991,7 +992,7 @@ export const DesignSheetPage = ({
               </div>
             )}
           </div>
-        </div>
+        </ModalBackdrop>
       )}
 
     </div>

@@ -3,6 +3,7 @@ import { X, Save, LogOut } from 'lucide-react';
 import { FabricListPage } from './FabricListPage';
 import { CalculatorPage } from './CalculatorPage';
 import { sumYarnRatio, isYarnRatioComplete } from '../utils/costModel';
+import { ModalBackdrop } from '../components/common/ModalBackdrop';
 
 // ============================================================
 // 원단 관리 워크스페이스 — '새 원단 등록' + '원단 리스트'를 한 메뉴로 병합
@@ -94,9 +95,9 @@ export const FabricWorkspacePage = (props) => {
 
       {/* 원단 등록/편집 팝업 (모달) */}
       {formOpen && (
-        <div
+        <ModalBackdrop
           className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-3 md:p-6"
-          onClick={requestClose}
+          onClose={requestClose}
         >
           <div className="w-full max-w-5xl my-2 md:my-6 relative" onClick={e => e.stopPropagation()}>
             <button
@@ -110,12 +111,12 @@ export const FabricWorkspacePage = (props) => {
               <CalculatorPage {...props} setActiveTab={modalSetActiveTab} resetFabricForm={resetAndRebase} />
             </div>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
 
       {/* 변경사항 확인 모달 */}
       {pendingAction && (
-        <div className="fixed inset-0 z-[110] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={guardKeepEditing}>
+        <ModalBackdrop className="fixed inset-0 z-[110] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClose={guardKeepEditing}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-slate-800 mb-1">변경사항이 있습니다</h3>
             <p className="text-sm text-slate-500 mb-5">수정한 원단에 저장하지 않은 변경사항이 있어요. 저장할까요?</p>
@@ -133,7 +134,7 @@ export const FabricWorkspacePage = (props) => {
               </div>
             </div>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
     </div>
   );

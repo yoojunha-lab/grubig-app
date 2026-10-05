@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Search, Plus, Edit2, Trash2, FlaskConical, Calendar, User, FileText, X, Save, ArrowRight, Download } from 'lucide-react';
 import { num, computeSellPrice, toTierRate } from '../utils/helpers';
 import { DESIGN_STAGES, STAGE_COLORS } from '../constants/common';
+import { ModalBackdrop } from '../components/common/ModalBackdrop';
 
 // 단계 key → 한국어 라벨 (설계서 화면과 용어 통일)
 const STAGE_LABEL = Object.fromEntries(DESIGN_STAGES.map(s => [s.key, s.label]));
@@ -294,8 +295,8 @@ export const TempDesignSheetListPage = ({
 
       {/* [불러오기] 정식 설계서 선택 팝업 — 선택 시 새 가설계서로 복제 후 편집기 오픈 */}
       {importPickerOpen && (
-        <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4 md:p-8"
-          onClick={() => setImportPickerOpen(false)}>
+        <ModalBackdrop className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4 md:p-8"
+          onClose={() => setImportPickerOpen(false)}>
           <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl mt-4 md:mt-10 overflow-hidden" onClick={e => e.stopPropagation()}>
             {/* 헤더 */}
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 bg-gradient-to-r from-indigo-50 to-white">
@@ -351,13 +352,13 @@ export const TempDesignSheetListPage = ({
               총 {importCandidates.length}건 · 선택하면 원본은 그대로 두고 새 가설계서로 복제됩니다
             </div>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
 
       {/* 4. 가설계서 작성/편집 모달 (DesignSheetPage 재사용, isTempMode=true) */}
       {isTempModalOpen && (
-        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4 md:p-8 overflow-x-hidden"
-          onClick={() => setIsTempModalOpen(false)}>
+        <ModalBackdrop className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4 md:p-8 overflow-x-hidden"
+          onClose={() => setIsTempModalOpen(false)}>
           <div className="w-full max-w-[1800px] relative bg-transparent mx-auto" onClick={e => e.stopPropagation()}>
             <DesignSheetPage
               isTempMode={true}
@@ -397,7 +398,7 @@ export const TempDesignSheetListPage = ({
               onOpenCostSettings={onOpenCostSettings}
             />
           </div>
-        </div>
+        </ModalBackdrop>
       )}
     </div>
   );
