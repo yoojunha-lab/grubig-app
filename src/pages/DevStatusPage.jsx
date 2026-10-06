@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { Activity, Edit2, FileText, Plus, Search, Printer, Archive, ArrowRight, XCircle, Flame, Hourglass, Sparkles, ClipboardList, Info, ChevronDown, ChevronUp, Link2, Unlink, Calculator, Trash2 } from 'lucide-react';
+import { Activity, Edit2, FileText, Plus, Search, Printer, Archive, ArrowRight, XCircle, Flame, Hourglass, Sparkles, ClipboardList, Info, ChevronDown, ChevronUp, Link2, Unlink, Calculator, Trash2, CheckCircle2 } from 'lucide-react';
 import { DEV_REQUEST_STATUS_LABELS, DEV_REQUEST_STATUS_BADGE_CLS, SAMPLING_SUBSTAGES } from '../constants/common';
 import { PendingProgressBar } from '../components/design-sheet/PendingProgressBar';
 import { DevRequestFormModal } from '../components/dashboard/DevRequestFormModal';
@@ -100,6 +100,30 @@ const DevQuoteBadge = ({ badge, className = '' }) => {
       <Calculator className="w-2.5 h-2.5 shrink-0" />
       {isQuote ? '견적' : '예상'} {badge.price} ({badge.qtyLabel}){badge.date ? ` · ${badge.date}` : ''}
     </span>
+  );
+};
+
+// [원가 견적] 버튼 — 원가 견적을 저장한 의뢰는 초록 바탕 + ✔ (대표님 요청 2026-10-06: 원가 견적이 필요 없는 의뢰도 있어서
+//  해 준 의뢰를 버튼만 보고 알 수 있게). 마우스를 올리면 저장 날짜·이 의뢰로 만든 견적서 건수. 누르면 원가 견적 창 (다시 보기·고치기)
+const CostQuoteButton = ({ devReq, quoteCount = 0, onClick, size = 'sm' }) => {
+  const done = !!devReq?.costQuote;
+  const iso = devReq?.costQuote?.updatedAt;
+  const t = new Date(iso);
+  const savedAt = iso && !Number.isNaN(t.getTime())
+    ? `${String(t.getMonth() + 1).padStart(2, '0')}/${String(t.getDate()).padStart(2, '0')}`
+    : '';
+  const title = done
+    ? `원가 견적 완료${savedAt ? ` · ${savedAt} 저장` : ''}${quoteCount > 0 ? ` (견적서 ${quoteCount}건)` : ' (견적서는 아직 없음)'} — 눌러서 보기·고치기 / 견적서 만들기`
+    : '예상 스펙으로 원가·판매가 계산 (바이어가 가격부터 볼 때)';
+  const sizeCls = size === 'md' ? 'gap-1 px-2 py-1.5 text-[11px] justify-center' : 'gap-1 px-2 py-0.5 text-[10px]';
+  const toneCls = done
+    ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-sm'
+    : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50';
+  const Icon = done ? CheckCircle2 : Calculator;
+  return (
+    <button onClick={onClick} title={title} className={`flex items-center font-bold rounded border ${sizeCls} ${toneCls}`}>
+      <Icon className="w-3 h-3" /> 원가 견적
+    </button>
   );
 };
 
@@ -638,11 +662,7 @@ export const DevStatusPage = ({
                                 </button>
                               )}
                               {saveDevCostQuote && (
-                                <button onClick={() => setCostQuoteDevId(d.id)}
-                                  className={`flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded border ${d.costQuote ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100' : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'}`}
-                                  title={d.costQuote ? '원가 견적 보기·고치기 / 견적서 만들기' : '예상 스펙으로 원가·판매가 계산 (바이어가 가격부터 볼 때)'}>
-                                  <Calculator className="w-3 h-3"/> 원가 견적
-                                </button>
+                                <CostQuoteButton devReq={d} quoteCount={findDevQuotes(savedQuotes, d.id).length} onClick={() => setCostQuoteDevId(d.id)} />
                               )}
                               <div className="relative">
                                 <button onClick={() => setPrintMenuId(printMenuId === d.id ? null : d.id)}
@@ -724,10 +744,7 @@ export const DevStatusPage = ({
                           </button>
                         )}
                         {saveDevCostQuote && (
-                          <button onClick={() => setCostQuoteDevId(d.id)}
-                            className={`flex items-center justify-center gap-1 px-2 py-1.5 text-[11px] font-bold rounded border ${d.costQuote ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-white text-emerald-700 border-emerald-200'}`}>
-                            <Calculator className="w-3 h-3"/> 원가 견적
-                          </button>
+                          <CostQuoteButton size="md" devReq={d} quoteCount={findDevQuotes(savedQuotes, d.id).length} onClick={() => setCostQuoteDevId(d.id)} />
                         )}
                         <div className="relative">
                           <button onClick={() => setPrintMenuId(printMenuId === d.id ? null : d.id)}
