@@ -1096,6 +1096,7 @@ const App = () => {
             initFromDevRequest={initFromDevRequest}
             updateDevStatus={updateDevStatus}
             handleEditSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
+            handleDeleteSheet={handleDeleteSheet}
             setSamplingSub={setSamplingSub}
             linkSheetToDevRequest={linkSheetToDevRequest}
             unlinkSheetFromDevRequest={unlinkSheetFromDevRequest}

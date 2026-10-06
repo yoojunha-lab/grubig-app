@@ -623,6 +623,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   };
 
   // 반환: 삭제했으면 true (취소·차단·실패면 false — 편집 창은 그대로 두도록)
+  // 설계서 삭제 — 설계서 창의 [삭제]와 개발/설계 현황 목록의 🗑 가 같이 씀
+  //  반환: 지웠으면 true (막힘·취소·실패면 false — 호출부에서 창 닫기 판단)
   const handleDeleteSheet = async (id) => {
     const sheet = designSheets.find(s => s.id === id);
 
@@ -632,10 +634,22 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       return false;
     }
 
+    // 지우면 같이 정리되는 연결 — 확인 창에 미리 알려 줌 (목록에서 바로 지울 때도 어떤 설계서인지 알 수 있게 이름도)
+    const linkedDev = sheet?.devRequestId
+      ? (devRequests || []).find(d => d.id === sheet.devRequestId && d.linkedDesignSheetId === id)
+      : null;
+    // '기존 원단에서 연결'로 이어 둔 원단 — 원단은 남기고 연결만 풂 (대표님 결정 2026-10-06)
+    //  (예전엔 원단 쪽 연결이 남아 그 원단을 다른 설계서에 다시 연결할 수 없었음)
+    const linkedFabrics = (savedFabrics || []).filter(f => String(f.linkedSheetId) === String(id));
+    const label = [sheet?.eztexOrderNo, sheet?.devOrderNo, sheet?.fabricName].filter(Boolean).join(' · ');
+    const notes = [];
+    if (linkedDev) notes.push(`연결된 개발 의뢰(${linkedDev.devOrderNo || '-'})는 남고 연결만 풀려요 — 개발 의뢰 현황에 '설계 대기'로 다시 보여요.`);
+    if (linkedFabrics.length > 0) notes.push(`연결된 원단(${linkedFabrics.map(f => f.article || f.itemName || '-').join(', ')})은 원단 리스트에 남고, 설계서 연결만 풀려요.`);
+
     // [방어] 샘플 진행 중인 설계서는 이중 경고
-    const msg = sheet?.stage === 'sampling'
-      ? '⚠️ 샘플 진행 중인 설계서입니다!\n정말로 영구 삭제하시겠습니까? (복구 불가)'
-      : '정말로 이 설계서를 삭제하시겠습니까? (삭제된 설계서는 복구할 수 없습니다.)';
+    const head = sheet?.stage === 'sampling' ? '⚠️ 샘플 진행 중인 설계서입니다!\n' : '';
+    const msg = `${head}${label ? `'${label}' 설계서` : '이 설계서'}를 영구 삭제할까요? (삭제된 설계서는 복구할 수 없습니다.)`
+      + (notes.length ? `\n\n· ${notes.join('\n· ')}` : '');
 
     if (!window.confirm(msg)) return false;
 
@@ -644,16 +658,15 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     if (ok === false) return false; // deleteDocFromCloud가 '삭제 실패' 알림
 
     // [A4 수정] 연결된 의뢰의 linkedDesignSheetId 해제 → 의뢰 영구잠김 방지
-    if (sheet?.devRequestId && devRequests) {
-      const linkedDev = devRequests.find(d => d.id === sheet.devRequestId);
-      if (linkedDev?.linkedDesignSheetId === id) {
-        saveDocToCloud('devRequests', {
-          ...linkedDev,
-          linkedDesignSheetId: null,
-          updatedAt: new Date().toISOString()
-        });
-      }
+    if (linkedDev) {
+      saveDocToCloud('devRequests', {
+        ...linkedDev,
+        linkedDesignSheetId: null,
+        updatedAt: new Date().toISOString()
+      });
     }
+    // 연결된 원단의 linkedSheetId 해제 → 그 원단을 다른 설계서에 다시 연결할 수 있게
+    linkedFabrics.forEach(f => saveDocToCloud('fabrics', { ...f, linkedSheetId: null }));
     showToast('설계서가 삭제되었습니다.', 'success');
     return true;
   };

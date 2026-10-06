@@ -133,6 +133,8 @@ const CostQuoteButton = ({ devReq, quoteCount = 0, onClick, size = 'sm' }) => {
  *   · [원가 견적] 예상 스펙으로 원가·판매가 계산 → 저장 / [견적서 만들기] (대표님 요청 2026-10-06 — 가격 보고 개발 여부를 정하는 바이어)
  *   · [Drop] 사유와 같이, [삭제] 의뢰 영구 삭제 (설계서가 연결된 의뢰는 막힘)
  * - 섹션 B: 설계서 진행 현황 (draft/eztex/sampling)
+ *   · [Drop] 보관함으로 (복원 가능), [삭제] 영구 삭제 — 설계서 창의 [삭제]와 같은 함수(useDesignSheet.handleDeleteSheet):
+ *     연결된 개발 의뢰·원단은 남고 연결만 풀림, 샘플 진행 중이면 한 번 더 경고
  * - 아이템화 완료된 설계서는 [설계서 보관함] 페이지에서 관리
  */
 export const DevStatusPage = ({
@@ -140,7 +142,7 @@ export const DevStatusPage = ({
   handleDevChange, handleSpecChange, handleSaveDevRequest,
   handleEditDevRequest, handleDeleteDevRequest, resetDevForm,
   createDesignSheetFromDev, initFromDevRequest, updateDevStatus,
-  handleEditSheet, saveDocToCloud, setStage, dropDesignSheet,
+  handleEditSheet, handleDeleteSheet, saveDocToCloud, setStage, dropDesignSheet,
   setSamplingSub, linkSheetToDevRequest, unlinkSheetFromDevRequest,
   setActiveTab, user, buyers,
   generateDevOrderNo, setIsBuyerModalOpen,
@@ -935,9 +937,16 @@ export const DevStatusPage = ({
                               </button>
                               <button onClick={() => handleDropSheet(s.id)}
                                 className="flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 hover:bg-red-100 text-[10px] font-bold rounded border border-red-200"
-                                title="설계서 Drop">
+                                title="설계서 Drop (보관함으로 — 복원 가능)">
                                 <XCircle className="w-3 h-3"/> Drop
                               </button>
+                              {handleDeleteSheet && (
+                                <button onClick={() => handleDeleteSheet(s.id)}
+                                  className="flex items-center px-1.5 py-0.5 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 rounded border border-slate-200 hover:border-red-200"
+                                  title="설계서 삭제 (영구 삭제 — 복구할 수 없어요. 보관만 하려면 Drop)">
+                                  <Trash2 className="w-3.5 h-3.5"/>
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1038,6 +1047,12 @@ export const DevStatusPage = ({
                           className="flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 text-[11px] font-bold rounded border border-red-200">
                           <XCircle className="w-3 h-3"/> Drop
                         </button>
+                        {handleDeleteSheet && (
+                          <button onClick={() => handleDeleteSheet(s.id)} title="설계서 삭제 (영구 삭제 — 복구할 수 없어요)"
+                            className="flex items-center justify-center gap-1 px-2 py-1.5 bg-white text-slate-500 text-[11px] font-bold rounded border border-slate-200">
+                            <Trash2 className="w-3 h-3"/> 삭제
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
