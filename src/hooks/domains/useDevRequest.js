@@ -1,8 +1,16 @@
 import { useState } from 'react';
 import { todayLocalISO } from '../../utils/helpers';
+import { validateDevCostQuote } from '../../utils/devQuoteModel';
+import { DEV_DROP_REASONS } from '../../constants/common';
 
 // GRUBIG ERP - 바이어 R&D 개발 의뢰 관리 훅
 // 상태: pending(대기) → analyzing(분석) → confirmed(개발투입확정, 설계서 저장 시 자동) / rejected(미진행)
+//
+// [원가 견적 — 대표님 요청 2026-10-06] 바이어가 개발 전에 가격부터 보는 경우 (비싸면 Drop)
+//  · 의뢰 문서의 costQuote 에 예상 스펙·마진·저장 시점 판매가(snapshot)를 저장 (utils/devQuoteModel.js)
+//  · 저장하면 '의뢰 접수·분석 중' 의뢰는 '대기 중'(바이어 결정 대기)으로 (대표님 결정)
+//  · Drop 은 사유(dropReason)·메모(dropMemo)와 같이 — 복원하면 사유는 지움
+//  · 의뢰 문서는 통째로 덮어써서 저장(setDoc)되므로, 저장할 때는 항상 기존 문서를 먼저 깔고 바꿀 값만 얹음
 
 export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, showToast, designSheets) => {
   const [editingDevId, setEditingDevId] = useState(null);
@@ -92,9 +100,14 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       : (existing?.statusEnteredAt || {});
 
     const itemToSave = {
+      // 수정 저장은 문서를 통째로 덮어쓰므로(setDoc) 폼에 없는 값(원가 견적·Drop 사유 등)을 먼저 깔고 폼 값을 얹음
+      //  (예전엔 폼 값만 저장해서, 의뢰를 수정할 때마다 다른 화면에서 붙인 값이 지워질 수 있었음)
+      ...(existing || {}),
       ...devInput,
       id: editingDevId || `dev_${Date.now()}`,
       devOrderNo,
+      // 단계는 목록에서 바로 바뀌는 값 — 수정 창이 열려 있는 동안 바뀌었어도 되돌리지 않게 저장된 값을 씀
+      status: isNew ? (devInput.status || 'pending') : (existing?.status || devInput.status || 'pending'),
       linkedDesignSheetId: isNew ? null : (existing?.linkedDesignSheetId || null),
       statusEnteredAt,
       createdBy: isNew ? (user?.email || '') : (existing?.createdBy || ''),
@@ -125,7 +138,8 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
   };
 
   // 반환값: true=삭제 완료 / false=가드 차단·취소·실패 (호출부에서 모달 닫기 판단에 사용)
-  const handleDeleteDevRequest = async (id) => {
+  //  options.linkedQuoteCount: 이 의뢰로 만든 견적서 수 — 있으면 확인 창에 알려 줌
+  const handleDeleteDevRequest = async (id, { linkedQuoteCount = 0 } = {}) => {
     const devReq = (devRequests || []).find(d => d.id === id);
 
     // [방어] 설계서가 연결된 의뢰는 삭제 차단 — 고아 설계서 발생 방지
@@ -139,22 +153,25 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       return false;
     }
 
-    if (!window.confirm('정말로 이 개발 의뢰를 삭제하시겠습니까? (복구할 수 없습니다)')) return false;
-    try {
-      await deleteDocFromCloud('devRequests', id);
-      showToast('삭제되었습니다.', 'success');
-      return true;
-    } catch {
-      // deleteDocFromCloud 내부에서 이미 에러 토스트 처리됨
-      return false;
-    }
+    const notes = [];
+    if (devReq?.costQuote) notes.push('이 의뢰의 원가 견적도 같이 지워져요.');
+    if (linkedQuoteCount > 0) notes.push(`이 의뢰로 만든 견적서가 ${linkedQuoteCount}건 있어요. 견적서는 남지만, 그 품목은 [현재 원가로 다시 계산]을 할 수 없게 돼요 (단가는 그대로).`);
+    const label = devReq?.devOrderNo ? ` '${devReq.devOrderNo}'` : '';
+    if (!window.confirm(`정말로 이 개발 의뢰${label}를 삭제하시겠습니까? (복구할 수 없습니다)${notes.length ? `\n\n· ${notes.join('\n· ')}` : ''}`)) return false;
+    // deleteDocFromCloud는 실패하면 false를 돌려주고 '삭제 실패' 알림을 띄움 (오류로 멈추지 않음)
+    const ok = await deleteDocFromCloud('devRequests', id);
+    if (ok === false) return false;
+    showToast('삭제되었습니다.', 'success');
+    return true;
   };
 
   // 설계서 작성 시 전달할 데이터
+  //  costQuote: 원가 견적을 냈으면 그 예상 스펙을 설계서에 이어받음 (useDesignSheet.initFromDevRequest)
   const createDesignSheetFromDev = (devReq) => ({
     devOrderNo: devReq.devOrderNo,
     devRequestId: devReq.id,
-    sampleDeadline: devReq.targetSpec?.sampleDeadline || ''
+    sampleDeadline: devReq.targetSpec?.sampleDeadline || '',
+    costQuote: devReq.costQuote || null
   });
 
   // 상태 변경 (드롭다운)
@@ -188,9 +205,13 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       }
     }
 
+    // Drop(rejected)에서 다른 단계로 되돌리면(복원) Drop 사유·메모는 지움
+    const { dropReason: _dropReason, dropMemo: _dropMemo, droppedBy: _droppedBy, ...withoutDrop } = devReq;
+    const base = devReq.status === 'rejected' && newStatus !== 'rejected' ? withoutDrop : devReq;
+
     const now = new Date().toISOString();
     saveDocToCloud('devRequests', {
-      ...devReq,
+      ...base,
       status: newStatus,
       // confirmed → 다른 상태로 돌리면 linkedDesignSheetId도 해제
       // confirmed로 전환 시 active 설계서가 있으면 자동 복구
@@ -202,6 +223,54 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       updatedAt: now
     });
     showToast(`상태가 변경되었습니다.`, 'success');
+  };
+
+  // Drop(미진행) — 사유와 같이 (대표님 요청 2026-10-06: 원가 견적을 보고 비싸서 Drop된 건을 따로 보려고)
+  //  반환: 저장됐으면 true (사유를 안 골랐거나 저장 실패면 false — Drop 창 그대로)
+  const dropDevRequest = async (devReqId, { reason, memo = '' } = {}, user) => {
+    const devReq = (devRequests || []).find(d => d.id === devReqId);
+    if (!devReq) { showToast('개발 의뢰를 찾지 못했어요.', 'error'); return false; }
+    const found = DEV_DROP_REASONS.find(r => r.key === reason);
+    if (!found) { showToast('Drop 사유를 골라 주세요.', 'error'); return false; }
+    const now = new Date().toISOString();
+    const ok = await saveDocToCloud('devRequests', {
+      ...devReq,
+      status: 'rejected',
+      // confirmed(개발 확정) 의뢰를 Drop하면 의뢰 쪽 설계서 연결은 해제 (단계 변경과 같은 규칙)
+      linkedDesignSheetId: devReq.status === 'confirmed' ? null : (devReq.linkedDesignSheetId || null),
+      dropReason: found.key,
+      dropMemo: String(memo || '').trim(),
+      droppedBy: user?.email || '',
+      statusEnteredAt: { ...(devReq.statusEnteredAt || {}), rejected: now },
+      updatedAt: now
+    });
+    if (ok === false) return false;
+    showToast(`Drop 처리했어요 (사유: ${found.label}). 보관함에서 볼 수 있어요.`, 'success');
+    return true;
+  };
+
+  // 원가 견적 저장 (개발 의뢰 원가 견적 창)
+  //  · 저장을 막는 사유(혼용률 ≠ 100% · 원사·단가 없는 칸 · 중량 없음)가 있으면 저장하지 않음 (validateDevCostQuote)
+  //  · 대표님 결정: 저장하면 '의뢰 접수·분석 중' 의뢰는 '대기 중'(분석 완료, 바이어 결정 대기)으로. 개발 확정은 그대로
+  //  반환: 저장한 원가 견적(costQuote) / 막힘·실패면 false — '견적서 만들기'는 이 값으로 바로 견적서를 만듦
+  //   (목록의 의뢰 값은 서버에서 다시 받아올 때 바뀌므로, 저장 직후엔 아직 옛 값일 수 있음)
+  const saveDevCostQuote = async (devReqId, quote, user) => {
+    const devReq = (devRequests || []).find(d => d.id === devReqId);
+    if (!devReq) { showToast('개발 의뢰를 찾지 못했어요. 목록을 다시 열고 해 주세요.', 'error'); return false; }
+    const errors = validateDevCostQuote(quote);
+    if (errors.length > 0) { showToast(errors[0], 'error'); return false; }
+    const now = new Date().toISOString();
+    const costQuote = { ...quote, updatedAt: now, updatedBy: user?.email || '' };
+    const toHold = devReq.status === 'pending' || devReq.status === 'analyzing';
+    const ok = await saveDocToCloud('devRequests', {
+      ...devReq,
+      costQuote,
+      ...(toHold ? { status: 'hold', statusEnteredAt: { ...(devReq.statusEnteredAt || {}), hold: now } } : {}),
+      updatedAt: now
+    });
+    if (ok === false) return false;
+    showToast(toHold ? "원가 견적을 저장했어요. 의뢰 단계를 '대기 중'(바이어 결정 대기)으로 바꿨어요." : '원가 견적을 저장했어요.', 'success');
+    return costQuote;
   };
 
   // 설계서 저장 시 자동 확정 (연결 + confirmed 전환)
@@ -232,6 +301,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     handleSaveDevRequest, handleEditDevRequest, handleDeleteDevRequest,
     resetDevForm, generateDevOrderNo, createDesignSheetFromDev,
     updateDevStatus, linkAndConfirm,
+    dropDevRequest, saveDevCostQuote,
     getBlankDevInput: getInitialDevInput, // 저장 안 한 변경 확인용 빈 양식 (새 의뢰 기준)
   };
 };

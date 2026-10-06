@@ -3,9 +3,10 @@ import { calculateMcqYd, num, todayLocalISO } from '../../utils/helpers';
 import { QUOTE_TIERS, QUOTE_TIER_KEYS, DEFAULT_SHOWN_TIERS, DEFAULT_CUSTOM_QTY, DEFAULT_CUSTOM_COLORS } from '../../constants/quote';
 import {
   normalizeQuote, isNewMarginModel, convertMarginAdd, convertAmount, convertCostParts,
-  makeDefaultTierRates, makeDefaultTierAdds, toQuoteTierRate, computeBaseFromParts, partsFromCost,
+  makeDefaultTierRates, makeDefaultTierAdds, toQuoteTierRate, toQuoteTierAdd, defaultTierAdd, computeBaseFromParts, partsFromCost,
   getBasePrice, getShownTiers, getCustomExclude, describeTierDefaults, getMarginAddCurrency,
 } from '../../utils/quoteModel';
+import { devQuoteToFabric } from '../../utils/devQuoteModel';
 
 // GRUBIG ERP - 견적서(Quotation) 도메인 로직 및 훅
 //
@@ -18,6 +19,9 @@ import {
 //  · 원단 추가는 두 칸이 같은 방식 — [원단 검색·추가] 팝업, Article 입력(Enter)·엑셀 세로 복붙, 같은 원단은 한 줄만.
 //  · 기준 견적서·별도 견적서는 PDF·엑셀을 따로 출력 (App.jsx handleDownloadPDF / handleDownloadQuoteExcel 의 kind)
 //  · 계산 규칙(판매가·기본값·정규화)은 utils/quoteModel.js, 구간·기본 마진은 constants/quote.js
+//  · [개발 의뢰 원가 견적 — 2026-10-06] 원단 리스트에 없는 개발 품목도 넣을 수 있음: 의뢰의 원가 견적(costQuote)을
+//    '원단 모양'으로 바꿔서(utils/devQuoteModel.devQuoteToFabric) 원단과 똑같이 계산 — fabricId = 의뢰 id,
+//    Article = 개발번호. 다시 계산·복제·별도 견적 복사도 findFabric 한 곳에서 의뢰를 찾아 그대로 동작
 
 // 빈 견적서 초기 상태 (신규 작성 / "새 견적서" 초기화 공용 팩토리)
 // validityOption 기본값 '2weeks' = 작성일로부터 2주
@@ -36,7 +40,7 @@ const makeBlankQuote = () => ({
 
 // 별도 견적 줄 id
 const newRowId = () => `cq_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-const DELETED_NOTE = '원단이 삭제되어 기준원가를 환율로만 환산함';
+const DELETED_NOTE = '원단(또는 개발 의뢰)이 삭제되어 기준원가를 환율로만 환산함';
 const addNote = (warnings, note) => [...new Set([...(warnings || []), note])];
 const isBlank = (v) => v === undefined || v === null || v === '';
 
@@ -44,11 +48,23 @@ const isBlank = (v) => v === undefined || v === null || v === '';
 //  · 견적 품목의 기준원가는 넣을 때의 원가·견적 환율(exchangeRate)로 저장하고, 환율이 바뀌어도 자동으로 다시 계산하지 않음
 //  · 다시 계산은 [현재 원가로 다시 계산] 버튼(handleRecalcQuote)·복제 때 확인했을 때·시장구분 전환 때만
 //  · 별도 견적 줄은 수량·컬러를 바꾸면 그 줄만 견적 환율로 다시 계산 (새로 넣는 것과 같음)
-export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, calculateCostAtQty) => {
+export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, calculateCostAtQty, devRequests = []) => {
   const [quoteInput, setQuoteInput] = useState(makeBlankQuote);
   const savingRef = useRef(false); // 저장 in-flight 가드 (빠른 더블클릭 중복 방지)
 
-  const findFabric = (fabricId) => savedFabrics.find(f => String(f.id) === String(fabricId));
+  // 품목의 원단 찾기 — 원단 리스트에 없으면 개발 의뢰(원가 견적을 저장한 의뢰)를 '원단 모양'으로 (fabricId = 의뢰 id)
+  //  → 다시 계산·복제·별도 견적 복사가 개발 품목도 원단과 똑같이 동작. 둘 다 없으면 undefined (삭제된 품목)
+  const findFabric = (fabricId) =>
+    savedFabrics.find(f => String(f.id) === String(fabricId))
+    || devQuoteToFabric((devRequests || []).find(d => String(d.id) === String(fabricId)))
+    || undefined;
+  // Article로 원단 찾기 — 없으면 개발번호로 (원가 견적을 저장한 개발 의뢰만). 표 아래 Article 입력·엑셀 복붙용
+  const findByArticle = (art) => {
+    const fabric = savedFabrics.find(f => String(f.article).toUpperCase() === art);
+    if (fabric) return fabric;
+    const dev = (devRequests || []).find(d => d?.costQuote && String(d.devOrderNo || '').trim().toUpperCase() === art);
+    return dev ? devQuoteToFabric(dev) : null;
+  };
   // 이 견적의 환율 (품목을 넣을 때 기록. 아직 없으면 지금 환율)
   const quoteRateOf = (q) => Number(q?.exchangeRate) || Number(globalExchangeRate) || 1450;
   const currencyOf = (marketType) => (marketType === 'export' ? 'USD' : 'KRW');
@@ -68,6 +84,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     widthCut: fabric.widthCut, widthFull: fabric.widthFull, gsm: fabric.gsm,
     gYd: calc?.theoreticalGYd ?? 0,
     mcqYd: resolveMcqYd(fabric, calc),
+    // 개발 의뢰 원가 견적에서 온 품목이면 표시용 출처 ('devRequest' — 견적서 화면의 '개발' 배지)
+    ...(fabric.sourceType ? { sourceType: fabric.sourceType } : {}),
   });
 
   // 기준 견적 품목 생성. base = 영업 기준원가(원가 표 같은 구간의 finalCostYd), 판가는 calcQuotePrice에서 마진 적용.
@@ -396,13 +414,13 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       const fabrics = [];
       const notFoundCustom = [];
       articles.forEach(art => {
-        const fabric = savedFabrics.find(f => String(f.article).toUpperCase() === art);
+        const fabric = findByArticle(art);
         if (fabric) fabrics.push(fabric); else notFoundCustom.push(art);
       });
       const { rows, duplicates, blocked } = addCustomRows(fabrics);
       if (blocked) return;
       toastCustomAdded(rows, duplicates);
-      if (notFoundCustom.length > 0) alert(`다음 Article은 리스트에 없습니다:\n\n${notFoundCustom.join('\n')}`);
+      if (notFoundCustom.length > 0) alert(`다음 Article은 리스트에 없습니다:\n\n${notFoundCustom.join('\n')}\n\n(개발번호는 원가 견적을 저장한 개발 의뢰만 넣을 수 있어요)`);
       return;
     }
     // 추가 항목은 견적의 기존 환율(있으면)로 계산 → 환율 일관성 유지
@@ -420,7 +438,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
         return;
       }
 
-      const fabric = savedFabrics.find(f => String(f.article).toUpperCase() === art);
+      const fabric = findByArticle(art);
       if (fabric) { newItems.push(createQuoteItem(fabric, { rate, marketType: quoteInput.marketType, marginRate: quoteInput.bulkMarginRate, ...excludeOf(quoteInput) })); }
       else { notFound.push(art); }
     });
@@ -437,7 +455,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       showToast(`이미 추가된 품목입니다. (중복 제외됨: ${duplicates}건)`, 'error');
     }
 
-    if (notFound.length > 0) alert(`다음 Article은 리스트에 없습니다:\n\n${notFound.join('\n')}`);
+    if (notFound.length > 0) alert(`다음 Article은 리스트에 없습니다:\n\n${notFound.join('\n')}\n\n(개발번호는 원가 견적을 저장한 개발 의뢰만 넣을 수 있어요)`);
   };
 
   const handleRemoveItemFromQuote = (index) => {
@@ -559,6 +577,41 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     return true;
   };
 
+  // [개발 의뢰 원가 견적 → 견적서 만들기 — 2026-10-06]
+  //  의뢰의 원가 견적으로 새 견적서를 시작: 바이어 = 의뢰 바이어, 기준 견적 품목 1개(Article = 개발번호, Spec = 견적서 품목명),
+  //  시장 구분·구간별 매출이익율·YD당 정액(원화)은 원가 견적 창에서 정한 값, 견적 환율 = 지금 공통 환율.
+  //  저장은 하지 않음 — 견적서 화면에서 확인 후 저장·PDF (저장 안 하고 나가면 '저장할까요?')
+  //  devReq.costQuote 는 방금 저장한 값을 넘겨받음 (목록의 의뢰 값은 서버에서 다시 받아올 때 바뀌어서)
+  //  반환: 시작했으면 true
+  const startQuoteFromDevRequest = (devReq) => {
+    const fabric = devQuoteToFabric(devReq);
+    if (!fabric) { showToast('원가 견적을 먼저 저장해 주세요.', 'error'); return false; }
+    const cq = devReq.costQuote;
+    const marketType = cq.marketType === 'export' ? 'export' : 'domestic';
+    const rate = Number(globalExchangeRate) || 1450;
+    const bulk = toQuoteTierRate(cq.marginRate);
+    const item = createQuoteItem(fabric, { rate, marketType, marginRate: bulk });
+    setQuoteInput({
+      ...makeBlankQuote(),
+      buyerName: devReq.buyerName || '',
+      marketType,
+      currency: currencyOf(marketType),
+      exchangeRate: rate,
+      bulkMarginRate: bulk,
+      marginAdd: toQuoteTierAdd(cq.marginAdd, (k) => defaultTierAdd(k, 'KRW')),
+      marginAddCurrency: 'KRW',
+      items: [item],
+    });
+    const warns = item.costWarnings || [];
+    showToast(
+      warns.length > 0
+        ? `${fabric.article} 견적서를 만들었어요. ⚠ 원가 확인 필요 — ${warns[0]}`
+        : `${fabric.article} 견적서를 만들었어요. 구간·마진을 확인하고 저장한 뒤 PDF·엑셀로 보내 주세요.`,
+      warns.length > 0 ? 'error' : 'success'
+    );
+    return true;
+  };
+
   // [신규] 현재 작성 중인 견적서를 비우고 새 견적서 시작
   // 작성 중 내용이 있으면 확인 후 초기화 (수정/복제 모드의 id·createdAt 도 함께 제거됨 → 신규 저장으로 동작)
   // skipConfirm=true : 워크스페이스의 변경사항 가드가 이미 처리했을 때 훅 자체 confirm 생략
@@ -664,6 +717,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     handleAddFabricToQuote, handleGridPaste,
     handleRemoveItemFromQuote, handleRemoveItemsFromQuote,
     handleCopyToCustom, handleAddCustomFabric, handleCustomItemChange, handleRemoveCustomItems, handleCustomExcludeChange,
-    handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
+    handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote,
+    startQuoteFromDevRequest,
   };
 };

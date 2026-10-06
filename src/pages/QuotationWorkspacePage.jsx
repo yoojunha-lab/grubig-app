@@ -16,9 +16,14 @@ export const QuotationWorkspacePage = (props) => {
     quoteInput, setQuoteInput, handleNewQuote, handleSaveQuote,
     savedQuotes = [], setSavedQuotes, setActiveTab, showToast,
     navGuardRef,
+    // 다른 화면에서 견적서를 만들어 넘어올 때(개발 의뢰 [견적서 만들기]) 'form' — 목록 대신 작성 화면으로 바로 엶
+    initialMode = null, onInitialModeUsed,
   } = props;
 
-  const [mode, setMode] = useState('list');
+  const [mode, setMode] = useState(initialMode === 'form' ? 'form' : 'list');
+  // 한 번 쓰고 지움 — 다음에 메뉴로 들어올 때는 평소처럼 목록부터
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (initialMode && onInitialModeUsed) onInitialModeUsed(); }, []);
 
   // ── 변경사항(dirty) 감지용 기준 스냅샷 ──
   //  loadNonce 가 바뀔 때(폼 진입/견적 로드/새 견적/저장 직후)만 기준을 다시 캡처.

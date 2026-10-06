@@ -61,6 +61,16 @@ export const DEV_REQUEST_STATUS_BADGE_CLS = {
   rejected: 'bg-slate-200 text-slate-700 border-slate-300'
 };
 
+// 개발 의뢰 Drop 사유 (대표님 요청 2026-10-06 — 원가 견적을 보고 비싸서 Drop된 건을 따로 보려고)
+//  key 는 의뢰 문서 dropReason 에 저장되는 값이라 바꾸지 말 것
+export const DEV_DROP_REASONS = [
+  { key: 'price',    label: '가격',        desc: '견적가가 바이어 예산·타겟 단가보다 높음', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+  { key: 'leadtime', label: '납기',        desc: '샘플·생산 납기를 맞추기 어려움',          cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  { key: 'spec',     label: '품질·스펙',   desc: '원하는 스펙·느낌으로 개발하기 어려움',    cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  { key: 'buyer',    label: '바이어 사정', desc: '바이어 쪽 오더 취소·보류 등',             cls: 'bg-violet-50 text-violet-700 border-violet-200' },
+  { key: 'etc',      label: '기타',        desc: '메모에 사유를 적어 주세요',               cls: 'bg-slate-100 text-slate-600 border-slate-300' }
+];
+
 // 설계서 보관함 "대기중 목록"용 통합 진행 6단계 (아이템화 직전까지)
 // 의뢰(devRequest.status) + 설계서(designSheet.stage) 두 축을 하나의 흐름으로 시각화
 export const UNIFIED_PENDING_STAGES = [

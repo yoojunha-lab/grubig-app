@@ -306,6 +306,48 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 - 견적 목록에서 **지금 열려 있는 견적을 다시 누르면 아무 일도 없음** (2026-10-06 — 예전엔 저장 전 내용으로 다시 불러와 고친 내용이 사라지고,
   다음 저장 때 옛 내용으로 덮어쓸 수 있었음).
 
+### 5-C. 개발 의뢰 원가 견적 (대표님 요청, 2026-10-06)
+
+바이어가 개발 전에 가격부터 보고 진행 여부를 정하는 경우(비싸면 Drop — 모든 의뢰는 아님).
+개발/설계 현황 → 개발 의뢰 현황 줄의 **[원가 견적]** (PC·모바일). 계산은 원단·견적서와 **같은 엔진·같은 판매가 계산**.
+
+| 칸 | 무엇 |
+|---|---|
+| ① 견적서 품목명 · 원단 스펙 | 견적서 Spec 칸에 나갈 이름(기본 = 개발 아이템), 외폭·내폭·GSM·생산 G/YD(선택, 비우면 이론값) |
+| ② 원사 4칸 (설계서와 같은 칸 수) | 칸마다 **[라이브러리]**(원사 선택 → 대표 공급처 단가·관세·운반비 자동, 수입 원사는 kg 구간 운반비) / **[직접 입력]**(원사명 + 단가 원/kg) |
+| ③ 원가 표 | 원단 등록과 같은 표 — 편직 난이도·kg단가·가공 유형·염가공료·후가공·추가비용·위험마진 → 6구간 영업 기준원가 |
+| ④ 판매가 미리보기 | 견적서와 같은 6구간·같은 계산(`createQuoteItem` → `calcQuotePrice`). 견적서 기본 이익율·정액으로 시작, 고칠 수 있음. 머리줄에서 내수 ₩ / 수출 $ (공통 환율) |
+
+- **직접 입력 단가** = 관세·운반비까지 넣은 최종 원/kg — 가설계서 단가 직접 입력(`priceOverride`)과 같은 규칙 (내수·수출 같은 단가).
+  [라이브러리]↔[직접 입력]을 오가도 입력값은 남아 있고, 저장할 때 고른 방식의 값만 남김 (`cleanDevQuoteYarns`).
+- **저장** → 의뢰 문서 `costQuote = { itemName, marketType, yarns[{ mode, yarnId, manualName, priceOverride, ratio }], costInput, marginRate, marginAdd, snapshot, updatedAt, updatedBy }`
+  - `snapshot`: 저장할 때의 구간별 기준원가·판매가·환율·MCQ·원가 확인 사유 → 의뢰 목록 **'예상'** 배지 (원가·환율이 바뀌어도 그대로).
+  - 창을 다시 열면 **지금 원가**(원사 단가·원가 설정·공통 환율)로 다시 계산해서 보여 줌. 머리에 '마지막 저장 · 저장 때 예상가'를 따로 표시.
+  - 저장 막기(`validateDevCostQuote`): 혼용률 ≠ 100% / 혼용률이 있는데 원사(라이브러리)·단가(직접 입력)가 없는 칸 / GSM·외폭(또는 생산 G/YD) 없음.
+    '원가 확인 필요'(염가공료 빈칸 등)는 저장은 되고 [견적서 만들기] 때 한 번 물어봄.
+  - 닫을 때 저장 안 한 변경이 있으면 '저장할까요?' (팝업 규약, 처음 내는 원가 견적은 빈 양식 기준).
+- **'대기 중' 자동 (대표님 결정)**: 저장하면 '의뢰 접수·분석 중' 의뢰는 '대기 중'(분석 완료, 바이어 결정 대기)으로. 개발 확정은 그대로.
+- **[견적서 만들기]**: 원가 견적을 저장한 뒤 견적서 화면(작성 칸)으로 바로 이동해 **새 견적서**(저장 전)를 엶 —
+  바이어 = 의뢰 바이어, 기준 견적 품목 1개(Article = **개발번호**, Spec = 견적서 품목명, 화면에 '개발' 배지),
+  시장 구분·구간별 이익율·정액 = 창의 값, 견적 환율 = 지금 공통 환율. 견적서 화면에서 표시 구간·제외 항목을 정하고 저장·PDF·엑셀 (§5-B와 같음).
+  - 견적 품목 `fabricId` = 의뢰 id, `sourceType: 'devRequest'`. `useQuotation.findFabric`이 원단 리스트에 없으면 개발 의뢰를 '원단 모양'
+    (`devQuoteToFabric`)으로 찾아서 **[현재 원가로 다시 계산]·복제·별도 견적 복사가 원단과 똑같이** 동작 (원가 견적을 고친 뒤 다시 계산하면 반영).
+  - 견적서 표 아래 Article 칸에 **개발번호**를 넣어도 추가됨 (원가 견적을 저장한 의뢰만) → 한 바이어의 개발 품목 여러 개를 한 견적서에.
+  - 의뢰를 지우면 그 품목은 '삭제된 원단'과 같음 (단가 그대로, 다시 계산 안 됨) — 의뢰 삭제 확인 창에 이 의뢰로 만든 견적서 건수를 알려 줌.
+  - 개발이 끝나 원단(Article)으로 등록된 뒤에도 예전 견적서의 개발 품목은 계속 **원가 견적 기준**으로 계산됨 → 정식 단가는 그 원단으로 새 견적서를 만드는 게 맞음.
+- **의뢰 목록 배지** (`getDevQuoteBadge`): 견적서가 있으면 최근 견적서의 3,000YD 판매가 **'견적'**(마우스를 올리면 구간별, 견적서에 안 나간 구간 표시),
+  없으면 원가 견적 저장값 **'예상'**. 원가 견적 창·Drop 창·보관함에도 같은 값.
+- **설계 시작 때 이어받기**: [개발 확정] → [설계 시작]하면 원가 견적의 원사·폭·GSM·편직/염가공 조건·위험마진, 견적서 품목명 → 원단명을
+  설계서에 채움 (`devQuoteToSheetFields`, `useDesignSheet.initFromDevRequest`). 직접 입력 원사는 설계서에 단가 칸이 없어 원사 칸을 비우고
+  비율만 둠 → 알림으로 원사 이름을 알려 주고 원가 표에 '원가 확인 필요'(원사를 고르지 않은 칸)로 보임. 채운 설계서는 저장 전이라 닫으면 '저장할까요?'.
+- **Drop 사유** (대표님 요청 — 비싸서 Drop된 건을 따로 보려고): [Drop]하면 사유(가격·납기·품질/스펙·바이어 사정·기타, 필수) + 메모(선택).
+  의뢰 `dropReason`·`dropMemo`·`droppedBy`. 보관함 'Drop된 의뢰'에서 **사유별로 걸러 보기** + 견적가·타겟 단가·메모 같이 표시.
+  [복원]하면 '의뢰 접수'로 돌아가고 사유는 지움. 사유 기능 전에 Drop된 의뢰는 '사유 없음'.
+- **의뢰 삭제 버튼** (대표님 요청): 개발 의뢰 현황 줄의 🗑 — 수정 창의 삭제와 같은 규칙 (설계서가 연결된 의뢰는 막힘, 복구 불가 확인,
+  원가 견적·견적서 건수 안내). 보관만 하려면 Drop.
+- 의뢰 문서는 통째로 덮어써서 저장(setDoc)되므로 **의뢰 수정 저장도 기존 문서를 먼저 깔고 폼 값을 얹음** → 수정해도 원가 견적·Drop 사유가 지워지지 않음.
+  단계는 목록에서 바로 바뀌는 값이라 수정 창이 열려 있는 동안 바뀌었어도 저장된 값을 씀 (2026-10-06).
+
 ---
 
 ## 6. 코드 위치
@@ -335,6 +377,9 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 공통 환율 저장·입력 | `src/apps/App.jsx` — `saveExchangeRate`, `exchangeRateMeta` / `src/components/layout/Sidebar.jsx` (입력·확인 창) |
 | 가설계서 YD당 정액 환산 | `src/pages/DesignSheetPage.jsx` — 정액 칸(원화 입력 + '≈ $' 안내) / `helpers.js` — `computeSellPrice(..., exchangeRate)` |
 | 원가 칸 초기값 (원단·설계서·가설계서 새 양식) | `src/utils/costFields.js` — `makeInitialCostFields()` |
+| 개발 의뢰 원가 견적 (순수 함수) | `src/utils/devQuoteModel.js` — 양식(`makeBlankDevCostQuote`·`toDevCostQuoteForm`), 원단 모양 변환(`devQuoteToFabric`·`toEngineYarns`), 저장 전 확인(`validateDevCostQuote`), 미리보기·저장값(`makeDevPreviewQuote`·`buildDevQuoteSnapshot`), 견적서 연결·배지(`findDevQuotes`·`getDevQuoteBadge`), 설계서 이어받기(`devQuoteToSheetFields`) |
+| 원가 견적 창 · Drop 사유 창 | `src/components/dashboard/DevCostQuoteModal.jsx`, `DevDropModal.jsx` / 보관함 사유별 보기 `DevArchiveModal.jsx` / 사유 목록 `constants/common.js` `DEV_DROP_REASONS` |
+| 원가 견적 저장·Drop·설계서 이어받기·견적서 만들기 | `useDevRequest.js` — `saveDevCostQuote`(+ '대기 중' 자동)·`dropDevRequest`·`createDesignSheetFromDev` / `useDesignSheet.initFromDevRequest` / `useQuotation.js` — `startQuoteFromDevRequest`·`findFabric`(개발 의뢰도 찾음) / `App.jsx` `handleStartQuoteFromDev` + `QuotationWorkspacePage` `initialMode` |
 
 ---
 
@@ -354,3 +399,5 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
   나중에 막으려면 편직비처럼 '직전 구간 끝 금액'을 하한으로 두면 된다.
 - **1,000YD 미만 · MCQ 미만 견적** → 2026-10-05 견적서 개편으로 해결 (§5-B): 기준 견적 300·500·800YD 구간 + 별도 견적(수량·컬러 입력).
 - 설계서 변경 이력에는 가공 유형이 id(`span` 등)로 남는다 — 화면 표시 개선 여지.
+- **원가 견적 창 개선 여지** (§5-C): '비슷한 원단·설계서에서 스펙 불러오기'(개발 의뢰가 기존 Article의 변형일 때 시작값),
+  타겟 단가(의뢰의 글자 칸 '$3.50/yd' 등)를 숫자로 읽어 판매가와 자동 비교 — 지금은 글자 그대로 옆에 보여 줌.

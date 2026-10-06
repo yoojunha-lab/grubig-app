@@ -417,8 +417,18 @@ const App = () => {
     handleAddFabricToQuote, handleGridPaste,
     handleRemoveItemFromQuote, handleRemoveItemsFromQuote,
     handleCopyToCustom, handleAddCustomFabric, handleCustomItemChange, handleRemoveCustomItems, handleCustomExcludeChange,
-    handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote
-  } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, calculateCostAtQty);
+    handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote,
+    startQuoteFromDevRequest
+  } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, calculateCostAtQty, devRequests);
+
+  // 개발 의뢰 [원가 견적 → 견적서 만들기] — 새 견적서를 채우고 견적서 화면(작성 칸)으로 바로 이동
+  //  (견적서 메뉴는 평소엔 목록부터 열리므로, 이번 한 번만 작성 칸으로 열라고 알려 줌)
+  const [quoteStartMode, setQuoteStartMode] = useState(null);
+  const handleStartQuoteFromDev = (devReq) => {
+    if (!startQuoteFromDevRequest(devReq)) return;
+    setQuoteStartMode('form');
+    setActiveTab('quotation');
+  };
 
   // ⚓️ 설계서 시스템 훅
   const {
@@ -426,7 +436,8 @@ const App = () => {
     handleDevChange, handleSpecChange,
     handleSaveDevRequest, handleEditDevRequest, handleDeleteDevRequest,
     resetDevForm, generateDevOrderNo, createDesignSheetFromDev,
-    updateDevStatus, linkAndConfirm, getBlankDevInput
+    updateDevStatus, linkAndConfirm, getBlankDevInput,
+    dropDevRequest, saveDevCostQuote
   } = useDevRequest(devRequests, saveDocToCloud, deleteDocFromCloud, showToast, designSheets);
 
   // 아이템화 시 원단 자동 등록용 함수
@@ -939,6 +950,8 @@ const App = () => {
         {(activeTab === 'quotation' || activeTab === 'quoteHistory') && (
           <QuotationWorkspacePage
             navGuardRef={navGuardRef}
+            initialMode={quoteStartMode}
+            onInitialModeUsed={() => setQuoteStartMode(null)}
             // ── 작성 폼(QuotationPage)용 ──
             quoteInput={quoteInput}
             setQuoteInput={setQuoteInput}
@@ -1095,6 +1108,18 @@ const App = () => {
             generateDevOrderNo={generateDevOrderNo}
             setIsBuyerModalOpen={setIsBuyerModalOpen}
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
+            // 원가 견적 (개발 의뢰) — 원단과 같은 원가 엔진, 견적서와 같은 판매가 계산
+            savedQuotes={savedQuotes}
+            yarnSelectOptions={yarnSelectOptions}
+            yarnLibrary={yarnLibrary}
+            costSettings={costSettings}
+            onOpenCostSettings={openCostSettings}
+            globalExchangeRate={globalExchangeRate}
+            calculateCost={calculateCost}
+            createQuoteItem={createQuoteItem}
+            saveDevCostQuote={saveDevCostQuote}
+            dropDevRequest={dropDevRequest}
+            onStartQuoteFromDev={handleStartQuoteFromDev}
             {...partnerBag}
           />
         )}

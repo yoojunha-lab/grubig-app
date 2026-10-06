@@ -83,11 +83,22 @@ export const ExcludeToggles = ({ label, visual, chem, onChange, note }) => (
   </div>
 );
 
+// 개발 의뢰 원가 견적에서 온 품목 표시 (원단 리스트에 없는 개발 품목 — Article = 개발번호)
+export const DevSourceBadge = () => (
+  <span
+    title="개발 의뢰 원가 견적에서 온 품목이에요 (원단 리스트에 없음). [현재 원가로 다시 계산]은 그 의뢰의 원가 견적으로 계산해요."
+    className="ml-1 inline-block align-middle normal-case whitespace-nowrap text-[9px] font-extrabold leading-none text-violet-700 bg-violet-50 border border-violet-200 rounded px-1 py-0.5"
+  >
+    개발
+  </span>
+);
+
 // 표 아래 Article 입력(Enter)·엑셀 세로 복붙 칸 — 기준·별도 견적 공통
+//  개발번호(원가 견적을 저장한 개발 의뢰)도 넣을 수 있음
 export const ArticleQuickAdd = ({ onAdd, tone = 'indigo' }) => (
   <input
     type="text"
-    placeholder="Article 입력 후 Enter 또는 엑셀(세로) 복붙..."
+    placeholder="Article·개발번호 입력 후 Enter 또는 엑셀(세로) 복붙..."
     className={`w-full border rounded px-3 py-2 outline-none focus:ring-2 text-xs font-bold shadow-sm uppercase ${tone === 'amber' ? 'bg-amber-50 border-amber-200 text-amber-800 focus:ring-amber-400' : 'bg-indigo-50 border-indigo-200 text-indigo-800 focus:ring-indigo-400'}`}
     onKeyDown={(e) => {
       if (e.key === 'Enter') {

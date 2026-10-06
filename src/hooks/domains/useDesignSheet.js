@@ -4,6 +4,7 @@ import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../../constants/
 import { makeInitialCostFields } from '../../utils/costFields';
 import { resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete, normalizeYarnSlots, clampYarnRatio } from '../../utils/costModel';
 import { todayLocalISO, num } from '../../utils/helpers';
+import { devQuoteToSheetFields } from '../../utils/devQuoteModel';
 
 // GRUBIG ERP - 원단 설계서 도메인 로직 훅
 
@@ -674,13 +675,28 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   // 개발 의뢰에서 설계서로 연동 시 초기값 세팅 (buyerName 제거 — 의뢰에서 참조)
   const initFromDevRequest = (devData) => {
     const initial = getInitialSheetInput();
+    // [원가 견적 이어받기 — 2026-10-06] 개발 의뢰에서 원가 견적을 냈으면 그 예상 스펙
+    //  (원사·폭·GSM·편직/염가공 조건·위험마진, 견적서 품목명 → 원단명)을 설계서에 채움
+    const fromQuote = devQuoteToSheetFields(devData.costQuote, initial);
     setSheetInput({
       ...initial,
+      ...(fromQuote ? fromQuote.fields : {}),
       devOrderNo: devData.devOrderNo || '',
       devRequestId: devData.devRequestId || null,
       deadline: devData.sampleDeadline || ''  // 샘플 생산 납기 자동 연동
     });
     setEditingSheetId(null);
+    if (!fromQuote) return;
+    // 직접 입력한 원사는 설계서에 단가 칸이 없어 원사 칸이 비어 있음 → 라이브러리 원사를 골라야 원가가 계산됨
+    if (fromQuote.manualNames.length > 0) {
+      alert(
+        `원가 견적 때 넣은 스펙(원사 비율·폭·GSM·편직/염가공 조건)을 설계서에 채웠어요.\n\n` +
+        `직접 입력한 원사 ${fromQuote.manualNames.length}개(${fromQuote.manualNames.join(', ')})는 ` +
+        `설계서에서 라이브러리 원사를 골라야 원가가 계산돼요 (지금은 그 칸 재료비 0원).`
+      );
+    } else {
+      showToast('원가 견적 때 넣은 스펙(원사·폭·GSM·편직/염가공 조건)을 설계서에 채웠어요.', 'success');
+    }
   };
 
   // [D3] generateSelfDevOrderNo 제거됨 — 자체 설계서는 빈칸 유지 정책 (데드코드 정리)

@@ -1,5 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { X, Archive, Search, RotateCcw, Link, Award, ArrowRight, Calendar } from 'lucide-react';
+import { X, Archive, Search, RotateCcw, Link, Award, ArrowRight, Calendar, Target, Calculator } from 'lucide-react';
+import { ModalBackdrop } from '../common/ModalBackdrop';
+import { DEV_DROP_REASONS } from '../../constants/common';
+import { getDevQuoteBadge } from '../../utils/devQuoteModel';
 
 // 진입 날짜 → "MM/DD" 단순 포맷
 const formatDate = (iso) => {
@@ -12,6 +15,9 @@ const formatDate = (iso) => {
 
 // 검색어(소문자) 포함 여부 — 비었으면 통과
 const textMatches = (q, text) => !q || String(text || '').toLowerCase().includes(q);
+
+// Drop 사유 찾기 — 사유 기능 전에 Drop된 의뢰(값 없음)는 null
+const findDropReason = (key) => DEV_DROP_REASONS.find(r => r.key === key) || null;
 
 const TABS = [
   { key: 'rejected',  label: 'Drop된 의뢰',     icon: X,      color: 'text-rose-600 bg-rose-100',     accent: 'rose' },
@@ -26,17 +32,36 @@ export const DevArchiveModal = ({
   confirmedLinkedDevs = [],
   articledSheets = [],
   designSheets = [],
+  savedQuotes = [],     // 견적서 — Drop된 의뢰의 원가 견적·견적가 표시
   updateDevStatus,
   handleEditSheet,
 }) => {
   const [activeTab, setActiveTab] = useState('rejected');
   const [searchTerm, setSearchTerm] = useState('');
+  // Drop 사유로 걸러 보기 — 'all' | 사유 key | 'none'(사유 기능 전에 Drop된 의뢰)
+  const [dropFilter, setDropFilter] = useState('all');
 
   // 탭별 필터링 (Hook은 early return 이전에 호출되어야 함)
   const q = searchTerm.trim().toLowerCase();
-  const filteredRejected = useMemo(() => (rejectedDevs || []).filter(d =>
-    textMatches(q, d.buyerName) || textMatches(q, d.devOrderNo) || textMatches(q, d.devItem) || textMatches(q, d.targetSpec?.composition)
+  const searchedRejected = useMemo(() => (rejectedDevs || []).filter(d =>
+    textMatches(q, d.buyerName) || textMatches(q, d.devOrderNo) || textMatches(q, d.devItem) || textMatches(q, d.targetSpec?.composition) || textMatches(q, d.dropMemo)
   ), [rejectedDevs, q]);
+  const filteredRejected = useMemo(() => searchedRejected.filter(d => {
+    if (dropFilter === 'all') return true;
+    const reason = findDropReason(d.dropReason);
+    if (dropFilter === 'none') return !reason;
+    return reason?.key === dropFilter;
+  }), [searchedRejected, dropFilter]);
+  // 사유별 건수 (검색어 반영)
+  const dropCounts = useMemo(() => {
+    const counts = { all: searchedRejected.length, none: 0 };
+    DEV_DROP_REASONS.forEach(r => { counts[r.key] = 0; });
+    searchedRejected.forEach(d => {
+      const reason = findDropReason(d.dropReason);
+      if (reason) counts[reason.key] += 1; else counts.none += 1;
+    });
+    return counts;
+  }, [searchedRejected]);
   const filteredInProgress = useMemo(() => (confirmedLinkedDevs || []).filter(d =>
     textMatches(q, d.buyerName) || textMatches(q, d.devOrderNo) || textMatches(q, d.devItem)
   ), [confirmedLinkedDevs, q]);
@@ -59,17 +84,24 @@ export const DevArchiveModal = ({
   };
 
   const handleRestore = (devReq) => {
-    if (!window.confirm(`'${devReq.devOrderNo}' 의뢰를 복원할까요?\n('의뢰접수' 단계로 되돌립니다)`)) return;
+    if (!window.confirm(`'${devReq.devOrderNo}' 의뢰를 복원할까요?\n('의뢰접수' 단계로 되돌리고, Drop 사유는 지워요)`)) return;
     updateDevStatus?.(devReq.id, 'pending');
   };
 
+  // Drop 사유 걸러 보기 칩
+  const dropChips = [
+    { key: 'all', label: '전체', cls: 'bg-white text-slate-600 border-slate-300' },
+    ...DEV_DROP_REASONS.map(r => ({ key: r.key, label: r.label, cls: r.cls })),
+    ...(dropCounts.none > 0 ? [{ key: 'none', label: '사유 없음', cls: 'bg-white text-slate-400 border-slate-200' }] : []),
+  ];
+
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
-      {/* 백그라운드 오버레이 */}
-      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
+    // 배경을 눌렀다가 배경에서 뗐을 때만 닫힘 — 검색칸에서 글자를 드래그하다 창 밖에서 떼도 닫히지 않음 (팝업 규약)
+    //  marginTop 0: 개발 현황 화면의 세로 간격(space-y)이 팝업에 위 여백을 붙이지 않게
+    <ModalBackdrop className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm" style={{ marginTop: 0 }} onClose={onClose}>
 
       {/* 모달 창 */}
-      <div className="relative w-full max-w-4xl bg-slate-50 rounded-xl shadow-2xl flex flex-col max-h-[90vh] border border-slate-200 overflow-hidden">
+      <div className="relative w-full max-w-4xl bg-slate-50 rounded-xl shadow-2xl flex flex-col max-h-[90vh] border border-slate-200 overflow-hidden" onClick={e => e.stopPropagation()}>
 
         {/* 헤더 */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-white">
@@ -90,15 +122,15 @@ export const DevArchiveModal = ({
         </div>
 
         {/* 탭 */}
-        <div className="flex bg-white border-b border-slate-200 px-2">
+        <div className="flex bg-white border-b border-slate-200 px-2 overflow-x-auto">
           {TABS.map(tab => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.key;
             return (
               <button
                 key={tab.key}
-                onClick={() => { setActiveTab(tab.key); setSearchTerm(''); }}
-                className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold border-b-2 transition-colors ${
+                onClick={() => { setActiveTab(tab.key); setSearchTerm(''); setDropFilter('all'); }}
+                className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold border-b-2 transition-colors whitespace-nowrap ${
                   isActive
                     ? `text-${tab.accent}-700 border-${tab.accent}-500`
                     : 'text-slate-500 border-transparent hover:text-slate-700'
@@ -115,14 +147,29 @@ export const DevArchiveModal = ({
         </div>
 
         {/* 검색창 */}
-        <div className="p-3 bg-white border-b border-slate-100">
+        <div className="p-3 bg-white border-b border-slate-100 space-y-2">
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input type="text" placeholder="바이어/개발번호/원단명/아티클 검색..."
+            <input type="text" placeholder={activeTab === 'rejected' ? '바이어/개발번호/품목/Drop 메모 검색...' : '바이어/개발번호/원단명/아티클 검색...'}
               value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-300 transition-shadow"
             />
           </div>
+          {/* Drop 사유로 걸러 보기 (예: 가격 때문에 Drop된 건만) */}
+          {activeTab === 'rejected' && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] font-bold text-slate-400 mr-0.5">Drop 사유</span>
+              {dropChips.map(c => {
+                const on = dropFilter === c.key;
+                return (
+                  <button key={c.key} type="button" onClick={() => setDropFilter(c.key)} aria-pressed={on}
+                    className={`text-[10px] font-extrabold px-2 py-1 rounded-full border transition-all ${c.cls} ${on ? 'ring-2 ring-offset-1 ring-slate-400' : 'opacity-70 hover:opacity-100'}`}>
+                    {c.label} {dropCounts[c.key] ?? 0}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* 컨텐츠 */}
@@ -131,32 +178,61 @@ export const DevArchiveModal = ({
           {/* TAB 1: Drop된 의뢰 */}
           {activeTab === 'rejected' && (
             filteredRejected.length === 0 ? (
-              <EmptyMessage icon={X} text="Drop된 의뢰가 없습니다." />
+              <EmptyMessage icon={X} text={dropFilter === 'all' ? 'Drop된 의뢰가 없습니다.' : '이 사유로 Drop된 의뢰가 없습니다.'} />
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                {filteredRejected.map(d => (
-                  <div key={d.id} className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200">Drop</span>
-                      <span className="text-xs font-mono font-extrabold text-violet-600">{d.devOrderNo}</span>
+                {filteredRejected.map(d => {
+                  const reason = findDropReason(d.dropReason);
+                  const quote = getDevQuoteBadge(d, savedQuotes);
+                  const targetPrice = String(d.targetSpec?.targetPrice || '').trim();
+                  return (
+                    <div key={d.id} className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
+                      <div className="flex items-center justify-between mb-1.5 gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200">Drop</span>
+                          {reason
+                            ? <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded border ${reason.cls}`} title={reason.desc}>{reason.label}</span>
+                            : <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-white text-slate-400 border-slate-200">사유 없음</span>}
+                        </div>
+                        <span className="text-xs font-mono font-extrabold text-violet-600">{d.devOrderNo}</span>
+                      </div>
+                      <p className="text-xs font-bold text-slate-800">{d.buyerName}</p>
+                      <div className="flex gap-1.5 text-[10px] text-slate-500 mt-1 flex-wrap">
+                        {d.devItem && <span className="bg-slate-100 px-1 py-0.5 rounded">{d.devItem}</span>}
+                        {d.targetSpec?.composition && <span>{d.targetSpec.composition.substring(0,30)}</span>}
+                      </div>
+                      {/* 가격 비교 — 원가 견적·견적서 가격과 바이어 타겟 단가 */}
+                      {(quote || targetPrice) && (
+                        <div className="flex gap-1.5 text-[10px] mt-1.5 flex-wrap">
+                          {quote && (
+                            <span className={`inline-flex items-center gap-1 font-bold px-1.5 py-0.5 rounded border ${quote.kind === 'quote' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`} title={quote.detail}>
+                              <Calculator className="w-2.5 h-2.5" /> {quote.kind === 'quote' ? '견적' : '예상'} {quote.price} ({quote.qtyLabel})
+                            </span>
+                          )}
+                          {targetPrice && (
+                            <span className="inline-flex items-center gap-1 font-bold px-1.5 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200">
+                              <Target className="w-2.5 h-2.5" /> 타겟 {targetPrice}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {d.dropMemo && (
+                        <p className="text-[10px] text-slate-600 bg-slate-50 border border-slate-100 rounded px-1.5 py-1 mt-1.5 break-words">📝 {d.dropMemo}</p>
+                      )}
+                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+                        <span className="flex items-center gap-1 text-[9px] text-slate-400">
+                          <Calendar className="w-2.5 h-2.5" />
+                          Drop: {formatDate(d.statusEnteredAt?.rejected || d.updatedAt) || '-'}
+                          {d.droppedBy && <span> · {String(d.droppedBy).split('@')[0]}</span>}
+                        </span>
+                        <button onClick={() => handleRestore(d)}
+                          className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10px] font-bold rounded border border-blue-200">
+                          <RotateCcw className="w-3 h-3" /> 복원
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-xs font-bold text-slate-800">{d.buyerName}</p>
-                    <div className="flex gap-1.5 text-[10px] text-slate-500 mt-1 flex-wrap">
-                      {d.devItem && <span className="bg-slate-100 px-1 py-0.5 rounded">{d.devItem}</span>}
-                      {d.targetSpec?.composition && <span>{d.targetSpec.composition.substring(0,30)}</span>}
-                    </div>
-                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
-                      <span className="flex items-center gap-1 text-[9px] text-slate-400">
-                        <Calendar className="w-2.5 h-2.5" />
-                        Drop: {formatDate(d.statusEnteredAt?.rejected || d.updatedAt) || '-'}
-                      </span>
-                      <button onClick={() => handleRestore(d)}
-                        className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10px] font-bold rounded border border-blue-200">
-                        <RotateCcw className="w-3 h-3" /> 복원
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )
           )}
@@ -239,7 +315,7 @@ export const DevArchiveModal = ({
           )}
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 };
 

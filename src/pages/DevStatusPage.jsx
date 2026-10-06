@@ -1,13 +1,16 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { Activity, Edit2, FileText, Plus, Search, Printer, Archive, ArrowRight, XCircle, Flame, Hourglass, Sparkles, ClipboardList, Info, ChevronDown, ChevronUp, Link2, Unlink } from 'lucide-react';
+import { Activity, Edit2, FileText, Plus, Search, Printer, Archive, ArrowRight, XCircle, Flame, Hourglass, Sparkles, ClipboardList, Info, ChevronDown, ChevronUp, Link2, Unlink, Calculator, Trash2 } from 'lucide-react';
 import { DEV_REQUEST_STATUS_LABELS, DEV_REQUEST_STATUS_BADGE_CLS, SAMPLING_SUBSTAGES } from '../constants/common';
 import { PendingProgressBar } from '../components/design-sheet/PendingProgressBar';
 import { DevRequestFormModal } from '../components/dashboard/DevRequestFormModal';
 import { DevArchiveModal } from '../components/dashboard/DevArchiveModal';
 import { DevRequestPrintSheet } from '../components/dashboard/DevRequestPrintSheet';
+import { DevCostQuoteModal } from '../components/dashboard/DevCostQuoteModal';
+import { DevDropModal } from '../components/dashboard/DevDropModal';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
 import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
+import { getDevQuoteBadge, findDevQuotes } from '../utils/devQuoteModel';
 
 // 개발 의뢰 단계 설명 (바이어 의뢰 접수~개발 가능 여부 확인까지)
 const DEV_REQ_STAGE_GUIDE = [
@@ -85,9 +88,26 @@ const formatStageEntry = (iso) => {
   return `${mm}/${dd} · ${days === 0 ? '오늘' : `${days}일째`}`;
 };
 
+// 의뢰 목록의 원가 견적 배지 — 견적서를 만들었으면 '견적', 원가 견적만 저장했으면 '예상' (마우스를 올리면 구간별 판매가)
+const DevQuoteBadge = ({ badge, className = '' }) => {
+  if (!badge) return null;
+  const isQuote = badge.kind === 'quote';
+  return (
+    <span
+      title={badge.detail}
+      className={`inline-flex items-center gap-1 whitespace-nowrap text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-help ${isQuote ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-600 border-slate-200'} ${className}`}
+    >
+      <Calculator className="w-2.5 h-2.5 shrink-0" />
+      {isQuote ? '견적' : '예상'} {badge.price} ({badge.qtyLabel}){badge.date ? ` · ${badge.date}` : ''}
+    </span>
+  );
+};
+
 /**
  * 개발/설계 현황 — 리스트형 대시보드
  * - 섹션 A: 개발 의뢰 현황 (pending/analyzing/hold + 확정-설계서미연결)
+ *   · [원가 견적] 예상 스펙으로 원가·판매가 계산 → 저장 / [견적서 만들기] (대표님 요청 2026-10-06 — 가격 보고 개발 여부를 정하는 바이어)
+ *   · [Drop] 사유와 같이, [삭제] 의뢰 영구 삭제 (설계서가 연결된 의뢰는 막힘)
  * - 섹션 B: 설계서 진행 현황 (draft/eztex/sampling)
  * - 아이템화 완료된 설계서는 [설계서 보관함] 페이지에서 관리
  */
@@ -103,8 +123,19 @@ export const DevStatusPage = ({
   setIsDesignSheetModalOpen,
   partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
   getBlankDevInput,   // 새 의뢰의 빈 양식 (저장 안 한 변경 확인 기준)
+  // ── 원가 견적 (개발 의뢰) ──
+  savedQuotes = [],                       // 견적서 목록 — 이 의뢰로 만든 견적서·목록 배지
+  yarnSelectOptions = [], yarnLibrary = [],
+  costSettings = null, onOpenCostSettings,
+  globalExchangeRate = 1450,
+  calculateCost, createQuoteItem,         // 원단과 같은 원가 엔진 · 견적서 품목 계산
+  saveDevCostQuote,                       // (devReqId, costQuote, user) => 저장한 costQuote | false
+  dropDevRequest,                         // (devReqId, { reason, memo }, user) => boolean
+  onStartQuoteFromDev,                    // (원가 견적을 붙인 의뢰) => 견적서 화면으로
 }) => {
   const [showDevModal, setShowDevModal] = useState(false);
+  const [costQuoteDevId, setCostQuoteDevId] = useState(null); // 원가 견적 창을 연 의뢰 id
+  const [dropTargetId, setDropTargetId] = useState(null);     // Drop 사유 창을 연 의뢰 id
   // 의뢰 등록/수정 창 — 닫기(X·취소·배경) 때 저장 안 한 변경이 있으면 '저장할까요?' (원단 편집과 같음)
   const [devLeavePending, setDevLeavePending] = useState(false);
   const devGuard = useUnsavedGuard(devInput, showDevModal, {
@@ -151,10 +182,18 @@ export const DevStatusPage = ({
   };
 
   // 의뢰 수정 모달에서 삭제 (성공 시에만 모달 닫기 — 가드에 막히면 유지)
+  //  이 의뢰로 만든 견적서가 있으면 확인 창에 같이 알려 줌
   const handleModalDelete = async () => {
     if (!editingDevId || !handleDeleteDevRequest) return;
-    const ok = await handleDeleteDevRequest(editingDevId);
+    const ok = await handleDeleteDevRequest(editingDevId, { linkedQuoteCount: findDevQuotes(savedQuotes, editingDevId).length });
     if (ok) setShowDevModal(false);
+  };
+
+  // 목록 줄의 [삭제] — 수정 창의 삭제와 같은 규칙 (설계서가 연결된 의뢰는 막힘, 복구 불가 확인)
+  const handleRowDelete = async (devReq) => {
+    if (!handleDeleteDevRequest) return;
+    const ok = await handleDeleteDevRequest(devReq.id, { linkedQuoteCount: findDevQuotes(savedQuotes, devReq.id).length });
+    if (ok && costQuoteDevId === devReq.id) setCostQuoteDevId(null);
   };
 
   // '의뢰 연결' 후보: 아직 진행중 설계서에 연결되지 않은 (Drop 제외) 의뢰
@@ -338,12 +377,23 @@ export const DevStatusPage = ({
     }, 300);
   };
 
+  // [Drop] — 사유 창을 띄움 (가격·납기·품질/스펙·바이어 사정·기타). 사유 창이 없으면 예전처럼 확인만
   const handleDropDev = (devReq) => {
+    if (dropDevRequest) { setDropTargetId(devReq.id); return; }
     if (!updateDevStatus) return;
     if (window.confirm(`개발 의뢰 ${devReq.devOrderNo}를 Drop(미진행) 처리할까요?`)) {
       updateDevStatus(devReq.id, 'rejected');
     }
   };
+  const confirmDrop = async (reason, memo) => {
+    if (!dropTargetId || !dropDevRequest) return;
+    const ok = await dropDevRequest(dropTargetId, { reason, memo }, user);
+    if (ok) setDropTargetId(null);
+  };
+
+  // 원가 견적 창 — 열린 의뢰는 최신 목록에서 다시 찾음 (저장하면 목록 값이 바뀜)
+  const costQuoteDev = costQuoteDevId ? (devRequests || []).find(d => d.id === costQuoteDevId) : null;
+  const dropTargetDev = dropTargetId ? (devRequests || []).find(d => d.id === dropTargetId) : null;
 
   const handleDropSheet = (sheetId) => {
     if (dropDesignSheet) dropDesignSheet(sheetId);
@@ -511,7 +561,7 @@ export const DevStatusPage = ({
             <>
               {/* 데스크톱 테이블 */}
               <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[900px]">
+                <table className="w-full text-left border-collapse min-w-[1000px]">
                   <thead>
                     <tr className="bg-slate-100/70 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                       <th className="px-2 py-1.5 border-r border-slate-200 w-[110px]">O/D No.</th>
@@ -519,7 +569,7 @@ export const DevStatusPage = ({
                       <th className="px-2 py-1.5 border-r border-slate-200">품목명</th>
                       <th className="px-2 py-1.5 border-r border-slate-200 w-[185px]">현재 단계</th>
                       <th className="px-2 py-1.5 border-r border-slate-200 w-[115px]">납기(경과)</th>
-                      <th className="px-2 py-1.5 w-[300px] text-right">관리</th>
+                      <th className="px-2 py-1.5 w-[390px] text-right">관리</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -530,13 +580,19 @@ export const DevStatusPage = ({
                       const db = deadlineBadge(devDl);
                       const enteredDays = daysSince(d.statusEnteredAt?.[d.status] || d.updatedAt || d.createdAt);
                       const nextAction = nextStatusAction(d.status);
+                      const quoteBadge = getDevQuoteBadge(d, savedQuotes);
                       return (
                         <tr key={d.id} className={`border-b border-slate-100 hover:bg-slate-50/50 transition-colors ${rowBg(urgency)}`}>
                           <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-mono font-extrabold text-violet-700">{d.devOrderNo || '-'}</td>
                           <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-bold text-slate-700 truncate">{d.buyerName || '-'}</td>
                           <td className="px-2 py-1.5 border-r border-slate-100 text-xs font-bold text-slate-800 truncate">
                             {d.devItem || d.targetSpec?.composition || '품목명 미입력'}
-                            {stageEntry && <div className="text-[9px] text-slate-400 font-medium mt-0.5">📅 {stageEntry}</div>}
+                            {(stageEntry || quoteBadge) && (
+                              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                {stageEntry && <span className="text-[9px] text-slate-400 font-medium">📅 {stageEntry}</span>}
+                                <DevQuoteBadge badge={quoteBadge} />
+                              </div>
+                            )}
                           </td>
                           <td className="px-2 py-1.5 border-r border-slate-100">
                             <div className="flex flex-col gap-1">
@@ -581,6 +637,13 @@ export const DevStatusPage = ({
                                   <ArrowRight className="w-3 h-3"/> {nextAction.label}
                                 </button>
                               )}
+                              {saveDevCostQuote && (
+                                <button onClick={() => setCostQuoteDevId(d.id)}
+                                  className={`flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded border ${d.costQuote ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100' : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'}`}
+                                  title={d.costQuote ? '원가 견적 보기·고치기 / 견적서 만들기' : '예상 스펙으로 원가·판매가 계산 (바이어가 가격부터 볼 때)'}>
+                                  <Calculator className="w-3 h-3"/> 원가 견적
+                                </button>
+                              )}
                               <div className="relative">
                                 <button onClick={() => setPrintMenuId(printMenuId === d.id ? null : d.id)}
                                   className="flex items-center gap-1 px-2 py-0.5 bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-bold rounded border border-slate-200"
@@ -602,8 +665,13 @@ export const DevStatusPage = ({
                               </button>
                               <button onClick={() => handleDropDev(d)}
                                 className="flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 hover:bg-red-100 text-[10px] font-bold rounded border border-red-200"
-                                title="의뢰 Drop">
+                                title="의뢰 Drop (미진행 — 보관함에 남음)">
                                 <XCircle className="w-3 h-3"/> Drop
+                              </button>
+                              <button onClick={() => handleRowDelete(d)}
+                                className="flex items-center px-1.5 py-0.5 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 rounded border border-slate-200 hover:border-red-200"
+                                title="의뢰 삭제 (영구 삭제 — 복구할 수 없어요. 보관만 하려면 Drop)">
+                                <Trash2 className="w-3.5 h-3.5"/>
                               </button>
                             </div>
                           </td>
@@ -620,6 +688,7 @@ export const DevStatusPage = ({
                   const days = daysSince(d.updatedAt || d.createdAt);
                   const db = deadlineBadge(getDevReqDeadline(d));
                   const nextAction = nextStatusAction(d.status);
+                  const quoteBadge = getDevQuoteBadge(d, savedQuotes);
                   return (
                     <div key={d.id} className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
                       <div className="flex items-center justify-between mb-1.5">
@@ -629,6 +698,7 @@ export const DevStatusPage = ({
                       <p className="text-xs font-mono font-extrabold text-violet-700 mb-0.5">{d.devOrderNo || '-'}</p>
                       <p className="text-sm font-bold text-slate-800 mb-0.5">{d.devItem || d.targetSpec?.composition || '품목명 미입력'}</p>
                       <p className="text-[11px] text-slate-500 mb-2">{d.buyerName || '-'}</p>
+                      {quoteBadge && <div className="mb-2"><DevQuoteBadge badge={quoteBadge} /></div>}
                       <div className="mb-2 flex items-center gap-2">
                         <PendingProgressBar stageKey={devStageKey(d)} />
                         {db && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>}
@@ -653,6 +723,12 @@ export const DevStatusPage = ({
                             <ArrowRight className="w-3 h-3"/> {nextAction.label}
                           </button>
                         )}
+                        {saveDevCostQuote && (
+                          <button onClick={() => setCostQuoteDevId(d.id)}
+                            className={`flex items-center justify-center gap-1 px-2 py-1.5 text-[11px] font-bold rounded border ${d.costQuote ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-white text-emerald-700 border-emerald-200'}`}>
+                            <Calculator className="w-3 h-3"/> 원가 견적
+                          </button>
+                        )}
                         <div className="relative">
                           <button onClick={() => setPrintMenuId(printMenuId === d.id ? null : d.id)}
                             className="flex items-center justify-center gap-1 px-2 py-1.5 bg-slate-50 text-slate-600 text-[11px] font-bold rounded border border-slate-200">
@@ -670,6 +746,10 @@ export const DevStatusPage = ({
                         </button>
                         <button onClick={() => handleDropDev(d)} className="flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 text-[11px] font-bold rounded border border-red-200">
                           <XCircle className="w-3 h-3"/> Drop
+                        </button>
+                        <button onClick={() => handleRowDelete(d)} title="의뢰 삭제 (영구 삭제 — 복구할 수 없어요)"
+                          className="flex items-center justify-center gap-1 px-2 py-1.5 bg-white text-slate-500 text-[11px] font-bold rounded border border-slate-200">
+                          <Trash2 className="w-3 h-3"/> 삭제
                         </button>
                       </div>
                     </div>
@@ -977,6 +1057,35 @@ export const DevStatusPage = ({
           onKeepEditing={() => setDevLeavePending(false)}
         />
 
+        {/* 원가 견적 창 — 예상 스펙으로 원가·판매가 계산, 저장 / 견적서 만들기 */}
+        {costQuoteDev && (
+          <DevCostQuoteModal
+            key={costQuoteDev.id}
+            devReq={costQuoteDev}
+            onClose={() => setCostQuoteDevId(null)}
+            savedQuotes={savedQuotes}
+            yarnSelectOptions={yarnSelectOptions}
+            yarnLibrary={yarnLibrary}
+            costSettings={costSettings}
+            onOpenCostSettings={onOpenCostSettings}
+            globalExchangeRate={globalExchangeRate}
+            calculateCost={calculateCost}
+            createQuoteItem={createQuoteItem}
+            onSave={(costQuote) => saveDevCostQuote(costQuoteDev.id, costQuote, user)}
+            onStartQuote={onStartQuoteFromDev}
+          />
+        )}
+
+        {/* Drop 사유 창 */}
+        {dropTargetDev && (
+          <DevDropModal
+            devReq={dropTargetDev}
+            quoteInfo={getDevQuoteBadge(dropTargetDev, savedQuotes)}
+            onClose={() => setDropTargetId(null)}
+            onConfirm={confirmDrop}
+          />
+        )}
+
         {/* 통합 보관함 모달 */}
         <DevArchiveModal
           isOpen={isArchiveOpen}
@@ -985,6 +1094,7 @@ export const DevStatusPage = ({
           confirmedLinkedDevs={confirmedLinkedDevs}
           articledSheets={articledSheets}
           designSheets={designSheets}
+          savedQuotes={savedQuotes}
           updateDevStatus={updateDevStatus}
           handleEditSheet={handleEditSheet}
         />

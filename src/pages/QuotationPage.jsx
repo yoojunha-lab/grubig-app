@@ -14,8 +14,9 @@ import { FabricPickerModal } from '../components/quote/FabricPickerModal';
 import { CostWarningBadge } from '../components/cost/CostWarnings';
 import {
   DraftNumberInput, QuoteSection, ExportButtons, ExcludeToggles, ArticleQuickAdd, PasteHint,
-  AddFromListButton,
+  AddFromListButton, DevSourceBadge,
 } from '../components/quote/QuoteParts';
+import { DEV_QUOTE_SOURCE } from '../utils/devQuoteModel';
 
 // ============================================================
 // 견적서 작성 (2026-10-05 개편)
@@ -341,7 +342,10 @@ export const QuotationPage = ({
                   <tr key={item.fabricId + '_' + idx} className={`group transition-colors divide-x divide-slate-100 ${checked ? 'bg-indigo-50/40' : 'hover:bg-slate-50'}`}>
                     <td className="px-2 py-2 text-center"><input type="checkbox" className="w-3.5 h-3.5 accent-indigo-600" checked={checked} onChange={() => toggleSel(selectedStd, setSelectedStd, id)} /></td>
                     <td className="px-2 py-2 text-slate-400 font-mono text-center text-[13px]">{idx + 1}</td>
-                    <td className="px-2 py-2 font-bold text-slate-800 text-[13px] uppercase break-words">{item.article}</td>
+                    <td className="px-2 py-2 font-bold text-slate-800 text-[13px] uppercase break-words">
+                      {item.article}
+                      {item.sourceType === DEV_QUOTE_SOURCE && <DevSourceBadge />}
+                    </td>
                     <td className="px-2 py-2 text-slate-600 text-[13px]">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span>{item.itemName}</span>
@@ -489,7 +493,10 @@ export const QuotationPage = ({
                   <tr key={row.id} className={`align-top divide-x divide-slate-100 ${checked ? 'bg-amber-50/50' : 'hover:bg-slate-50'} ${row.show === false ? 'opacity-60' : ''}`}>
                     <td className="px-2 py-2 text-center"><input type="checkbox" className="w-3.5 h-3.5 accent-amber-600" checked={checked} onChange={() => toggleSel(selectedCustom, setSelectedCustom, row.id)} /></td>
                     <td className="px-2 py-2">
-                      <div className="font-bold text-slate-800 text-[13px] uppercase">{row.article}</div>
+                      <div className="font-bold text-slate-800 text-[13px] uppercase">
+                        {row.article}
+                        {row.sourceType === DEV_QUOTE_SOURCE && <DevSourceBadge />}
+                      </div>
                       <div className="text-[11px] text-slate-500 flex items-center gap-1 flex-wrap">
                         <span>{row.itemName}</span>
                         <CostWarningBadge warnings={row.costWarnings} />
