@@ -4,7 +4,7 @@ import {
   RotateCcw, AlertTriangle,
 } from 'lucide-react';
 import { PartnerSelectField } from '../components/common/PartnerSelectField';
-import { num, usd, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
+import { num, usd, roundUsd, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
 import { QUOTE_TIERS, QUOTE_TIER_GROUPS } from '../constants/quote';
 import {
   calcQuotePrice, formatQuotePrice, getBasePrice, getItemTierRate, getShownTiers, isNewMarginModel,
@@ -94,7 +94,7 @@ export const QuotationPage = ({
   const addSym = addBasis === 'USD' ? '$' : '￦';
   const fmtAdd = (v) => (addBasis === 'USD' ? usd(v) : num(v));
   const showAddUsd = isUsd && addBasis === 'KRW';
-  const addInUsd = (v) => `≈ $${usd(Number(toQuoteCurrencyAdd(v, { ...quoteInput, exchangeRate: quoteRate || quoteInput.exchangeRate }).toFixed(2)))}`;
+  const addInUsd = (v) => `≈ $${usd(roundUsd(toQuoteCurrencyAdd(v, { ...quoteInput, exchangeRate: quoteRate || quoteInput.exchangeRate })))}`;
 
   // 기준 견적 표 열 너비 (구간 수에 따라)
   const stdMinWidth = 580 + shownTiers.length * 100;
@@ -539,7 +539,7 @@ export const QuotationPage = ({
                       )}
                     </td>
                     <td className="px-2 py-2 text-right font-mono text-[12px] text-slate-600">
-                      {price === null || !(qtyNum > 0) ? '—' : `${cSym}${fmtMoney(isUsd ? Number((price * qtyNum).toFixed(2)) : price * qtyNum)}`}
+                      {price === null || !(qtyNum > 0) ? '—' : `${cSym}${fmtMoney(isUsd ? roundUsd(price * qtyNum) : price * qtyNum)}`}
                     </td>
                     <td className="px-2 py-2 text-center">
                       <input type="checkbox" className="w-4 h-4 accent-amber-600" checked={row.show !== false} onChange={(e) => handleCustomItemChange(row.id, { show: e.target.checked })} title="별도 견적서(바이어용)에 이 줄을 넣기" />

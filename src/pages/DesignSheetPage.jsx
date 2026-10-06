@@ -4,7 +4,7 @@ import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
 import { MainDetailFormModal } from '../components/main-detail/MainDetailFormModal';
-import { num, calculateGYd, computeSellPrice } from '../utils/helpers';
+import { num, roundUsd, calculateGYd, computeSellPrice } from '../utils/helpers';
 import { computeCostAtQty, resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete } from '../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
@@ -661,7 +661,7 @@ export const DesignSheetPage = ({
                     <input type="number" min="0" value={krw} onChange={e => setQuoteTier('quoteMarginAdd', tk, e.target.value === '' ? '' : Number(e.target.value))} placeholder="0"
                       className="w-16 border border-emerald-300 rounded px-1 py-0.5 text-center font-mono text-[11px] outline-none focus:ring-2 ring-emerald-200 bg-white" />
                     {viewMode === 'export' && krw !== '' && Number(krw) > 0 && (
-                      <span className="text-[9px] text-slate-400 font-mono">≈ ${(Number(krw) / rate).toFixed(2)}</span>
+                      <span className="text-[9px] text-slate-400 font-mono">≈ ${roundUsd(Number(krw) / rate).toFixed(2)}</span>
                     )}
                   </div>
                 );

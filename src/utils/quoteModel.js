@@ -13,7 +13,7 @@
 //   원가 조각(costParts: 반올림·위험마진 전 YD당 순원가와 그중 이화학·외관검사 몫)을 같이 저장해 두고,
 //   버튼을 바꾸면 조각으로 기준원가를 다시 만듦 (다른 원가는 그대로)
 
-import { smartRound, applyGrossMargin, num, usd } from './helpers';
+import { smartRound, roundUsd, applyGrossMargin, num, usd } from './helpers';
 import { QUOTE_TIERS, QUOTE_TIER_KEYS, LEGACY_TIER_KEYS } from '../constants/quote';
 
 const isBlank = (v) => v === undefined || v === null || v === '';
@@ -33,7 +33,7 @@ export const defaultTierRate = (key) => findQuoteTier(key)?.defaultRate ?? 0;
 export const convertAmount = (value, toUsd, rate) => {
   const v = Number(value) || 0;
   const r = safeRate(rate);
-  return toUsd ? Number((v / r).toFixed(2)) : Math.round(v * r);
+  return toUsd ? roundUsd(v / r) : Math.round(v * r);
 };
 
 /** 구간 기본 YD당 정액 — 견적 통화로 (수출은 원화 기본값을 견적 환율로 환산) */

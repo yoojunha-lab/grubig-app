@@ -63,13 +63,25 @@ export const clampNum = (value, min = 0, max = Infinity) => {
 };
 
 /**
+ * 달러 금액을 소수점 둘째 자리로 반올림합니다 (셋째 자리에서 반올림 — 0.005는 올림).
+ * toFixed(2)는 컴퓨터 소수 오차 때문에 셋째 자리가 딱 5일 때 내려가는 경우가 있어서
+ * (예: 1.02 ÷ 0.8 = 1.2749999999999999 → 1.27) 12자리에서 오차를 정리한 뒤 10진수 그대로 반올림합니다 (→ 1.28).
+ */
+export const roundUsd = (value) => {
+  const n = Number(Number(value || 0).toPrecision(12));
+  if (!Number.isFinite(n) || Math.abs(n) < 0.001) return 0;
+  const rounded = Number(`${Math.round(Number(`${Math.abs(n)}e2`))}e-2`);
+  return n < 0 ? -rounded : rounded;
+};
+
+/**
  * 가격을 통화에 맞추어 스마트하게 반올림 처리합니다.
- * - USD: 소수점 2자리로 반올림
+ * - USD: 소수점 둘째 자리 (셋째 자리에서 반올림 — roundUsd)
  * - KRW: 백 원 단위로 반올림
  */
 export const smartRound = (value, currency) => {
   const safeVal = Number(value) || 0;
-  return currency === 'USD' ? Number(safeVal.toFixed(2)) : Math.round(safeVal / 100) * 100;
+  return currency === 'USD' ? roundUsd(safeVal) : Math.round(safeVal / 100) * 100;
 };
 
 /**

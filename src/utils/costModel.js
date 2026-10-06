@@ -528,9 +528,9 @@ const costAtQty = (p, qtyRaw, opts = {}) => {
     },
     export: {
       yarnCostYd: toUsd(exp.matSub), knitCostYd: toUsd(exp.knitSub), dyeCostYd: toUsd(exp.procSub), extraFeeYd: toUsd(exp.etcSub),
-      totalCostYd: expTotal, riskAmtYd: Number((expFinal - expTotal).toFixed(2)), finalCostYd: expFinal,
+      totalCostYd: expTotal, riskAmtYd: smartRound(expFinal - expTotal, 'USD'), finalCostYd: expFinal,
       priceConverter: expFinal, priceBrand: expFinal,
-      pricePerM: Number((expFinal * ydPerM).toFixed(2)), pricePerKg: Number((expFinal * perKgFactor).toFixed(2)),
+      pricePerM: smartRound(expFinal * ydPerM, 'USD'), pricePerKg: smartRound(expFinal * perKgFactor, 'USD'),
       rawCostYd: expUSDraw, chemYd: toUsd(chemTotal / qty), visualYd: toUsd(visualTotal / qty),
       lines: { material: usdLines(exp.material), knit: usdLines(exp.knit), proc: usdLines(exp.proc), etc: usdLines(exp.etc) },
     },

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, Edit2, Trash2, History, RotateCcw } from 'lucide-react';
-import { num } from '../../utils/helpers';
+import { num, roundUsd } from '../../utils/helpers';
 import { fieldLabel } from './constants';
 import { STAGE_COLORS } from '../../constants/common';
 
@@ -20,7 +20,7 @@ export const MobileSheetCard = ({
   const [showHistory, setShowHistory] = useState(false);
 
   const prefix = viewMode === 'export' ? '$' : '₩';
-  const priceFn = (val) => viewMode === 'export' ? (val || 0).toFixed(2) : num(val || 0);
+  const priceFn = (val) => viewMode === 'export' ? roundUsd(val).toFixed(2) : num(val || 0);
 
   const getStageLabelAndColor = (stageKey) => {
     const colors = STAGE_COLORS[stageKey] || STAGE_COLORS.draft;
