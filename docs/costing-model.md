@@ -323,9 +323,13 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 - **저장** → 의뢰 문서 `costQuote = { itemName, marketType, yarns[{ mode, yarnId, manualName, priceOverride, ratio }], costInput, marginRate, marginAdd, snapshot, updatedAt, updatedBy }`
   - `snapshot`: 저장할 때의 구간별 기준원가·판매가·환율·MCQ·원가 확인 사유 → 의뢰 목록 **'예상'** 배지 (원가·환율이 바뀌어도 그대로).
   - 창을 다시 열면 **지금 원가**(원사 단가·원가 설정·공통 환율)로 다시 계산해서 보여 줌. 머리에 '마지막 저장 · 저장 때 예상가'를 따로 표시.
-  - 저장 막기(`validateDevCostQuote`): 혼용률 ≠ 100% / 혼용률이 있는데 원사(라이브러리)·단가(직접 입력)가 없는 칸 / GSM·외폭(또는 생산 G/YD) 없음.
-    '원가 확인 필요'(염가공료 빈칸 등)는 저장은 되고 [견적서 만들기] 때 한 번 물어봄.
+  - 저장 막기(`validateDevCostQuote`): 혼용률 ≠ 100% / 혼용률이 있는데 원사(라이브러리)·단가(직접 입력)가 없는 칸 /
+    **외폭·내폭·GSM 빈칸** (견적서 Cut·Full·GSM 칸에 나가서 필수 — 2026-10-06 리팩토링 때 추가. 예전엔 생산 G/YD만 넣어도 저장돼 견적서가 빈칸으로 나갔음).
+    '원가 확인 필요'(염가공료 빈칸·단가 0원 원사 등)는 저장은 되고 [견적서 만들기] 때 한 번 물어봄 + 목록 배지에 ⚠.
   - 닫을 때 저장 안 한 변경이 있으면 '저장할까요?' (팝업 규약, 처음 내는 원가 견적은 빈 양식 기준).
+    비교는 **저장될 모양**(`normalizeDevQuoteForm` — 원사 칸 정리)으로 → [직접 입력]에 썼다가 [라이브러리]로 되돌린 것만으로는 묻지 않음.
+  - [저장]·[견적서 만들기]는 저장 중 잠금 (빠르게 두 번 눌러도 한 번만, 확인 창도 한 번만). 원가 엔진은 입력이 바뀔 때 한 번만 계산해
+    원가 표와 판매가 미리보기가 같이 씀 (`createQuoteItem`의 `calc` 옵션).
 - **'대기 중' 자동 (대표님 결정)**: 저장하면 '의뢰 접수·분석 중' 의뢰는 '대기 중'(분석 완료, 바이어 결정 대기)으로. 개발 확정은 그대로.
 - **[견적서 만들기]**: 원가 견적을 저장한 뒤 견적서 화면(작성 칸)으로 바로 이동해 **새 견적서**(저장 전)를 엶 —
   바이어 = 의뢰 바이어, 기준 견적 품목 1개(Article = **개발번호**, Spec = 견적서 품목명, 화면에 '개발' 배지),
@@ -335,8 +339,12 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
   - 견적서 표 아래 Article 칸에 **개발번호**를 넣어도 추가됨 (원가 견적을 저장한 의뢰만) → 한 바이어의 개발 품목 여러 개를 한 견적서에.
   - 의뢰를 지우면 그 품목은 '삭제된 원단'과 같음 (단가 그대로, 다시 계산 안 됨) — 의뢰 삭제 확인 창에 이 의뢰로 만든 견적서 건수를 알려 줌.
   - 개발이 끝나 원단(Article)으로 등록된 뒤에도 예전 견적서의 개발 품목은 계속 **원가 견적 기준**으로 계산됨 → 정식 단가는 그 원단으로 새 견적서를 만드는 게 맞음.
-- **의뢰 목록 배지** (`getDevQuoteBadge`): 견적서가 있으면 최근 견적서의 3,000YD 판매가 **'견적'**(마우스를 올리면 구간별, 견적서에 안 나간 구간 표시),
-  없으면 원가 견적 저장값 **'예상'**. 원가 견적 창·Drop 창·보관함에도 같은 값.
+- **의뢰 목록 배지** (`getDevQuoteBadge` + 공용 `DevQuoteBadge`): 견적서가 있으면 최근 견적서의 3,000YD 판매가 **'견적'**(마우스를 올리면 구간별,
+  견적서에 안 나간 구간 표시), 없으면 원가 견적 저장값 **'예상'**. 원가 견적 창·Drop 창·보관함에도 같은 배지.
+  - **⚠ (빨강)**: 그 값이 '원가 확인 필요'(단가 0원·지운 원사 등)로 원가가 덜 잡혔을 수 있음 — 마우스를 올리면 사유 (2026-10-06 리팩토링, 예전엔 낮은 예상가가 경고 없이 보였음).
+  - 최근 견적서 **바이어가 의뢰 바이어와 다르면** 배지 끝에 그 바이어 이름 (개발번호를 다른 바이어 견적서에 넣은 경우).
+  - 견적서를 만든 **뒤에 원가 견적을 다시 저장**했으면, 배지는 바이어에게 보낸 견적서 가격 그대로 두고 마우스를 올리면 새 예상가를 같이 알려 줌.
+  - 의뢰별 견적서는 견적서 목록이 바뀔 때 한 번만 묶어 둠 (`indexDevQuotes` — 줄마다 전체 견적을 다시 훑지 않게).
 - **[원가 견적] 버튼 ✔** (대표님 요청 2026-10-06 — 원가 견적이 필요 없는 의뢰도 있어서 해 준 의뢰를 버튼만 보고 알게): 원가 견적을 **저장한** 의뢰는
   초록 바탕·흰 글씨 + ✔ (`DevStatusPage` `CostQuoteButton`, 기준 = `costQuote` 있음). 마우스를 올리면 저장 날짜·이 의뢰로 만든 견적서 건수.
   견적서까지 만들었는지는 품목명 옆 '예상'/'견적' 배지로 구분.
@@ -346,8 +354,16 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 - **Drop 사유** (대표님 요청 — 비싸서 Drop된 건을 따로 보려고): [Drop]하면 사유(가격·납기·품질/스펙·바이어 사정·기타, 필수) + 메모(선택).
   의뢰 `dropReason`·`dropMemo`·`droppedBy`. 보관함 'Drop된 의뢰'에서 **사유별로 걸러 보기** + 견적가·타겟 단가·메모 같이 표시.
   [복원]하면 '의뢰 접수'로 돌아가고 사유는 지움. 사유 기능 전에 Drop된 의뢰는 '사유 없음'.
+  - Drop 창에 사유·메모를 고른 채 닫으면 'Drop 처리할까요?' 확인 (저장 안 함 = Drop하지 않고 닫기). 처리 중 잠금.
+  - 보관함은 열 때마다 새로 그림 (탭·검색·사유 필터가 지난번 상태로 남지 않게). '사유 없음' 칩은 고른 상태면 0건이어도 보임.
+  - **설계서 보관함에서 Drop된 설계서를 [복원]**할 때 연결된 개발 의뢰가 그사이 Drop됐으면 의뢰도 '개발 확정'으로 되살아남 —
+    복원 확인 창에 "연결된 개발 의뢰(F-26D…)는 Drop(사유: 가격) 상태예요…"로 미리 알리고, 되살릴 때 Drop 사유는 지우고 확정 날짜를 기록
+    (2026-10-06 리팩토링 — 예전엔 확인 없이 되살아나고 Drop 사유도 남았음, `useDesignSheet.restoreFromDrop`).
 - **의뢰 삭제 버튼** (대표님 요청): 개발 의뢰 현황 줄의 🗑 — 수정 창의 삭제와 같은 규칙 (설계서가 연결된 의뢰는 막힘, 복구 불가 확인,
   원가 견적·견적서 건수 안내). 보관만 하려면 Drop.
+  - **Drop된 설계서**가 그 의뢰를 가리키고 있으면 확인 창에 알리고, 지운 뒤 그 설계서의 의뢰 연결을 풂 (개발번호 글자는 기록으로 남김 — 복원하면 자체개발로 보임).
+  - **개발번호는 다시 쓰지 않음**: 새 번호 = 의뢰·설계서·견적서(품목 Article)에 쓰인 번호 중 가장 큰 번호 + 1 (`generateDevOrderNo`).
+    번호가 가장 큰 의뢰를 지워도 견적서·설계서에 남은 번호는 다른 개발에 다시 붙지 않음. 어디에도 안 쓴 시험용 번호는 다시 쓸 수 있음.
 - 의뢰 문서는 통째로 덮어써서 저장(setDoc)되므로 **의뢰 수정 저장도 기존 문서를 먼저 깔고 폼 값을 얹음** → 수정해도 원가 견적·Drop 사유가 지워지지 않음.
   단계는 목록에서 바로 바뀌는 값이라 수정 창이 열려 있는 동안 바뀌었어도 저장된 값을 씀 (2026-10-06).
 
@@ -380,8 +396,8 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 공통 환율 저장·입력 | `src/apps/App.jsx` — `saveExchangeRate`, `exchangeRateMeta` / `src/components/layout/Sidebar.jsx` (입력·확인 창) |
 | 가설계서 YD당 정액 환산 | `src/pages/DesignSheetPage.jsx` — 정액 칸(원화 입력 + '≈ $' 안내) / `helpers.js` — `computeSellPrice(..., exchangeRate)` |
 | 원가 칸 초기값 (원단·설계서·가설계서 새 양식) | `src/utils/costFields.js` — `makeInitialCostFields()` |
-| 개발 의뢰 원가 견적 (순수 함수) | `src/utils/devQuoteModel.js` — 양식(`makeBlankDevCostQuote`·`toDevCostQuoteForm`), 원단 모양 변환(`devQuoteToFabric`·`toEngineYarns`), 저장 전 확인(`validateDevCostQuote`), 미리보기·저장값(`makeDevPreviewQuote`·`buildDevQuoteSnapshot`), 견적서 연결·배지(`findDevQuotes`·`getDevQuoteBadge`), 설계서 이어받기(`devQuoteToSheetFields`) |
-| 원가 견적 창 · Drop 사유 창 | `src/components/dashboard/DevCostQuoteModal.jsx`, `DevDropModal.jsx` / 보관함 사유별 보기 `DevArchiveModal.jsx` / 사유 목록 `constants/common.js` `DEV_DROP_REASONS` |
+| 개발 의뢰 원가 견적 (순수 함수) | `src/utils/devQuoteModel.js` — 양식(`makeBlankDevCostQuote`·`toDevCostQuoteForm`·`normalizeDevQuoteForm`), 원단 모양 변환(`devQuoteToFabric`·`toEngineYarns`·`cleanDevQuoteYarns`), 저장 전 확인(`validateDevCostQuote`), 미리보기·저장값(`makeDevPreviewQuote`·`buildDevQuoteSnapshot`), 견적서 연결·배지(`indexDevQuotes`·`findDevQuotes`·`getDevQuoteBadge`), 설계서 이어받기(`devQuoteToSheetFields`) |
+| 원가 견적 창 · Drop 사유 창 · 배지 | `src/components/dashboard/DevCostQuoteModal.jsx`(+ 원사 한 칸 `YarnSlotRow`·판매가 미리보기 `PricePreview`), `DevDropModal.jsx`, 공용 배지 `DevQuoteBadge.jsx` / 보관함 사유별 보기 `DevArchiveModal.jsx` / 사유 목록 `constants/common.js` `DEV_DROP_REASONS` / 짧은 날짜 `helpers.formatMonthDay` |
 | 원가 견적 저장·Drop·설계서 이어받기·견적서 만들기 | `useDevRequest.js` — `saveDevCostQuote`(+ '대기 중' 자동)·`dropDevRequest`·`createDesignSheetFromDev` / `useDesignSheet.initFromDevRequest` / `useQuotation.js` — `startQuoteFromDevRequest`·`findFabric`(개발 의뢰도 찾음) / `App.jsx` `handleStartQuoteFromDev` + `QuotationWorkspacePage` `initialMode` |
 
 ---

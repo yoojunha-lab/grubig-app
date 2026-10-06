@@ -438,7 +438,7 @@ const App = () => {
     resetDevForm, generateDevOrderNo, createDesignSheetFromDev,
     updateDevStatus, linkAndConfirm, getBlankDevInput,
     dropDevRequest, saveDevCostQuote
-  } = useDevRequest(devRequests, saveDocToCloud, deleteDocFromCloud, showToast, designSheets);
+  } = useDevRequest(devRequests, saveDocToCloud, deleteDocFromCloud, showToast, designSheets, savedQuotes);
 
   // 아이템화 시 원단 자동 등록용 함수
   // 설계서 아이템화 → 원단 저장. 저장 성공 여부(true/false)를 돌려줘야 설계서가 '없는 원단'에 연결되지 않음

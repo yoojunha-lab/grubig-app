@@ -41,7 +41,9 @@ const makeBlankQuote = () => ({
 // 별도 견적 줄 id
 const newRowId = () => `cq_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 const DELETED_NOTE = '원단(또는 개발 의뢰)이 삭제되어 기준원가를 환율로만 환산함';
-const addNote = (warnings, note) => [...new Set([...(warnings || []), note])];
+// 2026-10-06 전 문구 — 예전 견적에 남아 있으면 새 문구를 붙일 때 빼서 같은 뜻의 경고가 두 줄 나오지 않게
+const LEGACY_DELETED_NOTE = '원단이 삭제되어 기준원가를 환율로만 환산함';
+const addNote = (warnings, note) => [...new Set([...(warnings || []).filter(w => w !== LEGACY_DELETED_NOTE), note])];
 const isBlank = (v) => v === undefined || v === null || v === '';
 
 // [견적 환율 원칙 — 대표님 결정 2026-10-03]
@@ -92,10 +94,12 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   // marginRate = 원단별 매출이익율(%) — 일괄값을 기본으로 받아 표에서 개별 수정 가능.
   // ⚠️ 기준원가는 이 시점 값으로 품목에 저장(basePrice{구간})되고, 저장된 견적은 원가 설정·계산식·환율이 바뀌어도
   //    다시 계산하지 않음. costParts(원가 조각)는 외관검사·시험성적서 빼기를 다시 적용할 때만 씀.
-  const createQuoteItem = (fabric, { rate, marketType = 'domestic', marginRate, excludeVisual = false, excludeChem = false } = {}) => {
+  //  calc: 같은 원단·같은 환율로 이미 계산해 둔 원가 표 결과(calculateCost)가 있으면 넘겨받아 그대로 씀
+  //   (개발 의뢰 원가 견적 창 — 원가 표와 판매가 미리보기가 원가 엔진을 두 번 돌리지 않게)
+  const createQuoteItem = (fabric, { rate, marketType = 'domestic', marginRate, excludeVisual = false, excludeChem = false, calc: givenCalc = null } = {}) => {
     const currency = currencyOf(marketType);
     const safeMarginRate = toQuoteTierRate(marginRate);
-    const calc = calculateCost(fabric, rate);
+    const calc = givenCalc || calculateCost(fabric, rate);
     // calculateCost 반환값이 null/undefined일 때 방어 (삭제된 원단 등)
     if (!calc) {
       return {

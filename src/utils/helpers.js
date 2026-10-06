@@ -139,6 +139,21 @@ export const todayLocalISO = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 /**
+ * 날짜·시각 → 'MM/DD' (화면의 짧은 날짜 — 개발 의뢰 목록·보관함·원가 견적 배지 공통).
+ *  · 'YYYY-MM-DD'(날짜만 저장한 칸)는 글자 그대로 자름 — Date로 읽으면 UTC라 시간대에 따라 하루 밀릴 수 있어서
+ *  · 그 밖(ISO 시각 등)은 이 PC의 현지 날짜로
+ *  · 빈 값·잘못된 값이면 ''
+ */
+export const formatMonthDay = (value) => {
+  if (!value) return '';
+  const ymd = String(value).match(/^\d{4}-(\d{2})-(\d{2})$/);
+  if (ymd) return `${ymd[1]}/${ymd[2]}`;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/**
  * 특정 날짜 문자열(YYYY-MM-DD 등)을 입력받아 해당 달의 마지막 날짜를
  * 'MMM DD, YYYY' 영문 대문자 포맷으로 반환합니다. (견적서 유효기간 표기용)
  */

@@ -11,8 +11,10 @@ import { DEV_DROP_REASONS } from '../../constants/common';
 //  · 저장하면 '의뢰 접수·분석 중' 의뢰는 '대기 중'(바이어 결정 대기)으로 (대표님 결정)
 //  · Drop 은 사유(dropReason)·메모(dropMemo)와 같이 — 복원하면 사유는 지움
 //  · 의뢰 문서는 통째로 덮어써서 저장(setDoc)되므로, 저장할 때는 항상 기존 문서를 먼저 깔고 바꿀 값만 얹음
+//
+// savedQuotes: 견적서 목록 — 개발번호 채번 때 견적서에 쓰인 번호를 '쓴 번호'로 보기 위해
 
-export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, showToast, designSheets) => {
+export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, showToast, designSheets, savedQuotes = []) => {
   const [editingDevId, setEditingDevId] = useState(null);
 
   const getInitialDevInput = () => ({
@@ -35,15 +37,23 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
 
   const [devInput, setDevInput] = useState(getInitialDevInput);
 
-  // 개발 오더넘버 자동 채번
+  // 개발 오더넘버 자동 채번 — 다음 번호 = 지금까지 '쓴' 번호 중 가장 큰 번호 + 1
+  //  의뢰를 지워도 설계서·견적서에 남아 있는 번호는 쓴 번호로 봄 → 다른 개발에 같은 번호가 다시 붙지 않게 (2026-10-06)
+  //  (어디에도 안 쓰고 지운 시험용 번호는 다시 쓸 수 있음)
   const generateDevOrderNo = () => {
     const year = new Date().getFullYear().toString().slice(-2);
     const prefix = `F-${year}D`;
-    const existingNos = (devRequests || [])
-      .map(d => d.devOrderNo || '')
+    const usedNos = [
+      ...(devRequests || []).map(d => d?.devOrderNo),
+      ...(designSheets || []).map(s => s?.devOrderNo),
+      ...(savedQuotes || []).flatMap(q => [...(q?.items || []), ...(q?.customItems || [])].map(it => it?.article)),
+    ];
+    const nums = usedNos
+      .map(no => String(no || '').trim().toUpperCase())
       .filter(no => no.startsWith(prefix))
-      .map(no => { const n = parseInt(no.replace(prefix, ''), 10); return isNaN(n) ? 0 : n; });
-    const nextNum = existingNos.length > 0 ? Math.max(...existingNos) + 1 : 1;
+      .map(no => parseInt(no.slice(prefix.length), 10))
+      .filter(n => Number.isFinite(n));
+    const nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 1;
     return `${prefix}${String(nextNum).padStart(3, '0')}`;
   };
 
@@ -152,15 +162,20 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       showToast('연결된 설계서가 있는 의뢰는 삭제할 수 없습니다. 설계서를 먼저 DROP/정리하거나 연결을 해제해주세요.', 'error');
       return false;
     }
+    // Drop된 설계서가 이 의뢰를 가리키고 있으면 — 지우면서 그 연결도 정리 (남겨 두면 나중에 설계서를 복원할 때 끊긴 연결이 남음)
+    const droppedSheets = (designSheets || []).filter(s => s.devRequestId === id && s.status === 'dropped');
 
     const notes = [];
     if (devReq?.costQuote) notes.push('이 의뢰의 원가 견적도 같이 지워져요.');
     if (linkedQuoteCount > 0) notes.push(`이 의뢰로 만든 견적서가 ${linkedQuoteCount}건 있어요. 견적서는 남지만, 그 품목은 [현재 원가로 다시 계산]을 할 수 없게 돼요 (단가는 그대로).`);
+    if (droppedSheets.length > 0) notes.push(`Drop된 설계서 ${droppedSheets.length}개가 이 의뢰를 가리키고 있어요. 그 설계서는 남고 의뢰 연결만 풀려요 (복원하면 자체개발로 보여요).`);
     const label = devReq?.devOrderNo ? ` '${devReq.devOrderNo}'` : '';
     if (!window.confirm(`정말로 이 개발 의뢰${label}를 삭제하시겠습니까? (복구할 수 없습니다)${notes.length ? `\n\n· ${notes.join('\n· ')}` : ''}`)) return false;
     // deleteDocFromCloud는 실패하면 false를 돌려주고 '삭제 실패' 알림을 띄움 (오류로 멈추지 않음)
     const ok = await deleteDocFromCloud('devRequests', id);
     if (ok === false) return false;
+    // 지워졌을 때만 연결 정리 — Drop된 설계서의 의뢰 연결 해제 (개발번호 글자는 기록으로 남김)
+    droppedSheets.forEach(s => saveDocToCloud('designSheets', { ...s, devRequestId: null, updatedAt: new Date().toISOString() }));
     showToast('삭제되었습니다.', 'success');
     return true;
   };
@@ -174,10 +189,12 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     costQuote: devReq.costQuote || null
   });
 
-  // 상태 변경 (드롭다운)
-  const updateDevStatus = (devReqId, newStatus) => {
+  // 상태 변경 (드롭다운·다음 단계 버튼·보관함 복원)
+  //  저장이 끝나고 성공했을 때만 '변경되었습니다' (예전엔 저장 전에 먼저 떠서, 실패하면 성공 알림 뒤에 실패 알림이 떴음)
+  //  반환: 저장됐으면 true (확인 창에서 취소·실패면 false)
+  const updateDevStatus = async (devReqId, newStatus) => {
     const devReq = devRequests.find(d => d.id === devReqId);
-    if (!devReq) return;
+    if (!devReq) return false;
 
     // 참고: confirmed 전환은 드롭다운에서 수동으로도 가능하고,
     // 설계서 저장 시 linkAndConfirm()을 통해 자동으로도 처리됩니다.
@@ -185,7 +202,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     // [방어] confirmed → 다른 상태로 되돌릴 때, 연결된 설계서가 있으면 경고
     if (devReq.status === 'confirmed' && devReq.linkedDesignSheetId) {
       if (!window.confirm('⚠️ 이 의뢰에는 연결된 설계서가 있습니다.\n상태를 변경하면 의뢰 쪽 연결이 해제됩니다.\n(설계서는 유지되며, 의뢰를 다시 "개발투입확정"으로 돌리면 자동 복구됩니다.)\n\n정말 계속하시겠습니까?')) {
-        return;
+        return false;
       }
     }
 
@@ -210,7 +227,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     const base = devReq.status === 'rejected' && newStatus !== 'rejected' ? withoutDrop : devReq;
 
     const now = new Date().toISOString();
-    saveDocToCloud('devRequests', {
+    const ok = await saveDocToCloud('devRequests', {
       ...base,
       status: newStatus,
       // confirmed → 다른 상태로 돌리면 linkedDesignSheetId도 해제
@@ -222,7 +239,9 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       statusEnteredAt: { ...(devReq.statusEnteredAt || {}), [newStatus]: now },
       updatedAt: now
     });
+    if (ok === false) return false; // 실패 알림은 saveDocToCloud
     showToast(`상태가 변경되었습니다.`, 'success');
+    return true;
   };
 
   // Drop(미진행) — 사유와 같이 (대표님 요청 2026-10-06: 원가 견적을 보고 비싸서 Drop된 건을 따로 보려고)
@@ -250,7 +269,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
   };
 
   // 원가 견적 저장 (개발 의뢰 원가 견적 창)
-  //  · 저장을 막는 사유(혼용률 ≠ 100% · 원사·단가 없는 칸 · 중량 없음)가 있으면 저장하지 않음 (validateDevCostQuote)
+  //  · 저장을 막는 사유(혼용률 ≠ 100% · 원사·단가 없는 칸 · 외폭·내폭·GSM 빈칸)가 있으면 저장하지 않음 (validateDevCostQuote)
   //  · 대표님 결정: 저장하면 '의뢰 접수·분석 중' 의뢰는 '대기 중'(분석 완료, 바이어 결정 대기)으로. 개발 확정은 그대로
   //  반환: 저장한 원가 견적(costQuote) / 막힘·실패면 false — '견적서 만들기'는 이 값으로 바로 견적서를 만듦
   //   (목록의 의뢰 값은 서버에서 다시 받아올 때 바뀌므로, 저장 직후엔 아직 옛 값일 수 있음)

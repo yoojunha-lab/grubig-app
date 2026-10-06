@@ -7,10 +7,12 @@ import { DevArchiveModal } from '../components/dashboard/DevArchiveModal';
 import { DevRequestPrintSheet } from '../components/dashboard/DevRequestPrintSheet';
 import { DevCostQuoteModal } from '../components/dashboard/DevCostQuoteModal';
 import { DevDropModal } from '../components/dashboard/DevDropModal';
+import { DevQuoteBadge } from '../components/dashboard/DevQuoteBadge';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
 import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
-import { getDevQuoteBadge, findDevQuotes } from '../utils/devQuoteModel';
+import { getDevQuoteBadge, indexDevQuotes } from '../utils/devQuoteModel';
+import { formatMonthDay } from '../utils/helpers';
 
 // 개발 의뢰 단계 설명 (바이어 의뢰 접수~개발 가능 여부 확인까지)
 const DEV_REQ_STAGE_GUIDE = [
@@ -83,35 +85,14 @@ const formatStageEntry = (iso) => {
   if (!iso) return null;
   const t = new Date(iso); if (isNaN(t)) return null;
   const days = Math.floor((new Date().setHours(0,0,0,0) - new Date(t).setHours(0,0,0,0)) / 86400000);
-  const mm = String(t.getMonth()+1).padStart(2,'0');
-  const dd = String(t.getDate()).padStart(2,'0');
-  return `${mm}/${dd} · ${days === 0 ? '오늘' : `${days}일째`}`;
-};
-
-// 의뢰 목록의 원가 견적 배지 — 견적서를 만들었으면 '견적', 원가 견적만 저장했으면 '예상' (마우스를 올리면 구간별 판매가)
-const DevQuoteBadge = ({ badge, className = '' }) => {
-  if (!badge) return null;
-  const isQuote = badge.kind === 'quote';
-  return (
-    <span
-      title={badge.detail}
-      className={`inline-flex items-center gap-1 whitespace-nowrap text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-help ${isQuote ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-600 border-slate-200'} ${className}`}
-    >
-      <Calculator className="w-2.5 h-2.5 shrink-0" />
-      {isQuote ? '견적' : '예상'} {badge.price} ({badge.qtyLabel}){badge.date ? ` · ${badge.date}` : ''}
-    </span>
-  );
+  return `${formatMonthDay(iso)} · ${days === 0 ? '오늘' : `${days}일째`}`;
 };
 
 // [원가 견적] 버튼 — 원가 견적을 저장한 의뢰는 초록 바탕 + ✔ (대표님 요청 2026-10-06: 원가 견적이 필요 없는 의뢰도 있어서
 //  해 준 의뢰를 버튼만 보고 알 수 있게). 마우스를 올리면 저장 날짜·이 의뢰로 만든 견적서 건수. 누르면 원가 견적 창 (다시 보기·고치기)
 const CostQuoteButton = ({ devReq, quoteCount = 0, onClick, size = 'sm' }) => {
   const done = !!devReq?.costQuote;
-  const iso = devReq?.costQuote?.updatedAt;
-  const t = new Date(iso);
-  const savedAt = iso && !Number.isNaN(t.getTime())
-    ? `${String(t.getMonth() + 1).padStart(2, '0')}/${String(t.getDate()).padStart(2, '0')}`
-    : '';
+  const savedAt = formatMonthDay(devReq?.costQuote?.updatedAt);
   const title = done
     ? `원가 견적 완료${savedAt ? ` · ${savedAt} 저장` : ''}${quoteCount > 0 ? ` (견적서 ${quoteCount}건)` : ' (견적서는 아직 없음)'} — 눌러서 보기·고치기 / 견적서 만들기`
     : '예상 스펙으로 원가·판매가 계산 (바이어가 가격부터 볼 때)';
@@ -126,6 +107,20 @@ const CostQuoteButton = ({ devReq, quoteCount = 0, onClick, size = 'sm' }) => {
     </button>
   );
 };
+
+// 목록 줄의 🗑 (영구 삭제 — 복구 불가, 보관만 하려면 Drop) — 개발 의뢰·설계서 공통
+//  PC 표는 아이콘만 (sm), 모바일 카드는 '삭제' 글자까지 (md)
+const RowDeleteButton = ({ onClick, title, size = 'sm' }) => (size === 'md' ? (
+  <button onClick={onClick} title={title}
+    className="flex items-center justify-center gap-1 px-2 py-1.5 bg-white text-slate-500 text-[11px] font-bold rounded border border-slate-200">
+    <Trash2 className="w-3 h-3"/> 삭제
+  </button>
+) : (
+  <button onClick={onClick} title={title}
+    className="flex items-center px-1.5 py-0.5 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 rounded border border-slate-200 hover:border-red-200">
+    <Trash2 className="w-3.5 h-3.5"/>
+  </button>
+));
 
 /**
  * 개발/설계 현황 — 리스트형 대시보드
@@ -207,18 +202,23 @@ export const DevStatusPage = ({
     return daysSince(s.samplingSubEnteredAt?.[key] || s.stageEnteredAt?.sampling || s.updatedAt);
   };
 
+  // 의뢰별 견적서 { 의뢰 id → 그 의뢰로 만든 견적서[] (최근 순) } — 목록 배지·✔ 버튼·삭제 확인이 같이 씀
+  //  견적서가 바뀔 때만 한 번 만듦 (예전엔 줄마다·PC/모바일마다 전체 견적을 다시 훑었음 — 검색할 때마다)
+  const devQuoteIndex = useMemo(() => indexDevQuotes(savedQuotes), [savedQuotes]);
+  const quotesOfDev = (devReqId) => devQuoteIndex.get(String(devReqId)) || [];
+
   // 의뢰 수정 모달에서 삭제 (성공 시에만 모달 닫기 — 가드에 막히면 유지)
   //  이 의뢰로 만든 견적서가 있으면 확인 창에 같이 알려 줌
   const handleModalDelete = async () => {
     if (!editingDevId || !handleDeleteDevRequest) return;
-    const ok = await handleDeleteDevRequest(editingDevId, { linkedQuoteCount: findDevQuotes(savedQuotes, editingDevId).length });
+    const ok = await handleDeleteDevRequest(editingDevId, { linkedQuoteCount: quotesOfDev(editingDevId).length });
     if (ok) setShowDevModal(false);
   };
 
   // 목록 줄의 [삭제] — 수정 창의 삭제와 같은 규칙 (설계서가 연결된 의뢰는 막힘, 복구 불가 확인)
   const handleRowDelete = async (devReq) => {
     if (!handleDeleteDevRequest) return;
-    const ok = await handleDeleteDevRequest(devReq.id, { linkedQuoteCount: findDevQuotes(savedQuotes, devReq.id).length });
+    const ok = await handleDeleteDevRequest(devReq.id, { linkedQuoteCount: quotesOfDev(devReq.id).length });
     if (ok && costQuoteDevId === devReq.id) setCostQuoteDevId(null);
   };
 
@@ -268,6 +268,12 @@ export const DevStatusPage = ({
     const active = (devRequests||[]).filter(d => ['pending','analyzing','hold'].includes(d.status));
     return [...active, ...designPendingDevs];
   }, [devRequests, designPendingDevs]);
+
+  // 의뢰 줄마다 원가 견적 배지 ('견적'/'예상' · ⚠) — PC 표·모바일 카드가 같이 쓰므로 한 번만 계산
+  const devQuoteBadges = useMemo(
+    () => new Map(devReqItems.map(d => [d.id, getDevQuoteBadge(d, devQuoteIndex.get(String(d.id)) || [])])),
+    [devReqItems, devQuoteIndex]
+  );
 
   // 설계서 리스트 데이터: articled 제외
   const sheetItems = useMemo(() =>
@@ -606,7 +612,7 @@ export const DevStatusPage = ({
                       const db = deadlineBadge(devDl);
                       const enteredDays = daysSince(d.statusEnteredAt?.[d.status] || d.updatedAt || d.createdAt);
                       const nextAction = nextStatusAction(d.status);
-                      const quoteBadge = getDevQuoteBadge(d, savedQuotes);
+                      const quoteBadge = devQuoteBadges.get(d.id);
                       return (
                         <tr key={d.id} className={`border-b border-slate-100 hover:bg-slate-50/50 transition-colors ${rowBg(urgency)}`}>
                           <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-mono font-extrabold text-violet-700">{d.devOrderNo || '-'}</td>
@@ -664,7 +670,7 @@ export const DevStatusPage = ({
                                 </button>
                               )}
                               {saveDevCostQuote && (
-                                <CostQuoteButton devReq={d} quoteCount={findDevQuotes(savedQuotes, d.id).length} onClick={() => setCostQuoteDevId(d.id)} />
+                                <CostQuoteButton devReq={d} quoteCount={quotesOfDev(d.id).length} onClick={() => setCostQuoteDevId(d.id)} />
                               )}
                               <div className="relative">
                                 <button onClick={() => setPrintMenuId(printMenuId === d.id ? null : d.id)}
@@ -690,11 +696,7 @@ export const DevStatusPage = ({
                                 title="의뢰 Drop (미진행 — 보관함에 남음)">
                                 <XCircle className="w-3 h-3"/> Drop
                               </button>
-                              <button onClick={() => handleRowDelete(d)}
-                                className="flex items-center px-1.5 py-0.5 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 rounded border border-slate-200 hover:border-red-200"
-                                title="의뢰 삭제 (영구 삭제 — 복구할 수 없어요. 보관만 하려면 Drop)">
-                                <Trash2 className="w-3.5 h-3.5"/>
-                              </button>
+                              <RowDeleteButton onClick={() => handleRowDelete(d)} title="의뢰 삭제 (영구 삭제 — 복구할 수 없어요. 보관만 하려면 Drop)" />
                             </div>
                           </td>
                         </tr>
@@ -710,7 +712,7 @@ export const DevStatusPage = ({
                   const days = daysSince(d.updatedAt || d.createdAt);
                   const db = deadlineBadge(getDevReqDeadline(d));
                   const nextAction = nextStatusAction(d.status);
-                  const quoteBadge = getDevQuoteBadge(d, savedQuotes);
+                  const quoteBadge = devQuoteBadges.get(d.id);
                   return (
                     <div key={d.id} className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
                       <div className="flex items-center justify-between mb-1.5">
@@ -746,7 +748,7 @@ export const DevStatusPage = ({
                           </button>
                         )}
                         {saveDevCostQuote && (
-                          <CostQuoteButton size="md" devReq={d} quoteCount={findDevQuotes(savedQuotes, d.id).length} onClick={() => setCostQuoteDevId(d.id)} />
+                          <CostQuoteButton size="md" devReq={d} quoteCount={quotesOfDev(d.id).length} onClick={() => setCostQuoteDevId(d.id)} />
                         )}
                         <div className="relative">
                           <button onClick={() => setPrintMenuId(printMenuId === d.id ? null : d.id)}
@@ -766,10 +768,7 @@ export const DevStatusPage = ({
                         <button onClick={() => handleDropDev(d)} className="flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 text-[11px] font-bold rounded border border-red-200">
                           <XCircle className="w-3 h-3"/> Drop
                         </button>
-                        <button onClick={() => handleRowDelete(d)} title="의뢰 삭제 (영구 삭제 — 복구할 수 없어요)"
-                          className="flex items-center justify-center gap-1 px-2 py-1.5 bg-white text-slate-500 text-[11px] font-bold rounded border border-slate-200">
-                          <Trash2 className="w-3 h-3"/> 삭제
-                        </button>
+                        <RowDeleteButton size="md" onClick={() => handleRowDelete(d)} title="의뢰 삭제 (영구 삭제 — 복구할 수 없어요)" />
                       </div>
                     </div>
                   );
@@ -941,11 +940,7 @@ export const DevStatusPage = ({
                                 <XCircle className="w-3 h-3"/> Drop
                               </button>
                               {handleDeleteSheet && (
-                                <button onClick={() => handleDeleteSheet(s.id)}
-                                  className="flex items-center px-1.5 py-0.5 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 rounded border border-slate-200 hover:border-red-200"
-                                  title="설계서 삭제 (영구 삭제 — 복구할 수 없어요. 보관만 하려면 Drop)">
-                                  <Trash2 className="w-3.5 h-3.5"/>
-                                </button>
+                                <RowDeleteButton onClick={() => handleDeleteSheet(s.id)} title="설계서 삭제 (영구 삭제 — 복구할 수 없어요. 보관만 하려면 Drop)" />
                               )}
                             </div>
                           </td>
@@ -1048,10 +1043,7 @@ export const DevStatusPage = ({
                           <XCircle className="w-3 h-3"/> Drop
                         </button>
                         {handleDeleteSheet && (
-                          <button onClick={() => handleDeleteSheet(s.id)} title="설계서 삭제 (영구 삭제 — 복구할 수 없어요)"
-                            className="flex items-center justify-center gap-1 px-2 py-1.5 bg-white text-slate-500 text-[11px] font-bold rounded border border-slate-200">
-                            <Trash2 className="w-3 h-3"/> 삭제
-                          </button>
+                          <RowDeleteButton size="md" onClick={() => handleDeleteSheet(s.id)} title="설계서 삭제 (영구 삭제 — 복구할 수 없어요)" />
                         )}
                       </div>
                     </div>
@@ -1061,7 +1053,11 @@ export const DevStatusPage = ({
             </>
           )}
         </div>
+      </div>
 
+      {/* 팝업 — 화면의 세로 간격(space-y) 칸 밖에 둠. 안에 두면 팝업에도 위 여백 24px이 붙어
+          창이 아래로 밀리고 맨 위 띠가 어둡게 안 덮였음 (의뢰 등록·저장할까요?·의뢰 연결 창 등, 2026-10-06) */}
+      <div className="print:hidden">
         {/* 의뢰 등록/수정 모달 */}
         <DevRequestFormModal
           isOpen={showDevModal}
@@ -1095,7 +1091,7 @@ export const DevStatusPage = ({
             key={costQuoteDev.id}
             devReq={costQuoteDev}
             onClose={() => setCostQuoteDevId(null)}
-            savedQuotes={savedQuotes}
+            linkedQuotes={quotesOfDev(costQuoteDev.id)}
             yarnSelectOptions={yarnSelectOptions}
             yarnLibrary={yarnLibrary}
             costSettings={costSettings}
@@ -1112,24 +1108,26 @@ export const DevStatusPage = ({
         {dropTargetDev && (
           <DevDropModal
             devReq={dropTargetDev}
-            quoteInfo={getDevQuoteBadge(dropTargetDev, savedQuotes)}
+            quoteInfo={getDevQuoteBadge(dropTargetDev, quotesOfDev(dropTargetDev.id))}
             onClose={() => setDropTargetId(null)}
             onConfirm={confirmDrop}
           />
         )}
 
-        {/* 통합 보관함 모달 */}
-        <DevArchiveModal
-          isOpen={isArchiveOpen}
-          onClose={() => setIsArchiveOpen(false)}
-          rejectedDevs={rejectedDevReqs}
-          confirmedLinkedDevs={confirmedLinkedDevs}
-          articledSheets={articledSheets}
-          designSheets={designSheets}
-          savedQuotes={savedQuotes}
-          updateDevStatus={updateDevStatus}
-          handleEditSheet={handleEditSheet}
-        />
+        {/* 통합 보관함 모달 — 열 때마다 새로 그림 (탭·검색·Drop 사유 필터가 지난번 상태로 남지 않게) */}
+        {isArchiveOpen && (
+          <DevArchiveModal
+            isOpen={isArchiveOpen}
+            onClose={() => setIsArchiveOpen(false)}
+            rejectedDevs={rejectedDevReqs}
+            confirmedLinkedDevs={confirmedLinkedDevs}
+            articledSheets={articledSheets}
+            designSheets={designSheets}
+            savedQuotes={savedQuotes}
+            updateDevStatus={updateDevStatus}
+            handleEditSheet={handleEditSheet}
+          />
+        )}
 
         {/* 개발 의뢰 수동 연결 모달 (설계서 → 기존 의뢰 선택) */}
         {linkTargetSheet && (() => {

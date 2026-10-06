@@ -17,7 +17,7 @@ import {
   makeDefaultTierRates, makeDefaultTierAdds, toQuoteTierRate, toQuoteTierAdd, defaultTierAdd,
   calcQuotePrice, calcCustomQuotePrice, getBasePrice, getShownTiers, formatQuotePrice,
 } from './quoteModel';
-import { num } from './helpers';
+import { num, formatMonthDay } from './helpers';
 
 export const DEV_QUOTE_SOURCE = 'devRequest';  // 견적 품목 sourceType — 개발 의뢰 원가 견적에서 온 품목
 export const DEV_QUOTE_YARN_SLOTS = 4;         // 원사 칸 수 (설계서와 같게 — 설계 시작 때 그대로 이어받기)
@@ -28,18 +28,8 @@ const isBlank = (v) => v === undefined || v === null || v === '';
 // 원가 엔진이 읽는 원가 칸 (예전 원가 칸 — 1K/3K/5K 편직료·LOSS 등은 원가 견적에 넣지 않음)
 const COST_FIELD_KEYS = ['knitGrade', 'knitKgRate', 'knitKgRateTiers', 'processType', 'dyeingFee', 'finishing', 'etcCosts', 'riskMarginPct'];
 const SPEC_FIELD_KEYS = ['widthFull', 'widthCut', 'gsm', 'costGYd'];
-
-// 'YYYY-MM-DD' → 'MM/DD'
-const ymdToMmdd = (s) => {
-  const m = String(s || '').match(/^\d{4}-(\d{2})-(\d{2})/);
-  return m ? `${m[1]}/${m[2]}` : '';
-};
-// ISO 시각 → 이 PC 날짜 'MM/DD'
-const isoToMmdd = (iso) => {
-  const d = new Date(iso);
-  if (!iso || Number.isNaN(d.getTime())) return '';
-  return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
-};
+// 견적서 Cut·Full·GSM 칸에 나가는 스펙 — 원가 견적에서 꼭 넣어야 함
+const REQUIRED_SPEC = [['외폭', 'widthFull'], ['내폭', 'widthCut'], ['GSM', 'gsm']];
 
 // ----------------------------------------------------------------------
 // 1. 양식
@@ -96,6 +86,12 @@ export const cleanDevQuoteYarns = (yarns) => (Array.isArray(yarns) ? yarns : [])
   return { mode: 'library', yarnId: String(s?.yarnId || ''), manualName: '', priceOverride: '', ratio };
 });
 
+/**
+ * '저장할까요?' 비교용 양식 — 실제로 저장될 모양(원사 칸 정리)으로 맞춤.
+ *  [직접 입력]에 썼다가 [라이브러리]로 되돌리면 저장될 내용은 같은데도 '변경됨'으로 보이던 것 방지
+ */
+export const normalizeDevQuoteForm = (form) => ({ ...form, yarns: cleanDevQuoteYarns(form?.yarns) });
+
 // ----------------------------------------------------------------------
 // 2. 원가 엔진·견적서용 변환
 // ----------------------------------------------------------------------
@@ -132,7 +128,8 @@ export const devQuoteToFabric = (devReq, form = devReq?.costQuote) => {
 
 /**
  * 원사 칸 단가 (원/kg, 그 원사 100% 기준 — 화면 표시용)
- *  라이브러리 원사 = 대표 공급처 단가 + 관세(내수만) + 국내 운반비. 수입 원사 운반비는 수량별 kg 구간이라 원가 표에서 더함
+ *  라이브러리 원사 = 대표 공급처 단가 + 관세(내수만) + 국내 운반비. 수입 원사 운반비는 수량별 kg 구간이라 원가 표에서 더함.
+ *  단가 0원은 원가 엔진과 같은 기준(대표 공급처 단가가 비었거나 0) — 국내 운반비만 있어도 0원으로 알려 줌
  * @returns {null | { domestic, export, isImport, importCountry, missing, zero }}
  */
 export const yarnSlotUnitPrice = (slot, yarnLibrary, exchangeRate) => {
@@ -148,7 +145,7 @@ export const yarnSlotUnitPrice = (slot, yarnLibrary, exchangeRate) => {
   if (!line) return { domestic: 0, export: 0, isImport: false, importCountry: '', missing: false, zero: true };
   return {
     domestic: line.wDomestic, export: line.wExport, isImport: line.isImport, importCountry: line.importCountry,
-    missing: false, zero: !(line.wDomestic > 0),
+    missing: false, zero: m.zeroPriceYarns.length > 0,
   };
 };
 
@@ -156,7 +153,11 @@ export const yarnSlotUnitPrice = (slot, yarnLibrary, exchangeRate) => {
 // 3. 저장 전 확인 · 판매가 미리보기 · 저장값
 // ----------------------------------------------------------------------
 
-/** 저장 전 확인 — 저장을 막는 사유 목록 (없으면 []) */
+/**
+ * 저장 전 확인 — 저장을 막는 사유 목록 (없으면 [])
+ *  혼용률 ≠ 100% / 혼용률은 있는데 원사(라이브러리)·단가(직접 입력)가 없는 칸 / 외폭·내폭·GSM 빈칸
+ *  (외폭·내폭·GSM은 견적서 Cut·Full·GSM 칸에 나감 — 생산 G/YD만 넣어도 원가는 계산되지만 견적서가 빈칸이 됨)
+ */
 export const validateDevCostQuote = (form) => {
   const errors = [];
   const yarns = Array.isArray(form?.yarns) ? form.yarns : [];
@@ -170,8 +171,8 @@ export const validateDevCostQuote = (form) => {
     }
   });
   const ci = form?.costInput || {};
-  const hasWeight = Number(ci.costGYd) > 0 || (Number(ci.gsm) > 0 && Number(ci.widthFull) > 0);
-  if (!hasWeight) errors.push('GSM과 외폭(또는 생산 G/YD)을 넣어 주세요.');
+  const missingSpec = REQUIRED_SPEC.filter(([, key]) => !(Number(ci[key]) > 0)).map(([label]) => label);
+  if (missingSpec.length > 0) errors.push(`${missingSpec.join('·')}을 넣어 주세요 (견적서 Cut·Full·GSM 칸에 나가요).`);
   return errors;
 };
 
@@ -211,26 +212,71 @@ export const buildDevQuoteSnapshot = (item, previewQuote) => {
 // 4. 견적서 연결 · 목록 배지
 // ----------------------------------------------------------------------
 
-/** 이 의뢰로 만든 견적서 (최근 순) — 기준·별도 견적 품목의 fabricId가 의뢰 id */
+// 최근 순 (견적일 → 같은 날이면 늦게 만든 견적)
+const byLatestQuote = (a, b) =>
+  String(b.date || '').localeCompare(String(a.date || '')) || (Number(b.id) || 0) - (Number(a.id) || 0);
+
+/**
+ * 견적서 목록 → Map { 의뢰 id → 그 의뢰로 만든 견적서[] (최근 순) }
+ *  기준·별도 견적 품목의 fabricId가 의뢰 id. 목록 화면에서 한 번만 만들어 여러 줄이 같이 씀 (줄마다 전체 견적을 다시 훑지 않게)
+ *  원단 id도 같이 담기지만 의뢰 id로만 꺼내 씀
+ */
+export const indexDevQuotes = (quotes) => {
+  const index = new Map();
+  (Array.isArray(quotes) ? quotes : []).forEach(q => {
+    const ids = new Set([...(q?.items || []), ...(q?.customItems || [])].map(it => String(it?.fabricId ?? '')).filter(Boolean));
+    ids.forEach(id => {
+      if (!index.has(id)) index.set(id, []);
+      index.get(id).push(q);
+    });
+  });
+  index.forEach(list => list.sort(byLatestQuote));
+  return index;
+};
+
+/** 이 의뢰로 만든 견적서 (최근 순) — 한 의뢰만 찾을 때 (여러 줄이면 indexDevQuotes) */
 export const findDevQuotes = (quotes, devReqId) => {
   const id = String(devReqId);
   return (Array.isArray(quotes) ? quotes : [])
     .filter(q => [...(q?.items || []), ...(q?.customItems || [])].some(it => String(it?.fabricId) === id))
-    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || (Number(b.id) || 0) - (Number(a.id) || 0));
+    .sort(byLatestQuote);
 };
 
+// 바이어 이름 비교 — 대소문자·앞뒤 칸·복제 표시 ' (Copy)'는 무시
+const normBuyer = (name) => String(name || '').trim().toUpperCase().replace(/\s*\(COPY\)\s*$/, '');
+// 견적서가 만들어진 시각 — 견적 id는 처음 저장할 때의 시각(ms). 예전 견적은 견적일
+const quoteMadeAt = (q) => {
+  const idNum = Number(q?.id);
+  if (Number.isFinite(idNum) && idNum > 1e12) return idNum;
+  return Date.parse(q?.date || '') || 0;
+};
+const warningLines = (warnings) => (warnings.length ? ['', `⚠ 원가 확인 필요 — 원가가 덜 잡혔을 수 있어요`, ...warnings.map(w => `· ${w}`)] : []);
+
 /**
- * 의뢰 목록 배지 — 견적서를 만들었으면 최근 견적서의 3,000YD 판매가, 아니면 원가 견적 저장값(예상가)
- * @returns {null | { kind: 'quote'|'estimate', price, qtyLabel, date, count, detail }}
- *   price: 표시 문자열(￦9,800 / $6.75), detail: 마우스를 올리면 보이는 구간별 판매가
+ * 의뢰 목록 배지 — 견적서를 만들었으면 최근 견적서의 3,000YD 판매가('견적'), 아니면 원가 견적 저장값('예상')
+ * @param {Object} devReq        개발 의뢰
+ * @param {Array}  linkedQuotes  이 의뢰로 만든 견적서 (최근 순 — indexDevQuotes / findDevQuotes)
+ * @returns {null | { kind: 'quote'|'estimate', price, qtyLabel, date, count, otherBuyer, warnings, detail }}
+ *   price: 표시 문자열(￦9,800 / $6.75) · otherBuyer: 최근 견적서 바이어가 의뢰 바이어와 다르면 그 이름 ·
+ *   warnings: '원가 확인 필요' 사유 (있으면 배지에 ⚠) · detail: 마우스를 올리면 보이는 구간별 판매가·사유
  */
-export const getDevQuoteBadge = (devReq, quotes) => {
+export const getDevQuoteBadge = (devReq, linkedQuotes = []) => {
   if (!devReq) return null;
-  const linked = findDevQuotes(quotes, devReq.id);
+  const linked = Array.isArray(linkedQuotes) ? linkedQuotes : [];
   const latest = linked[0];
+  const snap = devReq.costQuote?.snapshot && typeof devReq.costQuote.snapshot.sellPrice === 'object' ? devReq.costQuote.snapshot : null;
+  const snapCur = snap?.currency === 'USD' ? 'USD' : 'KRW';
+  const snapPrice = snap ? formatQuotePrice(snap.sellPrice[DEV_QUOTE_MAIN_TIER.key] ?? null, snapCur) : '';
+
   if (latest) {
     const cur = latest.currency === 'USD' ? 'USD' : 'KRW';
-    const head = `최근 견적서 ${latest.date || ''}${linked.length > 1 ? ` (이 의뢰로 만든 견적서 ${linked.length}건)` : ''}`;
+    const otherBuyer = normBuyer(latest.buyerName) && normBuyer(devReq.buyerName) && normBuyer(latest.buyerName) !== normBuyer(devReq.buyerName)
+      ? String(latest.buyerName).trim() : '';
+    const head = `최근 견적서 ${latest.date || ''}${otherBuyer ? ` (바이어 ${otherBuyer})` : ''}${linked.length > 1 ? ` · 이 의뢰로 만든 견적서 ${linked.length}건` : ''}`;
+    // 견적서를 만든 뒤에 원가 견적을 다시 저장했으면 새 예상가도 알려 줌 (배지는 바이어에게 보낸 견적서 가격 그대로)
+    const newer = snap && Date.parse(snap.at) > quoteMadeAt(latest)
+      ? ['', `※ ${formatMonthDay(snap.at)}에 원가 견적을 다시 저장함 — 예상 ${DEV_QUOTE_MAIN_TIER.label} ${snapPrice} (새 견적서는 아직 없음)`]
+      : [];
     const item = (latest.items || []).find(it => String(it?.fabricId) === String(devReq.id));
     if (item) {
       const shown = getShownTiers(latest).map(t => t.key);
@@ -240,32 +286,33 @@ export const getDevQuoteBadge = (devReq, quotes) => {
       const main = getBasePrice(item, DEV_QUOTE_MAIN_TIER.key) !== null
         ? DEV_QUOTE_MAIN_TIER
         : (getShownTiers(latest)[0] || DEV_QUOTE_MAIN_TIER);
+      const warnings = Array.isArray(item.costWarnings) ? item.costWarnings : [];
       return {
-        kind: 'quote', count: linked.length, date: ymdToMmdd(latest.date),
+        kind: 'quote', count: linked.length, date: formatMonthDay(latest.date), otherBuyer, warnings,
         price: formatQuotePrice(calcQuotePrice(item, main.key, latest, cur), cur),
         qtyLabel: main.label,
-        detail: [head, ...lines].join('\n'),
+        detail: [head, ...lines, ...newer, ...warningLines(warnings)].join('\n'),
       };
     }
     const row = (latest.customItems || []).find(r => String(r?.fabricId) === String(devReq.id));
     if (row) {
       const qtyLabel = `${num(row.qty)} YD · ${num(row.colors)}컬러`;
       const price = formatQuotePrice(calcCustomQuotePrice(row, latest, cur), cur);
+      const warnings = Array.isArray(row.costWarnings) ? row.costWarnings : [];
       return {
-        kind: 'quote', count: linked.length, date: ymdToMmdd(latest.date), price, qtyLabel,
-        detail: [head, `별도 견적 ${qtyLabel} ${price}`].join('\n'),
+        kind: 'quote', count: linked.length, date: formatMonthDay(latest.date), otherBuyer, warnings, price, qtyLabel,
+        detail: [head, `별도 견적 ${qtyLabel} ${price}`, ...newer, ...warningLines(warnings)].join('\n'),
       };
     }
   }
-  const snap = devReq.costQuote?.snapshot;
-  if (snap && snap.sellPrice && typeof snap.sellPrice === 'object') {
-    const cur = snap.currency === 'USD' ? 'USD' : 'KRW';
-    const lines = QUOTE_TIERS.map(t => `${t.label} ${formatQuotePrice(snap.sellPrice[t.key] ?? null, cur)}`);
+  if (snap) {
+    const lines = QUOTE_TIERS.map(t => `${t.label} ${formatQuotePrice(snap.sellPrice[t.key] ?? null, snapCur)}`);
+    const warnings = Array.isArray(snap.costWarnings) ? snap.costWarnings : [];
     return {
-      kind: 'estimate', count: 0, date: isoToMmdd(snap.at),
-      price: formatQuotePrice(snap.sellPrice[DEV_QUOTE_MAIN_TIER.key] ?? null, cur),
+      kind: 'estimate', count: linked.length, date: formatMonthDay(snap.at), otherBuyer: '', warnings,
+      price: snapPrice,
       qtyLabel: DEV_QUOTE_MAIN_TIER.label,
-      detail: [`원가 견적 예상 판매가 (${isoToMmdd(snap.at)} 저장 · 견적서는 아직 없음)`, ...lines].join('\n'),
+      detail: [`원가 견적 예상 판매가 (${formatMonthDay(snap.at)} 저장 · 견적서는 아직 없음)`, ...lines, ...warningLines(warnings)].join('\n'),
     };
   }
   return null;

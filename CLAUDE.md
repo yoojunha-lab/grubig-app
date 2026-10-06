@@ -76,7 +76,7 @@ GRUBIG-APP/
 │   ├── components/
 │   │   ├── common/              # 공통 UI (Toast, SearchableSelect, MasterDataModal, ModalBackdrop(팝업 배경), UnsavedChangesDialog(저장할까요?) 등)
 │   │   ├── layout/              # Sidebar, LoginScreen
-│   │   ├── dashboard/           # 개발 의뢰 — DevReqSummaryCard, DevRequestFormModal, DevArchiveModal(보관함·Drop 사유별 보기), DevCostQuoteModal(원가 견적), DevDropModal(Drop 사유)
+│   │   ├── dashboard/           # 개발 의뢰 — DevRequestFormModal, DevArchiveModal(보관함·Drop 사유별 보기), DevCostQuoteModal(원가 견적), DevDropModal(Drop 사유), DevQuoteBadge(견적·예상 배지 공용), DevReqSummaryCard(현재 안 씀)
 │   │   ├── design/              # DesignStepper (진행 단계 바)
 │   │   ├── design-sheet/        # 설계서 전용 (DesktopSheetRow, MobileSheetCard, DropSheetModal)
 │   │   ├── fabric/              # 원단 행/카드 (+ fabricRowModel: 행·카드 공통 계산)

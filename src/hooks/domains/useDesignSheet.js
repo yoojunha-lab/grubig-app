@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DESIGN_STAGES, SAMPLING_SUBSTAGES } from '../../constants/common';
+import { DESIGN_STAGES, SAMPLING_SUBSTAGES, DEV_DROP_REASONS } from '../../constants/common';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
 import { makeInitialCostFields } from '../../utils/costFields';
 import { resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete, normalizeYarnSlots, clampYarnRatio } from '../../utils/costModel';
@@ -866,7 +866,17 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   const restoreFromDrop = (sheetId) => {
     const sheet = designSheets.find(s => s.id === sheetId);
     if (!sheet) return;
-    if (!window.confirm('이 설계서를 복원하시겠습니까?\n(Drop 전 단계로 복원됩니다)')) return;
+    // 다시 연결할 개발 의뢰 — 의뢰가 그사이 Drop(미진행)됐으면 같이 되살아나므로 확인 창에 미리 알려 줌 (2026-10-06)
+    //  (예전엔 '가격' 사유로 Drop한 의뢰가 확인 없이 '개발 확정'으로 돌아가고 Drop 사유도 남았음)
+    const relinkDev = sheet.devRequestId && devRequests
+      ? devRequests.find(d => d.id === sheet.devRequestId && !d.linkedDesignSheetId) || null
+      : null;
+    const revivesDropped = relinkDev?.status === 'rejected';
+    const dropLabel = DEV_DROP_REASONS.find(r => r.key === relinkDev?.dropReason)?.label;
+    const reviveNote = revivesDropped
+      ? `\n\n연결된 개발 의뢰(${relinkDev.devOrderNo || '-'})는 Drop${dropLabel ? `(사유: ${dropLabel})` : ''} 상태예요.\n설계서를 복원하면 의뢰도 '개발 확정'으로 되살아나고 Drop 사유는 지워져요.`
+      : '';
+    if (!window.confirm(`이 설계서를 복원하시겠습니까?\n(Drop 전 단계로 복원됩니다)${reviveNote}`)) return;
     const now = new Date().toISOString();
     // [기획오류 #3 수정] 복원 이력을 changeHistory에 기록
     const restoreHistory = {
@@ -882,16 +892,16 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     // DROP 시 해제되었던 linkedDesignSheetId를 다시 이 설계서 ID로 연결
     // [기획 #4 수정] dev 상태는 rejected일 때만 confirmed로 복구 →
     //   DROP 후 사용자가 수동으로 바꾼 상태(pending/analyzing 등)를 덮어쓰지 않음
-    if (sheet.devRequestId && devRequests) {
-      const linkedDev = devRequests.find(d => d.id === sheet.devRequestId);
-      if (linkedDev && !linkedDev.linkedDesignSheetId) {
-        saveDocToCloud('devRequests', {
-          ...linkedDev,
-          linkedDesignSheetId: sheetId,
-          status: linkedDev.status === 'rejected' ? 'confirmed' : linkedDev.status,
-          updatedAt: now
-        });
-      }
+    //   rejected → confirmed 로 되살릴 때는 Drop 사유·메모를 지우고 확정 날짜를 기록 (보관함 복원과 같은 규칙)
+    if (relinkDev) {
+      const { dropReason: _dropReason, dropMemo: _dropMemo, droppedBy: _droppedBy, ...withoutDrop } = relinkDev;
+      saveDocToCloud('devRequests', {
+        ...(revivesDropped ? withoutDrop : relinkDev),
+        linkedDesignSheetId: sheetId,
+        status: revivesDropped ? 'confirmed' : relinkDev.status,
+        ...(revivesDropped ? { statusEnteredAt: { ...(relinkDev.statusEnteredAt || {}), confirmed: now } } : {}),
+        updatedAt: now
+      });
     }
 
     showToast('복원되었습니다.', 'success');

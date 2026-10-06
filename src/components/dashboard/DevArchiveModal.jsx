@@ -1,17 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { X, Archive, Search, RotateCcw, Link, Award, ArrowRight, Calendar, Target, Calculator } from 'lucide-react';
+import { X, Archive, Search, RotateCcw, Link, Award, ArrowRight, Calendar, Target } from 'lucide-react';
 import { ModalBackdrop } from '../common/ModalBackdrop';
+import { DevQuoteBadge } from './DevQuoteBadge';
 import { DEV_DROP_REASONS } from '../../constants/common';
-import { getDevQuoteBadge } from '../../utils/devQuoteModel';
+import { getDevQuoteBadge, indexDevQuotes } from '../../utils/devQuoteModel';
+import { formatMonthDay } from '../../utils/helpers';
 
-// 진입 날짜 → "MM/DD" 단순 포맷
-const formatDate = (iso) => {
-  if (!iso) return null;
-  const t = new Date(iso); if (isNaN(t)) return null;
-  const mm = String(t.getMonth() + 1).padStart(2, '0');
-  const dd = String(t.getDate()).padStart(2, '0');
-  return `${mm}/${dd}`;
-};
+// 진입 날짜 → "MM/DD" (공용 helpers.formatMonthDay — 비었으면 '')
+const formatDate = (iso) => formatMonthDay(iso);
 
 // 검색어(소문자) 포함 여부 — 비었으면 통과
 const textMatches = (q, text) => !q || String(text || '').toLowerCase().includes(q);
@@ -68,6 +64,8 @@ export const DevArchiveModal = ({
   const filteredArticled = useMemo(() => (articledSheets || []).filter(s =>
     textMatches(q, s.fabricName) || textMatches(q, s.devOrderNo) || textMatches(q, s.articleNo) || textMatches(q, s.eztexOrderNo)
   ), [articledSheets, q]);
+  // 의뢰별 견적서 (Drop된 의뢰 카드의 견적가) — 카드마다 전체 견적을 다시 훑지 않게 한 번만
+  const quoteIndex = useMemo(() => indexDevQuotes(savedQuotes), [savedQuotes]);
 
   if (!isOpen) return null;
 
@@ -88,17 +86,17 @@ export const DevArchiveModal = ({
     updateDevStatus?.(devReq.id, 'pending');
   };
 
-  // Drop 사유 걸러 보기 칩
+  // Drop 사유 걸러 보기 칩 — '사유 없음'(사유 기능 전에 Drop된 의뢰)은 있을 때만, 단 고른 상태면 0건이 돼도 보여 줌
+  //  (복원해서 0건이 되면 칩이 사라져 빈 목록만 남던 문제)
   const dropChips = [
     { key: 'all', label: '전체', cls: 'bg-white text-slate-600 border-slate-300' },
     ...DEV_DROP_REASONS.map(r => ({ key: r.key, label: r.label, cls: r.cls })),
-    ...(dropCounts.none > 0 ? [{ key: 'none', label: '사유 없음', cls: 'bg-white text-slate-400 border-slate-200' }] : []),
+    ...(dropCounts.none > 0 || dropFilter === 'none' ? [{ key: 'none', label: '사유 없음', cls: 'bg-white text-slate-400 border-slate-200' }] : []),
   ];
 
   return (
     // 배경을 눌렀다가 배경에서 뗐을 때만 닫힘 — 검색칸에서 글자를 드래그하다 창 밖에서 떼도 닫히지 않음 (팝업 규약)
-    //  marginTop 0: 개발 현황 화면의 세로 간격(space-y)이 팝업에 위 여백을 붙이지 않게
-    <ModalBackdrop className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm" style={{ marginTop: 0 }} onClose={onClose}>
+    <ModalBackdrop className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm" onClose={onClose}>
 
       {/* 모달 창 */}
       <div className="relative w-full max-w-4xl bg-slate-50 rounded-xl shadow-2xl flex flex-col max-h-[90vh] border border-slate-200 overflow-hidden" onClick={e => e.stopPropagation()}>
@@ -183,7 +181,7 @@ export const DevArchiveModal = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                 {filteredRejected.map(d => {
                   const reason = findDropReason(d.dropReason);
-                  const quote = getDevQuoteBadge(d, savedQuotes);
+                  const quote = getDevQuoteBadge(d, quoteIndex.get(String(d.id)) || []);
                   const targetPrice = String(d.targetSpec?.targetPrice || '').trim();
                   return (
                     <div key={d.id} className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
@@ -204,11 +202,8 @@ export const DevArchiveModal = ({
                       {/* 가격 비교 — 원가 견적·견적서 가격과 바이어 타겟 단가 */}
                       {(quote || targetPrice) && (
                         <div className="flex gap-1.5 text-[10px] mt-1.5 flex-wrap">
-                          {quote && (
-                            <span className={`inline-flex items-center gap-1 font-bold px-1.5 py-0.5 rounded border ${quote.kind === 'quote' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`} title={quote.detail}>
-                              <Calculator className="w-2.5 h-2.5" /> {quote.kind === 'quote' ? '견적' : '예상'} {quote.price} ({quote.qtyLabel})
-                            </span>
-                          )}
+                          <DevQuoteBadge badge={quote} size="md" />
+
                           {targetPrice && (
                             <span className="inline-flex items-center gap-1 font-bold px-1.5 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200">
                               <Target className="w-2.5 h-2.5" /> 타겟 {targetPrice}
