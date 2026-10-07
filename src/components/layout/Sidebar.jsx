@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Cloud, Menu, Layers, Home, Globe, FileSpreadsheet, Box, FileText, LogOut, DollarSign, Activity, Archive,
-  FileCheck, FlaskConical, LayoutDashboard, TrendingUp, ChevronDown, X, Boxes, FileSignature, SwatchBook, ExternalLink,
+  FileCheck, FlaskConical, LayoutDashboard, TrendingUp, ChevronDown, X, Boxes, FileSignature, SwatchBook, ExternalLink, Calculator,
 } from 'lucide-react';
 import { rateLabel } from '../../utils/helpers';
 import { useMarketRate, NAVER_FX_URL } from '../../hooks/useMarketRate';
@@ -71,6 +71,7 @@ const NAV_GROUPS = [
     items: [
       { tab: 'orderList',   label: '생산 현황', icon: LayoutDashboard },
       { tab: 'orderReport', label: '리포트', icon: TrendingUp },
+      { tab: 'productionCalc', label: '계산기', icon: Calculator },   // 선염 계산기 (스트라이프 원사 배분·멜란지 수량 비율)
     ],
   },
 ];

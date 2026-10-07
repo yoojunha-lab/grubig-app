@@ -257,6 +257,20 @@ export const DEV_SAMPLE_ORDERS = [
     ],
     changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-09-05T00:00:00.000Z', updatedAt: '2026-09-18T00:00:00.000Z',
   },
+  // 선염 스트라이프 (생산 ▾ 계산기 '오더 불러오기' 확인용 — 대표님 캡처 컬러·kg, 2026-10-07)
+  {
+    id: 'ord_dev_m030', schemaVersion: 8, orderNumber: 'F-26M030', articleNo: 'PW1050', detail: 'F/60Nm SW/N 87/13 선염 STRIPE',
+    customer: '그루빅', type: 'main', finalDueDate: '2026-11-20', lossRate: 10, status: 'active',
+    notes: '', linkedFabricId: null, linkedFabricArticle: '', dyeVendor: '',
+    steps: devSteps(),
+    colors: [
+      devColor('c_m030_ap', 'APRICOT/BARK BROWN', 106.8),
+      devColor('c_m030_dl', 'DEEP LIME/BARK BROWN', 151),
+      devColor('c_m030_nc', 'NAVY CHARCOAL/BARK BROWN', 127.4),
+    ],
+    dailyNotes: [],
+    changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-10-07T00:00:00.000Z', updatedAt: '2026-10-07T00:00:00.000Z',
+  },
   // v7 옛 형식 (차수 구조) — 자동 변환 확인용. schemaVersion 없음
   {
     id: 'O-LEGACY-01', orderNumber: 'O-LEGACY-01', articleNo: 'GB-2402', customer: '세웅상사', type: 'main',

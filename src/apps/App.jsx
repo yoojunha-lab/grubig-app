@@ -27,6 +27,7 @@ import { useCollection } from '../hooks/domains/useCollection';
 import { useProformaInvoice } from '../hooks/domains/useProformaInvoice';
 import { usePartner } from '../hooks/domains/usePartner';
 import { useLabdip } from '../hooks/domains/useLabdip';
+import { useYarnDyeCalc } from '../hooks/domains/useYarnDyeCalc';
 import { useExcelIO } from '../hooks/domains/useExcelIO';
 import { useQuoteExport } from '../hooks/domains/useQuoteExport';
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
@@ -53,6 +54,7 @@ import { MainDetailPage } from '../pages/MainDetailPage';
 import { TempDesignSheetListPage } from '../pages/TempDesignSheetListPage';
 import { OrderListPage } from '../pages/OrderListPage';
 import { ReportPage } from '../pages/ReportPage';
+import { ProductionCalcPage } from '../pages/ProductionCalcPage';
 import { CollectionPage } from '../pages/CollectionPage';
 import { ProformaInvoicePage } from '../pages/ProformaInvoicePage';
 import { PIPrintSheet } from '../components/pi/PIPrintSheet';
@@ -130,6 +132,7 @@ const App = () => {
   };
   const [labdips, setLabdips] = useState([]);
   const [selectedLabdipForPrint, setSelectedLabdipForPrint] = useState(null);
+  const [yarnDyeCalcs, setYarnDyeCalcs] = useState([]); // 생산 ▾ 계산기 — 저장된 선염 계산 (yarnDyeCalcs)
   const [partners, setPartners] = useState([]);
   const [partnersLoaded, setPartnersLoaded] = useState(false); // partners 스냅샷 최초 도착 여부 (seed 경쟁 조건 방지)
 
@@ -275,7 +278,9 @@ const App = () => {
     const unsubLabdips = onSnapshot(collection(db, 'labdips'), (snapshot) => setLabdips(snapshot.docs.map(doc => doc.data())));
     // 거래처(Partner) 구독
     const unsubPartners = onSnapshot(collection(db, 'partners'), (snapshot) => { setPartners(snapshot.docs.map(doc => doc.data())); setPartnersLoaded(true); });
-    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); unsubPIs(); unsubLabdips(); unsubPartners(); };
+    // 생산 ▾ 계산기 — 저장된 선염 계산 구독
+    const unsubYarnDyeCalcs = onSnapshot(collection(db, 'yarnDyeCalcs'), (snapshot) => setYarnDyeCalcs(snapshot.docs.map(doc => doc.data())));
+    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); unsubPIs(); unsubLabdips(); unsubPartners(); unsubYarnDyeCalcs(); };
   }, [user]);
 
   // 원사 검색/필터가 바뀌면 목록을 1페이지로 되돌림
@@ -305,6 +310,7 @@ const App = () => {
     quotes: setSavedQuotes, devRequests: setDevRequests, designSheets: setDesignSheets,
     mainDetails: setMainDetails, tempDesignSheets: setTempDesignSheets, orders: setOrders,
     proformaInvoices: setProformaInvoices, labdips: setLabdips, partners: setPartners,
+    yarnDyeCalcs: setYarnDyeCalcs,
   };
   const saveDocToCloud = async (colName, item) => {
     if (DEV_BYPASS) {
@@ -540,6 +546,12 @@ const App = () => {
     addColor: addLabdipColor, removeColor: removeLabdipColor, updateColor: updateLabdipColor,
     handleSaveLabdip, handleEditLabdip, handleDuplicateLabdip, handleDeleteLabdip,
   } = useLabdip(labdips, saveDocToCloud, deleteDocFromCloud, showToast, user);
+
+  // ⚓️ 생산 ▾ 계산기 — 선염 계산 (스트라이프 원사 배분 · 멜란지 수량 비율) 저장·불러오기
+  const {
+    dyeCalcInput, setDyeCalcInput, editingDyeCalcId, dyeCalcDirty,
+    newDyeCalc, loadDyeCalc, saveDyeCalc, deleteDyeCalc,
+  } = useYarnDyeCalc(yarnDyeCalcs, saveDocToCloud, deleteDocFromCloud, showToast, user);
 
   // ⚓️ 거래처(Partner) 훅 — 모든 거래처 선택/등록 공통
   const { makeEmptyPartner, savePartner, deletePartner } =
@@ -1304,6 +1316,26 @@ const App = () => {
         {/* TAB: 리포트 */}
         {activeTab === 'orderReport' && (
           <ReportPage orders={productionOrders} />
+        )}
+
+        {/* TAB: 계산기 (생산 — 선염: 스트라이프 원사 배분 · 멜란지 수량 비율, 2026-10-07) */}
+        {activeTab === 'productionCalc' && (
+          <ProductionCalcPage
+            calcs={yarnDyeCalcs}
+            dyeCalcInput={dyeCalcInput}
+            setDyeCalcInput={setDyeCalcInput}
+            editingDyeCalcId={editingDyeCalcId}
+            dyeCalcDirty={dyeCalcDirty}
+            newDyeCalc={newDyeCalc}
+            loadDyeCalc={loadDyeCalc}
+            saveDyeCalc={saveDyeCalc}
+            deleteDyeCalc={deleteDyeCalc}
+            orders={productionOrders}
+            savedFabrics={savedFabrics}
+            yarnLibrary={yarnLibrary}
+            navGuardRef={navGuardRef}
+            showToast={showToast}
+          />
         )}
 
         {/* 모달 3종 (엑셀 업로드 2 + 카테고리 관리) */}

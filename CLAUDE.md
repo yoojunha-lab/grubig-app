@@ -15,12 +15,12 @@
 
 | 도메인 | 문서 위치 |
 |-------|---------|
-| 생산 스케줄 (오더/공정/차수/알람/간트) | `docs/production-schedule-spec.md` (기획서 원본), `docs/production-schedule-plan.md` (구현 플랜 & 진행상황) |
+| 생산 스케줄 (오더/공정/차수/알람/간트) + 생산 ▾ 계산기 (선염 — 스트라이프 원사 배분·멜란지 수량 비율) | `docs/production-schedule-spec.md` (기획서 원본), `docs/production-schedule-plan.md` (구현 플랜 & 진행상황, 계산기는 '생산 ▾ 계산기' 절) |
 | UI 용어 통일 (마진 단계 등) + 가설계서/저장·삭제·날짜 규약 + 팝업 창 규약(ModalBackdrop) | `docs/terminology.md` (용어 사전) |
 | 원단 원가 계산 (편직 정액·LOSS 구간·가공 유형·이화학/운임·수입 원사 운반비·원가 설정·공통 환율(내수·수출)/견적 환율·실시간 환율·원가 확인 필요) + 견적서 (기준 견적·별도 견적·러닝 생지 견적·견적서 약관 문구(내수는 한글)) + 개발 의뢰 원가 견적·Drop 사유 | `docs/costing-model.md` (원가 모델 & 설정, 환율은 §5-A, 견적서는 §5-B, 개발 의뢰 원가 견적은 §5-C) |
 
 트리거 예시:
-- "생산 스케줄 다음 단계 하자" / "오더 관련 기능 추가해줘" / "간트 차트 만들자" / "알람 붙이자" → 위 docs 2개를 먼저 읽고 작업 시작
+- "생산 스케줄 다음 단계 하자" / "오더 관련 기능 추가해줘" / "간트 차트 만들자" / "알람 붙이자" / "선염 계산기·원사 컬러 배분·멜란지 비율" → 위 docs 2개를 먼저 읽고 작업 시작
 - "원가 계산 바꾸자" / "편직비·LOSS·운임 수정" / "원가 설정에 항목 추가" / "수량 직접 입력 칸 만들자" / "원사 운반비·수입사·수입 국가" / "환율·내수/수출 환율·실시간 환율·견적 다시 계산" / "원가 확인 경고·혼용률" / "견적서 구간·기준 견적·별도 견적" / "러닝 생지 견적·생지 짠 수량·컬러별 수량·소량 추가분(서차지)" / "개발 의뢰 원가 견적·Drop 사유·의뢰 견적서" → `docs/costing-model.md` 먼저 읽고 작업 시작
 - 라벨/용어를 바꾸거나 새 화면을 만들 때 → `docs/terminology.md` 를 먼저 확인하고 같은 기능은 같은 용어로 맞출 것
 - 새 팝업 창을 만들 때 → 배경은 `components/common/ModalBackdrop`, 입력하는 창이면 `useUnsavedGuard` + `UnsavedChangesDialog`로 '저장할까요?' (`docs/terminology.md` §4 팝업 창 규약)
@@ -57,7 +57,8 @@ GRUBIG-APP/
 │   │   ├── FabricListPage.jsx          # 원단 보관함
 │   │   ├── YarnLibraryPage.jsx         # 원사 라이브러리
 │   │   ├── QuotationPage.jsx           # 견적서 작성
-│   │   └── QuoteHistoryPage.jsx        # 견적 이력
+│   │   ├── QuoteHistoryPage.jsx        # 견적 이력
+│   │   └── ProductionCalcPage.jsx      # 생산 ▾ 계산기 (선염 — 스트라이프 원사 배분·멜란지 수량 비율, 저장 목록)
 │   │
 │   ├── hooks/
 │   │   ├── useExternalScripts.js       # SheetJS 외부 스크립트 로더
@@ -72,6 +73,7 @@ GRUBIG-APP/
 │   │       ├── useYarn.js              # 원사 라이브러리
 │   │       ├── useExcelIO.js           # 원단·원사 엑셀 (백업·양식·일괄 등록)
 │   │       ├── useQuoteExport.js       # 견적서 PDF 인쇄·엑셀 내보내기
+│   │       ├── useYarnDyeCalc.js       # 생산 ▾ 계산기 — 선염 계산 저장·불러오기·삭제 (Firestore yarnDyeCalcs)
 │   │       └── useQuotation.js         # 견적
 │   │
 │   ├── components/
@@ -96,6 +98,7 @@ GRUBIG-APP/
 │   │   ├── excelIO.js           # 엑셀 업로드 칸 읽기 (숫자·%·예/아니오·통화)
 │   │   ├── costFields.js        # 원가 칸 초기값 (원단·설계서·가설계서 공통)
 │   │   ├── devQuoteModel.js     # 개발 의뢰 원가 견적 (양식·원단 모양 변환·저장 전 확인·예상가·견적서 배지·설계서 이어받기)
+│   │   ├── yarnDyeCalc.js       # 선염 계산 (스트라이프 원사 컬러 배분·같은 컬러 합치기 / 멜란지 수량 비율 / 오더 불러오기 / 결과 복사)
 │   │   └── costModel.js         # 원단 원가 엔진 (수량 함수 computeCostAtQty / 원가 표 6구간 calculateCostTiers)
 │   │
 │   ├── constants/
