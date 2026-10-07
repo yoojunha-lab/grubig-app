@@ -1,8 +1,8 @@
 import { useState, useRef } from 'react';
-import { calculateMcqYd, num, roundUsd, todayLocalISO } from '../../utils/helpers';
+import { calculateMcqYd, num, todayLocalISO } from '../../utils/helpers';
 import { QUOTE_TIERS, QUOTE_TIER_KEYS, DEFAULT_SHOWN_TIERS, DEFAULT_CUSTOM_QTY, DEFAULT_CUSTOM_COLORS } from '../../constants/quote';
 import {
-  normalizeQuote, isNewMarginModel, convertMarginAdd, convertAmount, convertCostParts,
+  normalizeQuote, isNewMarginModel, convertMarginAdd, convertAmount, convertBasePrice, convertCostParts,
   makeDefaultTierRates, makeDefaultTierAdds, toQuoteTierRate, toQuoteTierAdd, defaultTierAdd, computeBaseFromParts, partsFromCost,
   getBasePrice, getShownTiers, getCustomExclude, describeTierDefaults, getMarginAddCurrency,
 } from '../../utils/quoteModel';
@@ -182,7 +182,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       QUOTE_TIER_KEYS.forEach(k => {
         if (parts?.[k]) { patch[`basePrice${k}`] = computeBaseFromParts(parts[k], item.riskPct, exclude, toUsd ? 'USD' : 'KRW'); return; }
         const v = getBasePrice(item, k);
-        if (v !== null) patch[`basePrice${k}`] = toUsd ? roundUsd(v / rate) : Math.round((v * rate) / 100) * 100;
+        if (v !== null) patch[`basePrice${k}`] = convertBasePrice(v, toUsd, rate);
       });
       return { ...item, ...patch, costWarnings: addNote(item.costWarnings, DELETED_NOTE) };
     });
@@ -205,7 +205,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
         patch.costParts = convertCostParts(row.costParts, toUsd, rate);
         patch.basePrice = computeBaseFromParts(patch.costParts, row.riskPct, exclude, toUsd ? 'USD' : 'KRW');
       } else if (!isBlank(row.basePrice)) {
-        patch.basePrice = toUsd ? roundUsd(row.basePrice / rate) : Math.round((row.basePrice * rate) / 100) * 100;
+        patch.basePrice = convertBasePrice(row.basePrice, toUsd, rate);
       }
       return { ...row, ...patch, costWarnings: addNote(row.costWarnings, DELETED_NOTE) };
     });

@@ -397,7 +397,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 원사 엑셀 양식 | `src/hooks/domains/useExcelIO.js` — `Import`·`ImportCountry`·`IsDefault` 열 (`handleBackupYarns`, `handleYarnFileUpload` — 같은 이름 원사는 고치기) |
 | 혼용률 확인 · 원가 확인 필요 | `costModel.js` — `sumYarnRatio`, `isYarnRatioComplete`, `buildCostWarnings`(→ `costWarnings`) |
 | 경고 표시 (배지·사유 목록) | `src/components/cost/CostWarnings.jsx` — `CostWarningBadge`, `CostWarningBox`, `COST_WARNING_TITLE` |
-| 견적 환율·다시 계산·복제 | `src/hooks/domains/useQuotation.js` — `rebuildItems`, `handleRecalcQuote`, `handleQuoteSettingChange`(시장 구분), `handleDuplicateQuote` / `quoteModel.js` — `convertMarginAdd`, `isNewMarginModel` |
+| 견적 환율·다시 계산·복제 | `src/hooks/domains/useQuotation.js` — `rebuildItems`, `handleRecalcQuote`, `handleQuoteSettingChange`(시장 구분), `handleDuplicateQuote` / `quoteModel.js` — `convertMarginAdd`, `convertBasePrice`(원가 조각 없는 기준원가 환산), `isNewMarginModel` |
 | 공통 환율 저장·입력 | `src/apps/App.jsx` — `saveExchangeRate`, `exchangeRateMeta` / `src/components/layout/Sidebar.jsx` (입력·확인 창) |
 | 가설계서 YD당 정액 환산 | `src/pages/DesignSheetPage.jsx` — 정액 칸(원화 입력 + '≈ $' 안내) / `helpers.js` — `computeSellPrice(..., exchangeRate)` |
 | 원가 칸 초기값 (원단·설계서·가설계서 새 양식) | `src/utils/costFields.js` — `makeInitialCostFields()` |

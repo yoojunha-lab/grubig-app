@@ -137,6 +137,13 @@ export const normalizeQuote = (quote) => {
 export const convertMarginAdd = (marginAdd, toUsd, rate) =>
   Object.fromEntries(QUOTE_TIER_KEYS.map(k => [k, convertAmount(marginAdd?.[k], toUsd, rate)]));
 
+/** 기준원가 환산 (원가 조각이 없는 품목·줄) — 원 → $ 센트, $ → 원 100원 단위 */
+export const convertBasePrice = (value, toUsd, rate) => {
+  const v = Number(value) || 0;
+  const r = safeRate(rate);
+  return toUsd ? smartRound(v / r, 'USD') : smartRound(v * r, 'KRW');
+};
+
 /** 원가 조각 환산 (원가 조각은 반올림 전 값이라 그대로 나누기/곱하기) */
 export const convertCostParts = (parts, toUsd, rate) => {
   if (!parts) return parts;
