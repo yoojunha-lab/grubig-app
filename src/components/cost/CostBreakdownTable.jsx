@@ -1,7 +1,7 @@
 import React from 'react';
 import { Plus, Trash2, Settings, AlertTriangle } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
-import { num, calculateGYd, clampNum, fmtMan as man } from '../../utils/helpers';
+import { num, calculateGYd, clampNum, fmtMan as man, rateForMarket } from '../../utils/helpers';
 import { normalizeExtraCosts, normalizeKnitRateTiers, findKnitGrade, findProcessType, isImportSupplier, findImportCountry } from '../../utils/costModel';
 import { COST_DISPLAY_TIERS, COST_TIER_GROUPS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, KNIT_FEE_MODE_LABEL } from '../../constants/costing';
 import { COST_WARNING_TITLE } from './CostWarnings';
@@ -16,14 +16,14 @@ import { COST_WARNING_TITLE } from './CostWarnings';
  * · 수입 원사 운반비 = 그 원사 kg × 수입 국가 kg 구간 단가 → 재료비에 포함 (③ 표에 적용 구간 표시)
  * · 판매마진/Brand 없음(영업/견적에서 결정). '위험 마진(%)'만 가산 → 영업 기준원가. 반올림은 최종에서만.
  *
- * props: cost, yarns, calc, viewMode, yarnSelectOptions, yarnLibrary, globalExchangeRate, setCost(fn), setYarns(fn),
+ * props: cost, yarns, calc, viewMode, yarnSelectOptions, yarnLibrary, exchangeRates({ domestic, export }), setCost(fn), setYarns(fn),
  *        costSettings(원가 설정), onOpenCostSettings(⚙ 원가 설정 열기)
  */
 const TIERS = COST_DISPLAY_TIERS;
 
 export const CostBreakdownTable = ({
   cost, yarns, calc, viewMode = 'domestic',
-  yarnSelectOptions = [], yarnLibrary = [], globalExchangeRate = 1450,
+  yarnSelectOptions = [], yarnLibrary = [], exchangeRates = null,
   setCost, setYarns,
   showMaterial = true, // 설계서처럼 원사 배합이 별도로 있으면 false (표에선 재료비/yd만 읽기 표시)
   compact = false,     // 설계서 A4 2장 압축용 — 패딩·폰트 축소 (계산기는 기본 off)
@@ -33,7 +33,8 @@ export const CostBreakdownTable = ({
   const sym = isExport ? '$' : '₩';
   // 표시는 정수(내수)/2자리(수출). 내부 계산은 정확값 — 반올림은 최종원가에서만.
   const fmt = (v) => num(v, viewMode);
-  const rate = Number(globalExchangeRate) || 1450;
+  // 보기에 맞는 공통 환율 — 내수 보기 = 내수 환율(달러 원사 → 원화), 수출 보기 = 수출 환율 (원가 엔진과 같은 규칙)
+  const rate = rateForMarket(exchangeRates, viewMode);
 
   const gYd = calc?.effectiveGYd || calculateGYd(Number(cost.gsm || 0), Number(cost.widthFull || 0));
   const weightYd = gYd / 1000;

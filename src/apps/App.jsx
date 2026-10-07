@@ -30,7 +30,7 @@ import { useLabdip } from '../hooks/domains/useLabdip';
 import { useExcelIO } from '../hooks/domains/useExcelIO';
 import { useQuoteExport } from '../hooks/domains/useQuoteExport';
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
-import { num } from '../utils/helpers';
+import { DEFAULT_EXCHANGE_RATE, rateLabel } from '../utils/helpers';
 import { resolveCostSettings } from '../utils/costModel';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
@@ -83,15 +83,24 @@ const App = () => {
     const guard = navGuardRef.current;
     if (guard) guard(go); else go();
   };
-  // 공통 환율 (원/$) — 회사 공통 설정 settings/general.exchangeRate { value, updatedAt, updatedBy } 를 모든 직원이 같이 씀
-  //  (2026-10-03 대표님 결정: 예전엔 PC마다 따로라 직원마다 수출 원가·견적이 달랐음)
+  // 공통 환율 (원/$) — 모든 직원이 같이 씀 (2026-10-03 대표님 결정: 예전엔 PC마다 따로라 직원마다 수출 원가·견적이 달랐음)
+  //  [2026-10-07 대표님 요청] 내수 환율 · 수출 환율 두 칸 — 내수·수출 일을 오갈 때마다 환율을 바꾸지 않게
+  //   · 내수 환율 = settings/general.exchangeRate { value, updatedAt, updatedBy } (예전 '공통 환율' 칸을 그대로 이어 씀)
+  //   · 수출 환율 = settings/general.exportExchangeRate { … } — 아직 따로 저장하기 전이면 내수 환율과 같은 값
   //  localStorage는 첫 화면 깜빡임 방지용 캐시 + 아직 공통 값이 저장되기 전(처음 한 번)의 이 PC 값
-  const [globalExchangeRate, setGlobalExchangeRate] = useState(() => Number(localStorage.getItem('grubig_global_exchange_rate')) || 1450);
-  const [exchangeRateMeta, setExchangeRateMeta] = useState(null); // { updatedAt, updatedBy } — null이면 아직 공통 저장 전
+  //  exchangeRates 객체는 값이 바뀔 때만 새로 만듦 → 원단 원가(calculateCost)가 그 사이엔 다시 계산하지 않음
+  const [exchangeRates, setExchangeRates] = useState(() => {
+    const domestic = Number(localStorage.getItem('grubig_global_exchange_rate')) || DEFAULT_EXCHANGE_RATE;
+    const exportRate = Number(localStorage.getItem('grubig_export_exchange_rate')) || domestic;
+    return { domestic, export: exportRate };
+  });
+  // 칸마다 마지막 변경 { updatedAt, updatedBy } — null이면 아직 공통 저장 전 (수출은 '아직 따로 정하지 않음')
+  const [exchangeRatesMeta, setExchangeRatesMeta] = useState({ domestic: null, export: null });
 
   useEffect(() => {
-    localStorage.setItem('grubig_global_exchange_rate', globalExchangeRate);
-  }, [globalExchangeRate]);
+    localStorage.setItem('grubig_global_exchange_rate', exchangeRates.domestic);
+    localStorage.setItem('grubig_export_exchange_rate', exchangeRates.export);
+  }, [exchangeRates]);
 
   const [yarnLibrary, setYarnLibrary] = useState([]);
   const [savedFabrics, setSavedFabrics] = useState([]);
@@ -220,13 +229,21 @@ const App = () => {
           return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
         });
         // 공통 환율 — 저장된 값이 있으면 모든 직원이 그 값을 씀 (없으면 이 PC 값 유지)
+        //  내수 환율 = exchangeRate, 수출 환율 = exportExchangeRate (아직 따로 저장 전이면 내수 환율과 같은 값)
+        //  값이 같으면 그대로 둠 (바이어 추가 등 다른 칸이 바뀔 때마다 원단 원가를 다시 계산하지 않게)
         const er = d.exchangeRate;
-        if (er && Number(er.value) > 0) {
-          setGlobalExchangeRate(Number(er.value));
-          setExchangeRateMeta({ updatedAt: er.updatedAt || '', updatedBy: er.updatedBy || '' });
-        } else {
-          setExchangeRateMeta(null);
-        }
+        const xr = d.exportExchangeRate;
+        const domSaved = !!er && Number(er.value) > 0;
+        const expSaved = !!xr && Number(xr.value) > 0;
+        setExchangeRates(prev => {
+          const domestic = domSaved ? Number(er.value) : prev.domestic;
+          const exportRate = expSaved ? Number(xr.value) : domestic;
+          return prev.domestic === domestic && prev.export === exportRate ? prev : { domestic, export: exportRate };
+        });
+        setExchangeRatesMeta({
+          domestic: domSaved ? { updatedAt: er.updatedAt || '', updatedBy: er.updatedBy || '' } : null,
+          export: expSaved ? { updatedAt: xr.updatedAt || '', updatedBy: xr.updatedBy || '' } : null,
+        });
       } else {
         // 문서가 없을 때만 yarnCategories만 시드 — 마스터 배열은 비워둠 (실제 추가될 때 자동 생성됨)
         // 빈 배열로 시드하면 만약 콘솔 등에서 doc 재삭제 후 이 코드가 다시 돌면 데이터 영구 손실 위험
@@ -402,7 +419,7 @@ const App = () => {
     fabricInput, setFabricInput, editingFabricId, expandedFabricId, setExpandedFabricId,
     handleFabricChange, handleYarnSlotChange,
     handleSaveFabric, handleEditFabric, handleDeleteFabric, resetFabricForm, calculateCost, calculateCostAtQty
-  } = useFabric(yarnLibrary, savedFabrics, designSheets, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate, savedQuotes, costSettings);
+  } = useFabric(yarnLibrary, savedFabrics, designSheets, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, exchangeRates, savedQuotes, costSettings);
 
   const {
     yarnInput, setYarnInput, editingYarnId,
@@ -419,7 +436,7 @@ const App = () => {
     handleCopyToCustom, handleAddCustomFabric, handleCustomItemChange, handleRemoveCustomItems, handleCustomExcludeChange,
     handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote,
     startQuoteFromDevRequest
-  } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, calculateCostAtQty, devRequests);
+  } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, exchangeRates, calculateCostAtQty, devRequests);
 
   // 개발 의뢰 [원가 견적 → 견적서 만들기] — 새 견적서를 채우고 견적서 화면(작성 칸)으로 바로 이동
   //  (견적서 메뉴는 평소엔 목록부터 열리므로, 이번 한 번만 작성 칸으로 열라고 알려 줌)
@@ -453,7 +470,7 @@ const App = () => {
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
     saveSheetAndRegisterFabric, getBlankSheetInput
-  } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet, devRequests);
+  } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, exchangeRates, saveFabricFromSheet, devRequests);
 
   // ⚓️ 메인 디테일 훅
   const {
@@ -587,28 +604,34 @@ const App = () => {
     }
   };
 
-  // 공통 환율 저장 — settings/general.exchangeRate (DEV 우회 시 로컬만). 화면 위 환율 칸에서 확인 후 호출
+  // 공통 환율 저장 (DEV 우회 시 로컬만) — 화면 위 환율 칸에서 확인 후 호출
+  //  market: 'domestic' 내수 환율 → settings/general.exchangeRate / 'export' 수출 환율 → exportExchangeRate
   //  모든 직원의 원단 원가·새 견적에 바로 적용. 이미 저장한 견적은 그 견적의 환율 그대로.
-  const saveExchangeRate = async (value) => {
+  //  수출 환율을 아직 따로 저장하기 전이면 내수 환율을 바꿀 때 같이 따라감 (스냅샷 규칙과 같음)
+  const saveExchangeRate = async (market, value) => {
+    const isExport = market === 'export';
+    const label = rateLabel(market);
     const v = Math.round(Number(value) * 100) / 100;
     if (!(v > 0)) { showToast('환율은 0보다 커야 해요.', 'error'); return false; }
-    const prevRate = globalExchangeRate;
-    const prevMeta = exchangeRateMeta;
+    const prevRates = exchangeRates;
+    const prevMeta = exchangeRatesMeta;
     const meta = { updatedAt: new Date().toISOString(), updatedBy: user?.displayName || user?.email || '' };
-    setGlobalExchangeRate(v);
-    setExchangeRateMeta(meta);
-    if (DEV_BYPASS) { setSyncStatus('saved'); showToast(`공통 환율을 ₩${num(v)}로 바꿨어요.`, 'success'); return true; }
+    setExchangeRates(isExport
+      ? { ...prevRates, export: v }
+      : { domestic: v, export: prevMeta.export ? prevRates.export : v });
+    setExchangeRatesMeta({ ...prevMeta, [isExport ? 'export' : 'domestic']: meta });
+    if (DEV_BYPASS) { setSyncStatus('saved'); showToast(`${label}을 ₩${v.toLocaleString()}로 바꿨어요.`, 'success'); return true; }
     setSyncStatus('syncing');
     try {
-      await setDoc(doc(db, 'settings', 'general'), { exchangeRate: { value: v, ...meta } }, { merge: true });
+      await setDoc(doc(db, 'settings', 'general'), { [isExport ? 'exportExchangeRate' : 'exchangeRate']: { value: v, ...meta } }, { merge: true });
       setSyncStatus('saved');
-      showToast(`공통 환율을 ₩${num(v)}로 바꿨어요. 모든 직원에게 적용됩니다.`, 'success');
+      showToast(`${label}을 ₩${v.toLocaleString()}로 바꿨어요. 모든 직원에게 적용됩니다.`, 'success');
       return true;
     } catch (e) {
-      setGlobalExchangeRate(prevRate); // 실패 시 이전 값으로 되돌림
-      setExchangeRateMeta(prevMeta);
+      setExchangeRates(prevRates); // 실패 시 이전 값으로 되돌림
+      setExchangeRatesMeta(prevMeta);
       setSyncStatus('error');
-      showToast(`환율 저장 실패: ${e?.message || '네트워크 오류'}`, 'error');
+      showToast(`${label} 저장 실패: ${e?.message || '네트워크 오류'}`, 'error');
       return false;
     }
   };
@@ -860,9 +883,9 @@ const App = () => {
         setViewMode={setViewMode}
         syncStatus={syncStatus}
         handleLogout={handleLogout}
-        globalExchangeRate={globalExchangeRate}
+        exchangeRates={exchangeRates}
+        exchangeRatesMeta={exchangeRatesMeta}
         onCommitExchangeRate={saveExchangeRate}
-        exchangeRateMeta={exchangeRateMeta}
       />
 
       <div className="flex-1 p-4 md:p-8 print:p-0 print:overflow-visible relative w-full overflow-x-hidden">
@@ -898,7 +921,7 @@ const App = () => {
             handleYarnSlotChange={handleYarnSlotChange}
             setFabricInput={setFabricInput}
             handleSaveFabric={handleSaveFabric}
-            globalExchangeRate={globalExchangeRate}
+            exchangeRates={exchangeRates}
             yarnLibrary={yarnLibrary}
             // ── 원가 설정 (편직 정액·LOSS·가공 유형 등) ──
             costSettings={costSettings}
@@ -934,7 +957,7 @@ const App = () => {
             handleDeleteYarn={handleDeleteYarn}
             yarnLibrary={yarnLibrary}
             setYarnLibrary={setYarnLibrary}
-            globalExchangeRate={globalExchangeRate}
+            exchangeRates={exchangeRates}
             yarnSuppliers={yarnSuppliers}
             setActiveMasterModal={setActiveMasterModal}
             yarnPage={yarnPage}
@@ -983,7 +1006,7 @@ const App = () => {
             createQuoteItem={createQuoteItem}
             showToast={showToast}
             handleGridPaste={handleGridPaste}
-            globalExchangeRate={globalExchangeRate}
+            exchangeRates={exchangeRates}
             buyers={buyers}
             setIsBuyerModalOpen={setIsBuyerModalOpen}
             yarnLibrary={yarnLibrary}
@@ -1115,7 +1138,7 @@ const App = () => {
             yarnLibrary={yarnLibrary}
             costSettings={costSettings}
             onOpenCostSettings={openCostSettings}
-            globalExchangeRate={globalExchangeRate}
+            exchangeRates={exchangeRates}
             calculateCost={calculateCost}
             createQuoteItem={createQuoteItem}
             saveDevCostQuote={saveDevCostQuote}
@@ -1146,7 +1169,7 @@ const App = () => {
                 user={user}
                 viewMode={viewMode}
                 setActiveTab={(tab) => { if (tab === 'devStatus' || tab === 'designList') setIsDesignSheetModalOpen(false); }}
-                globalExchangeRate={globalExchangeRate}
+                exchangeRates={exchangeRates}
                 devRequests={devRequests}
                 setSheetInput={setSheetInput}
                 linkAndConfirm={linkAndConfirm}
@@ -1224,7 +1247,7 @@ const App = () => {
             yarnSelectOptions={yarnSelectOptions}
             user={user}
             viewMode={viewMode}
-            globalExchangeRate={globalExchangeRate}
+            exchangeRates={exchangeRates}
             knittingFactories={knittingFactories}
             dyeingFactories={dyeingFactories}
             machineTypes={machineTypes}

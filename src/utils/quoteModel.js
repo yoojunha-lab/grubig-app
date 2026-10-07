@@ -95,6 +95,15 @@ export const toQuoteCurrencyAdd = (value, quote) => {
   return v;
 };
 
+/**
+ * 견적의 시장 — 'export'(수출, $) / 'domestic'(내수, ₩). 시장 구분이 없는 아주 예전 견적은 통화로 판단.
+ * 견적 환율의 기준(내수 환율 / 수출 환율)을 고를 때 씀 (2026-10-07)
+ */
+export const quoteMarket = (quote) => {
+  if (quote?.marketType === 'export' || quote?.marketType === 'domestic') return quote.marketType;
+  return quote?.currency === 'USD' ? 'export' : 'domestic';
+};
+
 /** 견적이 지금 마진 방식(매출이익율·YD당 정액)인지 — 아니면 아주 옛날 extraMargin(마크업) 견적 */
 export const isNewMarginModel = (quote) =>
   quote?.bulkMarginRate !== undefined ||

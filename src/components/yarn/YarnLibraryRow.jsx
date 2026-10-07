@@ -6,7 +6,7 @@ import { getYarnRowInfo, getCategoryColor } from './yarnRowModel';
 
 export const YarnLibraryRow = React.memo(({
   y,
-  globalExchangeRate,
+  exchangeRates,
   handleEditYarn,
   handleDeleteYarn,
   yarnLibrary,
@@ -15,7 +15,7 @@ export const YarnLibraryRow = React.memo(({
 }) => {
   // 대표 공급처 단가·관세·운반비·내수 단가·최종 수정일 — yarnRowModel (PC 행·모바일 카드 공통)
   const { defSup, isImport, importCountry, importRange, freightAmt, domPrice, lastPriceDate } =
-    getYarnRowInfo(y, globalExchangeRate, costSettings);
+    getYarnRowInfo(y, exchangeRates, costSettings);
   const importTip = isImport
     ? [`${importCountry.name} 운반비 (원사 kg 구간)`, ...describeImportBrackets(importCountry).map(b => `${b.label}: ${num(b.perKg)}원/kg`)].join('\n')
     : undefined;
@@ -96,7 +96,7 @@ export const YarnLibraryRow = React.memo(({
   );
 }, (prevProps, nextProps) => {
   return prevProps.y === nextProps.y &&
-         prevProps.globalExchangeRate === nextProps.globalExchangeRate &&
+         prevProps.exchangeRates === nextProps.exchangeRates &&
          prevProps.yarnLibrary === nextProps.yarnLibrary &&
          // 원가 설정(수입 운반비 구간)이 바뀌면 운반비·내수 단가 범위가 달라지므로 재렌더
          prevProps.costSettings === nextProps.costSettings;

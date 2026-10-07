@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Search, Plus, Edit2, Trash2, FlaskConical, User, FileText, X, ArrowRight, Download } from 'lucide-react';
-import { num, computeSellPrice, toTierRate } from '../utils/helpers';
+import { num, computeSellPrice, toTierRate, rateForMarket } from '../utils/helpers';
 import { DESIGN_STAGES, STAGE_COLORS } from '../constants/common';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
 import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
@@ -34,7 +34,7 @@ export const TempDesignSheetListPage = ({
   yarnSelectOptions,
   user,
   viewMode,
-  globalExchangeRate,
+  exchangeRates,   // 공통 환율 두 칸 { domestic, export } — 수출 보기 판매가는 수출 환율로 YD당 정액 환산
   knittingFactories,
   dyeingFactories,
   machineTypes,
@@ -100,11 +100,12 @@ export const TempDesignSheetListPage = ({
   // 검색 → 판매가 계산(시트당 1회, 공용 computeSellPrice) → 정렬
   const rows = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
+    const viewRate = rateForMarket(exchangeRates, viewMode); // 보기에 맞는 공통 환율 (수출 보기 = 수출 환율)
     const list = (tempDesignSheets || [])
       .filter(s => !q || String(s.fabricName || '').toLowerCase().includes(q) || String(s.buyerName || '').toLowerCase().includes(q))
       .map(sheet => {
         const cost = getTempDesignCost?.(sheet);
-        return { sheet, p1: computeSellPrice(cost, sheet, viewMode, 'tier1k', globalExchangeRate), p3: computeSellPrice(cost, sheet, viewMode, 'tier3k', globalExchangeRate), p5: computeSellPrice(cost, sheet, viewMode, 'tier5k', globalExchangeRate) };
+        return { sheet, p1: computeSellPrice(cost, sheet, viewMode, 'tier1k', viewRate), p3: computeSellPrice(cost, sheet, viewMode, 'tier3k', viewRate), p5: computeSellPrice(cost, sheet, viewMode, 'tier5k', viewRate) };
       });
     list.sort((a, b) => {
       if (sortBy === 'name') return String(a.sheet.fabricName || '').localeCompare(String(b.sheet.fabricName || ''), 'ko');
@@ -113,7 +114,7 @@ export const TempDesignSheetListPage = ({
       return (b.sheet.createdAt || '').localeCompare(a.sheet.createdAt || ''); // 생성날짜 최신순 (기본)
     });
     return list;
-  }, [tempDesignSheets, searchTerm, sortBy, viewMode, getTempDesignCost, globalExchangeRate]);
+  }, [tempDesignSheets, searchTerm, sortBy, viewMode, getTempDesignCost, exchangeRates]);
 
   // 날짜 포맷
   const formatDate = (isoStr) => {
@@ -396,7 +397,7 @@ export const TempDesignSheetListPage = ({
               user={user}
               viewMode={viewMode}
               setActiveTab={() => setIsTempModalOpen(false)}
-              globalExchangeRate={globalExchangeRate}
+              exchangeRates={exchangeRates}
               devRequests={[]}
               setSheetInput={setTempInput}
               closeModal={() => setIsTempModalOpen(false)}

@@ -4,7 +4,7 @@ import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
 import { MainDetailFormModal } from '../components/main-detail/MainDetailFormModal';
-import { num, roundUsd, calculateGYd, computeSellPrice } from '../utils/helpers';
+import { num, roundUsd, calculateGYd, computeSellPrice, rateForMarket, rateLabel } from '../utils/helpers';
 import { computeCostAtQty, resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete } from '../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
@@ -112,7 +112,7 @@ export const DesignSheetPage = ({
   user,
   viewMode,
   setActiveTab,
-  globalExchangeRate,
+  exchangeRates,   // 공통 환율 두 칸 { domestic, export } — 보기(내수/수출)에 맞는 칸을 씀
   devRequests,
   linkAndConfirm,
   closeModal,
@@ -224,8 +224,10 @@ export const DesignSheetPage = ({
     : `가공 LOSS ${(costData?.processLossPct ?? 0) + (costData?.finishingLossPct ?? 0)}% + 편직 LOSS(생지 kg 구간)`;
 
   // [가설계서 영업견적] 최종 판매가 — 공용 헬퍼 computeSellPrice (화면 통화 기준, YD당 정액은 원화 저장 → 수출 보기에서 환율 환산)
+  //  환율 = 보기에 맞는 공통 환율 (수출 보기 = 수출 환율)
+  const viewRate = rateForMarket(exchangeRates, viewMode);
   const quoteSym = viewMode === 'export' ? '$' : '₩';
-  const quoteSellPrice = (tierKey) => computeSellPrice(costData, sheetInput, viewMode, tierKey, globalExchangeRate);
+  const quoteSellPrice = (tierKey) => computeSellPrice(costData, sheetInput, viewMode, tierKey, viewRate);
 
   // [가설계서] 구간별 매출이익율/정액 — 레거시 단일값·빈값도 안전하게 읽고, 항상 구간별 객체로 기록
   const readQuoteTier = (field, tier) => {
@@ -612,7 +614,7 @@ export const DesignSheetPage = ({
           yarns={sheetInput.yarns}
           calc={costData}
           viewMode={viewMode}
-          globalExchangeRate={globalExchangeRate}
+          exchangeRates={exchangeRates}
           showMaterial={false}
           compact={true}
           setCost={(fn) => setSheetInput?.(prev => ({ ...prev, costInput: fn(prev.costInput || {}) }))}
@@ -649,13 +651,13 @@ export const DesignSheetPage = ({
                 </div>
               ))}
               {/* YD당 정액 입력 — 구간별 */}
-              <div className="bg-white py-1 text-[10px] font-bold text-slate-500 flex flex-col items-center justify-center leading-tight" title="YD당 정액은 원화로 적어요. 수출 보기에서는 판매가를 낼 때 환율로 나눠 $로 더해요.">
+              <div className="bg-white py-1 text-[10px] font-bold text-slate-500 flex flex-col items-center justify-center leading-tight" title="YD당 정액은 원화로 적어요. 수출 보기에서는 판매가를 낼 때 수출 환율로 나눠 $로 더해요.">
                 <span>YD당 정액(₩)</span>
-                {viewMode === 'export' && <span className="text-[9px] font-semibold text-slate-400">환율 ₩{num(globalExchangeRate)}로 $ 환산</span>}
+                {viewMode === 'export' && <span className="text-[9px] font-semibold text-slate-400">{rateLabel('export')} ₩{num(viewRate)}로 $ 환산</span>}
               </div>
               {['1k', '3k', '5k'].map((tk, i) => {
                 const krw = readQuoteTier('quoteMarginAdd', tk);
-                const rate = Number(globalExchangeRate) > 0 ? Number(globalExchangeRate) : 1450;
+                const rate = viewRate;
                 return (
                   <div key={tk} className={`py-0.5 flex flex-col items-center justify-center ${i === 1 ? 'bg-emerald-50/50' : 'bg-white'}`}>
                     <input type="number" min="0" value={krw} onChange={e => setQuoteTier('quoteMarginAdd', tk, e.target.value === '' ? '' : Number(e.target.value))} placeholder="0"

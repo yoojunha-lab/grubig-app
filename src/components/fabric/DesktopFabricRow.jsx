@@ -237,8 +237,8 @@ export const DesktopFabricRow = React.memo(({
          prevProps.isExpanded === nextProps.isExpanded &&
          prevProps.yarnLibrary === nextProps.yarnLibrary &&
          prevProps.designSheets === nextProps.designSheets &&
-         // 전역 환율이 바뀌면 수출 단가가 달라지므로 반드시 재렌더 (calculateCost가 환율을 내포)
-         prevProps.globalExchangeRate === nextProps.globalExchangeRate &&
+         // 공통 환율(내수·수출)이 바뀌면 원가가 달라지므로 반드시 재렌더 (calculateCost가 환율을 내포)
+         prevProps.exchangeRates === nextProps.exchangeRates &&
          // 원가 설정(편직 정액·LOSS 구간·가공 유형 등)이 바뀌면 모든 품목 원가가 달라지므로 재렌더
          prevProps.costSettings === nextProps.costSettings;
 });

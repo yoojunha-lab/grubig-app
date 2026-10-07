@@ -6,16 +6,16 @@ import { getYarnRowInfo, getCategoryColor } from './yarnRowModel';
 
 export const MobileYarnCard = React.memo(({
   y,
-  globalExchangeRate,
+  exchangeRates,
   handleEditYarn,
   handleDeleteYarn,
   yarnLibrary,
   setYarnLibrary,
   costSettings = null, // 수입 원사 운반비 구간 (원가 설정)
 }) => {
-  // 대표 공급처 단가·관세·운반비·내수 단가·최종 수정일 — yarnRowModel (PC 행·모바일 카드 공통)
-  const { defSup, convertedPrice, isImport, importCountry, importRange, freightAmt, domPrice, lastPriceDate } =
-    getYarnRowInfo(y, globalExchangeRate, costSettings);
+  // 대표 공급처 단가·관세·운반비·내수 단가·최종 수정일 — yarnRowModel (PC 행·모바일 카드 공통, 달러 원사는 내수 환율)
+  const { defSup, rate, convertedPrice, isImport, importCountry, importRange, freightAmt, domPrice, lastPriceDate } =
+    getYarnRowInfo(y, exchangeRates, costSettings);
   const catColor = getCategoryColor(y.category || '-');
 
   return (
@@ -61,7 +61,7 @@ export const MobileYarnCard = React.memo(({
             </div>
             {defSup.currency === 'USD' && (
               <div className="flex justify-between items-center text-[11px]">
-                <span className="text-slate-400">환율 {globalExchangeRate} 적용시:</span>
+                <span className="text-slate-400">내수 환율 {num(rate)} 적용시:</span>
                 <span className="text-slate-500 font-mono">￦{num(convertedPrice)}</span>
               </div>
             )}
@@ -107,7 +107,7 @@ export const MobileYarnCard = React.memo(({
   );
 }, (prevProps, nextProps) => {
   return prevProps.y === nextProps.y &&
-         prevProps.globalExchangeRate === nextProps.globalExchangeRate &&
+         prevProps.exchangeRates === nextProps.exchangeRates &&
          prevProps.yarnLibrary === nextProps.yarnLibrary &&
          // 원가 설정(수입 운반비 구간)이 바뀌면 운반비·내수 단가 범위가 달라지므로 재렌더
          prevProps.costSettings === nextProps.costSettings;

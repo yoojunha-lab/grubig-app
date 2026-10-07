@@ -4,11 +4,11 @@ import {
   RotateCcw, AlertTriangle,
 } from 'lucide-react';
 import { PartnerSelectField } from '../components/common/PartnerSelectField';
-import { num, usd, roundUsd, QUOTE_VALIDITY_OPTIONS } from '../utils/helpers';
+import { num, usd, roundUsd, QUOTE_VALIDITY_OPTIONS, rateForMarket, rateLabel } from '../utils/helpers';
 import { QUOTE_TIERS, QUOTE_TIER_GROUPS } from '../constants/quote';
 import {
   calcQuotePrice, formatQuotePrice, getBasePrice, getItemTierRate, getShownTiers, isNewMarginModel,
-  calcCustomQuotePrice, getCustomRowRate, getCustomRowAddRaw, getMarginAddCurrency, toQuoteCurrencyAdd,
+  calcCustomQuotePrice, getCustomRowRate, getCustomRowAddRaw, getMarginAddCurrency, toQuoteCurrencyAdd, quoteMarket,
 } from '../utils/quoteModel';
 import { FabricPickerModal } from '../components/quote/FabricPickerModal';
 import { CostWarningBadge } from '../components/cost/CostWarnings';
@@ -54,7 +54,7 @@ export const QuotationPage = ({
   handleRemoveCustomItems,
   handleCustomExcludeChange,
   handleGridPaste,
-  globalExchangeRate,
+  exchangeRates,          // 공통 환율 두 칸 { domestic, export } — 이 견적 시장의 '지금 환율'과 견적 환율 비교
   yarnLibrary = [],
   onBackToList,           // 병합 화면(견적서 workspace)에서 목록으로 돌아가기 (없으면 버튼 미표시)
   partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처 선택
@@ -62,9 +62,12 @@ export const QuotationPage = ({
   const currency = quoteInput.currency;
   const isUsd = currency === 'USD';
   const cSym = isUsd ? '$' : '￦';
-  // 이 견적의 환율 (품목을 넣을 때 기록. 아직 없으면 지금 환율) — 환율이 바뀌어도 견적 단가는 그대로
-  const quoteRate = Number(quoteInput.exchangeRate) || Number(globalExchangeRate) || 0;
-  const rateDiffers = !!quoteInput.exchangeRate && Number(quoteInput.exchangeRate) !== Number(globalExchangeRate);
+  // 이 견적의 환율 (품목을 넣을 때 기록. 아직 없으면 그 시장의 지금 환율) — 환율이 바뀌어도 견적 단가는 그대로
+  //  지금 환율 = 내수 견적은 내수 환율, 수출 견적은 수출 환율 (화면 위 두 칸)
+  const market = quoteMarket(quoteInput);
+  const currentRate = rateForMarket(exchangeRates, market);
+  const quoteRate = Number(quoteInput.exchangeRate) || currentRate;
+  const rateDiffers = !!quoteInput.exchangeRate && Number(quoteInput.exchangeRate) !== currentRate;
   const items = quoteInput.items || [];
   const customItems = quoteInput.customItems || [];
   const hasAnyRows = items.length > 0 || customItems.length > 0;
@@ -167,10 +170,10 @@ export const QuotationPage = ({
               <button onClick={() => handleQuoteSettingChange('marketType', 'export')} className={`flex-1 py-1.5 rounded-md text-[11px] font-bold transition-all ${quoteInput.marketType === 'export' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Exp</button>
             </div>
           </div>
-          <div className="lg:col-span-1" title="이 견적의 환율 — 품목을 넣을 때 기록되고, 화면 위 환율을 바꿔도 그대로예요. 바꾸려면 [현재 원가로 다시 계산]">
+          <div className="lg:col-span-1" title={`이 견적의 환율 — 품목을 넣을 때 그 시장의 공통 환율(${rateLabel(market)})로 기록되고, 화면 위 환율을 바꿔도 그대로예요. 바꾸려면 [현재 원가로 다시 계산]`}>
             <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1"><DollarSign className="w-3 h-3 text-emerald-500" /> Rate (견적)</label>
             <div className={`w-full border rounded-lg px-2 py-2 text-right font-mono font-bold text-sm ${rateDiffers ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>￦{num(quoteRate)}</div>
-            {rateDiffers && <div className="text-[10px] text-amber-700 mt-0.5 text-right">지금 환율 ￦{num(globalExchangeRate)}</div>}
+            {rateDiffers && <div className="text-[10px] text-amber-700 mt-0.5 text-right">지금 {rateLabel(market)} ￦{num(currentRate)}</div>}
           </div>
         </div>
         {hasAnyRows && handleRecalcQuote && (
@@ -178,7 +181,7 @@ export const QuotationPage = ({
             <p className="text-[11px] text-slate-400">견적 단가는 품목을 넣을 때의 원가·견적 환율로 고정돼요. 원가나 환율이 바뀌었으면 다시 계산하세요. (기준·별도 견적 모두)</p>
             <button
               onClick={handleRecalcQuote}
-              title="모든 품목의 기준원가를 지금 원가(원가 설정·원사 단가)와 지금 환율로 다시 계산해요. 매출이익율·YD당 정액은 그대로."
+              title={`모든 품목의 기준원가를 지금 원가(원가 설정·원사 단가)와 지금 ${rateLabel(market)}로 다시 계산해요. 매출이익율·YD당 정액은 그대로.`}
               className={`px-3 py-1.5 rounded-lg font-bold text-sm border flex items-center justify-center gap-1.5 shrink-0 ${rateDiffers ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
             >
               <RefreshCw className="w-4 h-4" /> 현재 원가로 다시 계산

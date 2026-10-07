@@ -1,10 +1,10 @@
 import { useState, useRef } from 'react';
-import { calculateMcqYd, num, todayLocalISO } from '../../utils/helpers';
+import { calculateMcqYd, num, todayLocalISO, rateForMarket, rateLabel } from '../../utils/helpers';
 import { QUOTE_TIERS, QUOTE_TIER_KEYS, DEFAULT_SHOWN_TIERS, DEFAULT_CUSTOM_QTY, DEFAULT_CUSTOM_COLORS } from '../../constants/quote';
 import {
   normalizeQuote, isNewMarginModel, convertMarginAdd, convertAmount, convertBasePrice, convertCostParts,
   makeDefaultTierRates, makeDefaultTierAdds, toQuoteTierRate, toQuoteTierAdd, defaultTierAdd, computeBaseFromParts, partsFromCost,
-  getBasePrice, getShownTiers, getCustomExclude, describeTierDefaults, getMarginAddCurrency,
+  getBasePrice, getShownTiers, getCustomExclude, describeTierDefaults, getMarginAddCurrency, quoteMarket,
 } from '../../utils/quoteModel';
 import { devQuoteToFabric } from '../../utils/devQuoteModel';
 
@@ -50,7 +50,10 @@ const isBlank = (v) => v === undefined || v === null || v === '';
 //  · 견적 품목의 기준원가는 넣을 때의 원가·견적 환율(exchangeRate)로 저장하고, 환율이 바뀌어도 자동으로 다시 계산하지 않음
 //  · 다시 계산은 [현재 원가로 다시 계산] 버튼(handleRecalcQuote)·복제 때 확인했을 때·시장구분 전환 때만
 //  · 별도 견적 줄은 수량·컬러를 바꾸면 그 줄만 견적 환율로 다시 계산 (새로 넣는 것과 같음)
-export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, globalExchangeRate, calculateCostAtQty, devRequests = []) => {
+//  · [2026-10-07] 공통 환율이 내수 환율·수출 환율 두 칸 → 견적 환율은 그 견적 시장의 환율로 정함
+//    (내수 견적 = 내수 환율, 수출 견적 = 수출 환율. 시장 구분을 바꾸면 바꾼 시장의 지금 환율로 다시 계산)
+//  exchangeRates: 화면 위 공통 환율 두 칸 { domestic, export }
+export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, exchangeRates, calculateCostAtQty, devRequests = []) => {
   const [quoteInput, setQuoteInput] = useState(makeBlankQuote);
   const savingRef = useRef(false); // 저장 in-flight 가드 (빠른 더블클릭 중복 방지)
 
@@ -67,8 +70,10 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     const dev = (devRequests || []).find(d => d?.costQuote && String(d.devOrderNo || '').trim().toUpperCase() === art);
     return dev ? devQuoteToFabric(dev) : null;
   };
-  // 이 견적의 환율 (품목을 넣을 때 기록. 아직 없으면 지금 환율)
-  const quoteRateOf = (q) => Number(q?.exchangeRate) || Number(globalExchangeRate) || 1450;
+  // 시장에 맞는 지금 공통 환율 — 내수 견적은 내수 환율, 수출 견적은 수출 환율
+  const currentRateFor = (marketType) => rateForMarket(exchangeRates, marketType);
+  // 이 견적의 환율 (품목을 넣을 때 기록. 아직 없으면 그 시장의 지금 환율)
+  const quoteRateOf = (q) => Number(q?.exchangeRate) || currentRateFor(quoteMarket(q));
   const currencyOf = (marketType) => (marketType === 'export' ? 'USD' : 'KRW');
   const excludeOf = (q) => ({ excludeVisual: q?.excludeVisual === true, excludeChem: q?.excludeChem === true });
 
@@ -165,7 +170,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
   // 기준 견적 품목을 지금 원가로 다시 만들기 (원단이 삭제된 품목은 그대로 두고 개수만 셈)
   //  toUsd: 통화가 바뀔 때(true = 원→$, false = $→원) 삭제된 원단 품목의 기준원가를 환율로만 환산 (null = 통화 그대로)
-  const rebuildItems = (items, rate, marketType, toUsd = null, exclude = {}) => {
+  //  convRate: 그 원↔$ 환산에 쓰는 환율 (없으면 rate) — 시장 구분 전환 때 '수출 쪽' 환율 (handleQuoteSettingChange)
+  const rebuildItems = (items, rate, marketType, toUsd = null, exclude = {}, convRate = rate) => {
     let missing = 0;
     const next = (items || []).map(item => {
       const fabric = findFabric(item.fabricId);
@@ -176,13 +182,13 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       //  (반올림된 기준원가를 나누면 나중에 제외 버튼을 눌렀을 때 값과 어긋남) — 조각이 없는 구간만 기준원가를 바로 환산
       const patch = {};
       const parts = item.costParts
-        ? Object.fromEntries(Object.entries(item.costParts).map(([k, pt]) => [k, convertCostParts(pt, toUsd, rate)]))
+        ? Object.fromEntries(Object.entries(item.costParts).map(([k, pt]) => [k, convertCostParts(pt, toUsd, convRate)]))
         : null;
       if (parts) patch.costParts = parts;
       QUOTE_TIER_KEYS.forEach(k => {
         if (parts?.[k]) { patch[`basePrice${k}`] = computeBaseFromParts(parts[k], item.riskPct, exclude, toUsd ? 'USD' : 'KRW'); return; }
         const v = getBasePrice(item, k);
-        if (v !== null) patch[`basePrice${k}`] = convertBasePrice(v, toUsd, rate);
+        if (v !== null) patch[`basePrice${k}`] = convertBasePrice(v, toUsd, convRate);
       });
       return { ...item, ...patch, costWarnings: addNote(item.costWarnings, DELETED_NOTE) };
     });
@@ -191,10 +197,11 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
   // 별도 견적 줄을 지금 원가로 다시 계산 (줄의 수량·컬러·이익율·정액·표시는 그대로)
   //  toUsd: 통화가 바뀔 때 원단이 삭제된 줄의 기준원가 환산 / addToUsd: 줄에 직접 넣은 정액을 환산할 때만 (예전 $ 정액 → 원화)
-  const rebuildCustomItems = (rows, rate, marketType, toUsd = null, exclude = {}, addToUsd = null) => {
+  //  convRate: 그 원↔$ 환산에 쓰는 환율 (없으면 rate) — rebuildItems와 같음
+  const rebuildCustomItems = (rows, rate, marketType, toUsd = null, exclude = {}, addToUsd = null, convRate = rate) => {
     let missing = 0;
     const next = (rows || []).map(row => {
-      const marginAdd = (addToUsd !== null && !isBlank(row.marginAdd)) ? convertAmount(row.marginAdd, addToUsd, rate) : row.marginAdd;
+      const marginAdd = (addToUsd !== null && !isBlank(row.marginAdd)) ? convertAmount(row.marginAdd, addToUsd, convRate) : row.marginAdd;
       const fabric = findFabric(row.fabricId);
       if (fabric) return createCustomItem(fabric, { ...row, marginAdd }, { rate, marketType, exclude });
       missing++;
@@ -202,10 +209,10 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       const patch = { marginAdd };
       // 원가 조각이 있으면 환산한 조각으로 기준원가 (기준 견적 품목과 같은 방식)
       if (row.costParts) {
-        patch.costParts = convertCostParts(row.costParts, toUsd, rate);
+        patch.costParts = convertCostParts(row.costParts, toUsd, convRate);
         patch.basePrice = computeBaseFromParts(patch.costParts, row.riskPct, exclude, toUsd ? 'USD' : 'KRW');
       } else if (!isBlank(row.basePrice)) {
-        patch.basePrice = convertBasePrice(row.basePrice, toUsd, rate);
+        patch.basePrice = convertBasePrice(row.basePrice, toUsd, convRate);
       }
       return { ...row, ...patch, costWarnings: addNote(row.costWarnings, DELETED_NOTE) };
     });
@@ -218,9 +225,10 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       return;
     }
     if (value === quoteInput.marketType) return;
-    // 시장 구분(내수/수출) 변경: 기준원가는 통화·관세 기준이 달라 다시 계산해야 함 → 확인 후 '견적 환율'로 계산.
-    //  YD당 정액은 원화로 적어 두므로 그대로 (수출이면 판매가 낼 때 환율로 나눔).
-    //  예전 수출 견적($로 적은 정액)을 내수로 바꿀 때만 같은 환율로 원화로 바꿔 두고, 그다음부터는 원화로 적음.
+    // 시장 구분(내수/수출) 변경: 기준원가는 통화·관세 기준이 달라 다시 계산해야 함 → 확인 후 '바꾼 시장의 지금 환율'로 계산
+    //  (2026-10-07 대표님 결정 — 내수 → 수출이면 지금 수출 환율, 수출 → 내수면 지금 내수 환율. 예전엔 그 견적의 환율 그대로)
+    //  YD당 정액은 원화로 적어 두므로 그대로 (수출이면 판매가 낼 때 견적 환율로 나눔).
+    //  예전 수출 견적($로 적은 정액)을 내수로 바꿀 때만 그 견적의 환율로 원화로 바꿔 두고, 그다음부터는 원화로 적음.
     const items = quoteInput.items || [];
     const rows = quoteInput.customItems || [];
     const hasItems = items.length > 0 || rows.length > 0;
@@ -230,22 +238,26 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       showToast('아주 옛날 방식(추가 마크업) 견적이라 시장 구분을 바꿀 수 없어요. 새 견적으로 작성해 주세요.', 'error');
       return;
     }
-    const rate = quoteRateOf(quoteInput);
     const toUsd = value === 'export';
+    const oldRate = quoteRateOf(quoteInput);
+    const rate = currentRateFor(value);
+    // 원↔$ 환산(원단이 삭제된 품목·예전 $ 정액)은 '수출 쪽' 환율로 — 내수 → 수출은 새 수출 환율, 수출 → 내수는 그 $를 낸 견적 환율
+    const convRate = toUsd ? rate : oldRate;
     if ((hasItems || hasAdd) && !window.confirm(
       `시장 구분을 ${toUsd ? '수출($)' : '내수(₩)'}로 바꿉니다.\n\n` +
-      (hasItems ? `· 기준 견적·별도 견적 단가를 현재 원가로 다시 계산해요 (이 견적의 환율 ₩${num(rate)} 기준)\n` : '') +
-      (hasAdd ? `· 예전 수출 견적의 YD당 정액($)을 같은 환율로 원화로 바꿔요\n` : '') +
+      (hasItems ? `· 기준 견적·별도 견적 단가를 현재 원가로 다시 계산해요\n   적용 환율: ₩${num(oldRate)} → ₩${num(rate)} (지금 ${rateLabel(value)})\n` : '') +
+      (hasAdd ? `· 예전 수출 견적의 YD당 정액($)을 이 견적의 환율 ₩${num(convRate)}로 원화로 바꿔요\n` : '') +
       `\n계속할까요?`
     )) return;
-    const rebuilt = rebuildItems(items, rate, value, toUsd, excludeOf(quoteInput));
-    const rebuiltRows = rebuildCustomItems(rows, rate, value, toUsd, getCustomExclude(quoteInput), convertAdd ? false : null);
+    const rebuilt = rebuildItems(items, rate, value, toUsd, excludeOf(quoteInput), convRate);
+    const rebuiltRows = rebuildCustomItems(rows, rate, value, toUsd, getCustomExclude(quoteInput), convertAdd ? false : null, convRate);
     setQuoteInput(prev => ({
       ...prev,
       marketType: value,
       currency: currencyOf(value),
-      exchangeRate: hasItems ? rate : prev.exchangeRate,
-      ...(convertAdd ? { marginAdd: convertMarginAdd(prev.marginAdd, false, rate) } : {}),
+      // 품목이 있으면 바꾼 시장의 환율로 다시 계산했으니 그 환율. 없으면 비워 둠 → 처음 넣는 품목 때 그 시장의 지금 환율
+      exchangeRate: hasItems ? rate : null,
+      ...(convertAdd ? { marginAdd: convertMarginAdd(prev.marginAdd, false, convRate) } : {}),
       marginAddCurrency: 'KRW',
       items: rebuilt.items,
       customItems: rebuiltRows.rows,
@@ -255,6 +267,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   };
 
   // [현재 원가로 다시 계산] — 견적 단가는 저장 당시 값 그대로가 원칙이라, 누를 때만 지금 원가·지금 환율로 다시 계산.
+  //  지금 환율 = 그 견적 시장의 공통 환율 (내수 견적 = 내수 환율, 수출 견적 = 수출 환율)
   //  매출이익율·YD당 정액은 그대로 (YD당 정액은 견적 통화 금액이라 환율이 바뀌어도 그대로). 별도 견적 줄도 같이.
   const handleRecalcQuote = () => {
     const items = quoteInput.items || [];
@@ -265,11 +278,12 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       showToast('아주 옛날 방식(추가 마크업) 견적이라 다시 계산할 수 없어요. 새 견적으로 작성해 주세요.', 'error');
       return;
     }
-    const rate = Number(globalExchangeRate) || 1450;
+    const market = quoteMarket(quoteInput);
+    const rate = currentRateFor(market);
     const oldRate = Number(quoteInput.exchangeRate) || null;
     if (!window.confirm(
       `기준 견적 ${items.length}개 · 별도 견적 ${rows.length}줄의 기준원가를 지금 원가(원가 설정·원사 단가)로 다시 계산합니다.\n` +
-      `적용 환율: ${oldRate ? `₩${num(oldRate)}` : '기록 없음'} → ₩${num(rate)}\n` +
+      `적용 환율: ${oldRate ? `₩${num(oldRate)}` : '기록 없음'} → ₩${num(rate)} (지금 ${rateLabel(market)})\n` +
       `매출이익율과 YD당 정액은 그대로 둡니다.\n\n계속할까요?`
     )) return;
     const rebuilt = rebuildItems(items, rate, quoteInput.marketType, null, excludeOf(quoteInput));
@@ -401,9 +415,10 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     const fabric = findFabric(selectedFabricIdForQuote);
     if (!fabric) return;
     // 추가 항목은 견적의 기존 환율(있으면)로 계산 → 한 견적 안 항목들의 환율 일관성 유지(옛 견적에 추가해도 혼재 방지)
-    const rate = quoteInput.exchangeRate || globalExchangeRate;
+    //  처음 넣는 품목이면 그 시장의 지금 환율 (내수 환율 / 수출 환율)
+    const rate = quoteRateOf(quoteInput);
     const newItem = createQuoteItem(fabric, { rate, marketType: quoteInput.marketType, marginRate: quoteInput.bulkMarginRate, ...excludeOf(quoteInput) });
-    setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || globalExchangeRate, items: [...(prev.items || []), newItem] }));
+    setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || rate, items: [...(prev.items || []), newItem] }));
     setSelectedFabricIdForQuote('');
     const warns = newItem.costWarnings || [];
     if (warns.length > 0) showToast(`원단이 추가되었습니다. ⚠ 원가 확인 필요 — ${warns[0]}`, 'error');
@@ -427,8 +442,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       if (notFoundCustom.length > 0) alert(`다음 Article은 리스트에 없습니다:\n\n${notFoundCustom.join('\n')}\n\n(개발번호는 원가 견적을 저장한 개발 의뢰만 넣을 수 있어요)`);
       return;
     }
-    // 추가 항목은 견적의 기존 환율(있으면)로 계산 → 환율 일관성 유지
-    const rate = quoteInput.exchangeRate || globalExchangeRate;
+    // 추가 항목은 견적의 기존 환율(있으면)로 계산 → 환율 일관성 유지 (처음이면 그 시장의 지금 환율)
+    const rate = quoteRateOf(quoteInput);
     let newItems = [];
     let notFound = [];
     let duplicates = 0;
@@ -448,7 +463,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     });
 
     if (newItems.length > 0) {
-      setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || globalExchangeRate, items: [...(prev.items || []), ...newItems] }));
+      setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || rate, items: [...(prev.items || []), ...newItems] }));
       const warned = newItems.filter(it => (it.costWarnings || []).length > 0).length;
       const head = newItems.length === 1 ? `${newItems[0].article} 추가 완료` : `${newItems.length}개의 원단이 일괄 추가되었습니다.`;
       showToast(
@@ -495,7 +510,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       f, { qty: DEFAULT_CUSTOM_QTY, colors: DEFAULT_CUSTOM_COLORS },
       { rate, marketType: quoteInput.marketType, exclude: getCustomExclude(quoteInput) }
     ));
-    setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || globalExchangeRate, customItems: [...(prev.customItems || []), ...rows] }));
+    setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || rate, customItems: [...(prev.customItems || []), ...rows] }));
     return { rows, duplicates };
   };
 
@@ -583,7 +598,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
   // [개발 의뢰 원가 견적 → 견적서 만들기 — 2026-10-06]
   //  의뢰의 원가 견적으로 새 견적서를 시작: 바이어 = 의뢰 바이어, 기준 견적 품목 1개(Article = 개발번호, Spec = 견적서 품목명),
-  //  시장 구분·구간별 매출이익율·YD당 정액(원화)은 원가 견적 창에서 정한 값, 견적 환율 = 지금 공통 환율.
+  //  시장 구분·구간별 매출이익율·YD당 정액(원화)은 원가 견적 창에서 정한 값, 견적 환율 = 그 시장의 지금 공통 환율.
   //  저장은 하지 않음 — 견적서 화면에서 확인 후 저장·PDF (저장 안 하고 나가면 '저장할까요?')
   //  devReq.costQuote 는 방금 저장한 값을 넘겨받음 (목록의 의뢰 값은 서버에서 다시 받아올 때 바뀌어서)
   //  반환: 시작했으면 true
@@ -592,7 +607,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     if (!fabric) { showToast('원가 견적을 먼저 저장해 주세요.', 'error'); return false; }
     const cq = devReq.costQuote;
     const marketType = cq.marketType === 'export' ? 'export' : 'domestic';
-    const rate = Number(globalExchangeRate) || 1450;
+    const rate = currentRateFor(marketType);
     const bulk = toQuoteTierRate(cq.marginRate);
     const item = createQuoteItem(fabric, { rate, marketType, marginRate: bulk });
     setQuoteInput({
@@ -693,11 +708,12 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     let missing = 0;
     const hasRows = (duplicatedQuote.items || []).length > 0 || (duplicatedQuote.customItems || []).length > 0;
     if (isNewMarginModel(duplicatedQuote) && hasRows) {
-      const rate = Number(globalExchangeRate) || 1450;
+      const market = quoteMarket(duplicatedQuote);
+      const rate = currentRateFor(market);
       const oldRate = Number(duplicatedQuote.exchangeRate) || null;
       if (window.confirm(
         `복제한 견적의 단가를 지금 원가로 다시 계산할까요?\n\n` +
-        `[확인] 지금 원가·지금 환율(₩${num(rate)})로 다시 계산 (권장)\n` +
+        `[확인] 지금 원가·지금 ${rateLabel(market)}(₩${num(rate)})로 다시 계산 (권장)\n` +
         `[취소] 원본 견적 당시 단가 그대로${oldRate ? ` (원본 환율 ₩${num(oldRate)})` : ''}`
       )) {
         const rebuilt = rebuildItems(duplicatedQuote.items, rate, duplicatedQuote.marketType, null, excludeOf(duplicatedQuote));

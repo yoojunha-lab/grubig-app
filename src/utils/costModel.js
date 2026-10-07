@@ -23,8 +23,14 @@
 //   → 순원가/YD = 합계 ÷ 수량,  영업 기준원가 = 순원가 × (1 + 위험마진%)  (반올림은 마지막에만)
 //
 // ■ settings 인자는 항상 resolveCostSettings() 결과(빈 칸이 기본값으로 채워진 설정)를 넘긴다.
+//
+// ■ 환율 (ctx.exchangeRate — 2026-10-07 내수 환율·수출 환율 분리)
+//   · { domestic, export } = 화면 위 공통 환율 두 칸 → 내수 원가는 내수 환율, 수출 원가는 수출 환율
+//     - 내수: 달러 원사 단가 × 내수 환율 (원화 원가는 그대로)
+//     - 수출: 달러 원사 단가 × 수출 환율 → 원화 합계 ÷ 수출 환율 (달러 원사는 달러 단가 그대로가 됨)
+//   · 숫자 하나 = 내수·수출 같은 환율 (견적 환율처럼 한 시장만 쓰는 곳)
 
-import { calculateGYd, smartRound, num } from './helpers';
+import { calculateGYd, smartRound, num, DEFAULT_EXCHANGE_RATE, rateForMarket } from './helpers';
 import {
   DEFAULT_COST_SETTINGS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID, DEFAULT_KNIT_KG_RATE,
   DEFAULT_IMPORT_COUNTRY_ID, COST_DISPLAY_TIERS, LEGACY_ETC_IDS, LEGACY_ETC_NAMES,
@@ -293,12 +299,26 @@ export const sumYarnRatio = (yarns) =>
 export const isYarnRatioComplete = (yarns) => sumYarnRatio(yarns) === 100;
 
 /**
- * 원사 배합 → 라인별 kg당 금액(단가 × 혼용률). 내수 = 관세포함, 수출 = 관세제외.
+ * 환율 → { domestic, export } (원/$).
+ *  숫자 하나면 내수·수출 같은 값(견적 환율 등), { domestic, export }면 시장별 공통 환율. 빈 값·0은 기본 환율.
+ */
+export const resolveRates = (exchangeRate) => {
+  if (exchangeRate && typeof exchangeRate === 'object') {
+    return { domestic: rateForMarket(exchangeRate, 'domestic'), export: rateForMarket(exchangeRate, 'export') };
+  }
+  const r = Number(exchangeRate) > 0 ? Number(exchangeRate) : DEFAULT_EXCHANGE_RATE;
+  return { domestic: r, export: r };
+};
+
+/**
+ * 원사 배합 → 라인별 kg당 금액(단가 × 혼용률, 원화). 내수 = 관세포함, 수출 = 관세제외.
+ * 달러 원사는 내수 = 내수 환율, 수출 = 수출 환율로 원화로 바꿈 (exchangeRate: 숫자 또는 { domestic, export })
  * 가설계서 전용 priceOverride(직접 입력 단가, 원/kg)가 있으면 내수·수출 동일하게 그 값을 쓴다.
  * 수입사 원사(isImport)는 운반비를 빼고 담는다 — 운반비가 그 원사 kg 구간으로 정해져서 수량별로
  * costAtQty 에서 더함. 그래서 perKgDomestic/perKgExport 에도 수입 원사 운반비는 빠져 있다.
  */
 export const buildMaterialLines = (yarns, yarnLibrary, exchangeRate) => {
+  const rates = resolveRates(exchangeRate);
   const lines = [];
   const missingYarnIds = [];
   const missingYarnNames = []; // 경고 문구용 (엑셀 등록 때 못 찾은 원사는 tempName)
@@ -331,11 +351,14 @@ export const buildMaterialLines = (yarns, yarnLibrary, exchangeRate) => {
     if (!sup) { zeroPriceYarns.push(yarn.name || '원사'); return; }
     if (!(Number(sup.price) > 0)) zeroPriceYarns.push(yarn.name || '원사');
     const isImport = isImportSupplier(sup);
-    const priceInKrw = sup.currency === 'USD' ? Number(sup.price || 0) * exchangeRate : Number(sup.price || 0);
-    const tariffAmt = priceInKrw * ((Number(sup.tariff) || 0) / 100);
+    const price = Number(sup.price || 0);
+    const isUsd = sup.currency === 'USD';
+    const priceDomKrw = isUsd ? price * rates.domestic : price; // 내수: 내수 환율
+    const priceExpKrw = isUsd ? price * rates.export : price;   // 수출: 수출 환율 (나중에 수출 환율로 나눠 $ → 달러 단가 그대로)
+    const tariffAmt = priceDomKrw * ((Number(sup.tariff) || 0) / 100);
     const freightAmt = isImport ? 0 : (Number(sup.freight) || 0); // 수입사는 kg 구간 운반비 (costAtQty)
-    const wDom = (priceInKrw + tariffAmt + freightAmt) * ratio; // 관세는 내수만
-    const wExp = (priceInKrw + freightAmt) * ratio;             // 수출은 관세 제외
+    const wDom = (priceDomKrw + tariffAmt + freightAmt) * ratio; // 관세는 내수만
+    const wExp = (priceExpKrw + freightAmt) * ratio;             // 수출은 관세 제외
     perKgDomestic += wDom; perKgExport += wExp;
     lines.push({
       name: yarn.name || '원사', supplierName: String(sup.name || ''), wDomestic: wDom, wExport: wExp,
@@ -367,10 +390,10 @@ const buildCostWarnings = (fabric, p) => {
 // ----------------------------------------------------------------------
 
 // 수량과 무관한 값(원사 단가·중량·등급·유형 등)을 한 번만 준비
-const prepareCost = (fabric, { yarnLibrary = [], exchangeRate = 1450, settings } = {}) => {
+const prepareCost = (fabric, { yarnLibrary = [], exchangeRate = DEFAULT_EXCHANGE_RATE, settings } = {}) => {
   const s = settings || resolveCostSettings(null);
-  const rate = Number(exchangeRate) > 0 ? Number(exchangeRate) : 1450;
-  const material = buildMaterialLines(fabric?.yarns, yarnLibrary, rate);
+  const rates = resolveRates(exchangeRate); // { domestic, export } — 내수 원가·수출 원가에 각각
+  const material = buildMaterialLines(fabric?.yarns, yarnLibrary, rates);
   const theoreticalGYd = calculateGYd(toNum(fabric?.gsm), toNum(fabric?.widthFull));
   const effectiveGYd = toNum(fabric?.costGYd) > 0 ? toNum(fabric.costGYd) : theoreticalGYd;
   const processType = findProcessType(s, fabric?.processType);
@@ -382,7 +405,7 @@ const prepareCost = (fabric, { yarnLibrary = [], exchangeRate = 1450, settings }
   return {
     fabric,
     settings: s,
-    rate,
+    rates,
     ...material,
     theoreticalGYd,
     effectiveGYd,
@@ -498,7 +521,7 @@ const costAtQty = (p, qtyRaw, opts = {}) => {
   const domFinal = smartRound(dom.total * riskFactor, 'KRW'); // 영업 기준원가
 
   const exp = build(true);
-  const toUsd = (v) => v / p.rate;
+  const toUsd = (v) => v / p.rates.export; // 수출 원가는 수출 환율로 $
   const expUSDraw = toUsd(exp.total);
   const expTotal = smartRound(expUSDraw, 'USD');
   const expFinal = smartRound(expUSDraw * riskFactor, 'USD');
@@ -543,7 +566,7 @@ const costAtQty = (p, qtyRaw, opts = {}) => {
  * 임의 수량(YD) 1개의 원가.
  * @param {Object} fabric 원단(또는 설계서 costInput + yarns)
  * @param {number} qty    오더 수량 (YD)
- * @param {Object} ctx    { yarnLibrary, exchangeRate, settings(resolveCostSettings 결과) }
+ * @param {Object} ctx    { yarnLibrary, exchangeRate(숫자 = 내수·수출 같은 환율 / { domestic, export } = 시장별), settings(resolveCostSettings 결과) }
  * @param {Object} opts   { colors: 컬러수 가정(없으면 이화학 수량 구간), assumeMcq: 컬러마다 MCQ 충족 → 염색 최소 청구 없음 }
  */
 export const computeCostAtQty = (fabric, qty, ctx = {}, opts = {}) => {

@@ -22,7 +22,7 @@ export const FabricListPage = ({
   designSheets,
   handleEditSheet,
   setIsDesignSheetModalOpen,
-  globalExchangeRate,
+  exchangeRates,
   page = 0,
   setPage,
   onNewFabric,
@@ -145,7 +145,7 @@ export const FabricListPage = ({
                 designSheets={designSheets}
                 handleEditSheet={handleEditSheet}
                 setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
-                globalExchangeRate={globalExchangeRate}
+                exchangeRates={exchangeRates}
                 costSettings={costSettings}
               />
             ))}
@@ -181,7 +181,7 @@ export const FabricListPage = ({
             designSheets={designSheets}
             handleEditSheet={handleEditSheet}
             setIsDesignSheetModalOpen={setIsDesignSheetModalOpen}
-            globalExchangeRate={globalExchangeRate}
+            exchangeRates={exchangeRates}
             costSettings={costSettings}
           />
         ))}

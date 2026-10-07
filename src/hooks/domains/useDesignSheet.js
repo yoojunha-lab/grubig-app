@@ -8,7 +8,7 @@ import { devQuoteToSheetFields } from '../../utils/devQuoteModel';
 
 // GRUBIG ERP - 원단 설계서 도메인 로직 훅
 
-export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, globalExchangeRate, saveFabricFromSheet, devRequests) => {
+export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, exchangeRates, saveFabricFromSheet, devRequests) => {
   const [editingSheetId, setEditingSheetId] = useState(null);
 
   // 설계서 초기 입력 폼

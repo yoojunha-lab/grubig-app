@@ -84,6 +84,24 @@ export const smartRound = (value, currency) => {
   return currency === 'USD' ? roundUsd(safeVal) : Math.round(safeVal / 100) * 100;
 };
 
+/** 환율 기본값 (원/$) — 저장된 환율이 없을 때 */
+export const DEFAULT_EXCHANGE_RATE = 1450;
+
+/**
+ * 시장(내수/수출)에 맞는 공통 환율 (대표님 요청 2026-10-07 — 내수 환율·수출 환율 두 칸)
+ *  · 내수 환율: 달러로 사는 원사 단가 → 원화 (내수 원가·원사 라이브러리 내수 단가·내수 견적)
+ *  · 수출 환율: 원화 원가 → 달러 (수출 원가·수출 견적·수출 보기의 '≈ $')
+ * @param {{domestic:number, export:number}} rates 화면 위 공통 환율 두 칸 (App의 exchangeRates)
+ * @param {'domestic'|'export'} market
+ */
+export const rateForMarket = (rates, market) => {
+  const v = Number(market === 'export' ? rates?.export : rates?.domestic);
+  return v > 0 ? v : DEFAULT_EXCHANGE_RATE;
+};
+
+/** 환율 칸 이름 — '내수 환율' / '수출 환율' */
+export const rateLabel = (market) => (market === 'export' ? '수출 환율' : '내수 환율');
+
 /**
  * 타겟 마진율(%)에 맞춰 원가에서 판매가를 산출(Gross Margin)합니다.
  * 공식: cost / (1 - margin%)

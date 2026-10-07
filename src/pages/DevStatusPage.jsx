@@ -148,7 +148,7 @@ export const DevStatusPage = ({
   savedQuotes = [],                       // 견적서 목록 — 이 의뢰로 만든 견적서·목록 배지
   yarnSelectOptions = [], yarnLibrary = [],
   costSettings = null, onOpenCostSettings,
-  globalExchangeRate = 1450,
+  exchangeRates = null,                   // 공통 환율 두 칸 { domestic, export } — 원가 견적 창이 고른 시장의 환율을 씀
   calculateCost, createQuoteItem,         // 원단과 같은 원가 엔진 · 견적서 품목 계산
   saveDevCostQuote,                       // (devReqId, costQuote, user) => 저장한 costQuote | false
   dropDevRequest,                         // (devReqId, { reason, memo }, user) => boolean
@@ -1096,7 +1096,7 @@ export const DevStatusPage = ({
             yarnLibrary={yarnLibrary}
             costSettings={costSettings}
             onOpenCostSettings={onOpenCostSettings}
-            globalExchangeRate={globalExchangeRate}
+            exchangeRates={exchangeRates}
             calculateCost={calculateCost}
             createQuoteItem={createQuoteItem}
             onSave={(costQuote) => saveDevCostQuote(costQuoteDev.id, costQuote, user)}

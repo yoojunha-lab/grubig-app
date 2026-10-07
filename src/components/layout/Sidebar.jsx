@@ -1,8 +1,35 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Cloud, Menu, Layers, Home, Globe, FileSpreadsheet, Box, FileText, LogOut, DollarSign, Activity, Archive,
-  FileCheck, FlaskConical, LayoutDashboard, TrendingUp, ChevronDown, X, Boxes, FileSignature, SwatchBook,
+  FileCheck, FlaskConical, LayoutDashboard, TrendingUp, ChevronDown, X, Boxes, FileSignature, SwatchBook, ExternalLink,
 } from 'lucide-react';
+import { rateLabel } from '../../utils/helpers';
+import { useMarketRate, NAVER_FX_URL } from '../../hooks/useMarketRate';
+
+// 공통 환율 칸 순서 (내수 → 수출)
+const RATE_MARKETS = ['domestic', 'export'];
+const RATE_SHORT = { domestic: '내수', export: '수출' };
+const RATE_USE = {
+  domestic: '내수 원가·내수 견적에 써요 (달러로 사는 원사 → 원화)',
+  export: '수출 원가·수출 견적에 써요 (원화 원가 → 달러)',
+};
+// 화면 위 [내수|수출] 보기와 같은 쪽 칸을 색으로 강조
+const RATE_ACTIVE = {
+  domestic: 'bg-blue-500/15 ring-1 ring-blue-400/60',
+  export: 'bg-emerald-500/15 ring-1 ring-emerald-400/60',
+};
+const RATE_TEXT = { domestic: 'text-blue-300', export: 'text-emerald-300' };
+
+const fmtRate = (v) => Number(v || 0).toLocaleString();
+const fmtLive = (v, digits = 1) => Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+const pad2 = (n) => String(n).padStart(2, '0');
+// 실시간 환율 기준 시각 — 오늘이면 '09:22', 아니면 '10/06'
+const fmtLiveTime = (d) => {
+  if (!d) return '';
+  const now = new Date();
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  return sameDay ? `${pad2(d.getHours())}:${pad2(d.getMinutes())}` : `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`;
+};
 
 // 그룹 정의: 활성 탭이 어느 그룹에 속하는지 판단 + 드롭다운 항목 렌더링
 const NAV_GROUPS = [
@@ -61,45 +88,76 @@ export const Sidebar = ({
   activeTab, setActiveTab,
   viewMode, setViewMode,
   syncStatus, handleLogout,
-  globalExchangeRate,
-  onCommitExchangeRate, // 공통 환율 저장 (App.saveExchangeRate) — 확인 후 회사 공통 설정에 저장
-  exchangeRateMeta,     // { updatedAt, updatedBy } | null(아직 공통 저장 전)
+  exchangeRates,        // 공통 환율 두 칸 { domestic: 내수 환율, export: 수출 환율 }
+  exchangeRatesMeta,    // 칸마다 { updatedAt, updatedBy } | null(아직 공통 저장 전 — 수출은 '아직 따로 정하지 않음')
+  onCommitExchangeRate, // 공통 환율 저장 (App.saveExchangeRate(market, value)) — 확인 후 회사 공통 설정에 저장
 }) => {
   const [openGroup, setOpenGroup] = useState(null); // 현재 펼쳐진 그룹 key
   const navRef = useRef(null);
 
-  // ── 공통 환율 입력: 치는 동안은 칸에만 두고(draft), Enter·칸 밖 클릭 때 확인 후 저장 ──
+  // ── 공통 환율 입력 (내수 환율 · 수출 환율 두 칸 — 2026-10-07 대표님 요청) ──
+  //   치는 동안은 칸에만 두고(draft), Enter·칸 밖 클릭 때 확인 후 저장
   //   (예전엔 한 글자 칠 때마다 바로 바뀌어 원가가 중간값으로 계산됐음. Esc = 입력 취소)
-  const [rateDraft, setRateDraft] = useState(null);
-  const fmtRate = (v) => Number(v || 0).toLocaleString();
-  const commitRate = () => {
-    if (rateDraft === null) return;
-    const v = Number(rateDraft);
-    setRateDraft(null);
+  const [rateDraft, setRateDraft] = useState({ domestic: null, export: null });
+  const commitRate = (market) => {
+    const draft = rateDraft[market];
+    if (draft === null) return;
+    setRateDraft(prev => ({ ...prev, [market]: null }));
+    const v = Number(draft);
+    const cur = Number(exchangeRates?.[market]);
+    const saved = !!exchangeRatesMeta?.[market];
     // 같은 값이면 저장할 필요 없음 — 단, 아직 회사 공통으로 저장 전이면 지금 보이는 값 그대로도 공통으로 저장할 수 있게
-    if (!(v > 0) || (v === Number(globalExchangeRate) && exchangeRateMeta)) return;
-    const sameValue = v === Number(globalExchangeRate);
+    if (!(v > 0) || (v === cur && saved)) return;
+    const label = rateLabel(market);
+    // 수출 환율을 아직 따로 정하지 않았으면 내수 환율을 바꿀 때 같이 바뀜 (App.saveExchangeRate)
+    const followNote = market === 'domestic' && !exchangeRatesMeta?.export
+      ? `수출 환율은 아직 따로 정하지 않아서 같이 ₩${fmtRate(v)}로 바뀌어요.\n`
+      : '';
     if (!window.confirm(
-      (sameValue
-        ? `지금 환율 ₩${fmtRate(v)}을 회사 공통 환율로 저장합니다.\n\n`
-        : `공통 환율을 ₩${fmtRate(globalExchangeRate)} → ₩${fmtRate(v)}로 바꿉니다.\n\n`) +
-      `모든 직원의 화면(원단 원가·새 견적)에 바로 적용돼요.\n이미 저장한 견적은 그 견적의 환율 그대로예요.\n\n계속할까요?`
+      (v === cur
+        ? `지금 ${label} ₩${fmtRate(v)}을 회사 공통으로 저장합니다.\n\n`
+        : `${label}을 ₩${fmtRate(cur)} → ₩${fmtRate(v)}로 바꿉니다.\n\n`) +
+      `모든 직원의 ${market === 'export' ? '수출 원가·새 수출 견적' : '내수 원가·새 내수 견적'}에 바로 적용돼요.\n` +
+      followNote +
+      `이미 저장한 견적은 그 견적의 환율 그대로예요.\n\n계속할까요?`
     )) return;
-    if (onCommitExchangeRate) onCommitExchangeRate(v);
+    if (onCommitExchangeRate) onCommitExchangeRate(market, v);
   };
-  const rateInputProps = {
+  const rateInputProps = (market) => ({
     type: 'number',
-    value: rateDraft ?? globalExchangeRate,
-    onChange: e => setRateDraft(e.target.value),
-    onBlur: commitRate,
+    value: rateDraft[market] ?? exchangeRates?.[market] ?? '',
+    onChange: e => { const val = e.target.value; setRateDraft(prev => ({ ...prev, [market]: val })); },
+    onBlur: () => commitRate(market),
     onKeyDown: e => {
       if (e.key === 'Enter') e.currentTarget.blur();
-      if (e.key === 'Escape') setRateDraft(null);
+      if (e.key === 'Escape') setRateDraft(prev => ({ ...prev, [market]: null }));
     },
+  });
+  const rateTitle = (market) => {
+    const label = rateLabel(market);
+    const meta = exchangeRatesMeta?.[market];
+    if (meta) {
+      const when = meta.updatedAt ? new Date(meta.updatedAt).toLocaleString('ko-KR') : '-';
+      return `${label} (전 직원 공통) — ${RATE_USE[market]}\n마지막 변경: ${when}${meta.updatedBy ? ` · ${meta.updatedBy}` : ''}\n바꾸려면 숫자 입력 후 Enter`;
+    }
+    if (market === 'export') {
+      return `${label} — ${RATE_USE[market]}\n아직 따로 정하지 않아 내수 환율과 같은 값이에요. 숫자 입력 후 Enter로 저장하면 모든 직원에게 적용돼요.`;
+    }
+    return `${label} — ${RATE_USE[market]}\n아직 회사 공통으로 저장 전이라 이 PC 값이에요. 숫자 입력 후 Enter로 저장하면 모든 직원에게 적용돼요.`;
   };
-  const rateTitle = exchangeRateMeta
-    ? `공통 환율 (전 직원) — 마지막 변경: ${exchangeRateMeta.updatedAt ? new Date(exchangeRateMeta.updatedAt).toLocaleString('ko-KR') : '-'}${exchangeRateMeta.updatedBy ? ` · ${exchangeRateMeta.updatedBy}` : ''}\n바꾸려면 숫자 입력 후 Enter`
-    : '공통 환율 — 아직 회사 공통으로 저장 전이라 이 PC 값이에요. 숫자 입력 후 Enter로 저장하면 모든 직원에게 적용돼요.';
+
+  // ── 실시간 환율 (참고용 — 보기만, 내수·수출 환율은 바꾸지 않음) ──
+  const live = useMarketRate();
+  const liveTime = fmtLiveTime(live.at);
+  const liveTitle = live.rate
+    ? `실시간 환율 (참고용) ₩${fmtLive(live.rate, 2)}\n` +
+      `${live.at ? `${live.at.toLocaleString('ko-KR')} 기준 · ` : ''}출처 ${live.source}\n` +
+      `국제 시장 환율이라 은행 매매기준율과 1~3원쯤 다를 수 있어요.\n` +
+      (live.error ? '⚠ 방금 새로 받아오지 못해 마지막으로 받은 값이에요.\n' : '') +
+      `누르면 새로 받아와요 (10분마다 저절로). 내수·수출 환율은 옆 칸에 직접 넣어요.`
+    : live.loading
+      ? '실시간 환율을 받아오는 중이에요…'
+      : '실시간 환율을 받아오지 못했어요 (인터넷 연결 확인). 누르면 다시 받아와요.';
 
   // 외부 클릭 시 드롭다운 닫기
   useEffect(() => {
@@ -134,7 +192,8 @@ export const Sidebar = ({
           <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 rounded-xl shadow-lg shadow-blue-500/20 text-white">
             <Layers className="w-5 h-5" />
           </div>
-          <div className="hidden sm:block">
+          {/* 태블릿 폭(md)에서는 환율 칸 자리를 위해 글자를 숨김 */}
+          <div className="hidden sm:block md:hidden lg:block">
             <h1 className="text-base font-extrabold text-white tracking-tight leading-none">GRUBIG</h1>
             <p className="text-[9px] text-blue-300/80 font-mono uppercase tracking-widest mt-0.5">ERP</p>
           </div>
@@ -150,7 +209,7 @@ export const Sidebar = ({
               <div key={group.key} className="relative">
                 <button
                   onClick={() => setOpenGroup(isOpen ? null : group.key)}
-                  className={`flex items-center gap-1.5 px-3 lg:px-4 py-2 rounded-xl text-sm font-bold transition-all ${
+                  className={`flex items-center gap-1.5 px-3 lg:px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${
                     isActiveGroup
                       ? `bg-gradient-to-r ${colors.active} text-white shadow-lg`
                       : `text-slate-400 ${colors.hover}`
@@ -189,21 +248,56 @@ export const Sidebar = ({
           })}
         </nav>
 
-        {/* 우: 환율 + 내수/수출 + 동기화 + 로그아웃 (데스크탑) */}
+        {/* 우: 환율(내수·수출) + 실시간 환율 + 내수/수출 + 동기화 + 로그아웃 (데스크탑) */}
         <div className="hidden md:flex items-center gap-2 shrink-0">
-          <div className="flex items-center gap-1.5 bg-slate-800/40 px-2.5 py-1.5 rounded-lg border border-slate-700/50" title={rateTitle}>
-            <DollarSign className="w-3.5 h-3.5 text-yellow-500" />
-            <span className="text-yellow-500 font-bold text-xs">￦</span>
-            <input
-              {...rateInputProps}
-              className="w-14 bg-transparent border-none text-white text-right font-mono font-bold focus:ring-0 outline-none p-0 text-xs"
-              aria-label="공통 환율"
-            />
-            <span className="text-slate-500 text-[10px]">/$</span>
-            {!exchangeRateMeta && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title="아직 회사 공통으로 저장 전" />}
+          {/* 공통 환율 두 칸 — 지금 보기(내수/수출)와 같은 칸을 색으로 강조. 화면이 좁으면 ￦·아이콘은 숨김 */}
+          <div className="flex items-center gap-0.5 bg-slate-800/40 p-1 rounded-lg border border-slate-700/50">
+            <DollarSign className="w-3.5 h-3.5 text-yellow-500 mx-0.5 hidden xl:block" />
+            {RATE_MARKETS.map(m => (
+              <label
+                key={m}
+                title={rateTitle(m)}
+                className={`flex items-center gap-1 px-1.5 py-1 rounded-md cursor-text ${viewMode === m ? RATE_ACTIVE[m] : ''}`}
+              >
+                <span className={`text-[10px] font-bold whitespace-nowrap ${RATE_TEXT[m]}`}>{RATE_SHORT[m]}</span>
+                <span className="text-yellow-500 font-bold text-[11px] hidden xl:inline">￦</span>
+                <input
+                  {...rateInputProps(m)}
+                  className="w-12 bg-transparent border-none text-white text-right font-mono font-bold focus:ring-0 outline-none p-0 text-xs"
+                  aria-label={rateLabel(m)}
+                />
+                {!exchangeRatesMeta?.[m] && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />}
+              </label>
+            ))}
           </div>
 
-          <div className="flex bg-slate-800/50 p-1 rounded-lg border border-slate-700/50">
+          {/* 실시간 환율 (참고용) — 누르면 새로 받아옴 · ↗ 네이버 환율(은행 매매기준율). 화면이 좁으면 글자·시각은 숨김 */}
+          <div className="hidden lg:flex items-center bg-slate-800/40 rounded-lg border border-slate-700/50 overflow-hidden">
+            <button
+              type="button"
+              onClick={live.refresh}
+              title={liveTitle}
+              className="flex items-center gap-1 pl-2 pr-1.5 py-1.5 hover:bg-slate-700/40 transition-colors whitespace-nowrap"
+            >
+              <TrendingUp className={`w-3.5 h-3.5 text-sky-400 ${live.loading ? 'animate-pulse' : ''}`} />
+              <span className="text-[10px] font-bold text-slate-400 hidden xl:inline">실시간</span>
+              <span className={`font-mono font-bold text-xs ${live.rate && !live.error ? 'text-white' : 'text-slate-500'}`}>
+                {live.rate ? `￦${fmtLive(live.rate)}` : '—'}
+              </span>
+              {liveTime && <span className="text-[10px] font-mono text-slate-500 hidden xl:inline">{liveTime}</span>}
+            </button>
+            <a
+              href={NAVER_FX_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="네이버 환율 (은행 매매기준율) — 새 창으로 열기"
+              className="self-stretch flex items-center px-1.5 text-slate-500 hover:text-white hover:bg-slate-700/40 border-l border-slate-700/50 transition-colors"
+            >
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+
+          <div className="flex bg-slate-800/50 p-1 rounded-lg border border-slate-700/50 whitespace-nowrap">
             <button
               onClick={() => setViewMode('domestic')}
               className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all ${
@@ -258,17 +352,43 @@ export const Sidebar = ({
               <label className="text-[10px] text-slate-400 font-bold mb-2 block uppercase tracking-wider flex items-center gap-1">
                 <DollarSign className="w-3.5 h-3.5 text-yellow-500" /> 공통 환율 (전 직원)
               </label>
-              <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded-lg border border-slate-700">
-                <span className="text-yellow-500 font-bold text-sm pl-1">￦</span>
-                <input
-                  {...rateInputProps}
-                  className="w-full bg-transparent border-none text-white text-right font-mono font-bold focus:ring-0 outline-none p-0 text-base"
-                  aria-label="공통 환율"
-                />
-                <span className="text-slate-500 font-bold text-xs pr-1">/ $</span>
+              <div className="grid grid-cols-2 gap-2">
+                {RATE_MARKETS.map(m => (
+                  <label
+                    key={m}
+                    className={`flex items-center gap-1.5 bg-slate-900/50 p-2 rounded-lg border ${viewMode === m ? `border-transparent ${RATE_ACTIVE[m]}` : 'border-slate-700'}`}
+                  >
+                    <span className={`text-[11px] font-bold shrink-0 ${RATE_TEXT[m]}`}>{RATE_SHORT[m]}</span>
+                    <span className="text-yellow-500 font-bold text-sm">￦</span>
+                    <input
+                      {...rateInputProps(m)}
+                      className="w-full min-w-0 bg-transparent border-none text-white text-right font-mono font-bold focus:ring-0 outline-none p-0 text-base"
+                      aria-label={rateLabel(m)}
+                    />
+                    {!exchangeRatesMeta?.[m] && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />}
+                  </label>
+                ))}
               </div>
-              <p className="text-[10px] text-slate-500 mt-1.5">
-                {exchangeRateMeta ? '입력 후 완료(Enter)하면 모든 직원에게 적용돼요.' : '아직 공통 저장 전 — 입력 후 완료하면 모든 직원에게 적용돼요.'}
+              <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
+                내수 = 달러 원사 → 원화 · 수출 = 원화 원가 → 달러. 입력 후 완료(Enter)하면 모든 직원에게 적용돼요.
+                {!exchangeRatesMeta?.export && ' (수출 환율은 아직 따로 정하지 않아 내수 환율과 같은 값)'}
+              </p>
+              {/* 실시간 환율 (참고용) — 누르면 새로 받아옴 */}
+              <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-700/50">
+                <button type="button" onClick={live.refresh} className="flex items-center gap-1.5 text-left">
+                  <TrendingUp className={`w-3.5 h-3.5 text-sky-400 ${live.loading ? 'animate-pulse' : ''}`} />
+                  <span className="text-[11px] font-bold text-slate-400">실시간</span>
+                  <span className={`font-mono font-bold text-sm ${live.rate && !live.error ? 'text-white' : 'text-slate-500'}`}>
+                    {live.rate ? `￦${fmtLive(live.rate)}` : '—'}
+                  </span>
+                  {liveTime && <span className="text-[10px] font-mono text-slate-500">{liveTime}</span>}
+                </button>
+                <a href={NAVER_FX_URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] font-bold text-slate-400 hover:text-white shrink-0">
+                  네이버 환율 <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">
+                {live.rate ? '참고용 시장 환율 — 은행 기준율과 1~3원 다를 수 있어요. 누르면 새로 받아와요.' : liveTitle}
               </p>
             </div>
 

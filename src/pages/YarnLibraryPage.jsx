@@ -41,7 +41,7 @@ export const YarnLibraryPage = ({
   handleDeleteYarn,
   yarnLibrary,
   setYarnLibrary,
-  globalExchangeRate,
+  exchangeRates,
   yarnSuppliers = [],       // 원사 업체(공급처) 마스터 — 견적 거래처와 별도
   setActiveMasterModal,     // 업체 목록 관리 모달 오픈용
   yarnPage = 0,
@@ -303,7 +303,7 @@ export const YarnLibraryPage = ({
               <YarnLibraryRow
                 key={y.id}
                 y={y}
-                globalExchangeRate={globalExchangeRate}
+                exchangeRates={exchangeRates}
                 handleEditYarn={(yarn) => { handleEditYarn(yarn); setIsYarnFormModalOpen(true); }}
                 handleDeleteYarn={handleDeleteYarn}
                 yarnLibrary={yarnLibrary}
@@ -322,7 +322,7 @@ export const YarnLibraryPage = ({
           <MobileYarnCard
             key={y.id}
             y={y}
-            globalExchangeRate={globalExchangeRate}
+            exchangeRates={exchangeRates}
             handleEditYarn={(yarn) => { handleEditYarn(yarn); setIsYarnFormModalOpen(true); }}
             handleDeleteYarn={handleDeleteYarn}
             yarnLibrary={yarnLibrary}

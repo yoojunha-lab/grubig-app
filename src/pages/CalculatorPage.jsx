@@ -1,7 +1,7 @@
 import React from 'react';
 import { X, RotateCcw, Info, Plus, Save } from 'lucide-react';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
-import { num, calculateMcqYd } from '../utils/helpers';
+import { num, calculateMcqYd, rateForMarket, rateLabel } from '../utils/helpers';
 import { sumYarnRatio, isYarnRatioComplete } from '../utils/costModel';
 
 export const CalculatorPage = ({
@@ -15,11 +15,13 @@ export const CalculatorPage = ({
   setFabricInput,
   handleSaveFabric,
   setActiveTab,
-  globalExchangeRate,
+  exchangeRates,
   yarnLibrary,
   costSettings,
   onOpenCostSettings
 }) => {
+  // 지금 보기(내수/수출)에 적용 중인 공통 환율 — 화면 위 내수 환율·수출 환율 칸 값
+  const viewRate = rateForMarket(exchangeRates, viewMode);
   const totalRatio = sumYarnRatio(fabricInput.yarns);
   const isRatioValid = isYarnRatioComplete(fabricInput.yarns);
 
@@ -85,9 +87,9 @@ export const CalculatorPage = ({
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
           <h3 className="text-sm font-bold text-slate-400 uppercase mb-4 flex justify-between items-center">
             <span>1. 기본 정보 (Basic Info) <Info className="w-4 h-4 text-slate-300 inline" /></span>
-            <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm" title="화면 위 공통 환율(전 직원 같은 값) 자동 적용 중">
-              <label className="text-[10px] font-bold text-slate-500 tracking-wide uppercase">공통 환율 💸</label>
-              <div className="font-mono text-sm font-bold text-slate-700">￦{num(globalExchangeRate)}</div>
+            <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm" title={`화면 위 ${rateLabel(viewMode)}(전 직원 같은 값) 자동 적용 중 — 내수 보기는 내수 환율, 수출 보기는 수출 환율`}>
+              <label className="text-[10px] font-bold text-slate-500 tracking-wide uppercase">{rateLabel(viewMode)} 💸</label>
+              <div className="font-mono text-sm font-bold text-slate-700">￦{num(viewRate)}</div>
             </div>
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
@@ -142,7 +144,7 @@ export const CalculatorPage = ({
           viewMode={viewMode}
           yarnSelectOptions={yarnSelectOptions}
           yarnLibrary={yarnLibrary}
-          globalExchangeRate={globalExchangeRate}
+          exchangeRates={exchangeRates}
           setCost={(fn) => setFabricInput(prev => fn(prev))}
           setYarns={(fn) => setFabricInput(prev => ({ ...prev, yarns: fn(prev.yarns) }))}
           costSettings={costSettings}

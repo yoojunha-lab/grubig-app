@@ -6,10 +6,12 @@ import { makeInitialCostFields } from '../../utils/costFields';
 
 // GRUBIG ERP - 원단(Fabric) 도메인 로직 및 비용 계산 훅
 
-// 원가 엔진에 넘기는 값 (원사 라이브러리 · 환율 · 원가 설정). 환율을 따로 주면(견적 환율 등) 그 값
-const makeCostCtx = (yarnLibrary, globalExchangeRate, costSettings, overrideExchangeRate) => ({
+// 원가 엔진에 넘기는 값 (원사 라이브러리 · 환율 · 원가 설정)
+//  환율: 평소엔 화면 위 공통 환율 두 칸 { domestic, export } → 내수 원가는 내수 환율, 수출 원가는 수출 환율
+//        환율을 따로 주면(견적 환율 등 숫자 하나) 내수·수출 모두 그 값
+const makeCostCtx = (yarnLibrary, exchangeRates, costSettings, overrideExchangeRate) => ({
   yarnLibrary,
-  exchangeRate: overrideExchangeRate !== null ? Number(overrideExchangeRate) : (Number(globalExchangeRate) || 1450),
+  exchangeRate: overrideExchangeRate !== null ? Number(overrideExchangeRate) : exchangeRates,
   settings: costSettings,
 });
 
@@ -39,7 +41,8 @@ const clampField = (name, value) => {
 };
 
 // costSettings: 원가 설정 (resolveCostSettings 결과 — 편직 정액·LOSS 구간·가공 유형·이화학·운임·외관검사)
-export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, globalExchangeRate, savedQuotes = [], costSettings = null) => {
+// exchangeRates: 화면 위 공통 환율 두 칸 { domestic: 내수 환율, export: 수출 환율 } (App에서 같은 값이면 같은 객체)
+export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToCloud, deleteDocFromCloud, setSyncStatus, showToast, exchangeRates, savedQuotes = [], costSettings = null) => {
   const [editingFabricId, setEditingFabricId] = useState(null);
   const [expandedFabricId, setExpandedFabricId] = useState(null);
   const savingRef = useRef(false); // 저장 in-flight 가드 (빠른 더블클릭 중복 방지)
@@ -238,19 +241,19 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
   //  · 이화학·운임은 오더 총액 ÷ 수량, 외관검사는 YD당 (모두 원가 설정값)
   //  · 판매마진 없음(영업/견적에서 결정). 위험마진(%)만 가산 → 영업 기준원가(finalCostYd)
   // ----------------------------------------------------------------------
-  //  두 함수는 원사 라이브러리·공통 환율·원가 설정이 바뀔 때만 새로 만듦 (useCallback)
+  //  두 함수는 원사 라이브러리·공통 환율(내수·수출)·원가 설정이 바뀔 때만 새로 만듦 (useCallback)
   //  → 계산기 원가(useMemo)·모바일 카드 등이 그 사이엔 다시 계산하지 않음 (계산식은 그대로)
 
   // 원가 표용 구간 — 300·500·800YD(2컬러 기준) + 1,000·3,000·5,000YD(MCQ 충족 기준, tier1k/tier3k/tier5k)
   const calculateCost = useCallback((fabricData, overrideExchangeRate = null) =>
-    calculateCostTiers(fabricData, makeCostCtx(yarnLibrary, globalExchangeRate, costSettings, overrideExchangeRate)),
-  [yarnLibrary, globalExchangeRate, costSettings]);
+    calculateCostTiers(fabricData, makeCostCtx(yarnLibrary, exchangeRates, costSettings, overrideExchangeRate)),
+  [yarnLibrary, exchangeRates, costSettings]);
 
   // 임의 수량(YD) 1개 — 나중에 '수량 직접 입력' 칸에서 바로 사용
   //  opts: { colors: 컬러수 가정, assumeMcq: 컬러마다 MCQ 충족 → 염색 최소 청구 없음 } (없으면 수량 구간 기본)
   const calculateCostAtQty = useCallback((fabricData, qty, overrideExchangeRate = null, opts = {}) =>
-    computeCostAtQty(fabricData, qty, makeCostCtx(yarnLibrary, globalExchangeRate, costSettings, overrideExchangeRate), opts),
-  [yarnLibrary, globalExchangeRate, costSettings]);
+    computeCostAtQty(fabricData, qty, makeCostCtx(yarnLibrary, exchangeRates, costSettings, overrideExchangeRate), opts),
+  [yarnLibrary, exchangeRates, costSettings]);
 
   return {
     fabricInput, setFabricInput,

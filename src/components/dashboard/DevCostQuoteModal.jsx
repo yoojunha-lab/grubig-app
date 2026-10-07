@@ -6,7 +6,7 @@ import { SearchableSelect } from '../common/SearchableSelect';
 import { CostBreakdownTable } from '../cost/CostBreakdownTable';
 import { DraftNumberInput } from '../quote/QuoteParts';
 import { useUnsavedGuard } from '../../hooks/useUnsavedGuard';
-import { num, usd, calculateGYd, clampNum, todayLocalISO } from '../../utils/helpers';
+import { num, usd, calculateGYd, clampNum, todayLocalISO, rateForMarket, rateLabel } from '../../utils/helpers';
 import { sumYarnRatio, isYarnRatioComplete, findImportCountry } from '../../utils/costModel';
 import { QUOTE_TIERS, QUOTE_TIER_GROUPS } from '../../constants/quote';
 import { calcQuotePrice, formatQuotePrice, getBasePrice, makeDefaultTierRates, makeDefaultTierAdds } from '../../utils/quoteModel';
@@ -47,7 +47,7 @@ export const DevCostQuoteModal = ({
   yarnLibrary = [],
   costSettings = null,
   onOpenCostSettings,
-  globalExchangeRate = 1450,
+  exchangeRates = null,  // 공통 환율 두 칸 { domestic, export } — 창에서 고른 시장(내수 ₩ / 수출 $)의 환율을 씀
   calculateCost,
   createQuoteItem,
   onSave,        // async (costQuote) => 저장한 costQuote | false
@@ -64,9 +64,10 @@ export const DevCostQuoteModal = ({
   const [guardInitial] = useState(() => (devReq.costQuote ? null : normalizeDevQuoteForm(makeBlankDevCostQuote(devReq))));
   const guard = useUnsavedGuard(normalizeDevQuoteForm(form), true, { initial: guardInitial });
 
-  const rate = Number(globalExchangeRate) > 0 ? Number(globalExchangeRate) : 1450;
   const isExport = form.marketType === 'export';
   const viewMode = isExport ? 'export' : 'domestic';
+  // 고른 시장의 공통 환율 — 내수 ₩ = 내수 환율, 수출 $ = 수출 환율 (원가 표·판매가 미리보기·견적서 만들기 모두 같은 값)
+  const rate = rateForMarket(exchangeRates, viewMode);
   const currency = isExport ? 'USD' : 'KRW';
   const sym = isExport ? '$' : '₩';
 
@@ -176,7 +177,7 @@ export const DevCostQuoteModal = ({
               </p>
             </div>
             <div className="flex items-center gap-2 ml-auto">
-              <div className="flex rounded-lg border border-slate-300 overflow-hidden text-xs font-bold" title="원가 표·판매가 통화 (수출은 관세 제외 · 공통 환율로 환산)">
+              <div className="flex rounded-lg border border-slate-300 overflow-hidden text-xs font-bold" title="원가 표·판매가 통화 (내수 = 내수 환율 / 수출 = 관세 제외 · 수출 환율로 환산)">
                 <button type="button" onClick={() => setMarket('domestic')}
                   className={`px-2.5 py-1.5 flex items-center gap-1 ${!isExport ? 'bg-blue-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}>
                   <Home className="w-3.5 h-3.5" /> 내수 ₩
@@ -186,7 +187,7 @@ export const DevCostQuoteModal = ({
                   <Globe className="w-3.5 h-3.5" /> 수출 $
                 </button>
               </div>
-              <span className="hidden sm:inline text-[10px] text-slate-400 whitespace-nowrap">공통 환율 ₩{num(rate)}</span>
+              <span className="hidden sm:inline text-[10px] text-slate-400 whitespace-nowrap">{rateLabel(viewMode)} ₩{num(rate)}</span>
               <button type="button" onClick={requestClose} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg" title="닫기"><X className="w-5 h-5" /></button>
             </div>
           </div>
@@ -225,7 +226,7 @@ export const DevCostQuoteModal = ({
                     {badge.otherBuyer ? ` (바이어 ${badge.otherBuyer})` : ''}
                   </span>
                 )}
-                <span className="text-slate-400">창을 열면 지금 원가(원사 단가·원가 설정·공통 환율)로 다시 계산해서 보여 줘요.</span>
+                <span className="text-slate-400">창을 열면 지금 원가(원사 단가·원가 설정·지금 {rateLabel(viewMode)})로 다시 계산해서 보여 줘요.</span>
               </div>
             )}
 
@@ -305,7 +306,7 @@ export const DevCostQuoteModal = ({
               calc={calc}
               viewMode={viewMode}
               yarnLibrary={yarnLibrary}
-              globalExchangeRate={rate}
+              exchangeRates={exchangeRates}
               setCost={setCost}
               setYarns={() => {}}
               showMaterial={false}
@@ -477,7 +478,7 @@ const PricePreview = ({ item, preview, form, currency, sym, rate, isExport, targ
               className="w-16 border border-emerald-300 rounded px-1 py-0.5 text-center font-mono text-[11px] font-bold text-emerald-800 outline-none focus:ring-2 ring-emerald-200 bg-white" />
           )}
         </PriceRow>
-        <PriceRow label="YD당 정액 (₩)" sub={isExport ? `견적서처럼 원화로 적고 환율 ₩${num(rate)}로 $ 환산` : ''}>
+        <PriceRow label="YD당 정액 (₩)" sub={isExport ? `견적서처럼 원화로 적고 수출 환율 ₩${num(rate)}로 $ 환산` : ''}>
           {(t) => (
             <div className="flex flex-col items-center">
               <DraftNumberInput step="any" value={form.marginAdd?.[t.key] ?? ''} onValue={(v) => onMarginAdd(t.key, v)} placeholder="0"
