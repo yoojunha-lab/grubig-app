@@ -184,14 +184,21 @@ export const formatMonthDay = (value) => {
 };
 
 /**
- * 특정 날짜 문자열(YYYY-MM-DD 등)을 입력받아 해당 달의 마지막 날짜를
- * 'MMM DD, YYYY' 영문 대문자 포맷으로 반환합니다. (견적서 유효기간 표기용)
+ * 견적서 날짜 표기 (유효기간)
+ *  · 'en' — 'OCT 21, 2026' 영문 대문자 (수출 견적서)
+ *  · 'ko' — '2026년 10월 21일' (내수 견적서 약관 — 대표님 요청 2026-10-07)
  */
-export const getLastDayOfQuoteMonth = (dateString) => {
+export const formatQuoteDate = (date, lang = 'en') => (lang === 'ko'
+  ? `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`
+  : date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }).toUpperCase());
+
+/**
+ * 특정 날짜 문자열(YYYY-MM-DD 등)을 입력받아 해당 달의 마지막 날짜를
+ * 견적서 날짜 표기(formatQuoteDate — 기본 'MMM DD, YYYY' 영문 대문자)로 반환합니다. (견적서 유효기간 표기용)
+ */
+export const getLastDayOfQuoteMonth = (dateString, lang = 'en') => {
   const d = dateString ? new Date(dateString) : new Date();
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0)
-    .toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-    .toUpperCase();
+  return formatQuoteDate(new Date(d.getFullYear(), d.getMonth() + 1, 0), lang);
 };
 
 /**
@@ -209,12 +216,13 @@ export const QUOTE_VALIDITY_OPTIONS = [
 
 /**
  * 견적 작성일과 선택 옵션을 받아 유효기간 만료일을
- * 'MMM DD, YYYY' 영문 대문자 포맷으로 반환합니다. (견적서 VALID UNTIL 표기용)
+ * 견적서 날짜 표기로 반환합니다. (견적서 VALID UNTIL 표기용 — 기본 'MMM DD, YYYY' 영문 대문자, 'ko'면 '2026년 10월 21일')
  * - 옵션 값이 없으면(예전 저장 견적서 등) 기본값 '2weeks'(작성일 + 2주) 적용.
  * @param {string} dateString - 견적 작성일 (YYYY-MM-DD)
  * @param {string} option - '2weeks' | '1month' | '2months' | '3months' | 'endOfMonth'
+ * @param {'en'|'ko'} lang - 'ko' = 내수 견적서 약관 (quoteModel.quoteValidUntilLine)
  */
-export const getQuoteValidUntil = (dateString, option = '2weeks') => {
+export const getQuoteValidUntil = (dateString, option = '2weeks', lang = 'en') => {
   const base = dateString ? new Date(dateString) : new Date();
   let target;
   switch (option) {
@@ -228,15 +236,13 @@ export const getQuoteValidUntil = (dateString, option = '2weeks') => {
       target = new Date(base.getFullYear(), base.getMonth() + 3, base.getDate());
       break;
     case 'endOfMonth':
-      return getLastDayOfQuoteMonth(dateString);
+      return getLastDayOfQuoteMonth(dateString, lang);
     case '2weeks':
     default:
       target = new Date(base.getFullYear(), base.getMonth(), base.getDate() + 14);
       break;
   }
-  return target
-    .toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-    .toUpperCase();
+  return formatQuoteDate(target, lang);
 };
 
 // 견적서 가격 계산(기준원가·판매가·별도 견적)은 utils/quoteModel.js 로 옮김 (2026-10-05)

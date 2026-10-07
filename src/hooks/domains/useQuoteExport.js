@@ -78,7 +78,7 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
     const cur = targetQuote.currency;
     const priceBasis = quotePriceBasis(cur);
     const cell = (v) => (v === null || v === undefined ? '' : v); // 기준원가가 없는 구간(예전 견적)은 빈칸
-    // 표 아래 조건 — PDF 약관과 같은 문구 (quoteModel.buildQuoteTerms 한 곳에서 관리)
+    // 표 아래 조건 — PDF 약관과 같은 문구 (quoteModel.buildQuoteTerms 한 곳에서 관리 — 원화(내수) 견적은 한글, 수출은 영문)
     const notes = buildQuoteTerms(targetQuote, isSpecial ? 'special' : 'standard').map(line => `• ${line}`);
 
     let rows;

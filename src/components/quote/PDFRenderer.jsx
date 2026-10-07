@@ -1,8 +1,9 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { num, getQuoteValidUntil } from '../../utils/helpers';
+import { num } from '../../utils/helpers';
 import {
   calcQuotePrice, formatQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice, quotePriceBasis, buildQuoteTerms,
+  quoteValidUntilLine,
 } from '../../utils/quoteModel';
 
 // 견적서 PDF — 단일 연속 표 + 브라우저 자동 페이지 분할 방식.
@@ -15,6 +16,7 @@ import {
 //    - 'standard' 기준 견적서: 고른 구간(shownTiers)만, 구간 조건·제외 항목·부가세/FOB 문구
 //    - 'special'  별도 견적서: 별도 견적 중 '견적서' 체크한 줄만 (수량·컬러·단가). 외관검사·시험성적서 제외는 약관 줄로
 //  · 약관·가격 기준 문구는 quoteModel.buildQuoteTerms / quotePriceBasis — 엑셀 내보내기와 같은 문구
+//  · [2026-10-07] 원화(내수) 견적서는 표 끝 약관(유효기간·조건 줄)만 한글 — 제목·표 머리는 영문 그대로 (대표님 요청)
 
 // 기준 견적서 열 너비(%) — 구간 수에 따라 스펙 칸과 가격 칸을 나눔
 const standardColumns = (n) => {
@@ -40,7 +42,8 @@ export const PDFRenderer = ({
   const rows = getShownCustomItems(quoteInput);
   const col = standardColumns(shownTiers.length);
   const priceBasis = quotePriceBasis(currency);
-  const terms = buildQuoteTerms(quoteInput, isSpecial ? 'special' : 'standard');
+  const terms = buildQuoteTerms(quoteInput, isSpecial ? 'special' : 'standard'); // 내수 = 한글, 수출 = 영문
+  const validUntil = quoteValidUntilLine(quoteInput);                           // '견적 유효기간: …까지' / 'VALID UNTIL: …'
 
   // [PDF 좌측 잘림 v4 — native window.print() 방식]
   //   Chrome native 인쇄(window.print) + @media print CSS (index.css) 로 출력.
@@ -197,7 +200,7 @@ export const PDFRenderer = ({
 
           {/* 표 끝 약관 — 한 덩어리로 안 잘리게 */}
           <div className="border-t-2 border-slate-800 pt-6 mt-10 text-[10px] text-slate-500 font-medium leading-relaxed pb-4 avoid-break">
-            <p className="mb-1">• VALID UNTIL: <span className="font-bold text-slate-800">{getQuoteValidUntil(quoteInput.date, quoteInput.validityOption)}</span></p>
+            <p className="mb-1">• {validUntil.label}: <span className="font-bold text-slate-800">{validUntil.date}</span>{validUntil.suffix}</p>
             {terms.map((line, i) => (
               <p key={line} className={i === terms.length - 1 ? 'mb-4' : 'mb-1'}>• {line}</p>
             ))}

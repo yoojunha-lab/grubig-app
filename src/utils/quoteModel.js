@@ -13,7 +13,7 @@
 //   원가 조각(costParts: 반올림·위험마진 전 YD당 순원가와 그중 이화학·외관검사 몫)을 같이 저장해 두고,
 //   버튼을 바꾸면 조각으로 기준원가를 다시 만듦 (다른 원가는 그대로)
 
-import { smartRound, roundUsd, applyGrossMargin, num, usd } from './helpers';
+import { smartRound, roundUsd, applyGrossMargin, num, usd, getQuoteValidUntil } from './helpers';
 import { QUOTE_TIERS, QUOTE_TIER_KEYS, LEGACY_TIER_KEYS } from '../constants/quote';
 
 const isBlank = (v) => v === undefined || v === null || v === '';
@@ -314,44 +314,99 @@ export const validateQuoteForExport = (quote, kind = 'standard') => {
 // 5. 바이어 견적서 문구 (PDF·엑셀 공통 — 한 곳에서만 관리)
 // ----------------------------------------------------------------------
 
-/** 가격 기준 문구: 원화 = 부가세 별도, 수출 = FOB */
+/** 가격 기준 문구: 원화 = 부가세 별도, 수출 = FOB (제목 아래 줄 — 영문 그대로) */
 export const quotePriceBasis = (currency) => (currency === 'USD' ? 'FOB PRICE' : 'PRICE IN KRW · VAT EXCLUDED');
+
+/**
+ * 견적서 약관 언어 — 원화(내수) 견적서는 'ko' 한글, 수출($) 견적서는 'en' 영문.
+ * (대표님 요청 2026-10-07: 내수 견적서는 **약관 부분만** 한글 — 제목·표 머리·가격 기준 줄은 영문 그대로)
+ */
+export const quoteTermsLang = (quote) => (quote?.currency === 'USD' ? 'en' : 'ko');
+
+// 약관 문구 — en: 수출 견적서 / ko: 내수 견적서 (같은 순서·같은 조건으로 줄이 나감)
+const TERMS_TEXT = {
+  en: {
+    tolerance: '±5% WEIGHT AND WIDTH TOLERANCE',
+    perYard: 'PRICES ARE PER YARD, BASED ON TOTAL ORDER QUANTITY',
+    small: (labels) => `${labels}: UP TO 2 COLORS (SMALL-LOT DYEING CHARGE INCLUDED)`,
+    mcq: (labels) => `${labels}: MCQ PER COLOR REQUIRED`,
+    visual: 'VISUAL INSPECTION NOT INCLUDED',
+    chem: 'TEST REPORT NOT INCLUDED',
+    vat: 'VAT EXCLUDED',
+    bulk: 'BULK PRICING NEGOTIABLE',
+    upcharge: 'UPCHARGE APPLIES FOR ORDERS BELOW MCQ/MOQ',
+    specialQty: 'PRICES APPLY ONLY TO THE QUANTITY (TOTAL PER ORDER) AND NUMBER OF COLORS STATED',
+    specialSplit: 'PRICES ASSUME THE QUANTITY IS SPLIT EVENLY ACROSS THE STATED COLORS',
+    specialUneven: 'IF AN UNEVEN SPLIT LEAVES ANY COLOR BELOW MCQ (YD PER COLOR), THE PRICE MAY BE ADJUSTED',
+    specialOther: 'OTHER QUANTITIES OR COLORS: PLEASE ASK FOR A NEW QUOTATION',
+  },
+  ko: {
+    tolerance: '중량·폭 ±5% 오차 허용',
+    perYard: '단가는 YD당 가격이며, 오더 총수량 기준입니다',
+    small: (labels) => `${labels}: 2컬러까지 (소량 염색 추가 비용 포함)`,
+    mcq: (labels) => `${labels}: 컬러별 MCQ 이상 오더 기준`,
+    visual: '외관검사 비용 미포함',
+    chem: '시험성적서 비용 미포함',
+    vat: '부가세 별도',
+    bulk: '대량 오더 단가는 협의 가능',
+    upcharge: 'MCQ·MOQ 미만 오더는 추가 비용 발생',
+    specialQty: '적힌 수량(오더 총수량)과 컬러 수에만 적용되는 단가입니다',
+    specialSplit: '수량을 적힌 컬러 수로 고르게 나눈 기준의 단가입니다',
+    specialUneven: '컬러별 수량이 고르지 않아 어느 컬러가 MCQ(컬러당 YD)보다 적으면 단가가 조정될 수 있습니다',
+    specialOther: '다른 수량·컬러는 새로 견적을 요청해 주세요',
+  },
+};
+
+/**
+ * 견적서 유효기간 줄 — PDF 약관 맨 위 (날짜만 굵게)
+ *  수출: 'VALID UNTIL: OCT 21, 2026' / 내수: '견적 유효기간: 2026년 10월 21일까지'
+ * @returns {{ label: string, date: string, suffix: string }}
+ */
+export const quoteValidUntilLine = (quote) => {
+  const lang = quoteTermsLang(quote);
+  const date = getQuoteValidUntil(quote?.date, quote?.validityOption, lang);
+  return lang === 'ko'
+    ? { label: '견적 유효기간', date, suffix: '까지' }
+    : { label: 'VALID UNTIL', date, suffix: '' };
+};
 
 /** 구간 이름 묶음 (예: '500 / 800 YD') */
 export const tierLabels = (tiers) => `${tiers.map(t => t.label.replace(' YD', '')).join(' / ')} YD`;
 
 /**
- * 바이어 견적서 약관 줄 (VALID UNTIL 제외 — PDF는 굵게, 엑셀은 머리줄에 따로 씀)
+ * 바이어 견적서 약관 줄 (유효기간 제외 — PDF는 quoteValidUntilLine으로 굵게, 엑셀은 머리줄에 따로 씀)
+ * 원화(내수) 견적서는 한글, 수출 견적서는 영문 (quoteTermsLang)
  * @param {Object} quote
  * @param {'standard'|'special'} kind 기준 견적서 / 별도 견적서
  * @returns {string[]}
  */
 export const buildQuoteTerms = (quote, kind = 'standard') => {
   const isKrw = quote?.currency !== 'USD';
-  const lines = ['±5% WEIGHT AND WIDTH TOLERANCE'];
+  const T = TERMS_TEXT[quoteTermsLang(quote)];
+  const lines = [T.tolerance];
   if (kind === 'special') {
     const ex = getCustomExclude(quote);
-    lines.push('PRICES APPLY ONLY TO THE QUANTITY (TOTAL PER ORDER) AND NUMBER OF COLORS STATED');
+    lines.push(T.specialQty);
     // 컬러별 수량 (대표님 요청 2026-10-06): 단가는 수량을 컬러별로 고르게 나눈다고 보고 낸 값 →
     //  고르지 않게 나눠 어느 컬러가 MCQ보다 적어지면 염색 최소 청구가 더 붙으므로 단가 조정
-    lines.push('PRICES ASSUME THE QUANTITY IS SPLIT EVENLY ACROSS THE STATED COLORS');
-    lines.push('IF AN UNEVEN SPLIT LEAVES ANY COLOR BELOW MCQ (YD PER COLOR), THE PRICE MAY BE ADJUSTED');
-    if (ex.excludeVisual) lines.push('VISUAL INSPECTION NOT INCLUDED');
-    if (ex.excludeChem) lines.push('TEST REPORT NOT INCLUDED');
-    if (isKrw) lines.push('VAT EXCLUDED');
-    lines.push('OTHER QUANTITIES OR COLORS: PLEASE ASK FOR A NEW QUOTATION');
+    lines.push(T.specialSplit);
+    lines.push(T.specialUneven);
+    if (ex.excludeVisual) lines.push(T.visual);
+    if (ex.excludeChem) lines.push(T.chem);
+    if (isKrw) lines.push(T.vat);
+    lines.push(T.specialOther);
     return lines;
   }
   const tiers = getShownTiers(quote);
   const small = tiers.filter(t => t.group === 'small');
   const mcq = tiers.filter(t => t.group === 'mcq');
-  lines.push('PRICES ARE PER YARD, BASED ON TOTAL ORDER QUANTITY');
-  if (small.length) lines.push(`${tierLabels(small)}: UP TO 2 COLORS (SMALL-LOT DYEING CHARGE INCLUDED)`);
-  if (mcq.length) lines.push(`${tierLabels(mcq)}: MCQ PER COLOR REQUIRED`);
-  if (quote?.excludeVisual === true) lines.push('VISUAL INSPECTION NOT INCLUDED');
-  if (quote?.excludeChem === true) lines.push('TEST REPORT NOT INCLUDED');
-  if (isKrw) lines.push('VAT EXCLUDED');
-  lines.push('BULK PRICING NEGOTIABLE');
-  lines.push('UPCHARGE APPLIES FOR ORDERS BELOW MCQ/MOQ');
+  lines.push(T.perYard);
+  if (small.length) lines.push(T.small(tierLabels(small)));
+  if (mcq.length) lines.push(T.mcq(tierLabels(mcq)));
+  if (quote?.excludeVisual === true) lines.push(T.visual);
+  if (quote?.excludeChem === true) lines.push(T.chem);
+  if (isKrw) lines.push(T.vat);
+  lines.push(T.bulk);
+  lines.push(T.upcharge);
   return lines;
 };

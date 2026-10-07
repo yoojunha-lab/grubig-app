@@ -322,13 +322,23 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
   - 수량·컬러를 바꾸면 그 줄만 견적 환율로 다시 계산. 원단이 삭제된 줄은 수량·컬러를 바꿀 수 없음.
   - **원단 추가는 기준 견적과 같은 방식**: [원단 검색·추가] 팝업(이미 담긴 원단은 '추가됨'), 표 아래 Article 입력(Enter)·엑셀 세로 복붙,
     기준 견적에서 체크 → [별도 견적으로 복사]. 300YD · 2컬러로 시작. **같은 원단은 한 줄만** (조건은 그 줄의 수량·컬러를 바꿈).
-- **바이어 견적서 문구** (영문): 원화 = 'PRICE IN KRW · VAT EXCLUDED' + 'VAT EXCLUDED', 수출 = 'FOB PRICE'.
+- **바이어 견적서 문구** (영문 — 내수 견적서의 약관 줄은 한글, 아래 2026-10-07): 원화 = 'PRICE IN KRW · VAT EXCLUDED' + 'VAT EXCLUDED', 수출 = 'FOB PRICE'.
   기준: 'PRICES ARE PER YARD, BASED ON TOTAL ORDER QUANTITY', '{300~800 중 표시 구간} YD: UP TO 2 COLORS (SMALL-LOT DYEING CHARGE INCLUDED)',
   '{1,000 이상 표시 구간} YD: MCQ PER COLOR REQUIRED' + 기존 약관. 별도: 'PRICES APPLY ONLY TO THE QUANTITY (TOTAL PER ORDER) AND NUMBER OF COLORS STATED',
   'PRICES ASSUME THE QUANTITY IS SPLIT EVENLY ACROSS THE STATED COLORS', 'IF AN UNEVEN SPLIT LEAVES ANY COLOR BELOW MCQ (YD PER COLOR),
   THE PRICE MAY BE ADJUSTED' (대표님 결정 2026-10-06 — 별도 견적 단가는 컬러별로 고르게 나눈다고 보고 낸 값이라, 고르지 않게 나눠 어느 컬러가
   MCQ보다 적어지면 염색 최소 청구가 더 붙음: 예) GB-2405 1,000YD 3컬러 450/450/100이면 원가 약 +9%). 별도 견적서 PDF·엑셀에 **MCQ(컬러당 YD) 칸**도 있음.
   문구는 `quoteModel.buildQuoteTerms(quote, kind)` · `quotePriceBasis(currency)` 한 곳에서 만들어 PDF·엑셀이 같이 씀.
+- **내수(원화) 견적서는 약관만 한글** (대표님 요청 2026-10-07 — 기준·별도 견적서 PDF, 엑셀은 표 아래 조건 줄):
+  제목·표 머리·가격 기준 줄(PRICE IN KRW · VAT EXCLUDED)·'Made in Korea'는 영문 그대로. 수출 견적서는 전부 영문 그대로.
+  - 판단: 견적 통화가 원화면 한글 (`quoteTermsLang` — 예전 `isKrw`와 같은 기준). 저장된 예전 내수 견적도 다시 출력하면 한글.
+  - 문구: `quoteModel.js`의 `TERMS_TEXT`(en·ko 같은 순서·같은 조건). 유효기간 줄은 `quoteValidUntilLine` —
+    'VALID UNTIL: OCT 21, 2026' / '견적 유효기간: 2026년 10월 21일까지' (PDF는 날짜만 굵게, `helpers.getQuoteValidUntil(…, lang)`).
+  - 한글 문구: 중량·폭 ±5% 오차 허용 / 단가는 YD당 가격이며, 오더 총수량 기준입니다 / {구간}: 2컬러까지 (소량 염색 추가 비용 포함) /
+    {구간}: 컬러별 MCQ 이상 오더 기준 / 외관검사 비용 미포함 / 시험성적서 비용 미포함 / 부가세 별도 / 대량 오더 단가는 협의 가능 /
+    MCQ·MOQ 미만 오더는 추가 비용 발생. 별도: 적힌 수량(오더 총수량)과 컬러 수에만 적용되는 단가입니다 / 수량을 적힌 컬러 수로 고르게 나눈
+    기준의 단가입니다 / 컬러별 수량이 고르지 않아 어느 컬러가 MCQ(컬러당 YD)보다 적으면 단가가 조정될 수 있습니다 / 다른 수량·컬러는 새로 견적을 요청해 주세요.
+  - 엑셀 맨 위 'Valid Until' 줄·열 이름은 영문 그대로 (약관 부분만 한글).
 - **예전 견적 호환** (`normalizeQuote`): 판가는 그대로. 새 구간(300·500·800)의 이익율·정액은 기본값으로 채움(0% 방지),
   새 구간을 켜면 단가 '—' + [현재 원가로 다시 계산] 안내. 아주 옛날(extraMargin) 견적은 구간 설정·별도 견적을 막음.
 - 시장 구분 전환·[현재 원가로 다시 계산]·복제 때 별도 견적 줄도 같이 다시 계산 (줄에 직접 넣은 정액은 같은 환율로 환산).
@@ -419,7 +429,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 견적 MCQ | `src/hooks/domains/useQuotation.js` — 100kg ÷ (G/YD × (1 + 가공 LOSS%)), 100YD 단위 올림, 자동값은 최소 300YD (원가 계산기 화면도 같은 값) |
 | 엑셀 업로드 칸 읽기 | `src/utils/excelIO.js` — `readFirstSheetRows`, `parseNumCell`, `parsePercentCell`, `parseYesCell`·`parseNoCell`, `parseCurrencyCell` |
 | 견적 구간·기본 마진 | `src/constants/quote.js` — `QUOTE_TIERS`(key·costKey·수량·묶음·기본 이익율/정액), `DEFAULT_SHOWN_TIERS` |
-| 견적 계산 (순수 함수) | `src/utils/quoteModel.js` — `calcQuotePrice`, `calcCustomQuotePrice`, `computeBaseFromParts`, `normalizeQuote`, `getShownTiers`, `tierForQty`, `validateQuoteForExport`(출력 전 확인), `buildQuoteTerms`·`quotePriceBasis`(견적서 문구) 등 |
+| 견적 계산 (순수 함수) | `src/utils/quoteModel.js` — `calcQuotePrice`, `calcCustomQuotePrice`, `computeBaseFromParts`, `normalizeQuote`, `getShownTiers`, `tierForQty`, `validateQuoteForExport`(출력 전 확인), `buildQuoteTerms`·`quotePriceBasis`·`quoteValidUntilLine`·`quoteTermsLang`(견적서 문구 — 내수는 약관만 한글) 등 |
 | 견적서 화면·출력 | `src/pages/QuotationPage.jsx`(기준/별도 칸) + `src/components/quote/QuoteParts.jsx`(공용 부품), `src/components/quote/PDFRenderer.jsx`(kind: standard/special), `src/hooks/domains/useQuoteExport.js` — `handleDownloadPDF`·`handleDownloadQuoteExcel(quote, kind)`(인쇄할 견적은 `pdfQuote`로 따로) |
 | 설계서 소요 중량 | `src/pages/DesignSheetPage.jsx` — 입력 YD → 원사 kg (같은 kg 흐름) |
 | 원단 엑셀 양식 | `src/hooks/domains/useExcelIO.js` — `KnitGrade`·`KnitKgRate`·`ProcessType` 열 (이름으로 입력, 예전 양식도 등록됨) |
