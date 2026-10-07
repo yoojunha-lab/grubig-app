@@ -112,7 +112,10 @@ order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, fin
 - 수량 = 오더 컬러 수량 × 원사 비율%. **로스는 넣지 않음** (대표님 지정 — 오더 수량 그대로). 혼용율 = 원사 컬러 수량 ÷ 원사 수량 합계.
 - **같은 원사 컬러는 합침** (컬러 공용 — 대소문자·띄어쓰기 무시, 예: BARK BROWN이 세 오더 컬러에 들어가면 한 줄). 결과는 처음 나온 순서.
 - 컬러명에 '/'가 있으면 원사 컬러 칸을 나눠 채움 (오더 불러올 때 · 직접 입력은 컬러명 칸을 떠날 때 원사 칸이 비어 있으면). 컬러 이름은 대문자로.
-- **원사 (앞부분)** 칸(예: `F/60Nm SW/N 87/13`)을 넣으면 결과 원사명 = 앞부분 + 컬러 (대표님 캡처의 '사가공 원사' 표 모양). 오더에 연결된 원단의 원사가 하나뿐이면 그 원사 이름으로 자동.
+- **원사 = ARTICLE(원단 관리)의 원사** (대표님 요청 2026-10-07 — 'ARTICLE 불러와서 그 원사에서 컬러 나누기'): 결과 원사명 = 원사 + 컬러
+  (예: `F/60Nm SW/N 87/13 APRICOT` — 대표님 캡처의 '사가공 원사' 표 모양).
+  - 원사가 하나인 원단은 바로 채움. **원사가 여러 개면 선염할 원사 하나를 고르는 칸**(노란색, 혼용률 큰 순)이 뜸 — 모든 컬러에 같은 원사 (대표님 OK ①).
+  - 원단을 못 찾거나 원사가 없으면 ARTICLE 아래 '원사' 칸에 직접 입력.
 - 확인 표시: 한 줄 비율 합계 ≠ 100%(비율을 하나라도 넣은 줄만) · 원사 컬러 이름 빈 칸 · 수량 빈 칸 → 빨간 안내, 원사 합계 ≠ 오더 합계면 합계 줄에 안내.
 - 예) 대표님 캡처 3컬러(106.8 / 151.0 / 127.4kg)를 79 : 21로 → APRICOT 21.9% · BARK BROWN 21.0% · DEEP LIME 31.0% · NAVY CHARCOAL 26.1%
   (캡처 시스템은 로스 넣은 kg로 계산해서 BARK BROWN 21.1%).
@@ -122,21 +125,25 @@ order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, fin
 - 줄마다 멜란지(1%·8% …)와 수량 → **수량 비율** (대표님 지정: 비율 = 수량 비율). 예) 600 / 1,800YD → 25% / 75%. 기본 단위 YD.
 
 ### 공통
-- **[오더 불러오기]**: 생산 현황 오더(컬러가 있는 오더)를 골라 제목(오더# · Article)·컬러명·**오더 kg**(작지 kg 아님)를 채움. 이미 넣은 줄이 있으면 바꿀지 물어봄.
+- **기본 정보 = O/D · ARTICLE · 메모** (대표님 지정 2026-10-07 — 제목 칸 없음). 목록 제목은 'O/D · ARTICLE'로 자동 (둘 다 없으면 '스트라이프 선염 2026-10-07').
+- **O/D**: 생산 현황 오더(컬러가 있는 오더)를 골라 컬러명·**오더 kg**(작지 kg 아님)를 채움. 이미 넣은 줄이 있으면 바꿀지 물어봄.
+  그 오더의 ARTICLE도 같이 — 오더에 연결된 원단, 없으면 **같은 Article 번호의 원단**(대소문자·띄어쓰기 무시, `findFabricForOrder`) → 원사까지 자동.
+- **ARTICLE**: 원단 관리 원단을 고르면 원사를 채움 (`fabricYarnOptions`). 수량 단위(kg / YD) 버튼은 표 머리줄 오른쪽.
 - **[결과 복사]**: 결과 표를 탭으로 구분한 글자로 복사 → 엑셀·다른 프로그램에 붙여 넣기.
 - **저장**: Firestore `yarnDyeCalcs` (새 컬렉션) — 문서
-  `{ id: 'ydc_…', kind: 'stripe'|'melange', title, orderId, orderNumber, articleNo, baseYarnName, unit('kg'|'yd'), memo, rows, createdAt, createdBy, updatedAt, updatedBy }`
+  `{ id: 'ydc_…', kind: 'stripe'|'melange', title(자동 'O/D · ARTICLE'), orderId, orderNumber, fabricId, articleNo, baseYarnName, unit('kg'|'yd'), memo, rows, createdAt, createdBy, updatedAt, updatedBy }`
   - rows — stripe: `[{ id, name, qty, yarns: [{ id, color, pct }] }]` / melange: `[{ id, label, qty }]` (숫자 칸은 숫자 또는 null, 빈 줄은 빼고 저장)
   - 결과(원사별 수량·혼용율)는 저장하지 않고 열 때마다 rows로 다시 계산.
-  - 제목을 비우면 '스트라이프 선염 2026-10-07'처럼. 목록은 최근 저장 순, 제목·오더#·Article·메모로 검색, 누르면 불러오기. [삭제]는 복구 불가 확인.
+  - 목록은 최근 저장 순(둘째 줄 = 줄 수 · 메모), O/D·Article·메모로 검색, 누르면 불러오기. [삭제]는 복구 불가 확인.
 - **저장 안 한 변경**: 저장될 모양(`cleanCalcForSave`)으로 비교 → 다른 계산 열기·[새로 계산]·계산 종류 전환·**다른 메뉴로 이동**(App `navGuardRef`) 때 '저장할까요?'
   (저장하고 나가기 / 저장 안 함 / 계속 편집). 작성 중인 계산은 훅(App)에 있어서 다른 메뉴에 다녀와도 남아 있음.
-- DEV 미리보기: `DEV_LOCAL_SETTERS.yarnDyeCalcs` (저장은 화면 안에서만), 샘플 오더 `F-26M030`(대표님 캡처 컬러·kg)로 오더 불러오기 확인.
+- DEV 미리보기: `DEV_LOCAL_SETTERS.yarnDyeCalcs` (저장은 화면 안에서만), 샘플 오더 `F-26M030`(대표님 캡처 컬러·kg) + 샘플 원단 `PW1050`
+  (원사 하나 `F/60Nm SW/N 87/13`)로 O/D → ARTICLE → 원사 자동 확인, `GB-2402`(원사 2개)로 원사 고르기 확인.
 
 ### 파일
 | 역할 | 파일 |
 |-----|-----|
-| 계산 (순수 함수) | `src/utils/yarnDyeCalc.js` — `computeStripe`·`computeMelange`·`calcFromOrder`·`normalizeCalc`·`cleanCalcForSave`·`buildCalcCopyText`·`splitColorName`·`colorKey` |
+| 계산 (순수 함수) | `src/utils/yarnDyeCalc.js` — `computeStripe`·`computeMelange`·`calcFromOrder`·`findFabricForOrder`·`fabricYarnOptions`·`calcAutoTitle`·`normalizeCalc`·`cleanCalcForSave`·`buildCalcCopyText`·`splitColorName`·`colorKey` |
 | 저장·불러오기·삭제 | `src/hooks/domains/useYarnDyeCalc.js` (Firestore `yarnDyeCalcs`) |
 | 화면 | `src/pages/ProductionCalcPage.jsx` (저장 목록 + 스트라이프/멜란지) |
 | 메뉴·연결 | `src/components/layout/Sidebar.jsx` (생산 ▾ 계산기), `src/apps/App.jsx` (구독·DEV 저장·탭) |

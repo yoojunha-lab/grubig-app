@@ -5,12 +5,14 @@
 //   오더 컬러(예: APRICOT/BARK BROWN)마다 원사 컬러별 비율(%)을 넣으면 → 원사 컬러별 수량·혼용율
 //   · 오더 컬러 수량 × 원사 비율% = 그 원사 컬러 수량. 같은 원사 컬러(대소문자·띄어쓰기 무시)는 합침 (컬러 공용)
 //   · 혼용율 = 원사 컬러 수량 ÷ 전체 원사 수량. 로스는 넣지 않음 (대표님 지정 — 오더 수량 그대로)
-//   · 원사명 = '원사 (앞부분)' + 컬러 (예: 'F/60Nm SW/N 87/13' + 'APRICOT')
+//   · 원사명 = ARTICLE(원단)의 원사 + 컬러 (예: 'F/60Nm SW/N 87/13' + 'APRICOT'). 원사가 여러 개면 선염할 원사 하나를 고름
 //   · 컬러명을 '/'로 나눠 원사 컬러 칸을 채움 (APRICOT/BARK BROWN → APRICOT, BARK BROWN)
 // ■ ② 멜란지 선염 (kind 'melange')
 //   줄마다 멜란지(1%·8% …)와 수량 → 수량 비율 (대표님 지정: 비율 = 수량 비율)
+// ■ 화면 기본 정보는 O/D(생산 현황 오더) · ARTICLE(원단 관리) · 메모 (대표님 지정 2026-10-07 — 제목 칸 없음)
+//   저장 제목(title)은 'O/D · ARTICLE'로 자동 (목록 표시·검색용)
 //
-// ■ 저장 문서 { id, kind, title, orderId, orderNumber, articleNo, baseYarnName, unit('kg'|'yd'), memo,
+// ■ 저장 문서 { id, kind, title, orderId, orderNumber, fabricId, articleNo, baseYarnName, unit('kg'|'yd'), memo,
 //               rows, createdAt, createdBy, updatedAt, updatedBy }
 //   rows — stripe: [{ id, name, qty, yarns: [{ id, color, pct }] }] / melange: [{ id, label, qty }]
 //   화면 입력 칸은 글자 그대로 들고 있다가, 저장할 때 숫자로 정리 (cleanCalcForSave)
@@ -64,19 +66,48 @@ export const makeMelangeRow = (label = '', qty = '') => ({ id: uid('m'), label, 
 /** 빈 계산 (새로 계산) */
 export const makeBlankCalc = (kind = 'stripe') => ({
   kind: kind === 'melange' ? 'melange' : 'stripe',
-  title: '',
-  orderId: '', orderNumber: '', articleNo: '',
-  baseYarnName: '',
+  orderId: '', orderNumber: '',          // O/D (생산 현황 오더)
+  fabricId: '', articleNo: '',           // ARTICLE (원단 관리 원단)
+  baseYarnName: '',                      // 선염할 원사 이름 (ARTICLE의 원사) — 결과 원사명 앞부분
   unit: kind === 'melange' ? 'yd' : 'kg',   // 대표님 예시: 스트라이프는 오더 kg, 멜란지는 YD
   memo: '',
   rows: kind === 'melange' ? [makeMelangeRow(), makeMelangeRow()] : [makeStripeRow(), makeStripeRow()],
 });
 
+/** 목록에 보일 제목 — 'O/D · ARTICLE' (둘 다 없으면 '') */
+export const calcAutoTitle = (calc) =>
+  [calc?.orderNumber, calc?.articleNo].map(s => String(s || '').trim()).filter(Boolean).join(' · ');
+
+/** 오더의 원단 찾기 — 원단이 연결돼 있으면 그 원단, 아니면 오더의 Article 번호와 같은 원단 (대소문자·띄어쓰기 무시) */
+export const findFabricForOrder = (order, fabrics) => {
+  const list = Array.isArray(fabrics) ? fabrics : [];
+  if (order?.linkedFabricId) {
+    const linked = list.find(f => String(f.id) === String(order.linkedFabricId));
+    if (linked) return linked;
+  }
+  const key = colorKey(order?.articleNo);
+  return key ? list.find(f => colorKey(f?.article) === key) || null : null;
+};
+
 /**
- * 생산 현황 오더 → 계산 양식 (제목 = 오더# · Article, 컬러명·오더 kg)
- *  baseYarnName: 원사 (앞부분) — 연결된 원단의 원사가 하나뿐일 때 그 이름 (호출하는 쪽에서 찾아 넘김)
+ * 원단(ARTICLE)의 원사 목록 — [{ yarnId, name, ratio }] (혼용률이 있는 칸만, 혼용률 큰 순)
+ *  이름은 원사 라이브러리 이름 (라이브러리에 없으면 엑셀 등록 때 이름)
  */
-export const calcFromOrder = (order, kind = 'stripe', { baseYarnName = '' } = {}) => {
+export const fabricYarnOptions = (fabric, yarnLibrary) => (Array.isArray(fabric?.yarns) ? fabric.yarns : [])
+  .filter(y => y && (y.yarnId || y.tempName) && Number(y.ratio) > 0)
+  .map(y => {
+    const yarnId = String(y.yarnId || '').split('::')[0];
+    const lib = (yarnLibrary || []).find(l => String(l.id) === yarnId);
+    return { yarnId, name: String(lib?.name || y.tempName || '').trim(), ratio: Number(y.ratio) || 0 };
+  })
+  .filter(y => y.name)
+  .sort((a, b) => b.ratio - a.ratio);
+
+/**
+ * 생산 현황 오더 → 계산 양식 (O/D·컬러명·오더 kg)
+ *  fabricId·articleNo·baseYarnName: 그 오더의 원단(ARTICLE)과 원사 — 호출하는 쪽에서 찾아 넘김 (findFabricForOrder)
+ */
+export const calcFromOrder = (order, kind = 'stripe', { fabricId = '', articleNo = '', baseYarnName = '' } = {}) => {
   const blank = makeBlankCalc(kind);
   const colors = (order?.colors || []).filter(c => String(c?.name || '').trim() || numOrNull(c?.orderKg) !== null);
   const rows = colors.map(c => (kind === 'melange'
@@ -84,10 +115,10 @@ export const calcFromOrder = (order, kind = 'stripe', { baseYarnName = '' } = {}
     : makeStripeRow(String(c.name || '').trim(), toInput(numOrNull(c.orderKg)))));
   return {
     ...blank,
-    title: [order?.orderNumber, order?.articleNo].map(s => String(s || '').trim()).filter(Boolean).join(' · '),
     orderId: String(order?.id || ''),
     orderNumber: String(order?.orderNumber || ''),
-    articleNo: String(order?.articleNo || ''),
+    fabricId: String(fabricId || ''),
+    articleNo: String(articleNo || order?.articleNo || ''),
     baseYarnName: kind === 'stripe' ? String(baseYarnName || '') : '',
     unit: 'kg',   // 생산 오더 수량은 kg
     rows: rows.length ? rows : blank.rows,
@@ -110,9 +141,9 @@ export const normalizeCalc = (doc) => {
   return {
     ...blank,
     ...(doc?.id ? { id: doc.id } : {}),
-    title: String(doc?.title ?? ''),
     orderId: String(doc?.orderId ?? ''),
     orderNumber: String(doc?.orderNumber ?? ''),
+    fabricId: String(doc?.fabricId ?? ''),
     articleNo: String(doc?.articleNo ?? ''),
     baseYarnName: String(doc?.baseYarnName ?? ''),
     unit: doc?.unit === 'yd' ? 'yd' : (doc?.unit === 'kg' ? 'kg' : blank.unit),
@@ -145,10 +176,10 @@ export const cleanCalcForSave = (calc) => {
     }));
   return {
     kind,
-    title: String(calc?.title || '').trim(),
     orderId: String(calc?.orderId || ''),
-    orderNumber: String(calc?.orderNumber || ''),
-    articleNo: String(calc?.articleNo || ''),
+    orderNumber: String(calc?.orderNumber || '').trim(),
+    fabricId: String(calc?.fabricId || ''),
+    articleNo: String(calc?.articleNo || '').trim(),
     baseYarnName: kind === 'stripe' ? String(calc?.baseYarnName || '').trim() : '',
     unit: calc?.unit === 'yd' ? 'yd' : 'kg',
     memo: String(calc?.memo || '').trim(),
@@ -156,10 +187,10 @@ export const cleanCalcForSave = (calc) => {
   };
 };
 
-/** 넣은 값이 하나라도 있는지 (새 계산을 저장 안 하고 바꿀 때 물어볼지) */
+/** 넣은 값이 하나라도 있는지 (오더를 불러올 때 지금 줄을 바꿀지 물어볼지) */
 export const calcHasData = (calc) => {
   const c = cleanCalcForSave(calc);
-  return !!(c.title || c.memo || c.baseYarnName || c.orderId || c.rows.length);
+  return !!(c.memo || c.baseYarnName || c.orderId || c.fabricId || c.rows.length);
 };
 
 // ----------------------------------------------------------------------

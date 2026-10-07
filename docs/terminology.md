@@ -170,7 +170,9 @@
 | **계산기** (생산) | 생산 드롭다운의 선염 계산기 메뉴. 원단 등록의 '원가 계산기'(`CalculatorPage`)와 다른 화면 | 탭 `productionCalc`, `ProductionCalcPage` |
 | **스트라이프 선염** | 오더 컬러(예: APRICOT/BARK BROWN)를 원사 컬러별 비율(%)로 나눠 원사 컬러별 수량·혼용율 (같은 원사 컬러는 합침, 로스 없음) | `kind: 'stripe'` |
 | **멜란지 선염** | 멜란지별 수량 → 수량 비율 | `kind: 'melange'` |
-| **원사 (앞부분)** | 결과 원사명 앞에 붙는 원사 스펙 (예: F/60Nm SW/N 87/13 → 'F/60Nm SW/N 87/13 APRICOT') | `baseYarnName` |
+| **O/D** | 생산 현황 오더 — 고르면 컬러명·오더 kg와 그 오더의 ARTICLE을 채움 (계산기 기본 정보, 제목 칸 대신) | `orderId`·`orderNumber` |
+| **ARTICLE** | 원단 관리 원단 — 고르면 그 원단의 원사를 선염할 원사로 (원사가 여러 개면 하나를 고름) | `fabricId`·`articleNo` |
+| **원사** (선염 계산) | 결과 원사명 앞에 붙는 원사 (ARTICLE의 원사, 직접 입력도 됨 — 예: F/60Nm SW/N 87/13 → 'F/60Nm SW/N 87/13 APRICOT') | `baseYarnName` |
 | **혼용율** (선염 결과) | 원사 컬러 수량 ÷ 원사 수량 합계 | 결과 표 |
 | **저장된 계산** | 저장해 둔 선염 계산 목록 (누르면 불러오기) | Firestore `yarnDyeCalcs` |
 

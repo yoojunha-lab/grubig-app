@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo } from 'react';
 import { todayLocalISO } from '../../utils/helpers';
-import { makeBlankCalc, normalizeCalc, cleanCalcForSave, calcKindLabel } from '../../utils/yarnDyeCalc';
+import { makeBlankCalc, normalizeCalc, cleanCalcForSave, calcKindLabel, calcAutoTitle } from '../../utils/yarnDyeCalc';
 
 // ============================================================
 // GRUBIG ERP - 선염 계산기 (생산 ▾ 계산기) 도메인 훅 — 대표님 요청 2026-10-07
@@ -50,8 +50,8 @@ export const useYarnDyeCalc = (yarnDyeCalcs, saveDocToCloud, deleteDocFromCloud,
     const now = new Date().toISOString();
     const who = user?.displayName || user?.email?.split('@')[0] || 'Unknown';
     const existing = editingDyeCalcId ? (yarnDyeCalcs || []).find(c => c.id === editingDyeCalcId) : null;
-    // 제목을 비우면 '스트라이프 선염 2026-10-07'처럼
-    const title = clean.title || `${calcKindLabel(clean.kind)} ${todayLocalISO()}`;
+    // 제목 칸은 없음 (대표님 지정) — 목록 제목은 'O/D · ARTICLE', 둘 다 없으면 저장돼 있던 제목 → '스트라이프 선염 2026-10-07'
+    const title = calcAutoTitle(clean) || existing?.title || `${calcKindLabel(clean.kind)} ${todayLocalISO()}`;
     const docToSave = {
       ...clean,
       title,

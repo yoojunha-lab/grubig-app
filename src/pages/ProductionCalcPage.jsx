@@ -4,7 +4,7 @@ import { SearchableSelect } from '../components/common/SearchableSelect';
 import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
 import { formatMonthDay } from '../utils/helpers';
 import {
-  CALC_KINDS, CALC_UNITS, calcKindLabel, unitLabel, calcFromOrder, calcHasData,
+  CALC_KINDS, CALC_UNITS, calcKindLabel, unitLabel, calcFromOrder, calcHasData, findFabricForOrder, fabricYarnOptions,
   makeStripeRow, makeMelangeRow, makeYarnSlot, splitColorName,
   computeStripe, computeMelange, stripeRowPctSum, stripeRemainderHint, buildCalcCopyText, fmt1, fmtPct,
 } from '../utils/yarnDyeCalc';
@@ -12,9 +12,11 @@ import {
 // ============================================================
 // 생산 ▾ 계산기 — 선염 계산기 (대표님 요청 2026-10-07)
 //  · 왼쪽: 저장된 계산 목록 (검색 · 누르면 불러오기) / 오른쪽: 계산기 [스트라이프 선염] [멜란지 선염]
+//  · 기본 정보는 O/D · ARTICLE · 메모 (대표님 지정 — 제목 칸 없음, 목록 제목은 'O/D · ARTICLE')
+//    - O/D: 생산 현황 오더 → 컬러명·오더 kg (스트라이프는 컬러명을 '/'로 나눠 원사 컬러 칸을 채움) + 그 오더의 ARTICLE
+//    - ARTICLE: 원단 관리 원단 → 그 원사를 선염할 원사로 (원사가 여러 개면 하나를 고름) — 결과 원사명 = 원사 + 컬러
 //  · 스트라이프 선염: 오더 컬러마다 원사 컬러 비율(%) → 원사 컬러별 수량·혼용율 (같은 이름은 합침, 로스 없음)
 //  · 멜란지 선염: 멜란지별 수량 → 수량 비율
-//  · [오더 불러오기]: 생산 현황 오더의 컬러명·오더 kg (스트라이프는 컬러명을 '/'로 나눠 원사 컬러 칸을 채움)
 //  · 저장 안 한 변경이 있으면 다른 계산·새 계산·다른 메뉴로 갈 때 '저장할까요?'
 //  · 계산 규칙: utils/yarnDyeCalc.js · 저장: hooks/domains/useYarnDyeCalc.js (Firestore yarnDyeCalcs)
 // ============================================================
@@ -22,15 +24,8 @@ import {
 const inputCls = 'w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:ring-2 ring-teal-200';
 const numCls = 'bg-white border rounded-lg px-2 py-1.5 text-sm font-mono font-bold text-right outline-none focus:ring-2 ring-teal-200';
 
-// 오더에 연결된 원단의 원사가 하나뿐이면 그 원사 이름 — '원사 (앞부분)' 자동 채우기
-const findBaseYarnName = (order, savedFabrics, yarnLibrary) => {
-  const fabric = (savedFabrics || []).find(f => order?.linkedFabricId && String(f.id) === String(order.linkedFabricId));
-  const slots = (fabric?.yarns || []).filter(y => y && (y.yarnId || y.tempName) && Number(y.ratio) > 0);
-  if (slots.length !== 1) return '';
-  const yarnId = String(slots[0].yarnId || '').split('::')[0];
-  const yarn = (yarnLibrary || []).find(y => String(y.id) === yarnId);
-  return String(yarn?.name || slots[0].tempName || '').trim();
-};
+// 원단의 원사가 하나뿐이면 그 이름 (여러 개면 '' — 화면에서 고름)
+const singleYarnName = (yarns) => (yarns.length === 1 ? yarns[0].name : '');
 
 // 결과를 클립보드로 (안 되는 브라우저는 예전 방식)
 const copyText = async (text) => {
@@ -133,7 +128,7 @@ export const ProductionCalcPage = ({
     }),
   }));
 
-  // ── 오더 불러오기 (생산 현황) ──
+  // ── O/D (생산 현황 오더) ──
   const orderOptions = useMemo(() => [...(orders || [])]
     .filter(o => (o.colors || []).length > 0)
     .sort((a, b) => String(b.orderNumber || '').localeCompare(String(a.orderNumber || '')))
@@ -143,16 +138,39 @@ export const ProductionCalcPage = ({
     })), [orders]);
   const applyOrder = (orderId) => {
     const order = (orders || []).find(o => String(o.id) === String(orderId));
-    if (!order) { patch({ orderId: '', orderNumber: '', articleNo: '' }); return; } // 칸을 비우면 연결만 풂
-    const hasRows = calcHasData({ ...calc, title: '', memo: '', baseYarnName: '', orderId: '' });
+    if (!order) { patch({ orderId: '', orderNumber: '' }); return; } // 칸을 비우면 O/D 연결만 풂
+    const hasRows = calcHasData({ ...calc, memo: '', baseYarnName: '', orderId: '', fabricId: '' });
     if (hasRows && !window.confirm(`지금 넣은 줄을 ${order.orderNumber || '이 오더'}의 컬러(${(order.colors || []).length}개)로 바꿀까요?`)) return;
-    const next = calcFromOrder(order, calc.kind, { baseYarnName: findBaseYarnName(order, savedFabrics, yarnLibrary) });
+    // 그 오더의 ARTICLE(원단) — 연결된 원단, 없으면 같은 Article 번호의 원단 → 원사가 하나면 바로 채움
+    const fabric = findFabricForOrder(order, savedFabrics);
+    const yarns = fabric ? fabricYarnOptions(fabric, yarnLibrary) : [];
+    const next = calcFromOrder(order, calc.kind, {
+      fabricId: fabric?.id || '',
+      articleNo: fabric?.article || order.articleNo || '',
+      baseYarnName: singleYarnName(yarns),
+    });
     setDyeCalcInput(prev => ({
       ...next,
-      baseYarnName: next.baseYarnName || prev.baseYarnName,
+      // 원단을 못 찾았으면 지금 원사 그대로 (직접 넣은 원사), 찾았는데 원사가 여러 개면 비워서 고르게
+      baseYarnName: fabric ? next.baseYarnName : prev.baseYarnName,
       memo: prev.memo,
       ...(prev.createdAt ? { createdAt: prev.createdAt, createdBy: prev.createdBy } : {}),
     }));
+  };
+
+  // ── ARTICLE (원단 관리) — 고르면 그 원단의 원사를 선염할 원사로 ──
+  const fabricOptions = useMemo(() => [...(savedFabrics || [])]
+    .filter(f => String(f?.article || '').trim())
+    .sort((a, b) => String(a.article).localeCompare(String(b.article)))
+    .map(f => ({ id: String(f.id), name: `${f.article} · ${f.itemName || ''}` })), [savedFabrics]);
+  const currentFabric = calc.fabricId ? (savedFabrics || []).find(f => String(f.id) === String(calc.fabricId)) || null : null;
+  const yarnChoices = currentFabric ? fabricYarnOptions(currentFabric, yarnLibrary) : [];
+  const applyArticle = (fabricId) => {
+    const fabric = (savedFabrics || []).find(f => String(f.id) === String(fabricId));
+    if (!fabric) { patch({ fabricId: '', articleNo: '' }); return; } // 칸을 비우면 ARTICLE 연결만 풂 (원사는 그대로)
+    const yarns = fabricYarnOptions(fabric, yarnLibrary);
+    // 원사가 없는 원단이면 지금 원사 그대로 (직접 넣은 원사), 여러 개면 비워서 고르게
+    patch({ fabricId: String(fabric.id), articleNo: String(fabric.article || ''), baseYarnName: yarns.length ? singleYarnName(yarns) : calc.baseYarnName });
   };
 
   const handleCopy = async () => {
@@ -176,7 +194,7 @@ export const ProductionCalcPage = ({
           <div className="p-2 border-b border-slate-100 shrink-0">
             <div className="relative">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="제목·오더#·Article 검색"
+              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="O/D·Article·메모 검색"
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-2 py-1.5 text-xs outline-none focus:ring-2 ring-teal-200" />
             </div>
           </div>
@@ -195,7 +213,7 @@ export const ProductionCalcPage = ({
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-[10px] text-slate-400">
-                    <span className="truncate">{(c.rows || []).length}줄{c.orderNumber ? ` · ${c.orderNumber}` : ''}</span>
+                    <span className="truncate">{(c.rows || []).length}줄{c.memo ? ` · ${c.memo}` : ''}</span>
                     <span className="shrink-0">{formatMonthDay(c.updatedAt)}{c.updatedBy ? ` · ${c.updatedBy}` : ''}</span>
                   </div>
                 </button>
@@ -251,37 +269,47 @@ export const ProductionCalcPage = ({
             })}
           </div>
 
-          {/* 기본 정보 */}
+          {/* 기본 정보 — O/D · ARTICLE · 메모 (대표님 지정: 제목 칸 없음, 목록 제목은 'O/D · ARTICLE') */}
           <section className="bg-white border border-slate-200 rounded-2xl p-3 md:p-4">
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-3 items-start">
               <div className="md:col-span-4">
-                <label className="block text-[11px] font-bold text-slate-500 mb-0.5">제목</label>
-                <input type="text" value={calc.title} onChange={e => patch({ title: e.target.value })}
-                  placeholder={`비우면 '${calcKindLabel(calc.kind)} 날짜'`} className={inputCls} />
+                <label className="block text-[11px] font-bold text-slate-500 mb-0.5">O/D <span className="font-medium text-slate-400">(생산 현황 — 고르면 컬러·kg)</span></label>
+                <SearchableSelect value={calc.orderId} options={orderOptions} onChange={applyOrder} placeholder="O/D·Article로 검색" />
+                {calc.orderNumber && !orderOptions.some(o => o.id === String(calc.orderId)) && (
+                  <p className="text-[10px] text-slate-400 mt-0.5">저장된 O/D {calc.orderNumber} (생산 현황에서 찾을 수 없음)</p>
+                )}
               </div>
-              <div className="md:col-span-5">
-                <label className="block text-[11px] font-bold text-slate-500 mb-0.5">오더 불러오기 <span className="font-medium text-slate-400">(생산 현황 — 컬러명·오더 kg)</span></label>
-                <SearchableSelect value={calc.orderId} options={orderOptions} onChange={applyOrder} placeholder="오더#·Article로 검색" />
+              <div className="md:col-span-4">
+                <label className="block text-[11px] font-bold text-slate-500 mb-0.5">ARTICLE <span className="font-medium text-slate-400">(원단 관리 — 고르면 원사)</span></label>
+                <SearchableSelect value={calc.fabricId} options={fabricOptions} onChange={applyArticle} placeholder="Article·원단명으로 검색" />
+                {calc.articleNo && !currentFabric && (
+                  <p className="text-[10px] text-slate-400 mt-0.5">ARTICLE {calc.articleNo} — 원단 관리에서 찾을 수 없어 원사를 직접 넣어 주세요</p>
+                )}
+                {isStripe && (
+                  <div className="mt-1.5">
+                    {yarnChoices.length > 1 ? (
+                      // 원사가 여러 개인 원단 — 선염할 원사 하나를 고름 (모든 컬러에 같은 원사)
+                      <select value={calc.baseYarnName} onChange={e => patch({ baseYarnName: e.target.value })}
+                        className={`w-full border rounded-lg px-2 py-1.5 text-xs font-bold outline-none focus:ring-2 ring-teal-200 ${calc.baseYarnName ? 'bg-white border-slate-300 text-slate-700' : 'bg-amber-50 border-amber-300 text-amber-800'}`}>
+                        <option value="">선염할 원사를 골라 주세요 (원사 {yarnChoices.length}개)</option>
+                        {yarnChoices.map(y => <option key={`${y.yarnId}_${y.name}`} value={y.name}>{y.name} · {y.ratio}%</option>)}
+                        {calc.baseYarnName && !yarnChoices.some(y => y.name === calc.baseYarnName) && (
+                          <option value={calc.baseYarnName}>{calc.baseYarnName}</option>
+                        )}
+                      </select>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-bold text-slate-500 shrink-0">원사</span>
+                        <input type="text" value={calc.baseYarnName} onChange={e => patch({ baseYarnName: e.target.value })}
+                          placeholder={!currentFabric ? 'ARTICLE을 고르면 채워져요 (직접 입력도 돼요)' : (yarnChoices[0]?.name || '이 원단엔 원사가 없어요 — 직접 입력')}
+                          title="결과 원사명 = 원사 + 컬러 (예: F/60Nm SW/N 87/13 APRICOT)"
+                          className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 outline-none focus:ring-2 ring-teal-200" />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className="md:col-span-3">
-                <label className="block text-[11px] font-bold text-slate-500 mb-0.5">수량 단위</label>
-                <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
-                  {CALC_UNITS.map(u => (
-                    <button key={u.key} type="button" onClick={() => patch({ unit: u.key })}
-                      className={`flex-1 py-1 rounded-md text-xs font-bold transition-all ${calc.unit === u.key ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400'}`}>
-                      {u.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {isStripe && (
-                <div className="md:col-span-6">
-                  <label className="block text-[11px] font-bold text-slate-500 mb-0.5">원사 (앞부분) <span className="font-medium text-slate-400">— 결과 원사명 = 앞부분 + 컬러</span></label>
-                  <input type="text" value={calc.baseYarnName} onChange={e => patch({ baseYarnName: e.target.value })}
-                    placeholder="예: F/60Nm SW/N 87/13" className={inputCls} />
-                </div>
-              )}
-              <div className={isStripe ? 'md:col-span-6' : 'md:col-span-12'}>
+              <div className="md:col-span-4">
                 <label className="block text-[11px] font-bold text-slate-500 mb-0.5">메모</label>
                 <input type="text" value={calc.memo} onChange={e => patch({ memo: e.target.value })} placeholder="선택" className={inputCls} />
               </div>
@@ -289,9 +317,9 @@ export const ProductionCalcPage = ({
           </section>
 
           {isStripe
-            ? <StripeEditor calc={calc} unit={unit} result={stripe} onRow={patchRow} onYarn={patchYarn}
+            ? <StripeEditor calc={calc} unit={unit} result={stripe} onRow={patchRow} onYarn={patchYarn} onUnit={(u) => patch({ unit: u })}
               onAddRow={addRow} onRemoveRow={removeRow} onAddYarn={addYarn} onRemoveYarn={removeYarn} onNameBlur={fillYarnsFromName} />
-            : <MelangeEditor calc={calc} unit={unit} result={melange} onRow={patchRow} onAddRow={addRow} onRemoveRow={removeRow} />}
+            : <MelangeEditor calc={calc} unit={unit} result={melange} onRow={patchRow} onUnit={(u) => patch({ unit: u })} onAddRow={addRow} onRemoveRow={removeRow} />}
 
           {isStripe && <StripeResult result={stripe} unit={unit} onCopy={handleCopy} />}
           {!isStripe && (melange?.lines || []).length > 0 && (
@@ -317,14 +345,29 @@ export const ProductionCalcPage = ({
   );
 };
 
+// 수량 단위 (kg / YD) — 표 머리줄 오른쪽. 비율은 단위와 상관없음
+const UnitToggle = ({ value, onChange }) => (
+  <div className="flex bg-slate-100 p-0.5 rounded-md gap-0.5" title="수량 단위 — 비율은 단위와 상관없어요">
+    {CALC_UNITS.map(u => (
+      <button key={u.key} type="button" onClick={() => onChange(u.key)}
+        className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all ${value === u.key ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
+        {u.label}
+      </button>
+    ))}
+  </div>
+);
+
 // ① 스트라이프 선염 — 오더 컬러 줄 (컬러명 · 수량 · 원사 컬러별 비율)
-const StripeEditor = ({ calc, unit, result, onRow, onYarn, onAddRow, onRemoveRow, onAddYarn, onRemoveYarn, onNameBlur }) => {
+const StripeEditor = ({ calc, unit, result, onRow, onYarn, onUnit, onAddRow, onRemoveRow, onAddYarn, onRemoveYarn, onNameBlur }) => {
   const issueRows = new Set((result?.issues || []).map(i => i.rowId));
   return (
     <section className="bg-white border border-slate-200 rounded-2xl p-3 md:p-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
         <h3 className="text-sm font-extrabold text-slate-700">오더 컬러 <span className="font-medium text-xs text-slate-400">— 원사 컬러마다 비율(%)을 넣어요 (한 줄 합계 100%)</span></h3>
-        <span className="text-[11px] text-slate-500">오더 합계 <b className="font-mono text-slate-800">{fmt1(result?.orderTotal)} {unit}</b></span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-slate-500">오더 합계 <b className="font-mono text-slate-800">{fmt1(result?.orderTotal)} {unit}</b></span>
+          <UnitToggle value={calc.unit} onChange={onUnit} />
+        </div>
       </div>
       <div className="hidden md:grid grid-cols-[28px_minmax(140px,1fr)_110px_minmax(280px,2.4fr)_56px_28px] gap-2 px-1 mb-1 text-[10px] font-bold text-slate-400">
         <div>No.</div><div>컬러명</div><div className="text-right">수량 ({unit})</div><div>원사 컬러 · 비율 (%)</div><div className="text-right">합계</div><div />
@@ -444,11 +487,14 @@ const StripeResult = ({ result, unit, onCopy }) => {
 };
 
 // ② 멜란지 선염 — 멜란지별 수량 → 수량 비율 (입력과 결과를 한 표에)
-const MelangeEditor = ({ calc, unit, result, onRow, onAddRow, onRemoveRow }) => {
+const MelangeEditor = ({ calc, unit, result, onRow, onUnit, onAddRow, onRemoveRow }) => {
   const pctById = new Map((result?.lines || []).map(l => [l.id, l.pct]));
   return (
     <section className="bg-white border border-slate-200 rounded-2xl p-3 md:p-4">
-      <h3 className="text-sm font-extrabold text-slate-700 mb-2">멜란지별 수량 <span className="font-medium text-xs text-slate-400">— 수량 비율 = 그 줄 수량 ÷ 합계</span></h3>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <h3 className="text-sm font-extrabold text-slate-700">멜란지별 수량 <span className="font-medium text-xs text-slate-400">— 수량 비율 = 그 줄 수량 ÷ 합계</span></h3>
+        <UnitToggle value={calc.unit} onChange={onUnit} />
+      </div>
       <div className="hidden md:grid grid-cols-[28px_1fr_120px_80px_28px] gap-2 px-1 mb-1 text-[10px] font-bold text-slate-400">
         <div>No.</div><div>멜란지</div><div className="text-right">수량 ({unit})</div><div className="text-right">비율</div><div />
       </div>

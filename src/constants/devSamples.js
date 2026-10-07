@@ -11,6 +11,8 @@ export const DEV_SAMPLE_YARNS = [
   { id: 'y_dev_4', category: '화섬',    name: 'POLY 75D',  remarks: '', suppliers: [{ id: 's_dev_4', name: 'TORAY',  currency: 'KRW', price: 7000,  tariff: 8, freight: 1, isDefault: true, history: [] }] },
   // 단가 빈칸(0원) 원사 → '원가 확인 필요' 경고 확인용 (GB-2406)
   { id: 'y_dev_5', category: '화섬',    name: 'NYLON 70D', remarks: '', suppliers: [{ id: 's_dev_5', name: '태광',   currency: 'KRW', price: 0,     tariff: 0, freight: 0, isDefault: true, history: [] }] },
+  // 선염 원사 — 생산 ▾ 계산기 ARTICLE 불러오기 확인용 (PW1050)
+  { id: 'y_dev_6', category: '소모',    name: 'F/60Nm SW/N 87/13', remarks: '', suppliers: [{ id: 's_dev_6', name: '대원', currency: 'KRW', price: 32000, tariff: 0, freight: 0, isDefault: true, history: [] }] },
 ];
 
 // calculateCost가 호출돼도 안전하도록 비용/로스 필드까지 채운 완전한 원단 샘플
@@ -50,6 +52,9 @@ export const DEV_SAMPLE_FABRICS = [
     ] },
   { ...baseFabric, id: 'fab_dev_5', article: 'GB-2405', itemName: 'Cotton Single',      widthFull: 66, widthCut: 64, gsm: 180, yarns: [{ yarnId: 'y_dev_2', ratio: 100 }],
     knitGrade: 'A', knitKgRate: 2000, knitKgRateTiers: [{ fromKg: 1000, rate: 1800 }], processType: 'brushed', etcCosts: [] },
+  // 선염 스트라이프 원단 — 생산 ▾ 계산기 ARTICLE 불러오기 확인용 (원사 하나: F/60Nm SW/N 87/13, 샘플 오더 F-26M030의 Article)
+  { ...baseFabric, id: 'fab_dev_7', article: 'PW1050', itemName: 'W/N=87/13 SINGLE STRIPE', widthFull: 55, widthCut: 53, gsm: 145, yarns: [{ yarnId: 'y_dev_6', ratio: 100 }],
+    knitGrade: 'A', knitKgRate: 2000, knitKgRateTiers: [], processType: 'normal', etcCosts: [] },
   // '원가 확인 필요' 경고 확인용 (2026-10 원가 검토 #2): 혼용률 95% · 단가 0원 원사(NYLON 70D) · 라이브러리에 없는 원사(엑셀 등록 TENCEL 40S)
   { ...baseFabric, id: 'fab_dev_6', article: 'GB-2406', itemName: 'Cotton/Nylon Mix (확인용)', widthFull: 60, widthCut: 58, gsm: 220,
     yarns: [{ yarnId: 'y_dev_2', ratio: 60 }, { yarnId: 'y_dev_5', ratio: 20 }, { yarnId: 'UNREGISTERED_TENCEL 40S', ratio: 15, tempName: 'TENCEL 40S' }],
