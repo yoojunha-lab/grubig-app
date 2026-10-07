@@ -5,6 +5,7 @@ import {
   normalizeQuote, isNewMarginModel, convertMarginAdd, convertAmount, convertBasePrice, convertCostParts,
   makeDefaultTierRates, makeDefaultTierAdds, toQuoteTierRate, toQuoteTierAdd, defaultTierAdd, computeBaseFromParts, partsFromCost,
   getBasePrice, getShownTiers, getCustomExclude, describeTierDefaults, getMarginAddCurrency, quoteMarket,
+  normalizeRunning, customRowCostOpts, sumColorQtys, validateRunning, calcCustomQuotePrice,
 } from '../../utils/quoteModel';
 import { devQuoteToFabric } from '../../utils/devQuoteModel';
 
@@ -22,6 +23,9 @@ import { devQuoteToFabric } from '../../utils/devQuoteModel';
 //  · [개발 의뢰 원가 견적 — 2026-10-06] 원단 리스트에 없는 개발 품목도 넣을 수 있음: 의뢰의 원가 견적(costQuote)을
 //    '원단 모양'으로 바꿔서(utils/devQuoteModel.devQuoteToFabric) 원단과 똑같이 계산 — fabricId = 의뢰 id,
 //    Article = 개발번호. 다시 계산·복제·별도 견적 복사도 findFabric 한 곳에서 의뢰를 찾아 그대로 동작
+//  · [러닝 생지 견적 — 2026-10-07] 별도 견적 줄의 한 종류 (row.running = { greigeQty 생지 짠 수량, colorQtys 컬러별 수량 })
+//    — 원사·편직은 생지 짠 수량으로 짠 원가, 염색은 컬러별 실제 수량 (실비). [러닝 생지 견적] 창에서 넣고 고침
+//    (previewRunningRow·handleSaveRunningRow·handleReleaseRunningRow). 다시 계산·시장 전환·복제는 createCustomItem이 그대로 반영
 
 // 빈 견적서 초기 상태 (신규 작성 / "새 견적서" 초기화 공용 팩토리)
 // validityOption 기본값 '2weeks' = 작성일로부터 2주
@@ -140,31 +144,39 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   //  (컬러수만큼 이화학, 컬러당 생지가 최소 청구 kg 미만이면 염색 최소 청구가 자동으로 붙음)
   //  수량·컬러가 비었거나 0이면 기준원가 없이(null) 둠 → 판가 '—' (입력 중)
   //  exclude: 별도 견적 전체의 외관검사·시험성적서 제외 (줄마다 하던 예전 값은 버림)
+  //  [러닝 생지 견적] row.running이 있으면 원사·편직은 생지 짠 수량으로 짠 원가, 염색은 컬러별 실제 수량.
+  //   수량 = 컬러별 합계, 컬러 = 칸 수로 맞춰 둠 (견적서·견적 목록·출력 전 확인이 일반 줄과 같이 읽음)
   const createCustomItem = (fabric, row, { rate, marketType = 'domestic', exclude = {} }) => {
     const currency = currencyOf(marketType);
-    const qty = Math.round(Number(row.qty) || 0);
-    const colors = Math.round(Number(row.colors) || 0);
+    const running = normalizeRunning(row.running);
+    const qty = running ? sumColorQtys(running.colorQtys) : Math.round(Number(row.qty) || 0);
+    const colors = running ? running.colorQtys.length : Math.round(Number(row.colors) || 0);
     const calc = calculateCost(fabric, rate);
-    const { excludeVisual: _oldVisual, excludeChem: _oldChem, ...rest } = row;
+    const { excludeVisual: _oldVisual, excludeChem: _oldChem, running: _oldRunning, ...rest } = row;
     const base = {
       ...rest,
       id: row.id || newRowId(),
       ...fabricSpec(fabric, calc),
-      qty: row.qty, colors: row.colors,
+      qty: running ? qty : row.qty, colors: running ? colors : row.colors,
+      ...(running ? { running } : {}),                                // 러닝 생지 줄만 (일반 줄에는 이 칸이 없음)
       marginRate: isBlank(row.marginRate) ? null : row.marginRate,   // 비우면 수량 구간의 견적 일괄값
       marginAdd: isBlank(row.marginAdd) ? null : row.marginAdd,      // 비우면 수량 구간의 견적 정액
       show: row.show !== false,                                       // 별도 견적서에 표시
       costWarnings: calc?.costWarnings || [],
     };
     if (!(qty > 0 && colors > 0) || !calculateCostAtQty) return { ...base, basePrice: null, costParts: null, dye: null };
-    const tc = calculateCostAtQty(fabric, qty, rate, { colors });
+    const tc = calculateCostAtQty(fabric, qty, rate, customRowCostOpts({ running, colors }));
     const costParts = partsFromCost(tc?.[marketType]);
     return {
       ...base,
       qty, colors,
       costParts, riskPct: Number(tc?.riskPct) || 0,
       basePrice: computeBaseFromParts(costParts, tc?.riskPct, exclude, currency),
-      dye: tc?.dye ? { perColorKg: tc.dye.perColorKg, minKg: tc.dye.minKg, minApplied: tc.dye.minApplied, billedKg: tc.dye.billedKg } : null,
+      dye: tc?.dye ? {
+        perColorKg: tc.dye.perColorKg, minKg: tc.dye.minKg, minApplied: tc.dye.minApplied, billedKg: tc.dye.billedKg,
+        // 러닝 생지 줄: 컬러별 생지 kg (염색 최소 청구 안내용, 소수 첫째 자리)
+        ...(tc.dye.perColor ? { perColorKgs: tc.dye.perColor.map(c => Math.round(c.kg * 10) / 10) } : {}),
+      } : null,
     };
   };
 
@@ -568,13 +580,14 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     setQuoteInput(prev => ({ ...prev, [quoteKey]: checked, customItems: rows }));
   };
 
-  // 별도 견적 줄 수정. 수량·컬러는 원가부터 다시 계산, 이익율·정액·표시는 값만
+  // 별도 견적 줄 수정. 수량·컬러(러닝 생지 조건 포함)는 원가부터 다시 계산, 이익율·정액·표시는 값만
+  //  patch.running = null 이면 러닝 생지 해제 (수량·컬러수는 그대로 — 고르게 나눈다고 보고 다시 계산)
   const handleCustomItemChange = (rowId, patch) => {
     const row = (quoteInput.customItems || []).find(r => r.id === rowId);
     if (!row) return;
     const next = { ...row, ...patch };
     let updated = next;
-    if ('qty' in patch || 'colors' in patch) {
+    if ('qty' in patch || 'colors' in patch || 'running' in patch) {
       const fabric = findFabric(row.fabricId);
       if (!fabric) { showToast('원단이 삭제되어 수량·컬러를 바꿔 다시 계산할 수 없어요.', 'error'); return; }
       updated = createCustomItem(fabric, next, { rate: quoteRateOf(quoteInput), marketType: quoteInput.marketType, exclude: getCustomExclude(quoteInput) });
@@ -593,6 +606,97 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     if (ids.size === 0) return false;
     if (ids.size > 1 && !window.confirm(`별도 견적 ${ids.size}줄을 지울까요?`)) return false;
     setQuoteInput(prev => ({ ...prev, customItems: (prev.customItems || []).filter(r => !ids.has(r.id)) }));
+    return true;
+  };
+
+  // ── 러닝 생지 견적 (대표님 요청 2026-10-07) ──
+  //  미리 짜 둔 생지로 소량·여러 컬러 오더를 받을 때 — 별도 견적 줄의 한 종류 (row.running = { greigeQty, colorQtys })
+  //  draft (창의 입력): { rowId: 고칠 줄(없으면 그 원단의 줄 또는 새 줄), fabricId, running: { greigeQty, colorQtys },
+  //                     marginRate, marginAdd } — 칸 값은 글자 그대로 받아 여기서 정리
+
+  // 이익율(0~99)·YD당 정액(0 이상) 칸 정리 — 비우면 null (= 일반 별도 견적 줄과 같은 기본값)
+  const cleanRowMargin = (v, max) => (isBlank(v) ? null : Math.min(max, Math.max(0, Number(v) || 0)));
+
+  // 창 미리보기 — 별도 견적 줄과 같은 계산(createCustomItem) + 원가 내역·비교 (견적 환율·견적 시장·별도 견적 제외 항목)
+  //  반환: null(원단 없음) | {
+  //    row: 넣으면 생길 줄, price: 판가/YD (조건이 모자라면 null), calc: 이 오더의 원가 엔진 결과,
+  //    freshBase: 비교 — 이 오더 수량으로 새로 짤 때(일반 별도 견적, 컬러별로 고르게) 기준원가,
+  //    lotBase: 비교 — 생지 짠 수량으로 한 번에 오더할 때(컬러마다 MCQ 충족) 기준원가,
+  //    extras: 소량 추가분 (생지 짠 수량 원가 대비, 실비·오더 총액) [{ key, label, amount }], currency, marketType, exclude }
+  const previewRunningRow = (draft) => {
+    const fabric = findFabric(draft?.fabricId);
+    if (!fabric) return null;
+    const rate = quoteRateOf(quoteInput);
+    const marketType = quoteInput.marketType;
+    const currency = currencyOf(marketType);
+    const exclude = getCustomExclude(quoteInput);
+    const existing = (quoteInput.customItems || []).find(r => r.id === draft.rowId) || null;
+    const row = createCustomItem(
+      fabric,
+      { ...(existing || {}), running: draft.running, marginRate: cleanRowMargin(draft.marginRate, 99), marginAdd: cleanRowMargin(draft.marginAdd, Infinity) },
+      { rate, marketType, exclude }
+    );
+    const out = { row, price: null, calc: null, freshBase: null, lotBase: null, extras: [], currency, marketType, exclude };
+    const running = normalizeRunning(row.running);
+    if (!running || isBlank(row.basePrice) || !calculateCostAtQty) return out;
+    const calc = calculateCostAtQty(fabric, row.qty, rate, customRowCostOpts(row));
+    const fresh = calculateCostAtQty(fabric, row.qty, rate, { colors: row.colors });
+    const lot = running.greigeQty > 0 ? calculateCostAtQty(fabric, running.greigeQty, rate, { assumeMcq: true }) : null;
+    const baseOf = (tc) => (tc ? computeBaseFromParts(partsFromCost(tc[marketType]), tc.riskPct, exclude, currency) : null);
+    // 같은 항목의 YD당 금액 차이 × 수량 (원사·편직·후가공·외관검사·추가비용은 생지 짠 수량 원가와 YD당 같아서 차이 없음)
+    const lineAmt = (tc, group, key) => (tc?.[marketType]?.lines?.[group] || []).filter(l => l.key === key).reduce((sum, l) => sum + l.amt, 0);
+    const diff = (group, key) => (lineAmt(calc, group, key) - lineAmt(lot, group, key)) * row.qty;
+    const extras = lot ? [
+      { key: 'dye', label: '염색 (컬러별 최소 청구)', amount: diff('proc', 'dye') },
+      ...(exclude.excludeChem ? [] : [{ key: 'chem', label: '이화학', amount: diff('etc', 'chem') }]),
+      { key: 'freight', label: '운임', amount: diff('etc', 'freight') },
+    ] : [];
+    return {
+      ...out,
+      price: calcCustomQuotePrice(row, quoteInput, currency),
+      calc, freshBase: baseOf(fresh), lotBase: baseOf(lot), extras,
+    };
+  };
+
+  // 창의 [별도 견적에 넣기]·[저장] — 그 원단의 별도 견적 줄을 러닝 생지 줄로 넣거나 고침
+  //  같은 원단은 별도 견적에 한 줄만 (지금 규칙) — 일반 줄이 있으면 그 줄이 러닝 생지 줄로 바뀜 (견적서 표시는 그대로)
+  //  반환: 넣었으면 true (막히면 알림 후 false — 창은 그대로)
+  const handleSaveRunningRow = (draft) => {
+    const problem = validateRunning(draft?.running);
+    if (problem) { showToast(problem, 'error'); return false; }
+    const fabric = findFabric(draft?.fabricId);
+    if (!fabric) { showToast('원단을 찾을 수 없어요. (삭제된 원단)', 'error'); return false; }
+    const rows = quoteInput.customItems || [];
+    const target = rows.find(r => (draft.rowId ? r.id === draft.rowId : String(r.fabricId) === String(fabric.id))) || null;
+    if (!target && blockLegacyAdd()) return false;
+    const rate = quoteRateOf(quoteInput);
+    const built = createCustomItem(
+      fabric,
+      { ...(target || {}), running: draft.running, marginRate: cleanRowMargin(draft.marginRate, 99), marginAdd: cleanRowMargin(draft.marginAdd, Infinity) },
+      { rate, marketType: quoteInput.marketType, exclude: getCustomExclude(quoteInput) }
+    );
+    setQuoteInput(prev => {
+      const list = prev.customItems || [];
+      // 같은 원단 줄을 prev에서 다시 찾음 — 빠르게 두 번 눌러도 줄이 두 개 생기지 않게
+      const idx = list.findIndex(r => (target ? r.id === target.id : String(r.fabricId) === String(fabric.id)));
+      const nextList = idx >= 0 ? list.map((r, i) => (i === idx ? { ...built, id: r.id } : r)) : [...list, built];
+      return { ...prev, exchangeRate: prev.exchangeRate || rate, customItems: nextList };
+    });
+    const running = normalizeRunning(built.running);
+    const head = `${fabric.article} — 러닝 생지 견적을 ${target ? '고쳤어요' : '별도 견적에 넣었어요'} (${num(built.qty)}YD · ${built.colors}컬러, 생지 짠 수량 ${num(running.greigeQty)}YD)`;
+    const warns = built.costWarnings || [];
+    showToast(warns.length > 0 ? `${head} ⚠ 원가 확인 필요 — ${warns[0]}` : head, warns.length > 0 ? 'error' : 'success');
+    return true;
+  };
+
+  // [러닝 생지 해제] — 일반 별도 견적 줄로 (수량·컬러수는 그대로, 컬러별로 고르게 나눈다고 보고 다시 계산)
+  //  반환: 바꿨으면 true
+  const handleReleaseRunningRow = (rowId) => {
+    const row = (quoteInput.customItems || []).find(r => r.id === rowId);
+    if (!row) return false;
+    if (!findFabric(row.fabricId)) { showToast('원단이 삭제되어 다시 계산할 수 없어요.', 'error'); return false; }
+    handleCustomItemChange(rowId, { running: null });
+    showToast(`${row.article} — 일반 별도 견적 줄로 되돌렸어요 (${num(row.qty)}YD · ${num(row.colors)}컬러, 컬러별로 고르게 나눈 기준)`, 'success');
     return true;
   };
 
@@ -737,6 +841,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     handleAddFabricToQuote, handleGridPaste,
     handleRemoveItemFromQuote, handleRemoveItemsFromQuote,
     handleCopyToCustom, handleAddCustomFabric, handleCustomItemChange, handleRemoveCustomItems, handleCustomExcludeChange,
+    previewRunningRow, handleSaveRunningRow, handleReleaseRunningRow,
     handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote,
     startQuoteFromDevRequest,
   };

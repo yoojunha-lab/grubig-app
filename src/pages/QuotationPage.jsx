@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   FileText, Save, X, Plus, FilePlus, DollarSign, ArrowLeft, RefreshCw, Tags, Calculator, Copy, Trash2,
-  RotateCcw, AlertTriangle,
+  RotateCcw, AlertTriangle, Warehouse, Pencil,
 } from 'lucide-react';
 import { PartnerSelectField } from '../components/common/PartnerSelectField';
 import { num, usd, roundUsd, QUOTE_VALIDITY_OPTIONS, rateForMarket, rateLabel } from '../utils/helpers';
@@ -9,12 +9,14 @@ import { QUOTE_TIERS, QUOTE_TIER_GROUPS } from '../constants/quote';
 import {
   calcQuotePrice, formatQuotePrice, getBasePrice, getItemTierRate, getShownTiers, isNewMarginModel,
   calcCustomQuotePrice, getCustomRowRate, getCustomRowAddRaw, getMarginAddCurrency, toQuoteCurrencyAdd, quoteMarket,
+  normalizeRunning, formatColorSplit,
 } from '../utils/quoteModel';
 import { FabricPickerModal } from '../components/quote/FabricPickerModal';
+import { RunningGreigeModal } from '../components/quote/RunningGreigeModal';
 import { CostWarningBadge } from '../components/cost/CostWarnings';
 import {
   DraftNumberInput, QuoteSection, ExportButtons, ExcludeToggles, ArticleQuickAdd, PasteHint,
-  AddFromListButton, DevSourceBadge,
+  AddFromListButton, DevSourceBadge, RunningGreigeBadge,
 } from '../components/quote/QuoteParts';
 import { DEV_QUOTE_SOURCE } from '../utils/devQuoteModel';
 
@@ -22,9 +24,12 @@ import { DEV_QUOTE_SOURCE } from '../utils/devQuoteModel';
 // 견적서 작성 (2026-10-05 개편)
 //  · 기준 견적: 300~5,000YD 6구간 중 고른 구간만 바이어 견적서에 표시. 구간별 이익율·정액
 //  · 별도 견적: 원단마다 수량·컬러수를 바꿔 원가부터 다시 계산 (예: 300YD 3컬러)
+//    - [러닝 생지 견적] (2026-10-07): 미리 짜 둔 생지로 받는 오더 — 생지 짠 수량·컬러별 수량으로 실비 계산하는 창
+//      (components/quote/RunningGreigeModal). 러닝 생지 줄은 '러닝 생지' 배지 + 컬러별 수량, [수정]으로 창을 다시 엶
 //  · 외관검사·시험성적서 제외는 칸마다 전체에 적용하는 버튼 (기준 견적 전체 / 별도 견적 전체)
 //  · 원단 추가는 두 칸이 같은 방식: [원단 검색·추가] 팝업 + 표 아래 Article 입력(Enter)·엑셀 세로 복붙, 같은 원단은 한 줄만
 //  · 두 칸은 머리줄을 눌러 접고 펴기, PDF·엑셀은 칸마다 따로 (기준 견적서 / 별도 견적서)
+//  · 팝업(원단 검색·러닝 생지 견적)은 화면의 space-y 칸 밖에 둠 (팝업 규약 — 안에 두면 위 여백이 붙어 맨 위 띠가 안 덮임)
 // ============================================================
 
 export const QuotationPage = ({
@@ -53,6 +58,9 @@ export const QuotationPage = ({
   handleCustomItemChange,
   handleRemoveCustomItems,
   handleCustomExcludeChange,
+  previewRunningRow,      // 러닝 생지 견적 창 — 미리보기 / 넣기·고치기 / 해제 (useQuotation)
+  handleSaveRunningRow,
+  handleReleaseRunningRow,
   handleGridPaste,
   exchangeRates,          // 공통 환율 두 칸 { domestic, export } — 이 견적 시장의 '지금 환율'과 견적 환율 비교
   yarnLibrary = [],
@@ -82,6 +90,7 @@ export const QuotationPage = ({
   const [selectedStd, setSelectedStd] = useState([]);       // fabricId 목록
   const [selectedCustom, setSelectedCustom] = useState([]); // 별도 견적 줄 id 목록
   const [pickerMode, setPickerMode] = useState(null);       // null | 'standard' | 'custom'
+  const [runningModal, setRunningModal] = useState(null);   // 러닝 생지 견적 창: null 닫힘 | { rowId: null(새로) | 고칠 줄 id }
 
   const stdIds = items.map(it => String(it.fabricId));
   const selStd = selectedStd.filter(id => stdIds.includes(id));
@@ -103,6 +112,7 @@ export const QuotationPage = ({
   const stdMinWidth = 580 + shownTiers.length * 100;
 
   return (
+    <>
     <div className="max-w-7xl mx-auto space-y-4 w-full print:hidden">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -449,7 +459,17 @@ export const QuotationPage = ({
             </button>
             <span className="text-[11px] text-slate-400 ml-1">기준 견적에서 원단을 체크하고 [별도 견적으로 복사]를 눌러도 들어와요.</span>
           </div>
-          {!isLegacy && <AddFromListButton tone="amber" onClick={() => setPickerMode('custom')} />}
+          {!isLegacy && (
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              {/* 러닝 생지 견적 (2026-10-07) — 미리 짜 둔 생지로 소량·여러 컬러 오더를 받을 때 */}
+              <button type="button" onClick={() => setRunningModal({ rowId: null })}
+                title="미리 짜 둔 생지(러닝 생지)로 소량·여러 컬러 오더를 받을 때 — 생지 짠 수량·컬러별 수량으로 실비를 계산해서 별도 견적에 넣어요"
+                className="w-full sm:w-max px-3 py-1.5 rounded-lg font-bold text-sm border flex items-center justify-center gap-1.5 shrink-0 bg-teal-50 text-teal-700 hover:bg-teal-100 border-teal-200">
+                <Warehouse className="w-4 h-4" /> 러닝 생지 견적
+              </button>
+              <AddFromListButton tone="amber" onClick={() => setPickerMode('custom')} />
+            </div>
+          )}
         </div>
 
         <div className="overflow-hidden rounded-xl border border-slate-200 overflow-x-auto">
@@ -476,7 +496,8 @@ export const QuotationPage = ({
                 <tr>
                   <td colSpan={9} className="py-6 text-center text-xs text-slate-400 leading-relaxed">
                     아직 별도 견적이 없어요. 아래 칸에 Article을 넣거나 <b className="text-amber-700">[원단 검색·추가]</b>, 또는 기준 견적에서 <b className="text-amber-700">[별도 견적으로 복사]</b>를 누르세요.<br />
-                    수량·컬러수를 바꾸면 시험성적서(이화학)·염색 최소 청구까지 그 조건으로 다시 계산해요.
+                    수량·컬러수를 바꾸면 시험성적서(이화학)·염색 최소 청구까지 그 조건으로 다시 계산해요.<br />
+                    미리 짜 둔 생지로 받는 오더는 <b className="text-teal-700">[러닝 생지 견적]</b> — 생지 짠 수량·컬러별 수량으로 계산해요.
                   </td>
                 </tr>
               )}
@@ -488,6 +509,9 @@ export const QuotationPage = ({
                 const perColor = qtyNum > 0 && colorsNum > 0 ? Math.round(qtyNum / colorsNum) : 0;
                 const mcq = Number(row.mcqYd) || 0;
                 const belowMcq = perColor > 0 && mcq > 0 && perColor < mcq;
+                // 러닝 생지 줄 — 수량·컬러는 창에서 (컬러별 수량), MCQ 미달은 컬러마다 실제 수량으로 셈
+                const running = normalizeRunning(row.running);
+                const belowMcqColors = running && mcq > 0 ? running.colorQtys.filter(q => q < mcq).length : 0;
                 const rateDefault = getCustomRowRate({ ...row, marginRate: null }, quoteInput);
                 const addDefault = getCustomRowAddRaw({ ...row, marginAdd: null }, quoteInput);
                 const qtyBad = !(qtyNum > 0);
@@ -499,6 +523,7 @@ export const QuotationPage = ({
                       <div className="font-bold text-slate-800 text-[13px] uppercase">
                         {row.article}
                         {row.sourceType === DEV_QUOTE_SOURCE && <DevSourceBadge />}
+                        {running && <RunningGreigeBadge greigeQty={running.greigeQty} />}
                       </div>
                       <div className="text-[11px] text-slate-500 flex items-center gap-1 flex-wrap">
                         <span>{row.itemName}</span>
@@ -507,18 +532,42 @@ export const QuotationPage = ({
                       <div className="text-[10px] text-slate-400 mt-0.5">{row.widthCut}/{row.widthFull}" · {row.gsm}g · MCQ {num(mcq)}YD/컬러</div>
                     </td>
                     <td className="px-2 py-2">
-                      <div className="flex items-center gap-1">
-                        <input type="number" min="1" step="1" value={row.qty ?? ''} onChange={(e) => handleCustomItemChange(row.id, { qty: e.target.value })}
-                          className={`w-[76px] bg-white border rounded px-1.5 py-1 text-right text-sm font-bold outline-none focus:border-amber-500 ${qtyBad ? 'border-red-300 text-red-600' : 'border-slate-300 text-slate-800'}`} placeholder="YD" title="오더 총수량 (YD)" />
-                        <span className="text-[11px] text-slate-400">YD</span>
-                        <input type="number" min="1" step="1" value={row.colors ?? ''} onChange={(e) => handleCustomItemChange(row.id, { colors: e.target.value })}
-                          className={`w-[44px] bg-white border rounded px-1.5 py-1 text-right text-sm font-bold outline-none focus:border-amber-500 ${colorsBad ? 'border-red-300 text-red-600' : 'border-slate-300 text-slate-800'}`} placeholder="컬러" title="컬러수 — 이화학·염색을 컬러마다 따로 계산" />
-                        <span className="text-[11px] text-slate-400">컬러</span>
-                      </div>
-                      {perColor > 0 && (
-                        <div className={`text-[10px] mt-1 ${belowMcq ? 'text-amber-700 font-bold' : 'text-slate-400'}`}>
-                          컬러당 {num(perColor)}YD{belowMcq ? ` · MCQ ${num(mcq)} 미달` : ''}
-                        </div>
+                      {running ? (
+                        // 러닝 생지 줄 — 수량 = 컬러별 합계, 컬러 = 칸 수 (고치는 건 창에서)
+                        <>
+                          <div className="flex items-center gap-1">
+                            <span className="font-mono text-sm font-bold text-slate-800">{num(qtyNum)}</span>
+                            <span className="text-[11px] text-slate-400">YD</span>
+                            <span className="font-mono text-sm font-bold text-slate-800 ml-1">{num(colorsNum)}</span>
+                            <span className="text-[11px] text-slate-400">컬러</span>
+                            <button type="button" onClick={() => setRunningModal({ rowId: row.id })}
+                              title="러닝 생지 견적 창에서 생지 짠 수량·컬러별 수량·이익율 고치기"
+                              className="ml-auto flex items-center gap-0.5 text-[11px] font-bold text-teal-700 bg-teal-50 border border-teal-200 rounded px-1.5 py-0.5 hover:bg-teal-100">
+                              <Pencil className="w-3 h-3" /> 수정
+                            </button>
+                          </div>
+                          <div className="text-[10px] mt-1 font-bold text-teal-700">컬러별 {formatColorSplit(row)} YD</div>
+                          <div className="text-[10px] text-slate-400">생지 짠 수량 {num(running.greigeQty)}YD</div>
+                          {belowMcqColors > 0 && (
+                            <div className="text-[10px] text-amber-700 font-bold">MCQ {num(mcq)} 미달 {belowMcqColors}컬러</div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-1">
+                            <input type="number" min="1" step="1" value={row.qty ?? ''} onChange={(e) => handleCustomItemChange(row.id, { qty: e.target.value })}
+                              className={`w-[76px] bg-white border rounded px-1.5 py-1 text-right text-sm font-bold outline-none focus:border-amber-500 ${qtyBad ? 'border-red-300 text-red-600' : 'border-slate-300 text-slate-800'}`} placeholder="YD" title="오더 총수량 (YD)" />
+                            <span className="text-[11px] text-slate-400">YD</span>
+                            <input type="number" min="1" step="1" value={row.colors ?? ''} onChange={(e) => handleCustomItemChange(row.id, { colors: e.target.value })}
+                              className={`w-[44px] bg-white border rounded px-1.5 py-1 text-right text-sm font-bold outline-none focus:border-amber-500 ${colorsBad ? 'border-red-300 text-red-600' : 'border-slate-300 text-slate-800'}`} placeholder="컬러" title="컬러수 — 이화학·염색을 컬러마다 따로 계산" />
+                            <span className="text-[11px] text-slate-400">컬러</span>
+                          </div>
+                          {perColor > 0 && (
+                            <div className={`text-[10px] mt-1 ${belowMcq ? 'text-amber-700 font-bold' : 'text-slate-400'}`}>
+                              컬러당 {num(perColor)}YD{belowMcq ? ` · MCQ ${num(mcq)} 미달` : ''}
+                            </div>
+                          )}
+                        </>
                       )}
                     </td>
                     <td className="px-2 py-2">
@@ -536,7 +585,10 @@ export const QuotationPage = ({
                       <div className="font-mono text-[14px] font-extrabold text-amber-800">{formatQuotePrice(price, currency)}</div>
                       <div className="text-[9px] text-slate-400 mt-0.5">원가 {formatQuotePrice(row.basePrice ?? null, currency)}</div>
                       {row.dye?.minApplied && (
-                        <div className="text-[9px] font-bold text-rose-600 mt-0.5" title={`컬러당 생지 ${num(row.dye.perColorKg)}kg → ${num(row.dye.minKg)}kg로 청구 (염색 최소 청구)`}>
+                        <div className="text-[9px] font-bold text-rose-600 mt-0.5"
+                          title={Array.isArray(row.dye.perColorKgs)
+                            ? `컬러별 생지 ${row.dye.perColorKgs.map(kg => num(kg)).join(' / ')}kg — ${num(row.dye.minKg)}kg 미만인 컬러는 ${num(row.dye.minKg)}kg로 청구 (염색 최소 청구)`
+                            : `컬러당 생지 ${num(row.dye.perColorKg)}kg → ${num(row.dye.minKg)}kg로 청구 (염색 최소 청구)`}>
                           염색 최소 청구 포함
                         </div>
                       )}
@@ -566,19 +618,35 @@ export const QuotationPage = ({
             </tbody>
           </table>
         </div>
-        <p className="text-[10px] text-slate-400">이익율을 비워 두면 수량이 속한 기준 구간 값(위 구간 설정), YD당 정액은 비워 두면 0이에요. 총액 = 판가 × 수량 (화면에서만 보여요).</p>
+        <p className="text-[10px] text-slate-400">이익율을 비워 두면 수량이 속한 기준 구간 값(위 구간 설정), YD당 정액은 비워 두면 0이에요. 총액 = 판가 × 수량 (화면에서만 보여요). 러닝 생지 줄은 [수정]으로 생지 짠 수량·컬러별 수량을 바꿔요.</p>
       </QuoteSection>
-
-      {/* 원단 검색 팝업 — 기준·별도 견적 같은 방식 (그 칸에 이미 담긴 원단은 '추가됨') */}
-      <FabricPickerModal
-        isOpen={pickerMode !== null}
-        onClose={() => setPickerMode(null)}
-        fabrics={savedFabrics}
-        existingFabricIds={pickerMode === 'custom' ? customItems.map(r => r.fabricId) : items.map(i => i.fabricId)}
-        yarnLibrary={yarnLibrary}
-        title={pickerMode === 'custom' ? '별도 견적에 넣을 원단' : undefined}
-        onPick={(fabricId) => (pickerMode === 'custom' ? handleAddCustomFabric(fabricId) : handleAddFabricToQuote(fabricId, () => {}))}
-      />
     </div>
+
+    {/* 팝업은 화면의 space-y 칸 밖에 (팝업 규약 — 안에 두면 위 여백이 붙어 맨 위 띠가 안 덮임) */}
+    {/* 원단 검색 팝업 — 기준·별도 견적 같은 방식 (그 칸에 이미 담긴 원단은 '추가됨') */}
+    <FabricPickerModal
+      isOpen={pickerMode !== null}
+      onClose={() => setPickerMode(null)}
+      fabrics={savedFabrics}
+      existingFabricIds={pickerMode === 'custom' ? customItems.map(r => r.fabricId) : items.map(i => i.fabricId)}
+      yarnLibrary={yarnLibrary}
+      title={pickerMode === 'custom' ? '별도 견적에 넣을 원단' : undefined}
+      onPick={(fabricId) => (pickerMode === 'custom' ? handleAddCustomFabric(fabricId) : handleAddFabricToQuote(fabricId, () => {}))}
+    />
+
+    {/* 러닝 생지 견적 창 — 미리 짜 둔 생지로 받는 오더 (생지 짠 수량·컬러별 수량으로 실비 계산 → 별도 견적 줄) */}
+    {runningModal && (
+      <RunningGreigeModal
+        initialRowId={runningModal.rowId}
+        quote={quoteInput}
+        quoteRate={quoteRate}
+        fabrics={savedFabrics}
+        preview={previewRunningRow}
+        onSave={handleSaveRunningRow}
+        onRelease={handleReleaseRunningRow}
+        onClose={() => setRunningModal(null)}
+      />
+    )}
+    </>
   );
 };

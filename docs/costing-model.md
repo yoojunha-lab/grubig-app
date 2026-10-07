@@ -322,6 +322,28 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
   - 수량·컬러를 바꾸면 그 줄만 견적 환율로 다시 계산. 원단이 삭제된 줄은 수량·컬러를 바꿀 수 없음.
   - **원단 추가는 기준 견적과 같은 방식**: [원단 검색·추가] 팝업(이미 담긴 원단은 '추가됨'), 표 아래 Article 입력(Enter)·엑셀 세로 복붙,
     기준 견적에서 체크 → [별도 견적으로 복사]. 300YD · 2컬러로 시작. **같은 원단은 한 줄만** (조건은 그 줄의 수량·컬러를 바꿈).
+- **러닝 생지 견적** (대표님 요청 2026-10-07 — 미리 짜 둔 생지로 소량·여러 컬러 오더를 받을 때. 예: 생지 3,000YD를 짜 둔 상태에서 674YD 3컬러 250/182/242):
+  별도 견적 도구줄 **[러닝 생지 견적]** → 창(`RunningGreigeModal`)에서 원단 · **생지 짠 수량** · **컬러별 수량** · 이익율·정액을 넣으면 바로 계산(시뮬레이션) → [별도 견적에 넣기].
+  - **계산 (실비, 대표님 지정)**: 원사·편직은 **생지 짠 수량으로 짠 원가** 중 이 오더 몫 — 편직 정액·편직 kg단가 구간·편직 LOSS·수입 원사 운반비 구간 모두
+    생지를 짤 때의 kg. 염색은 **컬러마다 실제 수량**으로 생지 kg를 재서 최소 청구 kg 미만인 컬러만 최소 kg로 청구. 이화학(컬러 수)·운임(오더 수량 구간)·
+    외관검사·후가공·품목별 추가비용은 이 오더 수량. 위험마진은 원단 값 → `computeCostAtQty(원단, 합계, 견적 환율, { greigeQty, colorQtys })`.
+    옵션을 안 넣으면 예전과 똑같이 계산 (2026-10-07 대조: 원가 표 12건 · 수량 계산 1,920건 모두 같음).
+  - **판매가**: 일반 별도 견적 줄과 같은 이익율·YD당 정액 (비우면 수량 구간 이익율 · 정액 0, 넣으면 그 값). 남은 생지 재고 부담은 넣지 않음 (대표님 결정).
+  - 창에 보이는 것: 생지 짠 수량의 생지 kg·편직 LOSS·편직비 방식, 컬러별 생지 kg(→ 최소 청구), YD당 원가 내역, **기준원가 비교**(생지 짠 수량을 한 번에 오더할 때
+    (컬러마다 MCQ) / 이 오더 / 새로 짤 때(일반 별도 견적)), **소량 추가분**(생지 짠 수량 원가 대비 염색 최소 청구·이화학·운임 차이, 실비·오더 총액), 판가·총액.
+  - 예) 면스판 립 327g/yd(스판물·A·kg단가 2,000원·염가공료 8,800원), 생지 3,000YD, 250/182/242YD → 기준원가 10,000원
+    (생지 3,000YD를 한 번에 8,200원 · 새로 짤 때 10,300원), 소량 추가분 +1,166,429원 (염색 +448,362 · 이화학 +420,267 · 운임 +297,800), 이익율 25% → 판가 13,300원.
+  - **저장**: 별도 견적 줄에 `running = { greigeQty, colorQtys }` — 줄의 수량 = 컬러별 합계, 컬러 = 칸 수로 맞춰 둠 (견적서·견적 목록·출력 전 확인이 일반 줄과 같이 읽음).
+    염색 내역에 `dye.perColorKgs`(컬러별 생지 kg). [현재 원가로 다시 계산]·시장 구분 전환·복제 때 같은 조건으로 다시 계산 (`useQuotation.createCustomItem`).
+  - **막음**: 원단·생지 짠 수량이 없거나 비어 있는 컬러 칸, **생지 짠 수량 < 오더 수량** (`quoteModel.validateRunning` · 창에서 바로 빨갛게).
+  - **같은 원단은 한 줄만** (지금 규칙): 별도 견적에 일반 줄로 있는 원단을 고르면 창에 알리고 그 줄이 러닝 생지 줄로 바뀜 (컬러 칸은 그 줄 수량을 고르게 나눈 값으로 시작).
+    러닝 생지 줄은 표에서 '러닝 생지' 배지 + 컬러별 수량 + 생지 짠 수량, [수정]으로 창을 다시 엶 (수량·컬러 칸은 창에서만).
+    창의 **[러닝 생지 해제]** = 일반 줄로 (수량·컬러수 그대로, 컬러별로 고르게 나눈 기준으로 다시 계산).
+  - 원단 리스트 원단만 고를 수 있음 (개발 의뢰 품목은 짜 둔 생지가 없어서 제외).
+  - **별도 견적서**: '러닝 생지'라는 말은 안 나감. PDF는 수량 아래 컬러별 수량(250/182/242), 엑셀은 러닝 생지 줄이 있으면 'Qty per Color(YD)' 열.
+    약관 (대표님 OK): 러닝 생지 줄이 있으면 '컬러별 수량이 적힌 줄은 그 수량 기준의 단가이며, 수량이 바뀌면 단가가 조정될 수 있습니다' /
+    'WHERE QUANTITY PER COLOR IS STATED, THE PRICE IS BASED ON THAT SPLIT AND MAY BE ADJUSTED IF IT CHANGES'. 견적서에 나가는 줄이 **모두** 러닝 생지면
+    '고르게 나눈 기준' 두 줄(specialSplit·specialUneven)은 뺌. 일반 줄만 있으면 예전 문구 그대로.
 - **바이어 견적서 문구** (영문 — 내수 견적서의 약관 줄은 한글, 아래 2026-10-07): 원화 = 'PRICE IN KRW · VAT EXCLUDED' + 'VAT EXCLUDED', 수출 = 'FOB PRICE'.
   기준: 'PRICES ARE PER YARD, BASED ON TOTAL ORDER QUANTITY', '{300~800 중 표시 구간} YD: UP TO 2 COLORS (SMALL-LOT DYEING CHARGE INCLUDED)',
   '{1,000 이상 표시 구간} YD: MCQ PER COLOR REQUIRED' + 기존 약관. 별도: 'PRICES APPLY ONLY TO THE QUANTITY (TOTAL PER ORDER) AND NUMBER OF COLORS STATED',
@@ -431,6 +453,8 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 견적 구간·기본 마진 | `src/constants/quote.js` — `QUOTE_TIERS`(key·costKey·수량·묶음·기본 이익율/정액), `DEFAULT_SHOWN_TIERS` |
 | 견적 계산 (순수 함수) | `src/utils/quoteModel.js` — `calcQuotePrice`, `calcCustomQuotePrice`, `computeBaseFromParts`, `normalizeQuote`, `getShownTiers`, `tierForQty`, `validateQuoteForExport`(출력 전 확인), `buildQuoteTerms`·`quotePriceBasis`·`quoteValidUntilLine`·`quoteTermsLang`(견적서 문구 — 내수는 약관만 한글) 등 |
 | 견적서 화면·출력 | `src/pages/QuotationPage.jsx`(기준/별도 칸) + `src/components/quote/QuoteParts.jsx`(공용 부품), `src/components/quote/PDFRenderer.jsx`(kind: standard/special), `src/hooks/domains/useQuoteExport.js` — `handleDownloadPDF`·`handleDownloadQuoteExcel(quote, kind)`(인쇄할 견적은 `pdfQuote`로 따로) |
+| 러닝 생지 견적 (계산) | `costModel.js` — `computeCostAtQty` 옵션 `greigeQty`(생지 짠 수량)·`colorQtys`(컬러별 수량), 결과 `running`(생지 짤 때 kg·편직비)·`dye.perColor`, `normalizeColorQtys` / `quoteModel.js` 4-A — `normalizeRunning`·`isRunningRow`·`customRowCostOpts`·`sumColorQtys`·`formatColorSplit`·`validateRunning`, 약관 `specialStated` |
+| 러닝 생지 견적 (창·줄) | `src/components/quote/RunningGreigeModal.jsx`(창), `QuoteParts.RunningGreigeBadge`(배지) / `useQuotation.js` — `previewRunningRow`(창 미리보기·비교·소량 추가분)·`handleSaveRunningRow`(넣기·고치기)·`handleReleaseRunningRow`(해제), `createCustomItem`(러닝 생지 조건 반영) / `QuotationPage.jsx` 버튼·줄 표시 / `QuoteHistoryPage.jsx` 목록 펼침 |
 | 설계서 소요 중량 | `src/pages/DesignSheetPage.jsx` — 입력 YD → 원사 kg (같은 kg 흐름) |
 | 원단 엑셀 양식 | `src/hooks/domains/useExcelIO.js` — `KnitGrade`·`KnitKgRate`·`ProcessType` 열 (이름으로 입력, 예전 양식도 등록됨) |
 | 원사 수입 지정 (공급처 줄·일괄변경) | `src/pages/YarnLibraryPage.jsx`, `src/hooks/domains/useYarn.js` |
@@ -465,5 +489,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
   나중에 막으려면 편직비처럼 '직전 구간 끝 금액'을 하한으로 두면 된다.
 - **1,000YD 미만 · MCQ 미만 견적** → 2026-10-05 견적서 개편으로 해결 (§5-B): 기준 견적 300·500·800YD 구간 + 별도 견적(수량·컬러 입력).
 - 설계서 변경 이력에는 가공 유형이 id(`span` 등)로 남는다 — 화면 표시 개선 여지.
+- **러닝 생지 견적 확장 여지** (§5-B): 생지 짠 수량을 kg로도 넣기(편직처 기록이 kg일 때), 생지 재고(남은 양) 관리와 연결,
+  같은 원단 일반 줄·러닝 생지 줄을 나란히 두고 비교하기 — 지금은 창 안의 '기준원가 비교'로 봄 (같은 원단은 한 줄만 규칙).
 - **원가 견적 창 개선 여지** (§5-C): '비슷한 원단·설계서에서 스펙 불러오기'(개발 의뢰가 기존 Article의 변형일 때 시작값),
   타겟 단가(의뢰의 글자 칸 '$3.50/yd' 등)를 숫자로 읽어 판매가와 자동 비교 — 지금은 글자 그대로 옆에 보여 줌.

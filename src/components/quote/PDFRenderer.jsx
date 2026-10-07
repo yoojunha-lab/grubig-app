@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { num } from '../../utils/helpers';
 import {
   calcQuotePrice, formatQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice, quotePriceBasis, buildQuoteTerms,
-  quoteValidUntilLine,
+  quoteValidUntilLine, formatColorSplit,
 } from '../../utils/quoteModel';
 
 // 견적서 PDF — 단일 연속 표 + 브라우저 자동 페이지 분할 방식.
@@ -17,6 +17,7 @@ import {
 //    - 'special'  별도 견적서: 별도 견적 중 '견적서' 체크한 줄만 (수량·컬러·단가). 외관검사·시험성적서 제외는 약관 줄로
 //  · 약관·가격 기준 문구는 quoteModel.buildQuoteTerms / quotePriceBasis — 엑셀 내보내기와 같은 문구
 //  · [2026-10-07] 원화(내수) 견적서는 표 끝 약관(유효기간·조건 줄)만 한글 — 제목·표 머리는 영문 그대로 (대표님 요청)
+//  · [2026-10-07] 별도 견적서의 러닝 생지 줄은 수량 아래에 컬러별 수량(250/182/242)을 작게 적음 ('러닝 생지'라는 말은 안 나감)
 
 // 기준 견적서 열 너비(%) — 구간 수에 따라 스펙 칸과 가격 칸을 나눔
 const standardColumns = (n) => {
@@ -188,7 +189,10 @@ export const PDFRenderer = ({
                     <td className="py-3 text-center text-slate-500">{row.widthFull}"</td>
                     <td className="py-3 text-right text-slate-500">{row.gsm}</td>
                     <td className="py-3 text-right text-slate-500 font-mono">{num(row.gYd)}</td>
-                    <td className="py-3 text-right text-slate-900 font-mono font-bold">{num(row.qty)} YD</td>
+                    <td className="py-3 text-right text-slate-900 font-mono font-bold">
+                      {num(row.qty)} YD
+                      {formatColorSplit(row) && <span className="block text-[9px] font-normal text-slate-500 mt-0.5">{formatColorSplit(row)}</span>}
+                    </td>
                     <td className="py-3 text-center text-slate-900 font-mono font-bold">{num(row.colors)}</td>
                     <td className="py-3 text-right text-slate-900 font-mono">{num(row.mcqYd || 300)} YD</td>
                     <td className="py-3 text-right font-mono font-bold">{formatQuotePrice(calcCustomQuotePrice(row, quoteInput, currency), currency)}</td>

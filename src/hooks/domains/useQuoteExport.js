@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { getQuoteValidUntil } from '../../utils/helpers';
 import {
   calcQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice,
-  quotePriceBasis, buildQuoteTerms, validateQuoteForExport,
+  quotePriceBasis, buildQuoteTerms, validateQuoteForExport, isRunningRow, formatColorSplit,
 } from '../../utils/quoteModel';
 
 // GRUBIG ERP - 바이어 견적서 내보내기 (PDF 인쇄 · 엑셀)
@@ -103,6 +103,8 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
       cols = [{ wch: 5 }, { wch: 16 }, { wch: 28 }, { wch: 9 }, { wch: 9 }, { wch: 7 }, { wch: 8 }, { wch: 13 }, ...tiers.map(() => ({ wch: 14 }))];
     } else {
       // 별도 견적서: '견적서' 체크한 줄만 (수량·컬러·조건·단가)
+      //  러닝 생지 줄이 있으면 'Qty per Color(YD)' 열(250/182/242)을 Colors 옆에 더함 — 없으면 예전 모양 그대로 (2026-10-07)
+      const hasSplit = specialRows.some(isRunningRow);
       rows = specialRows.map((r, idx) => ({
         'No': idx + 1,
         'Article': r.article || '',
@@ -113,10 +115,15 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
         'g/YD': Number(r.gYd) || 0,
         "Q'TY(YD)": Number(r.qty) || 0,
         'Colors': Number(r.colors) || 0,
+        ...(hasSplit ? { 'Qty per Color(YD)': formatColorSplit(r) } : {}),
         'MCQ(YD/color)': Number(r.mcqYd || 300), // 컬러당 최소 수량 — 약관: 고르지 않게 나눠 MCQ 미만이면 단가 조정
         [`Price/YD (${cur})`]: cell(calcCustomQuotePrice(r, targetQuote, cur)),
       }));
-      cols = [{ wch: 5 }, { wch: 16 }, { wch: 28 }, { wch: 9 }, { wch: 9 }, { wch: 7 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 13 }, { wch: 16 }];
+      cols = [
+        { wch: 5 }, { wch: 16 }, { wch: 28 }, { wch: 9 }, { wch: 9 }, { wch: 7 }, { wch: 8 }, { wch: 10 }, { wch: 8 },
+        ...(hasSplit ? [{ wch: 18 }] : []),
+        { wch: 13 }, { wch: 16 },
+      ];
     }
 
     const validUntil = getQuoteValidUntil(targetQuote.date, targetQuote.validityOption);

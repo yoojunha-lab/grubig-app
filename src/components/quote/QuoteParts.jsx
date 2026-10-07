@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Download, ClipboardPaste, FileSpreadsheet, Search, ChevronDown, ChevronRight, Square, CheckSquare } from 'lucide-react';
+import { num } from '../../utils/helpers';
 
 // ============================================================
 // 견적서 화면 공용 부품 — 기준 견적·별도 견적 칸이 같이 씀 (QuotationPage.jsx에서 옮김, 2026-10-06)
@@ -90,6 +91,16 @@ export const DevSourceBadge = () => (
     className="ml-1 inline-block align-middle normal-case whitespace-nowrap text-[9px] font-extrabold leading-none text-violet-700 bg-violet-50 border border-violet-200 rounded px-1 py-0.5"
   >
     개발
+  </span>
+);
+
+// 러닝 생지 견적 줄 표시 (별도 견적 — 미리 짜 둔 생지로 받는 오더, 2026-10-07). 바이어 견적서에는 안 나감
+export const RunningGreigeBadge = ({ greigeQty }) => (
+  <span
+    title={`러닝 생지 견적 — 원사·편직은 생지 짠 수량${Number(greigeQty) > 0 ? `(${num(greigeQty)}YD)` : ''}으로 짠 원가, 염색은 컬러별 실제 수량이에요. (바이어 견적서에는 이 표시가 안 나가요)`}
+    className="ml-1 inline-block align-middle normal-case whitespace-nowrap text-[9px] font-extrabold leading-none text-teal-700 bg-teal-50 border border-teal-200 rounded px-1 py-0.5"
+  >
+    러닝 생지
   </span>
 );
 

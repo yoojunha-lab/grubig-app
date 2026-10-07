@@ -434,6 +434,7 @@ const App = () => {
     handleAddFabricToQuote, handleGridPaste,
     handleRemoveItemFromQuote, handleRemoveItemsFromQuote,
     handleCopyToCustom, handleAddCustomFabric, handleCustomItemChange, handleRemoveCustomItems, handleCustomExcludeChange,
+    previewRunningRow, handleSaveRunningRow, handleReleaseRunningRow,
     handleNewQuote, handleSaveQuote, handleDeleteQuote, handleDuplicateQuote,
     startQuoteFromDevRequest
   } = useQuotation(savedFabrics, calculateCost, saveDocToCloud, deleteDocFromCloud, showToast, user, exchangeRates, calculateCostAtQty, devRequests);
@@ -998,6 +999,9 @@ const App = () => {
             handleCustomItemChange={handleCustomItemChange}
             handleRemoveCustomItems={handleRemoveCustomItems}
             handleCustomExcludeChange={handleCustomExcludeChange}
+            previewRunningRow={previewRunningRow}
+            handleSaveRunningRow={handleSaveRunningRow}
+            handleReleaseRunningRow={handleReleaseRunningRow}
             selectedFabricIdForQuote={selectedFabricIdForQuote}
             setSelectedFabricIdForQuote={setSelectedFabricIdForQuote}
             savedFabrics={savedFabrics}

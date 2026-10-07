@@ -24,6 +24,11 @@
 //
 // ■ settings 인자는 항상 resolveCostSettings() 결과(빈 칸이 기본값으로 채워진 설정)를 넘긴다.
 //
+// ■ 러닝 생지 견적 (2026-10-07 — 미리 짜 둔 생지로 소량·여러 컬러 오더를 받을 때, docs/costing-model.md §5-B)
+//   computeCostAtQty(…, { greigeQty, colorQtys }) — 원사·편직은 '생지 짠 수량'(greigeQty)으로 짠 원가 중 이 오더 몫
+//   (편직 정액·편직 LOSS·수입 원사 운반비 구간 모두 생지를 짤 때의 kg), 염색은 '컬러별 수량'(colorQtys)마다 실제 kg로
+//   최소 청구. 이화학·운임·외관검사·후가공·추가비용은 이 오더 수량. 옵션을 안 넣으면 지금과 똑같이 계산
+//
 // ■ 환율 (ctx.exchangeRate — 2026-10-07 내수 환율·수출 환율 분리)
 //   · { domestic, export } = 화면 위 공통 환율 두 칸 → 내수 원가는 내수 환율, 수출 원가는 수출 환율
 //     - 내수: 달러 원사 단가 × 내수 환율 (원화 원가는 그대로)
@@ -177,6 +182,11 @@ export const getChemColors = (settings, qty) => toNum(pickBracket(settings?.chem
  */
 export const resolveOrderColors = (settings, qty, colors) =>
   (isBlank(colors) ? getChemColors(settings, qty) : Math.max(0, Math.round(toNum(colors))));
+
+/** 컬러별 수량(YD) 정리 — 0보다 큰 칸만 정수로 (러닝 생지 견적의 컬러별 수량. 빈 칸·0은 빠짐) */
+export const normalizeColorQtys = (list) => (Array.isArray(list) ? list : [])
+  .map(q => Math.round(toNum(q)))
+  .filter(q => q > 0);
 
 /** 운임 오더 총액 — 오더 수량(YD) 기준 */
 export const getFreightAmount = (settings, qty) => toNum(pickBracket(settings?.freightBrackets, qty)?.amount);
@@ -434,10 +444,11 @@ const emptyTier = (qty = 0) => ({
   kg: { finished: 0, greige: 0, yarn: 0, processLossPct: 0, finishingLossPct: 0, knitLossPct: 0 },
   knit: { total: 0, rate: 0, byKg: 0, fixedFee: 0, floor: 0, mode: 'fixed', gradeId: '', gradeName: '' },
   chem: { colors: 0, feePerColor: 0, total: 0 },
-  dye: { colors: 0, perColorKg: 0, minKg: 0, minApplied: false, assumeMcq: false, billedKg: 0, total: 0 },
+  dye: { colors: 0, perColorKg: 0, minKg: 0, minApplied: false, assumeMcq: false, billedKg: 0, total: 0, perColor: null },
   freight: { total: 0 },
   visual: { perYd: 0, total: 0 },
   importFreight: { lines: [], total: 0 },
+  running: null,
   domestic: emptyMode(),
   export: emptyMode(),
   riskPct: 0,
@@ -446,41 +457,68 @@ const emptyTier = (qty = 0) => ({
 
 // 준비된 값(prep)으로 수량 1개의 원가 계산
 //  opts.colors: 컬러수 가정 (없으면 이화학 수량 구간), opts.assumeMcq: 컬러마다 MCQ 충족 → 염색 최소 청구 없음
+//  opts.greigeQty: 러닝 생지 — 생지 짠 수량(YD). 원사·편직은 이 수량으로 짠 원가 중 이 오더 몫 (없으면 이 오더로 새로 짬)
+//  opts.colorQtys: 컬러별 수량(YD) 예) [250, 182, 242] — 컬러수 = 칸 수, 염색 최소 청구를 컬러마다 실제 수량으로
+//                  (qty는 컬러별 수량의 합계로 넘김)
 const costAtQty = (p, qtyRaw, opts = {}) => {
   const qty = Math.max(0, toNum(qtyRaw));
   if (qty <= 0) return emptyTier(0);
   const s = p.settings;
+  const lossFactor = 1 + (p.processLossPct + p.finishingLossPct) / 100; // 생지 kg = 가공지 kg × 이 값
 
   // ── kg 흐름: 가공지 → 생지(가공 LOSS) → 원사(편직 LOSS) ──
   const finishedKg = qty * p.weightPerYdKg;
-  const greigeKg = finishedKg * (1 + (p.processLossPct + p.finishingLossPct) / 100);
-  const knitLossPct = getKnitLossPct(s, greigeKg);
-  const yarnKg = greigeKg * (1 + knitLossPct / 100);
+  const greigeKg = finishedKg * lossFactor;
+
+  // ── 러닝 생지(미리 짜 둔 생지): 원사·편직은 '생지 짠 수량'으로 짠 원가 → 이 오더 몫(수량 비율)만 ──
+  //   편직 LOSS·편직비(정액·kg단가 구간)·수입 원사 운반비 구간 모두 생지를 짤 때의 kg로 정함.
+  //   생지 짠 수량이 없거나 오더 수량 이하면 지금처럼 이 오더 수량으로 새로 짠다고 봄
+  const lotQty = Math.max(qty, toNum(opts.greigeQty));
+  const isRunning = lotQty > qty;
+  const lotGreigeKg = isRunning ? lotQty * p.weightPerYdKg * lossFactor : greigeKg;
+  const knitLossPct = getKnitLossPct(s, lotGreigeKg);
+  const yarnKg = greigeKg * (1 + knitLossPct / 100);                            // 이 오더에 들어가는 원사
+  const lotYarnKg = isRunning ? lotGreigeKg * (1 + knitLossPct / 100) : yarnKg; // 생지를 짤 때 들어간 원사
 
   // ── 오더 총액 항목 ──
-  const knit = calcKnitFee(p.fabric, greigeKg, p.grade.fixedFee);
-  const colors = resolveOrderColors(s, qty, opts.colors);
+  const knitLot = calcKnitFee(p.fabric, lotGreigeKg, p.grade.fixedFee);
+  const knit = isRunning ? { ...knitLot, total: knitLot.total * (qty / lotQty) } : knitLot;
+  const colorQtys = normalizeColorQtys(opts.colorQtys);
+  const colors = colorQtys.length > 0 ? colorQtys.length : resolveOrderColors(s, qty, opts.colors);
   const chemTotal = colors * s.chemTest.feePerColor;
   const freightTotal = getFreightAmount(s, qty);
   const visualTotal = s.visualInspectionPerYd * qty;
 
   // ── 염색: 생지 kg 기준 청구. 컬러마다 따로 염색 → 한 컬러의 생지 kg가 최소 청구 kg(설정)보다 적으면 최소 kg로 청구 ──
   //   'MCQ 충족' 가정이면 컬러마다 생지 100kg 이상(= MCQ 정의)으로 보고 적용하지 않음
+  //   컬러별 수량이 있으면 컬러마다 실제 수량으로, 없으면 컬러수로 고르게 나눈다고 봄
   const assumeMcq = opts.assumeMcq === true;
   const dyeColors = Math.max(1, colors);
   const perColorKg = greigeKg / dyeColors;
   const dyeMinKg = s.dyeMinKgPerColor;
-  const dyeMinApplied = !assumeMcq && dyeMinKg > 0 && perColorKg < dyeMinKg;
-  const dyeBilledKg = dyeMinApplied ? dyeMinKg * dyeColors : greigeKg;
+  const dyePerColor = colorQtys.length > 0
+    ? colorQtys.map(q => {
+      const kg = q * p.weightPerYdKg * lossFactor;
+      const minApplied = !assumeMcq && dyeMinKg > 0 && kg < dyeMinKg;
+      return { qty: q, kg, billedKg: minApplied ? dyeMinKg : kg, minApplied };
+    })
+    : null;
+  const dyeMinApplied = dyePerColor
+    ? dyePerColor.some(c => c.minApplied)
+    : !assumeMcq && dyeMinKg > 0 && perColorKg < dyeMinKg;
+  const dyeBilledKg = dyePerColor
+    ? dyePerColor.reduce((sum, c) => sum + c.billedKg, 0)
+    : (dyeMinApplied ? dyeMinKg * dyeColors : greigeKg);
   const dyeTotal = p.dyeingFee * dyeBilledKg;
 
   // ── 수입 원사 운반비: 원사마다 그 원사 kg(원사 kg × 혼용률)가 속한 수입 국가 구간의 kg당 금액 ──
   //   수량이 바뀌면 kg가 바뀌어 구간도 바뀜 → 원가 표 모든 구간·임의 수량 모두 여기서 자동 반영
+  //   러닝 생지는 구간을 생지 짤 때 실어 온 원사 kg로 정하고, 금액은 이 오더에 들어간 kg만
   const lineFreight = p.lines.map(m => {
     if (!m.isImport) return null;
     const kg = yarnKg * m.ratio;
     const country = findImportCountry(s, m.importCountry);
-    const perKg = getImportFreightPerKg(s, country.id, kg);
+    const perKg = getImportFreightPerKg(s, country.id, lotYarnKg * m.ratio);
     return { name: m.name, supplierName: m.supplierName, countryId: country.id, countryName: country.name, kg, perKg, total: kg * perKg };
   });
   const importFreightLines = lineFreight.filter(Boolean);
@@ -533,11 +571,16 @@ const costAtQty = (p, qtyRaw, opts = {}) => {
     knit: { ...knit, gradeId: p.grade.id, gradeName: p.grade.name },
     chem: { colors, feePerColor: s.chemTest.feePerColor, total: chemTotal },
     // 염색 청구 내역 (오더 총액, 원화) — 염가공비 줄의 설명·마우스오버용
-    dye: { colors: dyeColors, perColorKg, minKg: dyeMinKg, minApplied: dyeMinApplied, assumeMcq, billedKg: dyeBilledKg, total: dyeTotal },
+    //  perColor: 컬러별 수량을 넣었을 때만 [{ qty, kg(생지), billedKg, minApplied }] (러닝 생지 견적)
+    dye: { colors: dyeColors, perColorKg, minKg: dyeMinKg, minApplied: dyeMinApplied, assumeMcq, billedKg: dyeBilledKg, total: dyeTotal, perColor: dyePerColor },
     freight: { total: freightTotal },
     visual: { perYd: s.visualInspectionPerYd, total: visualTotal },
     // 수입 원사 운반비 (원화, 오더 총액) — 재료비에 이미 포함. 화면 표시용 내역
     importFreight: { lines: importFreightLines, total: importFreightTotal },
+    // 러닝 생지 — 생지를 짤 때(생지 짠 수량) 기준 내역 (생지 짠 수량을 안 넣었으면 null). knit.total은 이 오더 몫
+    running: toNum(opts.greigeQty) > 0
+      ? { greigeQty: lotQty, greigeKg: lotGreigeKg, yarnKg: lotYarnKg, knitTotal: knitLot.total }
+      : null,
     domestic: {
       yarnCostYd: dom.matSub, knitCostYd: dom.knitSub, dyeCostYd: dom.procSub, extraFeeYd: dom.etcSub,
       totalCostYd: domTotal, riskAmtYd: domFinal - domTotal, finalCostYd: domFinal,
@@ -567,7 +610,9 @@ const costAtQty = (p, qtyRaw, opts = {}) => {
  * @param {Object} fabric 원단(또는 설계서 costInput + yarns)
  * @param {number} qty    오더 수량 (YD)
  * @param {Object} ctx    { yarnLibrary, exchangeRate(숫자 = 내수·수출 같은 환율 / { domestic, export } = 시장별), settings(resolveCostSettings 결과) }
- * @param {Object} opts   { colors: 컬러수 가정(없으면 이화학 수량 구간), assumeMcq: 컬러마다 MCQ 충족 → 염색 최소 청구 없음 }
+ * @param {Object} opts   { colors: 컬러수 가정(없으면 이화학 수량 구간), assumeMcq: 컬러마다 MCQ 충족 → 염색 최소 청구 없음,
+ *                          greigeQty: 러닝 생지 — 생지 짠 수량(YD, 원사·편직은 이 수량으로 짠 원가),
+ *                          colorQtys: 컬러별 수량(YD) 배열 — 넣으면 qty는 그 합계 }
  */
 export const computeCostAtQty = (fabric, qty, ctx = {}, opts = {}) => {
   if (!fabric) return emptyTier(0);

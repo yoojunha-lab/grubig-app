@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
 import { Search, X, Trash2, Copy, ChevronDown, ChevronRight, CheckCircle2, FileText, FileSpreadsheet, FilePlus } from 'lucide-react';
 import { num } from '../utils/helpers';
-import { calcQuotePrice, formatQuotePrice, normalizeQuote, getShownTiers, getShownCustomItems, calcCustomQuotePrice } from '../utils/quoteModel';
+import {
+  calcQuotePrice, formatQuotePrice, normalizeQuote, getShownTiers, getShownCustomItems, calcCustomQuotePrice,
+  normalizeRunning, formatColorSplit,
+} from '../utils/quoteModel';
+import { RunningGreigeBadge } from '../components/quote/QuoteParts';
 
 export const QuoteHistoryPage = ({
   quoteBuyerFilter,
@@ -193,8 +197,15 @@ export const QuoteHistoryPage = ({
                                   <tbody className="divide-y divide-slate-100">
                                     {quote.customItems.map((row, idx) => (
                                       <tr key={row.id || idx} className={row.show === false ? 'opacity-50' : ''}>
-                                        <td className="py-2 px-3 font-bold text-slate-800 uppercase whitespace-nowrap">{row.article}</td>
-                                        <td className="py-2 px-3 text-right font-mono whitespace-nowrap">{num(row.qty)} YD</td>
+                                        <td className="py-2 px-3 font-bold text-slate-800 uppercase whitespace-nowrap">
+                                          {row.article}
+                                          {/* 러닝 생지 견적 줄 (2026-10-07) — 컬러별 수량은 수량 칸 아래 */}
+                                          {normalizeRunning(row.running) && <RunningGreigeBadge greigeQty={normalizeRunning(row.running).greigeQty} />}
+                                        </td>
+                                        <td className="py-2 px-3 text-right font-mono whitespace-nowrap">
+                                          {num(row.qty)} YD
+                                          {formatColorSplit(row) && <span className="block text-[10px] text-teal-700">{formatColorSplit(row)}</span>}
+                                        </td>
                                         <td className="py-2 px-3 text-center font-mono">{num(row.colors)}</td>
                                         <td className="py-2 px-3 text-right font-mono font-bold text-amber-800 whitespace-nowrap">{formatQuotePrice(calcCustomQuotePrice(row, quote, quote.currency), quote.currency)}</td>
                                       </tr>

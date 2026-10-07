@@ -8,12 +8,15 @@
 //     (marginAddCurrency 없음 + 통화 USD) 그 값 그대로 씀 → 예전 견적 판매가는 바뀌지 않음
 // ■ 별도 견적: 줄마다 수량·컬러수를 넣어 원가부터 다시 계산한 기준원가(basePrice)
 //   이익율을 비워 두면 수량이 속한 기준 구간의 견적 일괄값, YD당 정액은 비워 두면 0 (대표님 지정 2026-10-05)
+//   · 러닝 생지 견적 (2026-10-07): 별도 견적 줄의 한 종류 — row.running = { greigeQty(생지 짠 수량), colorQtys(컬러별 수량) }
+//     원사·편직은 생지 짠 수량으로 짠 원가, 염색은 컬러별 실제 수량 (실비). 판매가는 일반 줄과 같은 이익율·정액 (4-A)
 // ■ 외관검사·시험성적서(이화학) 제외: 기준 견적 전체(excludeVisual/excludeChem) · 별도 견적 전체
 //   (customExcludeVisual/customExcludeChem — 2026-10-05 대표님 요청으로 줄마다 → 칸 전체).
 //   원가 조각(costParts: 반올림·위험마진 전 YD당 순원가와 그중 이화학·외관검사 몫)을 같이 저장해 두고,
 //   버튼을 바꾸면 조각으로 기준원가를 다시 만듦 (다른 원가는 그대로)
 
 import { smartRound, roundUsd, applyGrossMargin, num, usd, getQuoteValidUntil } from './helpers';
+import { normalizeColorQtys } from './costModel';
 import { QUOTE_TIERS, QUOTE_TIER_KEYS, LEGACY_TIER_KEYS } from '../constants/quote';
 
 const isBlank = (v) => v === undefined || v === null || v === '';
@@ -277,6 +280,57 @@ export const getCustomExclude = (quote) => ({
   excludeChem: quote?.customExcludeChem === true,
 });
 
+// ----------------------------------------------------------------------
+// 4-A. 러닝 생지 견적 (대표님 요청 2026-10-07)
+//  미리 짜 둔 생지(러닝 생지)로 소량·여러 컬러 오더를 받을 때의 별도 견적 줄 — row.running = { greigeQty, colorQtys }
+//   · greigeQty: 생지 짠 수량 (YD — 원가 표 수량과 같은 가공지 기준) → 원사·편직은 이 수량으로 짠 원가
+//     (편직 정액·편직 LOSS·수입 원사 운반비 구간 모두 생지를 짤 때의 kg)
+//   · colorQtys: 컬러별 수량 (YD) → 줄의 수량 = 합계, 컬러 = 칸 수. 염색 최소 청구를 컬러마다 실제 수량으로
+//   · 실비(원가)만 계산하고, 판매가는 일반 별도 견적 줄과 같은 이익율·YD당 정액 (대표님 지정)
+//   · 같은 원단은 별도 견적에 한 줄만 — 일반 줄을 러닝 생지 줄로 바꾸거나, [러닝 생지 해제]로 되돌림
+// ----------------------------------------------------------------------
+
+/** 러닝 생지 조건 정리 — 생지 짠 수량(정수 YD)과 컬러별 수량(0보다 큰 정수 YD). 컬러별 수량이 없으면 null (= 일반 줄) */
+export const normalizeRunning = (running) => {
+  if (!running || typeof running !== 'object') return null;
+  const colorQtys = normalizeColorQtys(running.colorQtys);
+  if (colorQtys.length === 0) return null;
+  return { greigeQty: Math.max(0, Math.round(Number(running.greigeQty) || 0)), colorQtys };
+};
+
+/** 러닝 생지 줄인지 */
+export const isRunningRow = (row) => normalizeRunning(row?.running) !== null;
+
+/** 컬러별 수량 합계 (YD) */
+export const sumColorQtys = (colorQtys) => normalizeColorQtys(colorQtys).reduce((sum, q) => sum + q, 0);
+
+/** 별도 견적 줄 → 원가 엔진 옵션. 러닝 생지 줄은 생지 짠 수량·컬러별 수량, 일반 줄은 컬러수 (고르게 나눈다고 봄) */
+export const customRowCostOpts = (row) => {
+  const running = normalizeRunning(row?.running);
+  return running
+    ? { greigeQty: running.greigeQty, colorQtys: running.colorQtys }
+    : { colors: Math.round(Number(row?.colors) || 0) };
+};
+
+/** 컬러별 수량 글자 — '250/182/242' (러닝 생지 줄이 아니면 '') — 별도 견적서·견적 목록 표시 */
+export const formatColorSplit = (row) => {
+  const running = normalizeRunning(row?.running);
+  return running ? running.colorQtys.map(q => num(q)).join('/') : '';
+};
+
+/**
+ * 러닝 생지 조건 확인 — 막는 사유 문구 (없으면 null)
+ *  컬러별 수량 없음 / 생지 짠 수량 없음 / 생지 짠 수량이 오더 수량(컬러별 합계)보다 적음
+ */
+export const validateRunning = (running) => {
+  const r = normalizeRunning(running);
+  if (!r) return '컬러별 수량을 넣어 주세요.';
+  if (!(r.greigeQty > 0)) return '생지 짠 수량을 넣어 주세요.';
+  const total = sumColorQtys(r.colorQtys);
+  if (r.greigeQty < total) return `생지 짠 수량(${num(r.greigeQty)}YD)이 오더 수량(${num(total)}YD)보다 적어요.`;
+  return null;
+};
+
 /**
  * 바이어 견적서(PDF·엑셀)로 내보내기 전에 확인
  *  - errors: 하나라도 있으면 내보내지 않음 (바이어 이름 없음, 단가 '—' 칸, 수량·컬러 빈 별도 견적 줄 등)
@@ -338,6 +392,7 @@ const TERMS_TEXT = {
     specialQty: 'PRICES APPLY ONLY TO THE QUANTITY (TOTAL PER ORDER) AND NUMBER OF COLORS STATED',
     specialSplit: 'PRICES ASSUME THE QUANTITY IS SPLIT EVENLY ACROSS THE STATED COLORS',
     specialUneven: 'IF AN UNEVEN SPLIT LEAVES ANY COLOR BELOW MCQ (YD PER COLOR), THE PRICE MAY BE ADJUSTED',
+    specialStated: 'WHERE QUANTITY PER COLOR IS STATED, THE PRICE IS BASED ON THAT SPLIT AND MAY BE ADJUSTED IF IT CHANGES',
     specialOther: 'OTHER QUANTITIES OR COLORS: PLEASE ASK FOR A NEW QUOTATION',
   },
   ko: {
@@ -353,6 +408,7 @@ const TERMS_TEXT = {
     specialQty: '적힌 수량(오더 총수량)과 컬러 수에만 적용되는 단가입니다',
     specialSplit: '수량을 적힌 컬러 수로 고르게 나눈 기준의 단가입니다',
     specialUneven: '컬러별 수량이 고르지 않아 어느 컬러가 MCQ(컬러당 YD)보다 적으면 단가가 조정될 수 있습니다',
+    specialStated: '컬러별 수량이 적힌 줄은 그 수량 기준의 단가이며, 수량이 바뀌면 단가가 조정될 수 있습니다',
     specialOther: '다른 수량·컬러는 새로 견적을 요청해 주세요',
   },
 };
@@ -389,8 +445,15 @@ export const buildQuoteTerms = (quote, kind = 'standard') => {
     lines.push(T.specialQty);
     // 컬러별 수량 (대표님 요청 2026-10-06): 단가는 수량을 컬러별로 고르게 나눈다고 보고 낸 값 →
     //  고르지 않게 나눠 어느 컬러가 MCQ보다 적어지면 염색 최소 청구가 더 붙으므로 단가 조정
-    lines.push(T.specialSplit);
-    lines.push(T.specialUneven);
+    //  [러닝 생지 견적 2026-10-07] 컬러별 수량이 적힌 줄은 그 수량 기준 단가 — 견적서에 나가는 줄이 모두 그렇다면
+    //  '고르게 나눈 기준' 두 줄은 빼고, 하나라도 있으면 '컬러별 수량이 적힌 줄' 한 줄을 더함 (대표님 OK)
+    const shown = getShownCustomItems(quote);
+    const stated = shown.filter(isRunningRow).length;
+    if (!(shown.length > 0 && stated === shown.length)) {
+      lines.push(T.specialSplit);
+      lines.push(T.specialUneven);
+    }
+    if (stated > 0) lines.push(T.specialStated);
     if (ex.excludeVisual) lines.push(T.visual);
     if (ex.excludeChem) lines.push(T.chem);
     if (isKrw) lines.push(T.vat);
