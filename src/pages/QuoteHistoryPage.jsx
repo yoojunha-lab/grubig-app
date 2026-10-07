@@ -195,21 +195,24 @@ export const QuoteHistoryPage = ({
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100">
-                                    {quote.customItems.map((row, idx) => (
-                                      <tr key={row.id || idx} className={row.show === false ? 'opacity-50' : ''}>
-                                        <td className="py-2 px-3 font-bold text-slate-800 uppercase whitespace-nowrap">
-                                          {row.article}
-                                          {/* 러닝 생지 견적 줄 (2026-10-07) — 컬러별 수량은 수량 칸 아래 */}
-                                          {normalizeRunning(row.running) && <RunningGreigeBadge greigeQty={normalizeRunning(row.running).greigeQty} />}
-                                        </td>
-                                        <td className="py-2 px-3 text-right font-mono whitespace-nowrap">
-                                          {num(row.qty)} YD
-                                          {formatColorSplit(row) && <span className="block text-[10px] text-teal-700">{formatColorSplit(row)}</span>}
-                                        </td>
-                                        <td className="py-2 px-3 text-center font-mono">{num(row.colors)}</td>
-                                        <td className="py-2 px-3 text-right font-mono font-bold text-amber-800 whitespace-nowrap">{formatQuotePrice(calcCustomQuotePrice(row, quote, quote.currency), quote.currency)}</td>
-                                      </tr>
-                                    ))}
+                                    {quote.customItems.map((row, idx) => {
+                                      // 러닝 생지 견적 줄 (2026-10-07) — 배지 + 수량 칸 아래 컬러별 수량
+                                      const running = normalizeRunning(row.running);
+                                      return (
+                                        <tr key={row.id || idx} className={row.show === false ? 'opacity-50' : ''}>
+                                          <td className="py-2 px-3 font-bold text-slate-800 uppercase whitespace-nowrap">
+                                            {row.article}
+                                            {running && <RunningGreigeBadge greigeQty={running.greigeQty} />}
+                                          </td>
+                                          <td className="py-2 px-3 text-right font-mono whitespace-nowrap">
+                                            {num(row.qty)} YD
+                                            {running && <span className="block text-[10px] text-teal-700">{formatColorSplit(row)}</span>}
+                                          </td>
+                                          <td className="py-2 px-3 text-center font-mono">{num(row.colors)}</td>
+                                          <td className="py-2 px-3 text-right font-mono font-bold text-amber-800 whitespace-nowrap">{formatQuotePrice(calcCustomQuotePrice(row, quote, quote.currency), quote.currency)}</td>
+                                        </tr>
+                                      );
+                                    })}
                                   </tbody>
                                 </table>
                               </div>

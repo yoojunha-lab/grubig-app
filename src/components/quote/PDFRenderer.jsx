@@ -181,23 +181,26 @@ export const PDFRenderer = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {rows.map((row, idx) => (
-                  <tr key={row.id || idx} className="avoid-break">
-                    <td className="py-3 font-bold text-slate-800 uppercase break-words">{row.article}</td>
-                    <td className="py-3 text-slate-600 break-words leading-tight">{row.itemName}</td>
-                    <td className="py-3 text-center text-slate-500">{row.widthCut}"</td>
-                    <td className="py-3 text-center text-slate-500">{row.widthFull}"</td>
-                    <td className="py-3 text-right text-slate-500">{row.gsm}</td>
-                    <td className="py-3 text-right text-slate-500 font-mono">{num(row.gYd)}</td>
-                    <td className="py-3 text-right text-slate-900 font-mono font-bold">
-                      {num(row.qty)} YD
-                      {formatColorSplit(row) && <span className="block text-[9px] font-normal text-slate-500 mt-0.5">{formatColorSplit(row)}</span>}
-                    </td>
-                    <td className="py-3 text-center text-slate-900 font-mono font-bold">{num(row.colors)}</td>
-                    <td className="py-3 text-right text-slate-900 font-mono">{num(row.mcqYd || 300)} YD</td>
-                    <td className="py-3 text-right font-mono font-bold">{formatQuotePrice(calcCustomQuotePrice(row, quoteInput, currency), currency)}</td>
-                  </tr>
-                ))}
+                {rows.map((row, idx) => {
+                  const split = formatColorSplit(row, { wrap: true }); // 러닝 생지 줄 — 컬러가 많아도 수량 칸 안에서 줄바꿈
+                  return (
+                    <tr key={row.id || idx} className="avoid-break">
+                      <td className="py-3 font-bold text-slate-800 uppercase break-words">{row.article}</td>
+                      <td className="py-3 text-slate-600 break-words leading-tight">{row.itemName}</td>
+                      <td className="py-3 text-center text-slate-500">{row.widthCut}"</td>
+                      <td className="py-3 text-center text-slate-500">{row.widthFull}"</td>
+                      <td className="py-3 text-right text-slate-500">{row.gsm}</td>
+                      <td className="py-3 text-right text-slate-500 font-mono">{num(row.gYd)}</td>
+                      <td className="py-3 text-right text-slate-900 font-mono font-bold">
+                        {num(row.qty)} YD
+                        {split && <span className="block text-[9px] font-normal text-slate-500 mt-0.5">{split}</span>}
+                      </td>
+                      <td className="py-3 text-center text-slate-900 font-mono font-bold">{num(row.colors)}</td>
+                      <td className="py-3 text-right text-slate-900 font-mono">{num(row.mcqYd || 300)} YD</td>
+                      <td className="py-3 text-right font-mono font-bold">{formatQuotePrice(calcCustomQuotePrice(row, quoteInput, currency), currency)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

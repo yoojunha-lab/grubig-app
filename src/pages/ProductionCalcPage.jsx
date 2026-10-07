@@ -4,7 +4,8 @@ import { SearchableSelect } from '../components/common/SearchableSelect';
 import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
 import { formatMonthDay } from '../utils/helpers';
 import {
-  CALC_KINDS, CALC_UNITS, calcKindLabel, unitLabel, calcFromOrder, calcHasData, findFabricForOrder, fabricYarnOptions,
+  CALC_KINDS, CALC_UNITS, calcKindLabel, unitLabel, calcFromOrder, calcHasData,
+  findFabricForOrder, fabricYarnOptions, nextBaseYarnName,
   makeStripeRow, makeMelangeRow, makeYarnSlot, splitColorName,
   computeStripe, computeMelange, stripeRowPctSum, stripeRemainderHint, buildCalcCopyText, fmt1, fmtPct,
 } from '../utils/yarnDyeCalc';
@@ -17,15 +18,15 @@ import {
 //    - ARTICLE: 원단 관리 원단 → 그 원사를 선염할 원사로 (원사가 여러 개면 하나를 고름) — 결과 원사명 = 원사 + 컬러
 //  · 스트라이프 선염: 오더 컬러마다 원사 컬러 비율(%) → 원사 컬러별 수량·혼용율 (같은 이름은 합침, 로스 없음)
 //  · 멜란지 선염: 멜란지별 수량 → 수량 비율
-//  · 저장 안 한 변경이 있으면 다른 계산·새 계산·다른 메뉴로 갈 때 '저장할까요?'
+//  · 저장 안 한 변경이 있으면 다른 계산·새 계산·다른 메뉴로 갈 때 '저장할까요?' ([저장 안 함] = 변경을 버림)
+//  · 저장 목록은 넓은 화면(xl)에서만 옆에 — 1024px쯤에선 위로 올려 계산 표가 잘리지 않게
 //  · 계산 규칙: utils/yarnDyeCalc.js · 저장: hooks/domains/useYarnDyeCalc.js (Firestore yarnDyeCalcs)
 // ============================================================
 
 const inputCls = 'w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:ring-2 ring-teal-200';
 const numCls = 'bg-white border rounded-lg px-2 py-1.5 text-sm font-mono font-bold text-right outline-none focus:ring-2 ring-teal-200';
-
-// 원단의 원사가 하나뿐이면 그 이름 (여러 개면 '' — 화면에서 고름)
-const singleYarnName = (yarns) => (yarns.length === 1 ? yarns[0].name : '');
+// 스트라이프 오더 컬러 표 열 (PC) — No · 컬러명 · 수량 · 원사 컬러·비율(칸이 좁으면 줄바꿈) · 합계 · ✕
+const STRIPE_COLS = 'md:grid-cols-[28px_minmax(120px,1fr)_100px_minmax(0,2.4fr)_56px_28px]';
 
 // 결과를 클립보드로 (안 되는 브라우저는 예전 방식)
 const copyText = async (text) => {
@@ -50,8 +51,8 @@ const copyText = async (text) => {
 export const ProductionCalcPage = ({
   calcs = [],                // 저장된 계산 (Firestore yarnDyeCalcs)
   dyeCalcInput, setDyeCalcInput, editingDyeCalcId, dyeCalcDirty,
-  newDyeCalc, loadDyeCalc, saveDyeCalc, deleteDyeCalc,
-  orders = [],               // 생산 현황 오더 (오더 불러오기)
+  newDyeCalc, loadDyeCalc, saveDyeCalc, deleteDyeCalc, discardDyeCalc,
+  orders = [],               // 생산 현황 오더 (O/D)
   savedFabrics = [], yarnLibrary = [],
   navGuardRef, showToast,
 }) => {
@@ -61,6 +62,7 @@ export const ProductionCalcPage = ({
   const [search, setSearch] = useState('');
   const [pending, setPending] = useState(null);   // '저장할까요?' 뒤에 할 일
   const [busy, setBusy] = useState(false);
+  const [odKey, setOdKey] = useState(0);          // O/D 칸 다시 그리기 — '줄을 바꿀까요?'를 취소하면 칸 글자를 원래 O/D로
 
   const editingDoc = editingDyeCalcId ? calcs.find(c => c.id === editingDyeCalcId) || null : null;
   const stripe = useMemo(() => (isStripe ? computeStripe(calc) : null), [isStripe, calc]);
@@ -75,7 +77,8 @@ export const ProductionCalcPage = ({
     return () => { navGuardRef.current = null; };
   });
   const keepEditing = () => setPending(null);
-  const leaveWithoutSave = () => { const act = pending; setPending(null); if (act) act(); };
+  // [저장 안 함] — 변경을 버리고 진행 (계산은 App에 남아 있어서, 버리지 않으면 다음에 나갈 때마다 또 물어봄)
+  const leaveWithoutSave = () => { const act = pending; setPending(null); discardDyeCalc(); if (act) act(); };
   const saveAndLeave = async () => {
     const ok = await saveDyeCalc();
     if (!ok) return; // 저장 못 하면 그대로 (입력값 보존)
@@ -128,6 +131,14 @@ export const ProductionCalcPage = ({
     }),
   }));
 
+  // ── ARTICLE (원단 관리) — 지금 고른 원단과 그 원사 (O/D·ARTICLE을 바꿀 때 원사를 정하는 데도 씀) ──
+  const fabricOptions = useMemo(() => [...(savedFabrics || [])]
+    .filter(f => String(f?.article || '').trim())
+    .sort((a, b) => String(a.article).localeCompare(String(b.article)))
+    .map(f => ({ id: String(f.id), name: `${f.article} · ${f.itemName || ''}` })), [savedFabrics]);
+  const currentFabric = calc.fabricId ? (savedFabrics || []).find(f => String(f.id) === String(calc.fabricId)) || null : null;
+  const yarnChoices = currentFabric ? fabricYarnOptions(currentFabric, yarnLibrary) : [];
+
   // ── O/D (생산 현황 오더) ──
   const orderOptions = useMemo(() => [...(orders || [])]
     .filter(o => (o.colors || []).length > 0)
@@ -140,37 +151,33 @@ export const ProductionCalcPage = ({
     const order = (orders || []).find(o => String(o.id) === String(orderId));
     if (!order) { patch({ orderId: '', orderNumber: '' }); return; } // 칸을 비우면 O/D 연결만 풂
     const hasRows = calcHasData({ ...calc, memo: '', baseYarnName: '', orderId: '', fabricId: '' });
-    if (hasRows && !window.confirm(`지금 넣은 줄을 ${order.orderNumber || '이 오더'}의 컬러(${(order.colors || []).length}개)로 바꿀까요?`)) return;
-    // 그 오더의 ARTICLE(원단) — 연결된 원단, 없으면 같은 Article 번호의 원단 → 원사가 하나면 바로 채움
+    if (hasRows && !window.confirm(`지금 넣은 줄을 ${order.orderNumber || '이 오더'}의 컬러(${(order.colors || []).length}개)로 바꿀까요?`)) {
+      setOdKey(k => k + 1); // 취소 — 칸에 남은 새 O/D 글자를 원래 O/D로 되돌림
+      return;
+    }
+    // 그 오더의 ARTICLE(원단) — 연결된 원단, 없으면 같은 Article 번호의 원단. 원사는 ARTICLE을 바꿀 때와 같은 규칙 (nextBaseYarnName)
     const fabric = findFabricForOrder(order, savedFabrics);
-    const yarns = fabric ? fabricYarnOptions(fabric, yarnLibrary) : [];
     const next = calcFromOrder(order, calc.kind, {
       fabricId: fabric?.id || '',
       articleNo: fabric?.article || order.articleNo || '',
-      baseYarnName: singleYarnName(yarns),
+      baseYarnName: nextBaseYarnName(fabric, currentFabric, calc.baseYarnName, yarnLibrary),
     });
     setDyeCalcInput(prev => ({
       ...next,
-      // 원단을 못 찾았으면 지금 원사 그대로 (직접 넣은 원사), 찾았는데 원사가 여러 개면 비워서 고르게
-      baseYarnName: fabric ? next.baseYarnName : prev.baseYarnName,
       memo: prev.memo,
       ...(prev.createdAt ? { createdAt: prev.createdAt, createdBy: prev.createdBy } : {}),
     }));
   };
 
-  // ── ARTICLE (원단 관리) — 고르면 그 원단의 원사를 선염할 원사로 ──
-  const fabricOptions = useMemo(() => [...(savedFabrics || [])]
-    .filter(f => String(f?.article || '').trim())
-    .sort((a, b) => String(a.article).localeCompare(String(b.article)))
-    .map(f => ({ id: String(f.id), name: `${f.article} · ${f.itemName || ''}` })), [savedFabrics]);
-  const currentFabric = calc.fabricId ? (savedFabrics || []).find(f => String(f.id) === String(calc.fabricId)) || null : null;
-  const yarnChoices = currentFabric ? fabricYarnOptions(currentFabric, yarnLibrary) : [];
+  // ARTICLE을 고르면 그 원단의 원사를 선염할 원사로 / 칸을 비우면 ARTICLE 연결을 풂
+  //  원사: 하나면 그 원사 · 여러 개면 고르게(비움) · 없거나 연결을 풀면 앞 ARTICLE에서 온 원사만 비움 (직접 넣은 원사는 그대로)
   const applyArticle = (fabricId) => {
-    const fabric = (savedFabrics || []).find(f => String(f.id) === String(fabricId));
-    if (!fabric) { patch({ fabricId: '', articleNo: '' }); return; } // 칸을 비우면 ARTICLE 연결만 풂 (원사는 그대로)
-    const yarns = fabricYarnOptions(fabric, yarnLibrary);
-    // 원사가 없는 원단이면 지금 원사 그대로 (직접 넣은 원사), 여러 개면 비워서 고르게
-    patch({ fabricId: String(fabric.id), articleNo: String(fabric.article || ''), baseYarnName: yarns.length ? singleYarnName(yarns) : calc.baseYarnName });
+    const fabric = (savedFabrics || []).find(f => String(f.id) === String(fabricId)) || null;
+    patch({
+      fabricId: fabric ? String(fabric.id) : '',
+      articleNo: fabric ? String(fabric.article || '') : '',
+      baseYarnName: nextBaseYarnName(fabric, currentFabric, calc.baseYarnName, yarnLibrary),
+    });
   };
 
   const handleCopy = async () => {
@@ -181,10 +188,10 @@ export const ProductionCalcPage = ({
   return (
     <>
     <div className="max-w-[1600px] mx-auto w-full print:hidden">
-      <div className="flex flex-col lg:flex-row gap-4 items-start">
+      <div className="flex flex-col xl:flex-row gap-4 items-start">
 
-        {/* ── 저장된 계산 ── */}
-        <aside className="w-full lg:w-72 shrink-0 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col lg:max-h-[calc(100vh-150px)]">
+        {/* ── 저장된 계산 (넓은 화면에선 왼쪽, 그보다 좁으면 위) ── */}
+        <aside className="w-full xl:w-72 shrink-0 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col xl:max-h-[calc(100vh-150px)]">
           <div className="px-3 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
             <span className="text-xs font-extrabold text-slate-500">저장된 계산 ({calcs.length})</span>
             <button type="button" onClick={() => startNew()} className="text-[11px] font-bold text-teal-700 hover:text-teal-900 flex items-center gap-0.5">
@@ -198,7 +205,7 @@ export const ProductionCalcPage = ({
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-2 py-1.5 text-xs outline-none focus:ring-2 ring-teal-200" />
             </div>
           </div>
-          <div className="overflow-y-auto flex-1 max-h-60 lg:max-h-none">
+          <div className="overflow-y-auto flex-1 max-h-60 xl:max-h-none">
             {listItems.length === 0 ? (
               <div className="py-8 text-center text-slate-400 text-xs">{calcs.length === 0 ? '저장된 계산이 없어요.' : '찾는 계산이 없어요.'}</div>
             ) : listItems.map(c => {
@@ -274,7 +281,7 @@ export const ProductionCalcPage = ({
             <div className="grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-3 items-start">
               <div className="md:col-span-4">
                 <label className="block text-[11px] font-bold text-slate-500 mb-0.5">O/D <span className="font-medium text-slate-400">(생산 현황 — 고르면 컬러·kg)</span></label>
-                <SearchableSelect value={calc.orderId} options={orderOptions} onChange={applyOrder} placeholder="O/D·Article로 검색" />
+                <SearchableSelect key={`od_${odKey}`} value={calc.orderId} options={orderOptions} onChange={applyOrder} placeholder="O/D·Article로 검색" />
                 {calc.orderNumber && !orderOptions.some(o => o.id === String(calc.orderId)) && (
                   <p className="text-[10px] text-slate-400 mt-0.5">저장된 O/D {calc.orderNumber} (생산 현황에서 찾을 수 없음)</p>
                 )}
@@ -369,7 +376,7 @@ const StripeEditor = ({ calc, unit, result, onRow, onYarn, onUnit, onAddRow, onR
           <UnitToggle value={calc.unit} onChange={onUnit} />
         </div>
       </div>
-      <div className="hidden md:grid grid-cols-[28px_minmax(140px,1fr)_110px_minmax(280px,2.4fr)_56px_28px] gap-2 px-1 mb-1 text-[10px] font-bold text-slate-400">
+      <div className={`hidden md:grid ${STRIPE_COLS} gap-2 px-1 mb-1 text-[10px] font-bold text-slate-400`}>
         <div>No.</div><div>컬러명</div><div className="text-right">수량 ({unit})</div><div>원사 컬러 · 비율 (%)</div><div className="text-right">합계</div><div />
       </div>
       <div className="space-y-2 md:space-y-1.5">
@@ -378,7 +385,7 @@ const StripeEditor = ({ calc, unit, result, onRow, onYarn, onUnit, onAddRow, onR
           const hasPct = (row.yarns || []).some(y => String(y.pct || '').trim() !== '');
           const sumOk = Math.abs(sum - 100) <= 0.05;
           return (
-            <div key={row.id} className={`grid grid-cols-[28px_1fr_28px] md:grid-cols-[28px_minmax(140px,1fr)_110px_minmax(280px,2.4fr)_56px_28px] gap-2 items-start rounded-lg p-1.5 md:p-1 ${issueRows.has(row.id) ? 'bg-red-50/60 ring-1 ring-red-100' : 'bg-slate-50/60 md:bg-transparent'}`}>
+            <div key={row.id} className={`grid grid-cols-[28px_1fr_28px] ${STRIPE_COLS} gap-2 items-start rounded-lg p-1.5 md:p-1 ${issueRows.has(row.id) ? 'bg-red-50/60 ring-1 ring-red-100' : 'bg-slate-50/60 md:bg-transparent'}`}>
               <div className="text-[11px] font-mono font-bold text-slate-400 pt-2">{idx + 1}</div>
               <input type="text" value={row.name} onChange={e => onRow(row.id, { name: e.target.value.toUpperCase() })} onBlur={() => onNameBlur(row.id)}
                 placeholder="예: APRICOT/BARK BROWN" className={`${inputCls} font-bold uppercase`} />

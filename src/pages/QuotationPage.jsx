@@ -546,7 +546,7 @@ export const QuotationPage = ({
                               <Pencil className="w-3 h-3" /> 수정
                             </button>
                           </div>
-                          <div className="text-[10px] mt-1 font-bold text-teal-700">컬러별 {formatColorSplit(row)} YD</div>
+                          <div className="text-[10px] mt-1 font-bold text-teal-700">컬러별 {formatColorSplit(row, { wrap: true })} YD</div>
                           <div className="text-[10px] text-slate-400">생지 짠 수량 {num(running.greigeQty)}YD</div>
                           {belowMcqColors > 0 && (
                             <div className="text-[10px] text-amber-700 font-bold">MCQ {num(mcq)} 미달 {belowMcqColors}컬러</div>

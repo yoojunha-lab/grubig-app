@@ -81,6 +81,7 @@ const App = () => {
   // 견적서 등 편집 중 변경사항 이탈 가드 (상단 네비 클릭 시 QuotationWorkspacePage가 등록한 가드 통과)
   const navGuardRef = useRef(null);
   const requestSetActiveTab = (tab) => {
+    if (tab === activeTab) return; // 지금 화면 메뉴를 다시 누르면 아무것도 안 함 (괜히 '저장할까요?'가 뜨지 않게)
     const go = () => setActiveTab(tab);
     const guard = navGuardRef.current;
     if (guard) guard(go); else go();
@@ -550,7 +551,7 @@ const App = () => {
   // ⚓️ 생산 ▾ 계산기 — 선염 계산 (스트라이프 원사 배분 · 멜란지 수량 비율) 저장·불러오기
   const {
     dyeCalcInput, setDyeCalcInput, editingDyeCalcId, dyeCalcDirty,
-    newDyeCalc, loadDyeCalc, saveDyeCalc, deleteDyeCalc,
+    newDyeCalc, loadDyeCalc, saveDyeCalc, deleteDyeCalc, discardDyeCalc,
   } = useYarnDyeCalc(yarnDyeCalcs, saveDocToCloud, deleteDocFromCloud, showToast, user);
 
   // ⚓️ 거래처(Partner) 훅 — 모든 거래처 선택/등록 공통
@@ -1330,6 +1331,7 @@ const App = () => {
             loadDyeCalc={loadDyeCalc}
             saveDyeCalc={saveDyeCalc}
             deleteDyeCalc={deleteDyeCalc}
+            discardDyeCalc={discardDyeCalc}
             orders={productionOrders}
             savedFabrics={savedFabrics}
             yarnLibrary={yarnLibrary}

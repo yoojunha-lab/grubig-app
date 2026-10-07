@@ -8,6 +8,7 @@ import { makeBlankCalc, normalizeCalc, cleanCalcForSave, calcKindLabel, calcAuto
 //  - 계산 규칙은 utils/yarnDyeCalc.js (스트라이프 선염 원사 배분 / 멜란지 선염 수량 비율)
 //  - 작성 중인 계산은 이 훅(App)이 들고 있어서 다른 메뉴에 다녀와도 그대로 남음
 //  - 저장 안 한 변경(dyeCalcDirty): 저장될 모양(cleanCalcForSave)으로 비교 — 빈 줄만 늘린 건 변경 아님
+//  - '저장할까요?'에서 [저장 안 함]은 변경을 버림 (discardDyeCalc — 저장된 모양 / 새 계산이면 빈 양식으로)
 // ============================================================
 
 const COLLECTION = 'yarnDyeCalcs';
@@ -50,27 +51,33 @@ export const useYarnDyeCalc = (yarnDyeCalcs, saveDocToCloud, deleteDocFromCloud,
     const now = new Date().toISOString();
     const who = user?.displayName || user?.email?.split('@')[0] || 'Unknown';
     const existing = editingDyeCalcId ? (yarnDyeCalcs || []).find(c => c.id === editingDyeCalcId) : null;
-    // 제목 칸은 없음 (대표님 지정) — 목록 제목은 'O/D · ARTICLE', 둘 다 없으면 저장돼 있던 제목 → '스트라이프 선염 2026-10-07'
-    const title = calcAutoTitle(clean) || existing?.title || `${calcKindLabel(clean.kind)} ${todayLocalISO()}`;
-    const docToSave = {
-      ...clean,
-      title,
-      id: editingDyeCalcId || newCalcId(),
-      createdAt: existing?.createdAt || dyeCalcInput.createdAt || now,
-      createdBy: existing?.createdBy || dyeCalcInput.createdBy || who,
-      updatedAt: now,
-      updatedBy: who,
-    };
+    // 제목 칸은 없음 (대표님 지정) — 목록 제목은 'O/D · ARTICLE'. 둘 다 비면 '스트라이프 선염 2026-10-07'
+    //  (저장돼 있던 제목은 직접 쓴 예전 제목일 때만 이어 씀 — 'O/D · ARTICLE' 자동 제목이었으면 지운 O/D가 남지 않게)
+    const keepOldTitle = existing?.title && !calcAutoTitle(existing) ? existing.title : '';
+    const title = calcAutoTitle(clean) || keepOldTitle || `${calcKindLabel(clean.kind)} ${todayLocalISO()}`;
+    const createdAt = existing?.createdAt || dyeCalcInput.createdAt || now;
+    const createdBy = existing?.createdBy || dyeCalcInput.createdBy || who;
+    const docToSave = { ...clean, title, id: editingDyeCalcId || newCalcId(), createdAt, createdBy, updatedAt: now, updatedBy: who };
     savingRef.current = true;
     try {
       const ok = await saveDocToCloud(COLLECTION, docToSave);
       if (ok === false) return false; // 실패 알림은 saveDocToCloud가 띄움 — 입력값은 그대로
-      showCalc(normalizeCalc(docToSave), docToSave.id);
+      // 화면 입력은 바꾸지 않음 — 저장을 기다리는 동안 더 넣은 값이 사라지지 않게 (그 값은 '저장 안 한 변경'으로 남음)
+      setEditingDyeCalcId(docToSave.id);
+      setBaseline(JSON.stringify(clean));
+      setDyeCalcInput(prev => ({ ...prev, createdAt, createdBy }));
       showToast(`'${title}' 계산을 저장했어요.`, 'success');
       return true;
     } finally {
       savingRef.current = false;
     }
+  };
+
+  /** 저장 안 한 변경 버리기 ('저장할까요?'의 [저장 안 함]) — 불러온 계산이면 저장된 모양으로, 새 계산이면 빈 양식으로 */
+  const discardDyeCalc = () => {
+    const saved = editingDyeCalcId ? (yarnDyeCalcs || []).find(c => c.id === editingDyeCalcId) : null;
+    if (saved) loadDyeCalc(saved);
+    else newDyeCalc(dyeCalcInput.kind);
   };
 
   /** 삭제 (복구 불가 확인) — 지금 열려 있는 계산이면 새 계산으로. 반환: 지웠으면 true */
@@ -87,6 +94,6 @@ export const useYarnDyeCalc = (yarnDyeCalcs, saveDocToCloud, deleteDocFromCloud,
 
   return {
     dyeCalcInput, setDyeCalcInput, editingDyeCalcId, dyeCalcDirty,
-    newDyeCalc, loadDyeCalc, saveDyeCalc, deleteDyeCalc,
+    newDyeCalc, loadDyeCalc, saveDyeCalc, deleteDyeCalc, discardDyeCalc,
   };
 };

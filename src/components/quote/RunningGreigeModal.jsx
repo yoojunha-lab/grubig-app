@@ -23,6 +23,9 @@ const BLANK_FORM = { rowId: null, fabricId: '', greigeQty: '', colorQtys: ['', '
 const NO_ROWS = []; // 별도 견적 줄이 없을 때 (매번 새 배열이 생기지 않게)
 const isBlank = (v) => v === undefined || v === null || v === '';
 const toInput = (v) => (isBlank(v) ? '' : String(v));
+// 대표님이 넣은 값이 아직 없는지 (생지 짠 수량·컬러별 수량·이익율·정액이 모두 빈 칸)
+const isFormEmpty = (f) => isBlank(String(f.greigeQty).trim()) && f.colorQtys.every(v => isBlank(String(v).trim()))
+  && isBlank(String(f.marginRate).trim()) && isBlank(String(f.marginAdd).trim());
 
 // 별도 견적 줄 → 창 입력값. 러닝 생지 줄이면 그 조건, 일반 줄이면 수량을 컬러수로 고르게 나눈 칸 (생지 짠 수량은 비움)
 const formFromRow = (row) => {
@@ -151,23 +154,36 @@ export const RunningGreigeModal = ({
     });
   }, [fabrics, customItems]);
 
-  const selectFabric = (fabricId) => setForm(prev => {
+  // 마지막으로 고른 원단 — 검색칸을 지우는 동안 ''가 들어와도 기억해서, '다른 원단으로 바꿈'을 알아봄
+  const lastFabricRef = useRef(form.fabricId);
+  const selectFabric = (fabricId) => {
     const id = String(fabricId || '');
-    if (!id) return { ...prev, fabricId: '', rowId: null };
+    if (!id) { setForm(prev => ({ ...prev, fabricId: '', rowId: null })); return; } // 검색칸을 지우는 중 — 넣은 값은 그대로
+    // 다른 원단으로 바꾸면 앞 원단의 생지 짠 수량·컬러별 수량·이익율을 들고 가지 않게 빈 양식에서 시작
+    const switching = !!lastFabricRef.current && lastFabricRef.current !== id;
+    lastFabricRef.current = id;
+    const base = switching ? BLANK_FORM : form;
     const existing = customItems.find(r => String(r.fabricId) === id) || null;
-    if (!existing) return { ...prev, fabricId: id, rowId: null };
-    // 러닝 생지 줄이면 그 조건을 불러옴. 일반 줄이면 비어 있는 칸만 그 줄 값으로 (컬러 칸 = 수량을 고르게 나눈 값)
-    const fromRow = formFromRow(existing);
-    if (normalizeRunning(existing.running)) return fromRow;
-    return {
-      ...prev,
-      fabricId: id,
-      rowId: existing.id,
-      colorQtys: prev.colorQtys.every(v => isBlank(v)) ? fromRow.colorQtys : prev.colorQtys,
-      marginRate: isBlank(prev.marginRate) ? fromRow.marginRate : prev.marginRate,
-      marginAdd: isBlank(prev.marginAdd) ? fromRow.marginAdd : prev.marginAdd,
-    };
-  });
+    const isRunning = !!normalizeRunning(existing?.running);
+    if (!existing) {
+      setForm({ ...base, fabricId: id, rowId: null });
+    } else if (isRunning) {
+      setForm(formFromRow(existing)); // 이미 있는 러닝 생지 줄 — 그 조건을 불러옴
+    } else {
+      // 일반 줄 — 비어 있는 칸만 그 줄 값으로 (컬러 칸 = 수량을 고르게 나눈 값)
+      const fromRow = formFromRow(existing);
+      setForm({
+        ...base,
+        fabricId: id,
+        rowId: existing.id,
+        colorQtys: base.colorQtys.every(v => isBlank(v)) ? fromRow.colorQtys : base.colorQtys,
+        marginRate: isBlank(base.marginRate) ? fromRow.marginRate : base.marginRate,
+        marginAdd: isBlank(base.marginAdd) ? fromRow.marginAdd : base.marginAdd,
+      });
+    }
+    // 이미 있는 값(별도 견적 줄)만 불러왔으면 '저장 안 한 변경'이 아님 — 그 모양을 기준으로 (대표님이 넣은 값이 있으면 그대로 물어봄)
+    if (isRunning || isFormEmpty(base)) guard.rebase();
+  };
 
   const setField = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
   const setColor = (i, value) => setForm(prev => ({ ...prev, colorQtys: prev.colorQtys.map((v, idx) => (idx === i ? value : v)) }));

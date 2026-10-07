@@ -45,8 +45,8 @@ const toInput = (v) => (v === null || v === undefined ? '' : String(v));
 // 1. 양식
 // ----------------------------------------------------------------------
 
-/** 원사 컬러 이름 비교용 — 대소문자·띄어쓰기 무시 ('Bark Brown' = 'BARK BROWN') */
-export const colorKey = (name) => String(name || '').replace(/\s+/g, '').toUpperCase();
+/** 이름 비교용 — 대소문자·띄어쓰기 무시 ('Bark Brown' = 'BARK BROWN', ' pw1050 ' = 'PW1050'). 원사 컬러·Article 번호 공통 */
+export const matchKey = (name) => String(name || '').replace(/\s+/g, '').toUpperCase();
 
 /** 컬러명을 '/'로 나눈 원사 컬러 — 'APRICOT/BARK BROWN' → ['APRICOT', 'BARK BROWN'] */
 export const splitColorName = (name) => String(name || '').split('/').map(s => s.trim()).filter(Boolean);
@@ -85,8 +85,8 @@ export const findFabricForOrder = (order, fabrics) => {
     const linked = list.find(f => String(f.id) === String(order.linkedFabricId));
     if (linked) return linked;
   }
-  const key = colorKey(order?.articleNo);
-  return key ? list.find(f => colorKey(f?.article) === key) || null : null;
+  const key = matchKey(order?.articleNo);
+  return key ? list.find(f => matchKey(f?.article) === key) || null : null;
 };
 
 /**
@@ -102,6 +102,23 @@ export const fabricYarnOptions = (fabric, yarnLibrary) => (Array.isArray(fabric?
   })
   .filter(y => y.name)
   .sort((a, b) => b.ratio - a.ratio);
+
+/** 그 원사 이름이 원단(ARTICLE)의 원사인지 — ARTICLE에서 가져온 원사인지, 대표님이 직접 넣은 원사인지 가릴 때 */
+export const isFabricYarn = (fabric, yarnLibrary, name) =>
+  !!fabric && !!name && fabricYarnOptions(fabric, yarnLibrary).some(y => y.name === name);
+
+/**
+ * ARTICLE(원단)이 바뀔 때 원사 정하기
+ *  · 새 원단 원사가 하나 → 그 원사 / 여러 개 → 지금 원사가 그중 하나면 그대로, 아니면 ''(고르는 칸)
+ *  · 새 원단을 못 찾았거나 원사가 없음 → 앞 원단에서 가져온 원사는 비우고(다른 원단 원사가 남지 않게),
+ *    직접 넣은 원사는 그대로
+ */
+export const nextBaseYarnName = (newFabric, prevFabric, prevName, yarnLibrary) => {
+  const yarns = newFabric ? fabricYarnOptions(newFabric, yarnLibrary) : [];
+  if (yarns.length === 1) return yarns[0].name;
+  if (yarns.length > 1) return yarns.some(y => y.name === prevName) ? prevName : '';
+  return isFabricYarn(prevFabric, yarnLibrary, prevName) ? '' : String(prevName || '');
+};
 
 /**
  * 생산 현황 오더 → 계산 양식 (O/D·컬러명·오더 kg)
@@ -242,7 +259,7 @@ export const computeStripe = (calc) => {
       const color = String(y.color || '').trim();
       if (!color) { issues.push({ rowId: row.id, text: `${name} — 원사 컬러 이름이 빈 칸이 있어요 (비율 ${pct}%)` }); return; }
       const amount = qty * pct / 100;
-      const key = colorKey(color);
+      const key = matchKey(color);
       let line = byKey.get(key);
       if (!line) {
         line = { key, color, qty: 0, sources: [] };

@@ -312,10 +312,14 @@ export const customRowCostOpts = (row) => {
     : { colors: Math.round(Number(row?.colors) || 0) };
 };
 
-/** 컬러별 수량 글자 — '250/182/242' (러닝 생지 줄이 아니면 '') — 별도 견적서·견적 목록 표시 */
-export const formatColorSplit = (row) => {
+/**
+ * 컬러별 수량 글자 — '250/182/242' (러닝 생지 줄이 아니면 '') — 별도 견적서·견적 목록 표시
+ *  wrap: true면 '/' 뒤에서 줄이 바뀔 수 있게 (보이지 않는 줄바꿈 자리) — 좁은 칸(PDF 수량 칸 등)에서 컬러가 많아도 옆 칸으로 넘치지 않게.
+ *        엑셀처럼 글자를 그대로 쓰는 곳은 false
+ */
+export const formatColorSplit = (row, { wrap = false } = {}) => {
   const running = normalizeRunning(row?.running);
-  return running ? running.colorQtys.map(q => num(q)).join('/') : '';
+  return running ? running.colorQtys.map(q => num(q)).join(wrap ? '/\u200B' : '/') : '';
 };
 
 /**

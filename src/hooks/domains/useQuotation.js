@@ -580,6 +580,10 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     setQuoteInput(prev => ({ ...prev, [quoteKey]: checked, customItems: rows }));
   };
 
+  // 별도 견적 줄 이익율(0~99)·YD당 정액(0 이상) 칸 정리 — 비우면 null (= 수량 구간 이익율 / 정액 0)
+  //  표의 칸·러닝 생지 견적 창이 같이 씀
+  const cleanRowMargin = (v, max) => (isBlank(v) ? null : Math.min(max, Math.max(0, Number(v) || 0)));
+
   // 별도 견적 줄 수정. 수량·컬러(러닝 생지 조건 포함)는 원가부터 다시 계산, 이익율·정액·표시는 값만
   //  patch.running = null 이면 러닝 생지 해제 (수량·컬러수는 그대로 — 고르게 나눈다고 보고 다시 계산)
   const handleCustomItemChange = (rowId, patch) => {
@@ -592,9 +596,9 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       if (!fabric) { showToast('원단이 삭제되어 수량·컬러를 바꿔 다시 계산할 수 없어요.', 'error'); return; }
       updated = createCustomItem(fabric, next, { rate: quoteRateOf(quoteInput), marketType: quoteInput.marketType, exclude: getCustomExclude(quoteInput) });
     } else if ('marginRate' in patch) {
-      updated = { ...next, marginRate: isBlank(patch.marginRate) ? null : Math.min(99, Math.max(0, Number(patch.marginRate) || 0)) };
+      updated = { ...next, marginRate: cleanRowMargin(patch.marginRate, 99) };
     } else if ('marginAdd' in patch) {
-      updated = { ...next, marginAdd: isBlank(patch.marginAdd) ? null : Math.max(0, Number(patch.marginAdd) || 0) };
+      updated = { ...next, marginAdd: cleanRowMargin(patch.marginAdd, Infinity) };
     }
     setQuoteInput(prev => ({ ...prev, customItems: (prev.customItems || []).map(r => (r.id === rowId ? updated : r)) }));
   };
@@ -612,10 +616,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
   // ── 러닝 생지 견적 (대표님 요청 2026-10-07) ──
   //  미리 짜 둔 생지로 소량·여러 컬러 오더를 받을 때 — 별도 견적 줄의 한 종류 (row.running = { greigeQty, colorQtys })
   //  draft (창의 입력): { rowId: 고칠 줄(없으면 그 원단의 줄 또는 새 줄), fabricId, running: { greigeQty, colorQtys },
-  //                     marginRate, marginAdd } — 칸 값은 글자 그대로 받아 여기서 정리
-
-  // 이익율(0~99)·YD당 정액(0 이상) 칸 정리 — 비우면 null (= 일반 별도 견적 줄과 같은 기본값)
-  const cleanRowMargin = (v, max) => (isBlank(v) ? null : Math.min(max, Math.max(0, Number(v) || 0)));
+  //                     marginRate, marginAdd } — 칸 값은 글자 그대로 받아 여기서 정리 (cleanRowMargin)
 
   // 창 미리보기 — 별도 견적 줄과 같은 계산(createCustomItem) + 원가 내역·비교 (견적 환율·견적 시장·별도 견적 제외 항목)
   //  반환: null(원단 없음) | {
@@ -653,7 +654,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     ] : [];
     return {
       ...out,
-      price: calcCustomQuotePrice(row, quoteInput, currency),
+      // 판가는 넣을 때 쓸 견적 환율로 (새 수출 견적은 아직 견적 환율이 비어 있어 YD당 정액($ 환산)이 기본 환율로 계산되던 문제)
+      price: calcCustomQuotePrice(row, { ...quoteInput, exchangeRate: rate }, currency),
       calc, freshBase: baseOf(fresh), lotBase: baseOf(lot), extras,
     };
   };

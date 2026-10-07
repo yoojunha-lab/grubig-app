@@ -106,6 +106,7 @@ order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, fin
 ## 생산 ▾ 계산기 — 선염 계산기 (대표님 요청 2026-10-07)
 
 생산 드롭다운의 **'계산기'** (생산 현황 · 리포트 아래, 탭 key `productionCalc`). 화면: 왼쪽 **저장된 계산** 목록 / 오른쪽 계산기 [스트라이프 선염] [멜란지 선염].
+(목록은 넓은 화면(xl, 1280px~)에서만 왼쪽 — 그보다 좁으면 위로 올라가 계산 표의 줄 지우기 ✕가 잘리지 않게. 원사 칸이 많으면 그 칸 안에서 줄바꿈)
 
 ### ① 스트라이프 선염 — 원사 컬러 배분
 - 오더 컬러(예: `APRICOT/BARK BROWN`)마다 **원사 컬러별 비율(%)**을 넣으면 원사 컬러별 **수량·혼용율** (대표님: 비율은 알고 있어서 %로 넣음).
@@ -116,6 +117,9 @@ order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, fin
   (예: `F/60Nm SW/N 87/13 APRICOT` — 대표님 캡처의 '사가공 원사' 표 모양).
   - 원사가 하나인 원단은 바로 채움. **원사가 여러 개면 선염할 원사 하나를 고르는 칸**(노란색, 혼용률 큰 순)이 뜸 — 모든 컬러에 같은 원사 (대표님 OK ①).
   - 원단을 못 찾거나 원사가 없으면 ARTICLE 아래 '원사' 칸에 직접 입력.
+  - **ARTICLE을 바꾸거나 칸을 비울 때 원사** (`nextBaseYarnName`, O/D를 바꿀 때도 같은 규칙): 새 원단 원사가 하나 → 그 원사 /
+    여러 개 → 지금 원사가 그중 하나면 그대로, 아니면 고르는 칸 / 원사 없음·못 찾음·연결 풂 → **앞 ARTICLE에서 온 원사는 비움**
+    (다른 원단 원사가 남지 않게), 대표님이 **직접 넣은 원사는 그대로**.
 - 확인 표시: 한 줄 비율 합계 ≠ 100%(비율을 하나라도 넣은 줄만) · 원사 컬러 이름 빈 칸 · 수량 빈 칸 → 빨간 안내, 원사 합계 ≠ 오더 합계면 합계 줄에 안내.
 - 예) 대표님 캡처 3컬러(106.8 / 151.0 / 127.4kg)를 79 : 21로 → APRICOT 21.9% · BARK BROWN 21.0% · DEEP LIME 31.0% · NAVY CHARCOAL 26.1%
   (캡처 시스템은 로스 넣은 kg로 계산해서 BARK BROWN 21.1%).
@@ -126,7 +130,8 @@ order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, fin
 
 ### 공통
 - **기본 정보 = O/D · ARTICLE · 메모** (대표님 지정 2026-10-07 — 제목 칸 없음). 목록 제목은 'O/D · ARTICLE'로 자동 (둘 다 없으면 '스트라이프 선염 2026-10-07').
-- **O/D**: 생산 현황 오더(컬러가 있는 오더)를 골라 컬러명·**오더 kg**(작지 kg 아님)를 채움. 이미 넣은 줄이 있으면 바꿀지 물어봄.
+  O/D·ARTICLE을 지우고 다시 저장하면 제목도 그에 맞게 바뀜 (예전 자동 제목은 이어 쓰지 않음 — 제목 칸이 있던 때 직접 쓴 제목만 이어 씀).
+- **O/D**: 생산 현황 오더(컬러가 있는 오더)를 골라 컬러명·**오더 kg**(작지 kg 아님)를 채움. 이미 넣은 줄이 있으면 바꿀지 물어봄 (취소하면 O/D 칸 글자도 원래 O/D로). 메모는 그대로.
   그 오더의 ARTICLE도 같이 — 오더에 연결된 원단, 없으면 **같은 Article 번호의 원단**(대소문자·띄어쓰기 무시, `findFabricForOrder`) → 원사까지 자동.
 - **ARTICLE**: 원단 관리 원단을 고르면 원사를 채움 (`fabricYarnOptions`). 수량 단위(kg / YD) 버튼은 표 머리줄 오른쪽.
 - **[결과 복사]**: 결과 표를 탭으로 구분한 글자로 복사 → 엑셀·다른 프로그램에 붙여 넣기.
@@ -135,16 +140,19 @@ order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, fin
   - rows — stripe: `[{ id, name, qty, yarns: [{ id, color, pct }] }]` / melange: `[{ id, label, qty }]` (숫자 칸은 숫자 또는 null, 빈 줄은 빼고 저장)
   - 결과(원사별 수량·혼용율)는 저장하지 않고 열 때마다 rows로 다시 계산.
   - 목록은 최근 저장 순(둘째 줄 = 줄 수 · 메모), O/D·Article·메모로 검색, 누르면 불러오기. [삭제]는 복구 불가 확인.
+  - [저장]을 눌러도 화면 입력은 그대로 둠 — 저장을 기다리는 동안 더 넣은 값이 사라지지 않게 (그 값은 '저장 안 한 변경'으로 남음).
 - **저장 안 한 변경**: 저장될 모양(`cleanCalcForSave`)으로 비교 → 다른 계산 열기·[새로 계산]·계산 종류 전환·**다른 메뉴로 이동**(App `navGuardRef`) 때 '저장할까요?'
   (저장하고 나가기 / 저장 안 함 / 계속 편집). 작성 중인 계산은 훅(App)에 있어서 다른 메뉴에 다녀와도 남아 있음.
+  - **[저장 안 함] = 변경을 버림** (`discardDyeCalc` — 불러온 계산은 저장된 모양으로, 새 계산은 빈 양식으로). 안 버리면 다음에 나갈 때마다 또 물어봄.
+  - 지금 보고 있는 메뉴를 다시 누르면 아무것도 안 함 (App `requestSetActiveTab` — 괜히 '저장할까요?'가 뜨지 않게, 모든 화면 공통).
 - DEV 미리보기: `DEV_LOCAL_SETTERS.yarnDyeCalcs` (저장은 화면 안에서만), 샘플 오더 `F-26M030`(대표님 캡처 컬러·kg) + 샘플 원단 `PW1050`
   (원사 하나 `F/60Nm SW/N 87/13`)로 O/D → ARTICLE → 원사 자동 확인, `GB-2402`(원사 2개)로 원사 고르기 확인.
 
 ### 파일
 | 역할 | 파일 |
 |-----|-----|
-| 계산 (순수 함수) | `src/utils/yarnDyeCalc.js` — `computeStripe`·`computeMelange`·`calcFromOrder`·`findFabricForOrder`·`fabricYarnOptions`·`calcAutoTitle`·`normalizeCalc`·`cleanCalcForSave`·`buildCalcCopyText`·`splitColorName`·`colorKey` |
-| 저장·불러오기·삭제 | `src/hooks/domains/useYarnDyeCalc.js` (Firestore `yarnDyeCalcs`) |
+| 계산 (순수 함수) | `src/utils/yarnDyeCalc.js` — `computeStripe`·`computeMelange`·`calcFromOrder`·`findFabricForOrder`·`fabricYarnOptions`·`isFabricYarn`·`nextBaseYarnName`·`calcAutoTitle`·`normalizeCalc`·`cleanCalcForSave`·`buildCalcCopyText`·`splitColorName`·`matchKey` |
+| 저장·불러오기·삭제 | `src/hooks/domains/useYarnDyeCalc.js` (Firestore `yarnDyeCalcs`, '저장 안 함' 때 변경 버리기 `discardDyeCalc`) |
 | 화면 | `src/pages/ProductionCalcPage.jsx` (저장 목록 + 스트라이프/멜란지) |
 | 메뉴·연결 | `src/components/layout/Sidebar.jsx` (생산 ▾ 계산기), `src/apps/App.jsx` (구독·DEV 저장·탭) |
 
