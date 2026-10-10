@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { DESIGN_STAGES, SAMPLING_SUBSTAGES, DEV_DROP_REASONS } from '../../constants/common';
+import { DESIGN_STAGES, DEV_DROP_REASONS } from '../../constants/common';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
 import { makeInitialCostFields } from '../../utils/costFields';
 import { resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete, normalizeYarnSlots, clampYarnRatio } from '../../utils/costModel';
@@ -196,14 +196,11 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         : '를 다시 진행중으로 열었어요.'
   );
 
-  // '샘플 진행' 진입 패치 (단계·진입 시각, 세부단계는 처음 진입 때 '원사 발주') — EZ-TEX 등록 때 자동 이동
+  // '샘플 진행' 진입 패치 (단계·진입 시각) — EZ-TEX 등록 때 자동 이동
+  //  (샘플 진행 세부단계 '원사 발주/편직/염가공'은 없앰 — 샘플 진행은 생산 현황 샘플 오더로 봄, 2026-10-10)
   const samplingEntryPatch = (sheet, now) => ({
     stage: 'sampling',
     stageEnteredAt: { ...(sheet.stageEnteredAt || {}), sampling: now },
-    ...(sheet.samplingSub ? {} : {
-      samplingSub: 'yarn',
-      samplingSubEnteredAt: { ...(sheet.samplingSubEnteredAt || {}), yarn: now },
-    }),
   });
 
   // Cost 입력 필드 변경 (brandExtra_tier1k 같은 네스트 키도 처리)
@@ -346,19 +343,11 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       updatedAt: now
     };
 
-    // [샘플 세부단계] '샘플 진행'으로 처음 진입하면 세부단계를 '원사 발주'로 자동 초기화
-    if (targetStage === 'sampling' && !sheet.samplingSub) {
-      updatedSheet.samplingSub = 'yarn';
-      updatedSheet.samplingSubEnteredAt = { ...(sheet.samplingSubEnteredAt || {}), yarn: now };
-    }
-
     // articled 진입: 이미 원단이 연결돼 있으면 신규 등록 없이 stage만 복원
     // (사용자가 역방향으로 이동 후 다시 articled로 돌아오는 자연스러운 흐름 지원)
     const stagePatch = {
       stage: updatedSheet.stage,
       stageEnteredAt: updatedSheet.stageEnteredAt,
-      samplingSub: updatedSheet.samplingSub,
-      samplingSubEnteredAt: updatedSheet.samplingSubEnteredAt,
       updatedAt: updatedSheet.updatedAt,
     };
     if (targetStage === 'articled') {
@@ -439,24 +428,28 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     return true;
   };
 
-  // 샘플 진행 세부단계 변경 (원사발주 → 편직 → 염가공 / 중단)
-  // 세부단계 진입 시각을 누적 기록 → 현황에서 "N일째" 경과 표시에 사용
-  const setSamplingSub = (sheetId, subKey) => {
+  // 생산 현황에서 샘플 오더 order# 를 고치면 설계서 EZ-TEX O/D NO.도 같이 (2026-10-10 — 번호가 어긋나지 않게)
+  //  설계서 변경 이력에 '생산 현황에서 order# 변경'으로 남김. 반환: 바꿨으면 true
+  const syncEztexFromOrder = async (sheetId, orderNumber) => {
     const sheet = designSheets.find(s => s.id === sheetId);
-    if (!sheet) return;
-    if (!SAMPLING_SUBSTAGES.some(s => s.key === subKey)) return;
-    if (sheet.samplingSub === subKey) return;
-
+    const no = String(orderNumber || '').trim().toUpperCase();
+    if (!sheet || !no) return false;
+    const prev = String(sheet.eztexOrderNo || '').trim();
+    if (prev.toUpperCase() === no) return false;
     const now = new Date().toISOString();
     const patch = {
-      samplingSub: subKey,
-      samplingSubEnteredAt: { ...(sheet.samplingSubEnteredAt || {}), [subKey]: now },
-      updatedAt: now
+      eztexOrderNo: no,
+      changeHistory: [
+        { date: now, fields: { eztexOrderNo: prev }, reason: '생산 현황에서 order# 변경' },
+        ...(sheet.changeHistory || []),
+      ],
+      updatedAt: now,
     };
-    saveDocToCloud('designSheets', { ...sheet, ...patch });
+    const ok = await saveDocToCloud('designSheets', { ...sheet, ...patch });
+    if (ok === false) return false; // saveDocToCloud가 실패 알림
     syncOpenSheet(sheetId, patch);
-    const label = SAMPLING_SUBSTAGES.find(s => s.key === subKey)?.label || subKey;
-    showToast(`샘플 진행 세부단계가 '${label}'(으)로 변경되었습니다.`, 'success');
+    showToast(`설계서 EZ-TEX O/D NO.도 ${no}(으)로 바꿨어요.`, 'success');
+    return true;
   };
 
   // --- 의뢰 ↔ 설계서 수동 연결 (설계서 쪽에서 진행) ---
@@ -645,8 +638,6 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       //  수정 저장 때는 저장소 값을 우선 (편집 창이 열린 사이 바뀐 값을 옛 폼 값으로 되돌리지 않게)
       ...(existing ? {
         stage: existing.stage || finalInput.stage,
-        samplingSub: existing.samplingSub ?? finalInput.samplingSub,
-        samplingSubEnteredAt: existing.samplingSubEnteredAt ?? finalInput.samplingSubEnteredAt,
         orderNumbers: existing.orderNumbers ?? finalInput.orderNumbers,
         linkedFabricId: finalInput.linkedFabricId || existing.linkedFabricId || null,
       } : {}),
@@ -1207,7 +1198,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     handleSheetYarnChange, handleCostInputChange, handleCostNestedChange,
     handleActualDataChange,
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
-    resetSheetForm, setStage, setSamplingSub, registerEztexOrderNo,
+    resetSheetForm, setStage, registerEztexOrderNo, syncEztexFromOrder,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
     saveSheetAndRegisterFabric,

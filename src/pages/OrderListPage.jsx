@@ -102,7 +102,8 @@ export const OrderListPage = ({
   designSheets,         // 설계서 (샘플 오더의 '설계서' 표시·아이템화)
   devRequests,          // 설계서의 바이어 이름 · 샘플 Drop 때 같이 Drop 할 개발 의뢰
   savedQuotes,          // 견적서 — 샘플 Drop 사유 창에 원가 견적·견적가 표시 (개발/설계 현황 Drop 창과 같게)
-  // { open(sheetId), itemize(sheetId), drop(sheetId), dropWithDev(devId, sheetId, reason, memo), restore(sheetId, opts) } — App
+  // { open(sheetId), itemize(sheetId), drop(sheetId), dropWithDev(devId, sheetId, reason, memo), restore(sheetId, opts),
+  //   syncEztex(sheetId, order#) } — App 의 설계서 훅 함수
   sheetActions = null,
   focusRequest = null,  // { orderNumber, nonce } — 개발/설계 현황에서 '생산 현황에서 보기'
   onFocusHandled,
@@ -226,26 +227,43 @@ export const OrderListPage = ({
 
   // ---------- 오더 수정 (설계서 샘플 오더 규칙을 얹은 actions — 표·간트·상세창·모바일 공용) ----------
   //  오더상태: Drop 으로 닫힌 샘플을 다시 열려면 설계서 복원 / 아직 안 끝난 샘플을 '완료'로 → 샘플 끝내기 창
+  //  order#: 설계서 샘플 오더면 설계서 EZ-TEX O/D NO.도 같이 바꿈 (번호가 어긋나지 않게 — 설계서 변경 이력에 남음)
   const setOrderField = async (id, field, value) => {
-    if (field === 'status') {
-      const order = orders.find(o => o.id === id);
-      const info = sheetInfoOf(order);
-      if (order && info && value !== order.status) {
-        if (info.dropped && value !== 'completed') {
-          if (!sheetActions?.restore) return false;
-          return sheetActions.restore(info.sheet.id, {
-            lead: `Drop된 샘플은 설계서를 복원해야 다시 진행할 수 있어요 (오더 ${order.orderNumber}).\n\n`,
-          });
-        }
-        if (value === 'completed' && !info.dropped && !info.articled) {
-          setCloseTarget({ orderId: id, sheetId: info.sheet.id });
-          return true;
-        }
+    const order = orders.find(o => o.id === id);
+    const info = sheetInfoOf(order);
+    if (field === 'status' && order && info && value !== order.status) {
+      if (info.dropped && value !== 'completed') {
+        if (!sheetActions?.restore) return false;
+        return sheetActions.restore(info.sheet.id, {
+          lead: `Drop된 샘플은 설계서를 복원해야 다시 진행할 수 있어요 (오더 ${order.orderNumber}).\n\n`,
+        });
+      }
+      if (value === 'completed' && !info.dropped && !info.articled) {
+        setCloseTarget({ orderId: id, sheetId: info.sheet.id });
+        return true;
       }
     }
-    return actions.setOrderField(id, field, value);
+    const ok = await actions.setOrderField(id, field, value);
+    if (field === 'orderNumber' && ok && info && sheetActions?.syncEztex) {
+      const no = String(value || '').trim().toUpperCase();
+      if (no && no !== String(info.sheet.eztexOrderNo || '').trim().toUpperCase()) {
+        await sheetActions.syncEztex(info.sheet.id, no);
+      }
+    }
+    return ok;
   };
-  const pageActions = { ...actions, setOrderField };
+  // 오더 삭제 — 설계서 샘플 오더면 지운 뒤 설계서가 어떻게 되는지 확인 창에 같이
+  const deleteOrder = (id) => {
+    const info = sheetInfoOf(orders.find(o => o.id === id));
+    if (!info) return actions.deleteOrder(id);
+    const label = sheetLabelOf(info.sheet);
+    const note = (info.dropped || info.articled)
+      ? `설계서(${label})와 연결된 샘플 오더예요. 설계서는 그대로 남고 연결만 없어져요.`
+      : `설계서(${label})와 연결된 샘플 오더예요. 지우면 설계서는 개발/설계 현황으로 돌아가요 (EZ-TEX 번호로 다시 올릴 수 있어요).\n`
+        + '샘플을 그만두는 거라면 지우지 말고 ⋯ 메뉴의 Drop을 써 주세요.';
+    return actions.deleteOrder(id, { note });
+  };
+  const pageActions = { ...actions, setOrderField, deleteOrder };
 
   // ---------- 필터 / 정렬 ----------
   // 상태 탭 숫자는 고른 구분(메인/샘플) 안에서, 구분 숫자는 고른 상태 탭 안에서

@@ -507,7 +507,7 @@ const App = () => {
     handleSheetChange, handleSectionChange,
     handleSheetYarnChange, handleCostInputChange,
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
-    resetSheetForm, setStage, registerEztexOrderNo,
+    resetSheetForm, setStage, registerEztexOrderNo, syncEztexFromOrder,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
     saveSheetAndRegisterFabric, getBlankSheetInput
@@ -1393,6 +1393,7 @@ const App = () => {
               drop: dropDesignSheet,
               dropWithDev: dropDevWithSheet, // 개발 의뢰가 있는 샘플 → Drop 사유 창 → 의뢰·설계서·샘플 오더 같이
               restore: restoreFromDrop,
+              syncEztex: syncEztexFromOrder, // 샘플 오더 order# 를 고치면 설계서 EZ-TEX O/D NO.도 같이
             }}
             focusRequest={productionFocus}
             onFocusHandled={() => setProductionFocus(null)}

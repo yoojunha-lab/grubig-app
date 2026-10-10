@@ -127,7 +127,13 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     let next = updater(prev);
     if (!next || next === prev) return true;
 
-    // order# 검증 + 구분(메인/샘플) 자동 선택
+    // 설계서와 연결된 샘플 오더는 '샘플' 그대로 — 메인으로 바뀌면 설계서 아이템화·Drop 때 그 오더가 메인인 채로 닫힘 (2026-10-10)
+    if (prev.linkedSheetId && prev.type === 'sample' && next.type !== 'sample') {
+      showToast('설계서와 연결된 샘플 오더는 메인으로 바꿀 수 없어요. 메인 생산은 [오더 추가]로 새 오더(M 번호)를 만들어 주세요.', 'error');
+      return false;
+    }
+
+    // order# 검증 + 구분(메인/샘플) 자동 선택 (설계서 샘플 오더는 번호가 바뀌어도 '샘플' 그대로)
     if (next.orderNumber !== prev.orderNumber) {
       const no = next.orderNumber;
       if (!no && !draft) {
@@ -139,7 +145,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
         return false;
       }
       const detected = detectOrderType(no);
-      if (detected) next = { ...next, type: detected };
+      if (detected && !prev.linkedSheetId) next = { ...next, type: detected };
     }
 
     if (draft) {
@@ -361,7 +367,8 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
 
   const discardDraft = (id) => updateDrafts(list => list.filter(d => d.id !== id));
 
-  const deleteOrder = async (id) => {
+  // opts.note: 확인 창에 덧붙일 말 (설계서 샘플 오더 — 지우면 설계서가 어떻게 되는지, OrderListPage)
+  const deleteOrder = async (id, { note = '' } = {}) => {
     if (findDraft(id)) {
       discardDraft(id);
       return true;
@@ -369,7 +376,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     const o = findLatest(id);
     if (!o) return false;
     const ok = window.confirm(
-      `'${o.orderNumber || '이 오더'}'를 삭제할까요?\n입력한 공정·LOT·메모가 모두 지워지고 되돌릴 수 없어요.`
+      `'${o.orderNumber || '이 오더'}'를 삭제할까요?\n입력한 공정·LOT·메모가 모두 지워지고 되돌릴 수 없어요.${note ? `\n\n${note}` : ''}`
     );
     if (!ok) return false;
     setOverride(id, null);

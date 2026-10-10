@@ -25,7 +25,8 @@
 | **v8 개편 4단계**: 오더별 간트 + 날짜 메모 | ✅ **완료** | (4단계 커밋) |
 | **생산 ▾ 계산기**: 선염 계산기 (스트라이프 원사 배분 · 멜란지 수량 비율) + 저장 | ✅ **완료** | (계산기 커밋) |
 | **가납기 + 간트 깃발 · 메모 아래로** (2026-10-10) | ✅ **완료** | `2327251` |
-| **설계서 ↔ 샘플 오더 · 메인/샘플** (2026-10-10) | ✅ **완료** | (샘플 오더 커밋) |
+| **설계서 ↔ 샘플 오더 · 메인/샘플** (2026-10-10) | ✅ **완료** | `8381899` · `939adbd` |
+| **샘플 흐름 점검·디버깅** — 샘플 끝 상태(Drop·아이템화 대기)·Drop/복원 맞추기·안전장치 (2026-10-10) | ✅ **완료** | `665075e` · `8e60661` · `220388b` · (정리 커밋) |
 
 > **🎉 Phase 1 운영 가능 상태 도달** — 등록/편집/시각화/모니터링 모두 1차 완성. 이제 사용해보면서 세부 다듬기.
 > 알람/확인게이트는 개발하지 않기로 결정 (대표님 지시).
@@ -155,9 +156,10 @@ order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, fin
 3. **끝: 아이템화 또는 Drop** (대표님 결정 ②)
    - 아이템화 = 개발/설계 현황과 **같은 함수** `setStage(sheetId, 'articled')` → 원단 등록(`registerFabricFromSheet`) →
      샘플 오더 article# = 그 원단(보관함 연결) + **'완료'** (`markSheetOrderArticled`). 설계서 창 [원단 리스트에 등록]·단계 바로 해도 같음
-   - Drop → 샘플 오더 **'완료'** + 'Drop' 표시 (`closeSheetOrderOnDrop`) / 복원 → 다시 **'진행중'** (`reopenSheetOrder`) → 그 뒤 아이템화 가능
-   - Drop된 설계서는 아이템화가 막힘 ('먼저 복원') — 보관함에 있는 채로 아이템화되지 않게
+   - Drop → 샘플 오더 **'Drop'** = 완료 + `dropInfo { prevStatus, at }` (`closeSheetOrderOnDrop`) / 복원 → **Drop 전 상태로** (`reopenSheetOrder`) → 그 뒤 아이템화 가능
+   - Drop된 설계서는 아이템화·단계 이동·원단 등록이 막힘 ('먼저 복원') — 보관함에 있는 채로 아이템화되지 않게
    - 설계서 삭제 → 샘플 오더는 남고 연결만 풂 (`unlinkSheetOrder`)
+   - 자세한 규칙은 아래 '샘플 흐름 점검·디버깅' 절
 
 ### 데이터
 - 오더 `linkedSheetId` = 설계서 id (**오더 쪽에만** 저장 — 설계서 → 오더는 `linkedSheetId`로 찾음, 양쪽 연결이 어긋날 일이 없게)
@@ -177,11 +179,11 @@ order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, fin
 ### 파일
 | 역할 | 파일 |
 |---|---|
-| 모델 | `utils/orderModel.js` — `fillOrderFromSheet`·`getOrderProgressStage`, `linkedSheetId` 정규화·이력 |
-| 오더 훅 | `hooks/domains/useOrder.js` — `sheetOrderLink { checkEztexConflict, linkSampleOrderFromSheet, markSheetOrderArticled, closeSheetOrderOnDrop, reopenSheetOrder, unlinkSheetOrder }`, `updateOrder(id, fn, { note })` |
-| 설계서 훅 | `hooks/domains/useDesignSheet.js` — 11번째 인자 `sampleOrderLink`, `registerEztexOrderNo`, 저장·아이템화·Drop·복원·삭제 때 알림에 결과를 붙임 |
-| 연결 | `apps/App.jsx` — `useOrder`를 설계서 훅보다 먼저, `sampleOrderLink`, `openSheetEditor`, `openProductionOrder`(생산 현황 focus) |
-| 화면 | `pages/OrderListPage.jsx`(메인/샘플·sheetLink·focus) · `sheet/ProductionSheet.jsx` · `sheet/OrderMenuPopover.jsx` · `OrderDetailModal.jsx` · `MobileOrderList.jsx` · `gantt/OrderGantt.jsx` · `common/SheetLinkChips.jsx`(새 파일) · `pages/DevStatusPage.jsx` |
+| 모델 | `utils/orderModel.js` — `fillOrderFromSheet`·`getOrderProgressStage`·`isDropClosed`·`getOpenWork`, `linkedSheetId`·`dropInfo` 정규화·이력 |
+| 오더 훅 | `hooks/domains/useOrder.js` — `sheetOrderLink { checkEztexConflict, linkSampleOrderFromSheet, markSheetOrderArticled, closeSheetOrderOnDrop, reopenSheetOrder, unlinkSheetOrder }`, `updateOrder(id, fn, { note })`, `deleteOrder(id, { note })` |
+| 설계서 훅 | `hooks/domains/useDesignSheet.js` — 11번째 인자 `sampleOrderLink`, `registerEztexOrderNo`, `syncEztexFromOrder`, `setStage(id, t, { confirmed, base })`, `restoreFromDrop(id, { lead })`, 저장·아이템화·Drop·복원·삭제 때 알림에 결과를 붙임 |
+| 연결 | `apps/App.jsx` — `useOrder`를 설계서 훅보다 먼저, `sampleOrderLink`(+`getOrderInfo`), `dropDevWithSheet`, `openSheetEditor`, `openProductionOrder`(생산 현황 focus) |
+| 화면 | `pages/OrderListPage.jsx`(메인/샘플·sheetLink·focus·`pageActions`·샘플 끝내기·샘플 Drop 사유 창) · `sheet/ProductionSheet.jsx` · `sheet/OrderMenuPopover.jsx` · `OrderDetailModal.jsx` · `MobileOrderList.jsx` · `gantt/OrderGantt.jsx` · `common/SheetLinkChips.jsx` · `common/SampleCloseDialog.jsx` · `pages/DevStatusPage.jsx` · `pages/ReportPage.jsx` · `pages/DesignSheetPage.jsx` · `dashboard/DevArchiveModal.jsx`·`DevDropModal.jsx` |
 | DEV 샘플 | `constants/devSamples.js` — 설계서 `ds_dev_6`(EZ-TEX F-26S055, Article PW1060) ↔ 오더 `F-26S055` |
 
 ### 개발 의뢰 현황 한 표 (대표님 요청 2026-10-10 후속)
@@ -198,11 +200,47 @@ order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, fin
   - **빠지는 줄**: 생산 현황 샘플 오더가 생긴 설계서(→ 생산 현황) · 아이템화 · Drop. 생산 현황으로 간 의뢰는 보관함 **'샘플 진행 (생산 현황)'** 탭 (예전 '진행중 (설계서 연결)', [생산 현황 →] 버튼)
   - 자체개발 자리: 같은 표 (대표님 선택). 머리에 **[자체 설계서]** 버튼 (의뢰 없이 새 설계서)
 - **의뢰 Drop = 설계서도 같이** (대표님 결정): Drop 사유 창에 '설계서(원단명)도 같이 Drop돼요' 안내 →
-  설계서 먼저 `dropDesignSheet(id, { confirm:false, quiet:true, keepDevLink:true })`, 그다음 `dropDevRequest(..., { note })`.
-  복원은 설계서 보관함에서 설계서 복원 → 의뢰도 '개발 확정'으로 같이 (기존 `restoreFromDrop`)
+  `App.dropDevWithSheet`: 설계서 먼저 `dropDesignSheet(id, { confirm:false, quiet:true, keepDevLink:true })`, 그다음 `dropDevRequest(..., { note, sheetId })`.
+  복원은 보관함 'Drop된 의뢰' [복원] 또는 설계서 보관함에서 설계서 복원 → 의뢰도 '개발 확정'으로 같이 (`restoreFromDrop`)
 - 🗑 (설계서가 있는 줄) = 설계서만 삭제 (`handleDeleteSheet` — 의뢰는 남아 '개발 확정'(설계 대기) 줄로)
 - 요약 카드(진행중·지연·임박·오늘 신규)·검색·정렬(O/D No.·날짜·단계·바이어)은 이 줄 기준. 납기 = 설계서 납기(없으면 의뢰 샘플 납기)
-- 설계서 세부단계(원사 발주/편직/염가공/중단) 고르는 칸은 화면에서 없어짐 (샘플 진행은 생산 현황) — `setSamplingSub`·`samplingSub` 데이터는 남아 있음
+- 설계서 세부단계(원사 발주/편직/염가공/중단)는 없앰 (샘플 진행은 생산 현황) — 2026-10-10 점검 때 `setSamplingSub`·`SAMPLING_SUBSTAGES` 코드도 지움 (예전 문서의 `samplingSub` 값만 남음)
+
+### 샘플 흐름 점검·디버깅 (대표님 요청 2026-10-10 — "개발/설계 현황에서 생산 현황까지 생산 관리자 입장에서 논리 점검")
+> 대표님 결정: ① 생산 현황에서 샘플 Drop = **의뢰도 같이 Drop** (사유 창) ② 설계서가 안 끝난 샘플을 '완료'로 → **작은 창으로 묻기** ③ 리포트 **[전체·메인·샘플], 처음 '메인'**
+
+**샘플 끝 상태**
+- 설계서 Drop → 샘플 오더 `dropInfo { prevStatus, at }` (상태값은 '완료'). 표·간트 'Drop', 상세창 머리 'Drop (샘플)', ⋯ 메뉴 '샘플 Drop으로 닫힘' (`orderModel.isDropClosed`)
+  - 복원 → `prevStatus` 로 (원래 '완료'였던 샘플은 '완료' 그대로 = 아이템화 대기). 손으로 상태를 바꾸면 `dropInfo` 는 지워짐 (`applyOrderField`)
+- **샘플 끝내기 창** (`components/order/common/SampleCloseDialog.jsx`): 연결 샘플 오더를 '완료'로 바꿀 때 설계서가 아직이면
+  [아이템화 (원단 등록)] [Drop (샘플 종료)] [오더만 완료 — 나중에 정하기]. 끝나지 않은 공정 안내 (`orderModel.getOpenWork`)
+- **아이템화 대기** = 오더 '완료' + 설계서 아직 (아이템화·Drop 전) → '진행 중' 탭에 남김, 머리 요약 '아이템화 대기 N', 칩 (`OrderListPage.sheetInfoOf().awaiting`)
+- Drop된 샘플 오더를 '진행중'·'보류'로 바꾸면 → 설계서 복원 확인 창 (`restoreFromDrop(id, { lead })`)
+- 아이템화 (생산 현황): 설계서에 Article·GSM·폭·혼용률 100%가 없으면 "설계서를 열까요?" / 확인 창에 끝나지 않은 공정
+- 완료된 오더는 공정 날짜를 빨간 '지연'으로 안 보임 (현황표 `StepSummary`)
+- 리포트: [전체·메인·샘플] (`grubig.report.type`, 처음 '메인'), Drop 샘플은 납기 준수율·월별 완료·거래처별 완료에서 빼고 상태별 분포 'Drop'·거래처 'Drop' 칸
+
+**의뢰·설계서·샘플 오더 Drop·복원 맞추기**
+- 생산 현황 [Drop]: 의뢰가 살아 있는 설계서면 `DevDropModal`(order# 안내) → `App.dropDevWithSheet` (개발/설계 현황 Drop 과 같은 함수). 자체개발·의뢰가 이미 Drop 이면 설계서만
+- 의뢰에 같이 Drop한 설계서 `droppedSheetId` → 보관함 [복원]이 설계서까지 (`DevArchiveModal.droppedSheetOf` → `restoreFromDrop`), 카드에 '설계서도 같이 Drop'
+- `restoreFromDrop`: 같은 의뢰가 다른 설계서로 진행 중이면 막음 / Drop 사유·`droppedSheetId` 지움
+- Drop된 설계서: 저장해도 의뢰 확정·연결 안 함 (`handleSaveSheet` + `linkAndConfirm` 가 rejected 무시), 단계·원단 등록·EZ-TEX 등록 막음, 설계서 창 'Drop됨' 안내 + [복원]
+- 보관함 '샘플 진행': '개발 확정' 전 단계 의뢰도 (설계서가 생산 현황으로 갔으면), 카드에 '생산: 편직중·염색중·완료 · 아이템화 대기' (`getOrderProgressStage`)
+
+**설계서 단계·EZ-TEX 안전장치**
+- '샘플 진행' 고르기 = EZ-TEX 등록 (`setStage` → `registerEztexOrderNo`, 번호 없으면 막음)
+- 확인 창: 샘플 오더가 있는 '샘플 진행' 설계서를 앞 단계로 / 아이템화를 되돌릴 때 / 진행 중 샘플 오더가 있는데 아이템화 (`sampleOrderLink.getOrderInfo`)
+- 단계 바를 누를 때 저장 안 한 변경이 있으면 저장 → 그 저장본으로 이동 (`setStage(id, t, { base })`, App `isSheetDirty`·`onSavedKeepOpen`)
+- 샘플 오더가 있으면 EZ-TEX 번호를 비울 수 없음 · 열어 둔 창의 옛 연결 칸(EZ-TEX·의뢰·원단)으로 덮어쓰지 않음 (`LINK_KEYS`)
+- `checkEztexConflict`: 새 설계서(아직 id 없음)가 엉뚱한 오더 때문에 막히던 버그, 기존 **메인** 오더 번호면 막음
+- 아이템화·Drop된 설계서에 번호를 넣어도 샘플 오더 안 만듦 (`linkSampleOrderFromSheet` → 'skipped')
+
+**생산 현황 실수 방지**
+- 설계서와 연결된 샘플 오더는 메인으로 못 바꿈 (`updateOrder`), order# 를 바꿔도 '샘플' 그대로
+- order# 를 고치면 설계서 EZ-TEX O/D NO.도 같이 (`useDesignSheet.syncEztexFromOrder`, 설계서 변경 이력 '생산 현황에서 order# 변경')
+- 샘플 오더 삭제 확인 창에 "설계서는 개발/설계 현황으로 돌아가요 · 그만두려면 Drop" (`deleteOrder(id, { note })`)
+
+**아직 안 한 것 (대표님이 정하면)**: 의뢰 바이어·납기를 고쳐도 이미 만든 샘플 오더엔 안 따라감 / 원단을 지우면 그 원단에 연결된 오더(메인 포함) 연결이 남음
 
 ---
 

@@ -15,12 +15,12 @@
 
 | 도메인 | 문서 위치 |
 |-------|---------|
-| 생산 스케줄 (오더/공정/차수/알람/간트·가납기·날짜 메모) + 설계서 샘플 오더 (메인/샘플, EZ-TEX 등록 → 샘플 오더, 아이템화·Drop) + 생산 ▾ 계산기 (선염 — 스트라이프 원사 배분·멜란지 수량 비율) | `docs/production-schedule-spec.md` (기획서 원본), `docs/production-schedule-plan.md` (구현 플랜 & 진행상황, 가납기는 '가납기 · 간트 메모' 절, 샘플 오더는 '설계서 ↔ 샘플 오더' 절, 계산기는 '생산 ▾ 계산기' 절) |
+| 생산 스케줄 (오더/공정/차수/알람/간트·가납기·날짜 메모) + 설계서 샘플 오더 (메인/샘플, EZ-TEX 등록 → 샘플 오더, 아이템화·Drop·샘플 끝내기·아이템화 대기) + 생산 ▾ 계산기 (선염 — 스트라이프 원사 배분·멜란지 수량 비율) | `docs/production-schedule-spec.md` (기획서 원본), `docs/production-schedule-plan.md` (구현 플랜 & 진행상황, 가납기는 '가납기 · 간트 메모' 절, 샘플 오더는 '설계서 ↔ 샘플 오더' 절 + '샘플 흐름 점검·디버깅' 절, 계산기는 '생산 ▾ 계산기' 절) |
 | UI 용어 통일 (마진 단계 등) + 가설계서/저장·삭제·날짜 규약 + 팝업 창 규약(ModalBackdrop) | `docs/terminology.md` (용어 사전) |
 | 원단 원가 계산 (편직 정액·LOSS 구간·가공 유형·이화학/운임·수입 원사 운반비·원가 설정·공통 환율(내수·수출)/견적 환율·실시간 환율·원가 확인 필요) + 견적서 (기준 견적·별도 견적·러닝 생지 견적·견적서 약관 문구(내수는 한글)) + 개발 의뢰 원가 견적·Drop 사유 | `docs/costing-model.md` (원가 모델 & 설정, 환율은 §5-A, 견적서는 §5-B, 개발 의뢰 원가 견적은 §5-C) |
 
 트리거 예시:
-- "생산 스케줄 다음 단계 하자" / "오더 관련 기능 추가해줘" / "간트 차트 만들자" / "알람 붙이자" / "선염 계산기·원사 컬러 배분·멜란지 비율" / "가납기·간트 메모" / "샘플 오더·메인/샘플·설계서 샘플 진행·생산 현황에서 아이템화" / "개발 의뢰 현황·EZ-TEX 등록·자체개발 설계서" → 위 docs 2개를 먼저 읽고 작업 시작
+- "생산 스케줄 다음 단계 하자" / "오더 관련 기능 추가해줘" / "간트 차트 만들자" / "알람 붙이자" / "선염 계산기·원사 컬러 배분·멜란지 비율" / "가납기·간트 메모" / "샘플 오더·메인/샘플·설계서 샘플 진행·생산 현황에서 아이템화" / "개발 의뢰 현황·EZ-TEX 등록·자체개발 설계서" / "샘플 Drop·복원·아이템화 대기·샘플 끝내기·리포트 메인/샘플" → 위 docs 2개를 먼저 읽고 작업 시작
 - "원가 계산 바꾸자" / "편직비·LOSS·운임 수정" / "원가 설정에 항목 추가" / "수량 직접 입력 칸 만들자" / "원사 운반비·수입사·수입 국가" / "환율·내수/수출 환율·실시간 환율·견적 다시 계산" / "원가 확인 경고·혼용률" / "견적서 구간·기준 견적·별도 견적" / "러닝 생지 견적·생지 짠 수량·컬러별 수량·소량 추가분(서차지)" / "개발 의뢰 원가 견적·Drop 사유·의뢰 견적서" → `docs/costing-model.md` 먼저 읽고 작업 시작
 - 라벨/용어를 바꾸거나 새 화면을 만들 때 → `docs/terminology.md` 를 먼저 확인하고 같은 기능은 같은 용어로 맞출 것
 - 새 팝업 창을 만들 때 → 배경은 `components/common/ModalBackdrop`, 입력하는 창이면 `useUnsavedGuard` + `UnsavedChangesDialog`로 '저장할까요?' (`docs/terminology.md` §4 팝업 창 규약)
@@ -48,8 +48,9 @@ GRUBIG-APP/
 │   │
 │   ├── pages/                   # 화면 단위 페이지
 │   │   ├── CalculatorPage.jsx          # 원가 계산기
-│   │   ├── DevRequestPage.jsx          # 개발 의뢰 (바이어 R&D)
 │   │   ├── DevStatusPage.jsx           # 개발/설계 현황 — 개발 의뢰 현황 한 표 (의뢰·설계서·자체개발 줄, EZ-TEX 등록 → 생산 현황 샘플)
+│   │   ├── OrderListPage.jsx           # 생산 현황 (현황표·간트, 메인/샘플, 설계서 샘플 오더 — 샘플 끝내기·아이템화 대기·샘플 Drop)
+│   │   ├── ReportPage.jsx              # 리포트 (생산 통계 — [전체·메인·샘플], Drop 샘플은 완료 통계에서 뺌)
 │   │   ├── DesignSheetPage.jsx         # 원단 설계서 작성 문서
 │   │   ├── DesignSheetListPage.jsx     # 설계서 보관함
 │   │   ├── TempDesignSheetListPage.jsx # 가설계서 보관함
@@ -66,8 +67,8 @@ GRUBIG-APP/
 │   │   ├── useMarketRate.js            # 실시간 환율 (참고용 — 화면 위 내수·수출 환율 칸 옆)
 │   │   └── domains/                    # 도메인별 비즈니스 로직 훅
 │   │       ├── useDevRequest.js        # 개발 의뢰 CRUD + 상태 전이 + 원가 견적 저장·Drop 사유
-│   │       ├── useDesignSheet.js       # 설계서 CRUD + 단계 전이 + 원단 연동 + EZ-TEX 등록 → 생산 현황 샘플 오더 (sampleOrderLink)
-│   │       ├── useOrder.js             # 생산 현황 오더 (칸 단위 즉시 저장·가납기·설계서 샘플 오더 sheetOrderLink)
+│   │       ├── useDesignSheet.js       # 설계서 CRUD + 단계 전이 + 원단 연동 + EZ-TEX 등록 → 생산 현황 샘플 오더 (sampleOrderLink) + Drop·복원
+│   │       ├── useOrder.js             # 생산 현황 오더 (칸 단위 즉시 저장·가납기·설계서 샘플 오더 sheetOrderLink — Drop 표시 dropInfo)
 │   │       ├── useTempDesignSheet.js   # 가설계서
 │   │       ├── useMainDetail.js        # 메인/QC 디테일
 │   │       ├── useFabric.js            # 원단 관리
@@ -81,6 +82,7 @@ GRUBIG-APP/
 │   │   ├── common/              # 공통 UI (Toast, SearchableSelect, MasterDataModal, ModalBackdrop(팝업 배경), UnsavedChangesDialog(저장할까요?) 등)
 │   │   ├── layout/              # Sidebar, LoginScreen
 │   │   ├── dashboard/           # 개발 의뢰 — DevRequestFormModal, DevArchiveModal(보관함·Drop 사유별 보기), DevCostQuoteModal(원가 견적), DevDropModal(Drop 사유), DevQuoteBadge(견적·예상 배지 공용), DevReqSummaryCard(현재 안 씀)
+│   │   ├── order/               # 생산 현황 — sheet/(현황표·⋯ 메뉴·팝오버), gantt/(간트), common/(SheetLinkChips '설계서' 표시·SampleCloseDialog 샘플 끝내기·PopoverShell), OrderDetailModal
 │   │   ├── design/              # DesignStepper (진행 단계 바)
 │   │   ├── design-sheet/        # 설계서 전용 (DesktopSheetRow, MobileSheetCard, DropSheetModal)
 │   │   ├── fabric/              # 원단 행/카드 (+ fabricRowModel: 행·카드 공통 계산)
