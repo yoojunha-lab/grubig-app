@@ -11,8 +11,9 @@ import { devQuoteToSheetFields } from '../../utils/devQuoteModel';
 // sampleOrderLink (App 이 생산 오더 훅과 이어 줌 — 대표님 요청 2026-10-10 '설계서 진행 = 샘플 → 생산 현황에서 관리'):
 //   checkEztexConflict(sheet, eztexNo)    → '' | 막는 까닭                         저장 전 확인 (다른 설계서의 샘플 오더 번호 등)
 //   onEztexRegistered(sheet, prevEztexNo) → { ok, action, orderNumber, message }  EZ-TEX O/D NO. 등록 → 샘플 오더 만들기·연결
-//   onArticled(sheet, fabric)             → { ok, orderNumber } | null           아이템화 → 샘플 오더 article# 연결 + 완료
-//   onDropped(sheet) / onRestored(sheet)  → { ok, orderNumber } | null           Drop → 샘플 오더 완료 / 복원 → 다시 진행중
+//   onArticled(sheet, fabric)             → { ok, changed, closed, orderNumber } | null  아이템화 → 샘플 오더 article# 연결 + 완료
+//   onDropped(sheet) / onRestored(sheet)  → { ok, changed, orderNumber(, status) } | null
+//                                            Drop → 샘플 오더 'Drop'(완료 + Drop 표시) / 복원 → Drop 전 상태로
 //   onDeleted(sheetId)                    → { ok, orderNumber } | null           삭제 → 샘플 오더는 남기고 연결만 풂
 //   getOrderNumber(sheetId)               → 연결된 샘플 오더 order# ('' = 없음) — 삭제 확인 창 안내용
 //   (없으면 설계서만 저장 — 생산 현황 연동은 건너뜀)
@@ -170,6 +171,18 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       ? ` 생산 현황 샘플 오더(${res.orderNumber})${done}`
       : ` (생산 현황 샘플 오더(${res.orderNumber || '-'})는 바꾸지 못했어요 — 생산 현황에서 확인해 주세요)`;
   };
+  // 아이템화 → 오더를 이번에 닫았는지(closed)에 따라 (이미 완료였으면 article# 연결만)
+  const articledOrderNote = (res) => sheetOrderNote(
+    res,
+    res?.closed === false ? '도 이 Article로 연결했어요.' : '도 이 Article로 연결하고 완료로 닫았어요.'
+  );
+  // 복원 → 오더를 Drop 전 어느 상태로 돌렸는지 (useOrder.reopenSheetOrder 의 status)
+  const reopenedOrderNote = (res) => sheetOrderNote(
+    res,
+    res?.status === 'completed' ? "는 Drop 전처럼 '완료'로 두었어요 — 아이템화 대기 (아이템화 또는 Drop으로 끝내 주세요)."
+      : res?.status === 'on_hold' ? "를 Drop 전처럼 '보류'로 돌렸어요."
+        : '를 다시 진행중으로 열었어요.'
+  );
 
   // '샘플 진행' 진입 패치 (단계·진입 시각, 세부단계는 처음 진입 때 '원사 발주') — EZ-TEX 등록 때 자동 이동
   const samplingEntryPatch = (sheet, now) => ({
@@ -301,7 +314,11 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         // 생산 현황 샘플 오더도 그 원단에 연결 + 완료
         const fabric = (savedFabrics || []).find(f => String(f.id) === String(sheet.linkedFabricId)) || null;
         const res = await notifyOrder('onArticled', updatedSheet, fabric);
-        showToast(`아이템화 단계로 복원되었습니다 (기존 원단 유지).${sheetOrderNote(res, '도 완료로 닫았어요.')}`, res && !res.ok ? 'error' : 'success');
+        // 예전에 아이템화했다 되돌린 설계서 = '복원' / '기존 원단에서 연결'로 원단이 먼저 붙은 설계서 = 처음 아이템화
+        const head = sheet.stageEnteredAt?.articled
+          ? '아이템화 단계로 복원되었습니다 (기존 원단 유지).'
+          : `아이템화했어요 — 연결된 원단(${fabric?.article || sheet.articleNo || '-'})을 그대로 써요.`;
+        showToast(`${head}${articledOrderNote(res)}`, res && !res.ok ? 'error' : 'success');
         return true;
       }
       if (saveFabricFromSheet) {
@@ -936,7 +953,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     // 생산 현황 샘플 오더: article# = 이 원단(보관함 연결) + 완료
     const orderRes = await notifyOrder('onArticled', { ...sheet, ...linkPatch }, fabricData);
     showToast(
-      `${toastPrefix}Article ${sheet.articleNo} 원단이 자동 등록되었습니다.${sheetOrderNote(orderRes, '도 이 Article로 연결하고 완료로 닫았어요.')}`,
+      `${toastPrefix}Article ${sheet.articleNo} 원단이 자동 등록되었습니다.${articledOrderNote(orderRes)}`,
       orderRes && !orderRes.ok ? 'error' : 'success'
     );
     return true;
@@ -973,7 +990,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   };
 
   // DROP 처리 (설계서를 보관함으로 이동, 현황에서 숨김)
-  //  생산 현황 샘플 오더는 '완료'로 닫음 (샘플은 아이템화 아니면 Drop으로 끝남 — 대표님 2026-10-10). 복원하면 다시 진행중
+  //  생산 현황 샘플 오더는 'Drop'으로 닫음 (완료 + Drop 표시 — 샘플은 아이템화 아니면 Drop으로 끝남, 대표님 2026-10-10)
+  //  복원하면 오더는 Drop 전 상태로
   //  opts (개발/설계 현황에서 의뢰를 Drop할 때 설계서도 같이 — 대표님 결정 2026-10-10):
   //   confirm: false = 확인 창 없이 (의뢰 Drop 사유 창에서 이미 확인함)
   //   quiet: true   = 알림 안 띄움 (의뢰 Drop 알림에 합침)
@@ -991,7 +1009,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
     if (confirm) {
       const orderNo = sampleOrderLink?.getOrderNumber?.(sheetId) || '';
-      const orderMsg = orderNo ? `\n생산 현황 샘플 오더(${orderNo})는 '완료'로 닫혀요. (복원하면 다시 진행중)` : '';
+      const orderMsg = orderNo ? `\n생산 현황 샘플 오더(${orderNo})는 'Drop'으로 닫혀요. (복원하면 Drop 전 상태로)` : '';
       if (!window.confirm(`이 설계서를 DROP 처리하시겠습니까?\n(보관함으로 이동되며 현황에서 숨겨집니다)${orderMsg}`)) return false;
     }
 
@@ -1015,13 +1033,14 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     }
 
     const res = await notifyOrder('onDropped', { ...sheet, ...dropPatch });
-    if (!quiet) showToast(`DROP 처리되었습니다.${sheetOrderNote(res, '는 완료로 닫았어요.')}`, res && !res.ok ? 'error' : 'success');
+    if (!quiet) showToast(`DROP 처리되었습니다.${sheetOrderNote(res, "는 'Drop'으로 닫았어요.")}`, res && !res.ok ? 'error' : 'success');
     return true;
   };
 
-  // DROP 복원 (실수로 Drop한 것 되돌리기) — 생산 현황 샘플 오더도 다시 '진행중' (Drop 때 닫았던 것)
+  // DROP 복원 (실수로 Drop한 것 되돌리기) — 생산 현황 샘플 오더도 Drop 전 상태로 (Drop 때 닫았던 것)
+  //  opts.lead: 확인 창 맨 앞에 붙일 말 (생산 현황에서 Drop된 샘플 오더를 '진행중'으로 바꾸려 할 때 — 왜 복원을 묻는지)
   //  반환: 복원했으면 true
-  const restoreFromDrop = async (sheetId) => {
+  const restoreFromDrop = async (sheetId, { lead = '' } = {}) => {
     const sheet = designSheets.find(s => s.id === sheetId);
     if (!sheet) return false;
     // 다시 연결할 개발 의뢰 — 의뢰가 그사이 Drop(미진행)됐으면 같이 되살아나므로 확인 창에 미리 알려 줌 (2026-10-06)
@@ -1035,8 +1054,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       ? `\n\n연결된 개발 의뢰(${relinkDev.devOrderNo || '-'})는 Drop${dropLabel ? `(사유: ${dropLabel})` : ''} 상태예요.\n설계서를 복원하면 의뢰도 '개발 확정'으로 되살아나고 Drop 사유는 지워져요.`
       : '';
     const orderNo = sampleOrderLink?.getOrderNumber?.(sheetId) || '';
-    const orderMsg = orderNo ? `\n\n생산 현황 샘플 오더(${orderNo})가 '완료'로 닫혀 있으면 다시 '진행중'으로 열려요.` : '';
-    if (!window.confirm(`이 설계서를 복원하시겠습니까?\n(Drop 전 단계로 복원됩니다)${reviveNote}${orderMsg}`)) return false;
+    const orderMsg = orderNo ? `\n\n생산 현황 샘플 오더(${orderNo})도 Drop 전 상태로 돌아가요.` : '';
+    if (!window.confirm(`${lead}이 설계서를 복원하시겠습니까?\n(Drop 전 단계로 복원됩니다)${reviveNote}${orderMsg}`)) return false;
     const now = new Date().toISOString();
     // [기획오류 #3 수정] 복원 이력을 changeHistory에 기록
     const restoreHistory = {
@@ -1066,7 +1085,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     }
 
     const res = await notifyOrder('onRestored', { ...sheet, ...restorePatch });
-    showToast(`복원되었습니다.${sheetOrderNote(res, '를 다시 진행중으로 열었어요.')}`, res && !res.ok ? 'error' : 'success');
+    showToast(`복원되었습니다.${reopenedOrderNote(res)}`, res && !res.ok ? 'error' : 'success');
     return true;
   };
 

@@ -11,7 +11,9 @@ import { ORDER_STATUSES, ORDER_STATUS_COLORS } from '../../../constants/producti
 // - 삭제 확인창은 useOrder 훅이 띄움 (취소하면 메뉴 유지)
 // - 설계서 버튼은 개발/설계 현황과 같은 함수 (대표님 요청 2026-10-10 '아이템화·설계서 ARTICLE 연동까지 동일하게')
 //   아이템화 → (확인 창: OrderListPage.itemizeSheet) 원단 등록 + 이 오더 article# 연결·완료
-//   Drop → 이 오더 완료 / 복원 → 다시 진행중 (확인 창은 useDesignSheet)
+//   Drop → 이 오더 'Drop' (의뢰가 있으면 Drop 사유 창) / 복원 → Drop 전 상태로 (확인 창은 useDesignSheet)
+// - 오더 상태 버튼은 OrderListPage 가 얹은 규칙을 따름 (actions.setOrderField):
+//   설계서가 안 끝난 샘플을 '완료' → 샘플 끝내기 창 / Drop 된 샘플을 '진행중'·'보류' → 설계서 복원
 // props: order, isDraft, anchorRect, onClose, onOpenDetail(orderId), actions,
 //        sheetInfo(OrderListPage.sheetInfoOf), sheetActions({ open, itemize, drop, restore })
 // ============================================================
@@ -142,11 +144,19 @@ export const OrderMenuPopover = ({
                     아이템화 완료{sheet.articleNo ? ` · Article ${sheet.articleNo}` : ''}
                   </div>
                 )}
+                {sheetInfo.awaiting && (
+                  <div className="px-2.5 pt-0.5 pb-1 text-[10px] font-bold text-amber-700 leading-snug">
+                    오더는 완료 — 아이템화 또는 Drop으로 샘플을 끝내 주세요
+                  </div>
+                )}
               </div>
             )}
 
             <div className="px-2.5 pt-2 pb-2 mt-1 border-t border-slate-100">
-              <div className="text-[10px] font-bold text-slate-400 mb-1.5">오더 상태</div>
+              <div className="text-[10px] font-bold text-slate-400 mb-1.5">
+                오더 상태
+                {sheetInfo?.dropClosed && <span className="ml-1 text-rose-500">· 샘플 Drop으로 닫힘</span>}
+              </div>
               <div className="grid grid-cols-3 gap-1">
                 {ORDER_STATUSES.map(s => {
                   const on = order.status === s.key;

@@ -5,8 +5,10 @@ import { LotEditor } from '../components/order/sheet/LotEditor';
 import { OrderGantt } from '../components/order/gantt/OrderGantt';
 import { OrderDetailModal } from '../components/order/OrderDetailModal';
 import { MobileOrderList } from '../components/order/MobileOrderList';
-import { getDday } from '../utils/orderModel';
+import { SampleCloseDialog } from '../components/order/common/SampleCloseDialog';
+import { getDday, isDropClosed, getOpenWork } from '../utils/orderModel';
 import { todayYmd } from '../utils/orderCalculations';
+import { isYarnRatioComplete, sumYarnRatio } from '../utils/costModel';
 import { DESIGN_STAGES } from '../constants/common';
 
 // ============================================================
@@ -18,6 +20,10 @@ import { DESIGN_STAGES } from '../constants/common';
 // - 상세창 / 염가공 LOT 편집창은 이 페이지가 띄운다 (표·간트·모바일·상세창 공용)
 // - 메인 / 샘플 고르기 (대표님 요청 2026-10-10): 설계서 EZ-TEX O/D NO. 등록으로 만든 샘플 오더는 '설계서' 표시
 //   → 설계서 열기 · 아이템화 · Drop · 복원 (개발/설계 현황과 같은 함수 — sheetActions)
+// - 샘플 끝 상태 (대표님 결정 2026-10-10): 샘플은 아이템화 아니면 Drop 으로 끝남
+//   · 연결 샘플 오더를 '완료'로 바꾸면 '샘플 끝내기' 창 ([아이템화] [Drop] [오더만 완료])
+//   · 오더만 완료하고 설계서가 아직 아이템화·Drop 전이면 '아이템화 대기' — '진행 중' 목록에 남음
+//   · Drop 으로 닫힌 오더를 '진행중'·'보류'로 바꾸려 하면 설계서 복원으로 (설계서·의뢰도 같이 돌아오게)
 // - focusRequest: 개발/설계 현황 [생산 현황]에서 넘어오면 그 오더 번호로 찾아서 보여 줌 (전체 탭)
 // ============================================================
 
@@ -47,9 +53,10 @@ const loadView = () => {
   try { return localStorage.getItem(LS_VIEW) === 'gantt' ? 'gantt' : 'sheet'; } catch { return 'sheet'; }
 };
 
+// awaiting = '아이템화 대기' (오더는 완료했지만 설계서가 아직 아이템화·Drop 전) → '진행 중'에 남겨 둠
 const STATUS_TABS = [
-  { key: 'open',      label: '진행 중', match: o => o.status !== 'completed' },
-  { key: 'completed', label: '완료',    match: o => o.status === 'completed' },
+  { key: 'open',      label: '진행 중', match: (o, awaiting) => o.status !== 'completed' || awaiting },
+  { key: 'completed', label: '완료',    match: (o, awaiting) => o.status === 'completed' && !awaiting },
   { key: 'all',       label: '전체',    match: () => true },
 ];
 
@@ -114,37 +121,68 @@ export const OrderListPage = ({
   const sheetById = useMemo(() => new Map((designSheets || []).map(s => [s.id, s])), [designSheets]);
   const devById = useMemo(() => new Map((devRequests || []).map(d => [d.id, d])), [devRequests]);
   // 오더에 연결된 설계서 요약 (없거나 지워졌으면 null)
+  //  dropClosed: 이 오더가 설계서 Drop 으로 닫힘 / awaiting: '아이템화 대기' (오더는 완료, 설계서는 아직 아이템화·Drop 전)
   const sheetInfoOf = useCallback((order) => {
     if (!order?.linkedSheetId) return null;
     const sheet = sheetById.get(order.linkedSheetId);
     if (!sheet) return null;
     const dev = sheet.devRequestId ? devById.get(sheet.devRequestId) : null;
+    const dropped = sheet.status === 'dropped';
+    const articled = sheet.stage === 'articled';
+    const dropClosed = isDropClosed(order);
     return {
       sheet,
-      dropped: sheet.status === 'dropped',
-      articled: sheet.stage === 'articled',
+      dropped,
+      articled,
+      dropClosed,
+      awaiting: order.status === 'completed' && !dropClosed && !dropped && !articled,
       devOrderNo: sheet.devOrderNo || '',
       buyerName: dev?.buyerName || '',
       stageLabel: DESIGN_STAGES.find(s => s.key === sheet.stage)?.label || '',
     };
   }, [sheetById, devById]);
-  // 아이템화는 원단이 새로 등록되므로 한 번 확인 (Article 이 없으면 설계서 훅이 'Article 번호를 먼저 입력' 알림)
+  const isAwaiting = useCallback((o) => !!sheetInfoOf(o)?.awaiting, [sheetInfoOf]);
+  const sheetLabelOf = (sheet) => [sheet?.devOrderNo || '자체개발', sheet?.fabricName].filter(Boolean).join(' · ');
+
+  // 아이템화 — 설계서에 Article·최종 스펙·혼용률 100% 가 없으면 막히므로 먼저 확인하고 설계서를 열어 줌
+  //  확인 창 한 번 (원단이 새로 등록되고 오더가 닫힘 — 아직 끝나지 않은 공정이 있으면 같이 알려 줌)
   //  확인 뒤는 개발/설계 현황과 같은 함수 (setStage → 원단 등록 → 이 오더 article# 연결·완료)
-  const itemizeSheet = async (sheetId) => {
+  //  opts.skipConfirm: '샘플 끝내기' 창에서 이미 아이템화를 고른 경우
+  const itemizeSheet = async (sheetId, { skipConfirm = false } = {}) => {
     const sheet = sheetById.get(sheetId);
     if (!sheet || !sheetActions?.itemize) return false;
-    if (sheet.articleNo) {
+    const ci = sheet.costInput || {};
+    const missing = [
+      !String(sheet.articleNo || '').trim() && 'Article 번호',
+      (!ci.gsm || !ci.widthCut || !ci.widthFull) && '최종 스펙 (GSM·내폭·외폭)',
+      !isYarnRatioComplete(sheet.yarns) && `원사 혼용률 합계 100% (지금 ${sumYarnRatio(sheet.yarns)}%)`,
+    ].filter(Boolean);
+    if (missing.length > 0) {
+      const open = window.confirm(
+        `아이템화하려면 설계서에 이 값이 있어야 해요:\n· ${missing.join('\n· ')}\n\n설계서를 열어서 채울까요?`
+      );
+      if (open) sheetActions?.open?.(sheetId);
+      return false;
+    }
+    if (!skipConfirm) {
       const order = orders.find(o => String(o.linkedSheetId || '') === String(sheetId));
-      const label = [sheet.devOrderNo || '자체개발', sheet.fabricName].filter(Boolean).join(' · ');
+      const openWork = getOpenWork(order);
       const ok = window.confirm(
-        `설계서 '${label}'를 아이템화할까요?\n\n`
+        `설계서 '${sheetLabelOf(sheet)}'를 아이템화할까요?\n\n`
         + `· 원단 관리에 Article ${sheet.articleNo}(으)로 등록되고 설계서와 연결돼요.\n`
         + `· 샘플 오더${order ? `(${order.orderNumber})` : ''}는 article#가 그 원단으로 연결되고 '완료'로 닫혀요.`
+        + (openWork.length ? `\n\n⚠ 아직 끝나지 않은 공정이 있어요: ${openWork.join(', ')}` : '')
       );
       if (!ok) return false;
     }
     return sheetActions.itemize(sheetId);
   };
+
+  // ---------- 샘플 끝내기 창 (연결 샘플 오더를 '완료'로 바꿀 때) ----------
+  const [closeTarget, setCloseTarget] = useState(null); // { orderId, sheetId }
+  const closeOrder = closeTarget ? orders.find(o => o.id === closeTarget.orderId) || null : null;
+  const closeSheet = closeTarget ? sheetById.get(closeTarget.sheetId) || null : null;
+
   // 표·간트·상세창·모바일에 같이 넘기는 묶음
   const sheetLink = {
     infoOf: sheetInfoOf,
@@ -154,37 +192,64 @@ export const OrderListPage = ({
     restore: sheetActions?.restore,
   };
 
+  // ---------- 오더 수정 (설계서 샘플 오더 규칙을 얹은 actions — 표·간트·상세창·모바일 공용) ----------
+  //  오더상태: Drop 으로 닫힌 샘플을 다시 열려면 설계서 복원 / 아직 안 끝난 샘플을 '완료'로 → 샘플 끝내기 창
+  const setOrderField = async (id, field, value) => {
+    if (field === 'status') {
+      const order = orders.find(o => o.id === id);
+      const info = sheetInfoOf(order);
+      if (order && info && value !== order.status) {
+        if (info.dropped && value !== 'completed') {
+          if (!sheetActions?.restore) return false;
+          return sheetActions.restore(info.sheet.id, {
+            lead: `Drop된 샘플은 설계서를 복원해야 다시 진행할 수 있어요 (오더 ${order.orderNumber}).\n\n`,
+          });
+        }
+        if (value === 'completed' && !info.dropped && !info.articled) {
+          setCloseTarget({ orderId: id, sheetId: info.sheet.id });
+          return true;
+        }
+      }
+    }
+    return actions.setOrderField(id, field, value);
+  };
+  const pageActions = { ...actions, setOrderField };
+
   // ---------- 필터 / 정렬 ----------
   // 상태 탭 숫자는 고른 구분(메인/샘플) 안에서, 구분 숫자는 고른 상태 탭 안에서
   const typeTab = TYPE_TABS.find(t => t.key === typeFilter) || TYPE_TABS[0];
   const statusTabMeta = STATUS_TABS.find(t => t.key === statusTab) || STATUS_TABS[0];
   const counts = useMemo(() => Object.fromEntries(
-    STATUS_TABS.map(t => [t.key, orders.filter(o => typeTab.match(o) && t.match(o)).length])
-  ), [orders, typeTab]);
+    STATUS_TABS.map(t => [t.key, orders.filter(o => typeTab.match(o) && t.match(o, isAwaiting(o))).length])
+  ), [orders, typeTab, isAwaiting]);
   const typeCounts = useMemo(() => Object.fromEntries(
-    TYPE_TABS.map(t => [t.key, orders.filter(o => statusTabMeta.match(o) && t.match(o)).length])
-  ), [orders, statusTabMeta]);
+    TYPE_TABS.map(t => [t.key, orders.filter(o => statusTabMeta.match(o, isAwaiting(o)) && t.match(o)).length])
+  ), [orders, statusTabMeta, isAwaiting]);
 
   const visibleOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const list = orders.filter(o => statusTabMeta.match(o) && typeTab.match(o)
+    const list = orders.filter(o => statusTabMeta.match(o, isAwaiting(o)) && typeTab.match(o)
       && (!term || searchText(o, sheetInfoOf(o)).includes(term)));
     return sortOrders(list, sortKey);
-  }, [orders, statusTabMeta, typeTab, search, sortKey, sheetInfoOf]);
+  }, [orders, statusTabMeta, typeTab, search, sortKey, sheetInfoOf, isAwaiting]);
 
-  // 상단 요약: 진행/보류/납기 임박/지남 (완료 제외, 고른 구분 안에서)
+  // 상단 요약: 진행/보류/납기 임박/지남 (완료 제외, 고른 구분 안에서) + 아이템화 대기 (완료한 샘플 중 설계서가 아직 안 끝난 것)
   const stats = useMemo(() => {
-    let active = 0, onHold = 0, dueSoon = 0, overdue = 0;
+    let active = 0, onHold = 0, dueSoon = 0, overdue = 0, awaiting = 0;
     orders.forEach(o => {
-      if (o.status === 'completed' || !typeTab.match(o)) return;
+      if (!typeTab.match(o)) return;
+      if (o.status === 'completed') {
+        if (isAwaiting(o)) awaiting += 1;
+        return;
+      }
       if (o.status === 'on_hold') onHold += 1; else active += 1;
       const d = getDday(o.finalDueDate);
       if (d === null) return;
       if (d < 0) overdue += 1;
       else if (d <= 7) dueSoon += 1;
     });
-    return { active, onHold, dueSoon, overdue };
-  }, [orders, typeTab]);
+    return { active, onHold, dueSoon, overdue, awaiting };
+  }, [orders, typeTab, isAwaiting]);
 
   // ---------- 외주처 자동완성 (마스터 + 다른 오더에서 쓴 값) ----------
   const dyeVendorOptions = useMemo(
@@ -221,7 +286,7 @@ export const OrderListPage = ({
   // 표 안의 [+ 오더 추가] · [첫 오더 추가] 버튼도 같은 규칙 적용
   // (order# 입력으로 저장되는 순간 검색어/완료 탭/구분 필터에 걸려 줄이 사라지지 않도록)
   const tableActions = {
-    ...actions,
+    ...pageActions,
     addDraftOrder: () => {
       revealNewRow();
       return actions.addDraftOrder();
@@ -260,6 +325,14 @@ export const OrderListPage = ({
           <StatChip label="보류" value={stats.onHold} cls="bg-slate-50 text-slate-600 border-slate-200" />
           <StatChip label="7일 내 납기" value={stats.dueSoon} cls="bg-orange-50 text-orange-700 border-orange-200" />
           <StatChip label="납기 지남" value={stats.overdue} cls={stats.overdue > 0 ? 'bg-red-50 text-red-700 border-red-300' : 'bg-slate-50 text-slate-500 border-slate-200'} />
+          {stats.awaiting > 0 && (
+            <StatChip
+              label="아이템화 대기"
+              value={stats.awaiting}
+              cls="bg-amber-50 text-amber-800 border-amber-300"
+              title="오더는 완료했지만 설계서가 아직 아이템화·Drop 전인 샘플 — ⋯ 메뉴에서 아이템화 또는 Drop"
+            />
+          )}
         </div>
       </div>
 
@@ -346,7 +419,7 @@ export const OrderListPage = ({
         {view === 'gantt' ? (
           <OrderGantt
             orders={visibleOrders}
-            actions={actions}
+            actions={pageActions}
             masters={masters}
             onOpenDetail={setDetailOrderId}
             onOpenLots={openLots}
@@ -390,7 +463,7 @@ export const OrderListPage = ({
           order={detailOrder}
           isDraft={detailIsDraft}
           onClose={() => setDetailOrderId(null)}
-          actions={actions}
+          actions={pageActions}
           masters={masters}
           savedFabrics={savedFabrics}
           {...partnerProps}
@@ -412,12 +485,24 @@ export const OrderListPage = ({
           dyeVendorOptions={dyeVendorOptions}
         />
       )}
+
+      {/* 샘플 끝내기 — 연결 샘플 오더를 '완료'로 바꿀 때 (고르면 창은 닫고 그 기능을 실행) */}
+      {closeOrder && closeSheet && (
+        <SampleCloseDialog
+          order={closeOrder}
+          sheetLabel={sheetLabelOf(closeSheet)}
+          onClose={() => setCloseTarget(null)}
+          onItemize={() => { setCloseTarget(null); itemizeSheet(closeSheet.id, { skipConfirm: true }); }}
+          onDrop={() => { setCloseTarget(null); sheetLink.drop?.(closeSheet.id); }}
+          onCompleteOnly={() => { setCloseTarget(null); actions.setOrderField(closeOrder.id, 'status', 'completed'); }}
+        />
+      )}
     </div>
   );
 };
 
-const StatChip = ({ label, value, cls }) => (
-  <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold ${cls}`}>
+const StatChip = ({ label, value, cls, title }) => (
+  <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold ${cls}`} title={title}>
     <span>{label}</span>
     <span className="font-mono text-sm">{value}</span>
   </div>

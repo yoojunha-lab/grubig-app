@@ -1,8 +1,34 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { TrendingUp, Calendar, Users, Package, CheckCircle, AlertCircle, Truck, Layers } from 'lucide-react';
 import { ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_STEPS, DYEING_STEP } from '../constants/production';
-import { normalizeOrder, getLossRate, getWorkKg, getOrderTotals } from '../utils/orderModel';
+import { normalizeOrder, getLossRate, getWorkKg, getOrderTotals, isDropClosed } from '../utils/orderModel';
 import { diffDaysYmd, todayYmd, isYmd, round1, fmtKg } from '../utils/orderCalculations';
+
+// ============================================================
+// 메인 / 샘플 고르기 (대표님 결정 2026-10-10 — 처음엔 '메인', 마지막 선택 기억)
+//  샘플 오더(설계서 EZ-TEX 등록마다 생김)가 납기 준수율·출고 kg·진행 작지 숫자를 흐리지 않게
+//  설계서 Drop 으로 닫힌 샘플은 어느 쪽이든 '완료' 통계에서 빼고 상태별 분포에 'Drop'으로 따로
+// ============================================================
+const TYPE_TABS = [
+  { key: 'all',    label: '전체', match: () => true },
+  { key: 'main',   label: '메인', match: o => o.type !== 'sample' },
+  { key: 'sample', label: '샘플', match: o => o.type === 'sample' },
+];
+const LS_REPORT_TYPE = 'grubig.report.type';
+const loadReportType = () => {
+  try {
+    const v = localStorage.getItem(LS_REPORT_TYPE);
+    return TYPE_TABS.some(t => t.key === v) ? v : 'main';
+  } catch {
+    return 'main';
+  }
+};
+
+// 상태별 분포의 'Drop' 칸 (오더 상태값은 '완료'지만 설계서 Drop 으로 닫힌 샘플)
+const DROP_BUCKET = { key: 'dropped', label: 'Drop (샘플)', dot: 'bg-rose-400' };
+
+// 완료 통계에 넣는 오더 = '완료' 중 Drop 으로 닫힌 샘플 제외
+const isRealCompleted = (o) => o.status === 'completed' && !isDropClosed(o);
 
 // ============================================================
 // 계산 헬퍼 (v8 오더 구조 기준)
@@ -51,11 +77,24 @@ const avg = (arr) => (arr.length === 0 ? null : round1(arr.reduce((a, b) => a + 
 // 리포트 페이지 (Tailwind 자체 막대 차트)
 // ============================================================
 export const ReportPage = ({ orders = [] }) => {
+  const [typeFilter, setTypeFilter] = useState(loadReportType);
+  const changeType = (k) => {
+    setTypeFilter(k);
+    try { localStorage.setItem(LS_REPORT_TYPE, k); } catch { /* 저장 불가 환경은 무시 */ }
+  };
+  const typeTab = TYPE_TABS.find(t => t.key === typeFilter) || TYPE_TABS[0];
+
   // v8 구조로 맞춤 (이미 정규화된 오더는 결과가 같음). 초안(order# 미입력)은 통계에서 제외
-  const list = useMemo(
+  const allList = useMemo(
     () => (orders || []).map(normalizeOrder).filter(o => o && o.id && o.orderNumber),
     [orders]
   );
+  const typeCounts = useMemo(
+    () => Object.fromEntries(TYPE_TABS.map(t => [t.key, allList.filter(t.match).length])),
+    [allList]
+  );
+  // 고른 구분(메인/샘플)의 오더만 — 아래 모든 통계의 기준
+  const list = useMemo(() => allList.filter(typeTab.match), [allList, typeTab]);
 
   const thisMonth = todayYmd().slice(0, 7);
 
@@ -92,8 +131,10 @@ export const ReportPage = ({ orders = [] }) => {
   }, [list, thisMonth]);
 
   // 1. 납기 준수율 (완료 오더 중 완료일 ≤ 납기). 납기나 완료일이 없으면 판단 불가로 제외
+  //    설계서 Drop 으로 닫힌 샘플은 '완료'가 아니므로 빼고 따로 셈 (dropped)
   const dueCompliance = useMemo(() => {
-    const completed = list.filter(o => o.status === 'completed');
+    const completed = list.filter(isRealCompleted);
+    const dropped = list.filter(isDropClosed).length;
     let met = 0;
     let unknown = 0;
     const lateDays = [];
@@ -111,31 +152,37 @@ export const ReportPage = ({ orders = [] }) => {
       late: lateDays.length,
       lateAvg: avg(lateDays),
       unknown,
+      dropped,
       rate: judged === 0 ? null : Math.round((met / judged) * 100),
     };
   }, [list]);
 
-  // 2. 상태별 분포 (진행중 / 보류 / 완료)
+  // 2. 상태별 분포 (진행중 / 보류 / 완료 / Drop) — Drop 칸은 Drop 된 샘플이 있을 때만
   const statusDist = useMemo(() => {
-    const dist = {};
+    const dist = { [DROP_BUCKET.key]: 0 };
     ORDER_STATUSES.forEach(s => { dist[s.key] = 0; });
     list.forEach(o => {
-      if (dist[o.status] !== undefined) dist[o.status]++;
+      if (isDropClosed(o)) dist[DROP_BUCKET.key]++;
+      else if (dist[o.status] !== undefined) dist[o.status]++;
     });
-    return ORDER_STATUSES.map(s => ({ ...s, count: dist[s.key] }));
+    const rows = ORDER_STATUSES.map(s => ({ ...s, dot: ORDER_STATUS_COLORS[s.key]?.dot, count: dist[s.key] }));
+    if (dist[DROP_BUCKET.key] > 0) rows.push({ ...DROP_BUCKET, count: dist[DROP_BUCKET.key] });
+    return rows;
   }, [list]);
 
   // 3. 거래처(buyer)별 오더 수 — 대소문자·앞뒤 공백 무시하고 묶음, 미입력은 맨 아래
+  //    완료 = Drop 된 샘플 제외 (Drop 은 따로 — 있을 때만 칸을 보여 줌)
   const customerStats = useMemo(() => {
     const map = new Map();
     list.forEach(o => {
       const name = (o.customer || '').trim();
       const key = name.toLowerCase();
-      if (!map.has(key)) map.set(key, { key, customer: name, total: 0, active: 0, completed: 0 });
+      if (!map.has(key)) map.set(key, { key, customer: name, total: 0, active: 0, completed: 0, dropped: 0 });
       const e = map.get(key);
       e.total++;
       if (o.status === 'active') e.active++;
-      if (o.status === 'completed') e.completed++;
+      if (isRealCompleted(o)) e.completed++;
+      if (isDropClosed(o)) e.dropped++;
     });
     return Array.from(map.values()).sort((a, b) => {
       if (!a.customer !== !b.customer) return a.customer ? -1 : 1;
@@ -144,8 +191,9 @@ export const ReportPage = ({ orders = [] }) => {
   }, [list]);
 
   const namedCustomerCount = customerStats.filter(c => c.customer).length;
+  const hasDroppedCustomers = customerStats.some(c => c.dropped > 0);
 
-  // 4. 월별 등록/완료 (최근 6개월) — 등록 = createdAt, 완료 = 오더 완료일(납기 준수율과 같은 기준)
+  // 4. 월별 등록/완료 (최근 6개월) — 등록 = createdAt, 완료 = 오더 완료일(납기 준수율과 같은 기준, Drop 제외)
   const monthlyStats = useMemo(() => {
     const months = recentMonths(thisMonth, 6);
     const byKey = new Map(months.map(m => [m.key, m]));
@@ -153,7 +201,7 @@ export const ReportPage = ({ orders = [] }) => {
     list.forEach(o => {
       const reg = byKey.get(monthKeyOf(o.createdAt));
       if (reg) reg.registered++;
-      if (o.status === 'completed') {
+      if (isRealCompleted(o)) {
         const done = getOrderDoneDate(o);
         if (!done) { noDoneDate++; return; }
         const m = byKey.get(done.slice(0, 7));
@@ -206,14 +254,35 @@ export const ReportPage = ({ orders = [] }) => {
 
   return (
     <div className="max-w-7xl mx-auto pb-12">
-      {/* 헤더 */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="bg-gradient-to-br from-teal-500 to-cyan-600 p-2.5 rounded-xl shadow-lg text-white">
-          <TrendingUp className="w-6 h-6" />
+      {/* 헤더 + 메인/샘플 고르기 */}
+      <div className="flex items-center justify-between gap-3 mb-6 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="bg-gradient-to-br from-teal-500 to-cyan-600 p-2.5 rounded-xl shadow-lg text-white">
+            <TrendingUp className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight">리포트</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              생산 통계 1차 · <b className="text-slate-700">{typeTab.label}</b> 오더 기준 (설계서 Drop 샘플은 완료 통계에서 빠짐)
+            </p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight">리포트</h2>
-          <p className="text-xs text-slate-500 mt-0.5">생산 통계 1차 (운영 데이터 누적 후 풍부해집니다)</p>
+        <div className="flex bg-slate-100 rounded-lg p-0.5" role="group" aria-label="메인 / 샘플">
+          {TYPE_TABS.map(t => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => changeType(t.key)}
+              title={t.key === 'sample' ? '샘플 오더 — 설계서 EZ-TEX 등록으로 생긴 샘플 포함' : undefined}
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                typeFilter === t.key
+                  ? `bg-white shadow-sm ${t.key === 'sample' ? 'text-purple-700' : 'text-teal-700'}`
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {t.label} <span className="font-mono text-[10px] opacity-70">{typeCounts[t.key] ?? 0}</span>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -272,6 +341,11 @@ export const ReportPage = ({ orders = [] }) => {
               )}
             </div>
           )}
+          {dueCompliance.dropped > 0 && (
+            <div className="text-[11px] text-rose-500 text-center mt-1">
+              설계서 Drop으로 닫힌 샘플 {dueCompliance.dropped}건은 완료가 아니라서 빠짐
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard icon={Package} title="상태별 분포" subtitle={list.length > 0 ? `전체 ${list.length}건` : ''}>
@@ -281,7 +355,6 @@ export const ReportPage = ({ orders = [] }) => {
             <div className="space-y-2">
               {statusDist.map(s => {
                 const pct = Math.round((s.count / list.length) * 100);
-                const c = ORDER_STATUS_COLORS[s.key];
                 return (
                   <div key={s.key}>
                     <div className="flex items-center justify-between text-xs mb-0.5">
@@ -289,7 +362,7 @@ export const ReportPage = ({ orders = [] }) => {
                       <span className="text-slate-500">{s.count}건 ({pct}%)</span>
                     </div>
                     <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div className={`h-full ${c.dot}`} style={{ width: `${pct}%` }} />
+                      <div className={`h-full ${s.dot || 'bg-slate-400'}`} style={{ width: `${pct}%` }} />
                     </div>
                   </div>
                 );
@@ -313,6 +386,9 @@ export const ReportPage = ({ orders = [] }) => {
                     <th className="px-2 py-1.5 text-right text-[10px] font-extrabold text-slate-500 uppercase w-12">전체</th>
                     <th className="px-2 py-1.5 text-right text-[10px] font-extrabold text-slate-500 uppercase w-14">진행중</th>
                     <th className="px-2 py-1.5 text-right text-[10px] font-extrabold text-slate-500 uppercase w-12">완료</th>
+                    {hasDroppedCustomers && (
+                      <th className="px-2 py-1.5 text-right text-[10px] font-extrabold text-slate-500 uppercase w-12" title="설계서 Drop으로 닫힌 샘플">Drop</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -324,6 +400,9 @@ export const ReportPage = ({ orders = [] }) => {
                       <td className="px-2 py-1.5 text-right font-mono">{c.total}</td>
                       <td className="px-2 py-1.5 text-right font-mono text-blue-700">{c.active}</td>
                       <td className="px-2 py-1.5 text-right font-mono text-emerald-700">{c.completed}</td>
+                      {hasDroppedCustomers && (
+                        <td className="px-2 py-1.5 text-right font-mono text-rose-500">{c.dropped}</td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

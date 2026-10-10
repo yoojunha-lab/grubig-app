@@ -12,7 +12,7 @@ import {
 import {
   getWorkKg, isWorkKgManual, getLossRate, getOrderTotals, isStepUsed, getKnittingEstimatedEnd,
   getLotSummary, getLotsTotalKg, getLotsStatus, getConfirmState, getColorStage, getDday, colorHasData,
-  getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent,
+  getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed,
 } from '../../utils/orderModel';
 import { shortDate, isYmd, round1, toNumberOrNull, fmtKg, todayYmd } from '../../utils/orderCalculations';
 import { CHANGE_ACTIONS } from '../../utils/auditLog';
@@ -779,7 +779,8 @@ const ChangeLogSection = ({ changeLog }) => {
 // ============================================================
 // 4-2. 설계서 (설계서 EZ-TEX O/D NO. 등록으로 만든 샘플 오더 — 대표님 요청 2026-10-10)
 //      설계서 열기 · 아이템화 · Drop · 복원 — 개발/설계 현황과 같은 함수 (sheetLink: OrderListPage)
-//      샘플은 아이템화 아니면 Drop 으로 끝나고, 둘 다 이 오더는 '완료'로 닫힘 (복원하면 다시 진행중)
+//      샘플은 아이템화(오더 '완료') 아니면 Drop(오더 'Drop')으로 끝남. 복원하면 오더는 Drop 전 상태로
+//      오더만 완료하고 설계서가 아직이면 '아이템화 대기' 안내
 // ============================================================
 const SheetSection = ({ order, sheetLink }) => {
   // 처리 중 잠금 (빠른 두 번 누름 방지 — 화면 상태는 늦게 바뀌어 ref 로)
@@ -841,7 +842,7 @@ const SheetSection = ({ order, sheetLink }) => {
               onClick={() => run(sheetLink.drop)}
               disabled={busy}
               className={`${BTN_SUB} !text-rose-600 !border-rose-200 hover:!bg-rose-50 disabled:opacity-50`}
-              title="설계서를 보관함으로 (복원 가능) — 이 오더는 완료로 닫혀요"
+              title="설계서를 보관함으로 (복원 가능) — 개발 의뢰가 있으면 사유를 골라 같이 Drop, 이 오더는 'Drop'으로 닫혀요"
             >
               <XCircle className="w-3 h-3" /> Drop (샘플 종료)
             </button>
@@ -852,8 +853,13 @@ const SheetSection = ({ order, sheetLink }) => {
             </button>
           )}
         </div>
+        {info.awaiting && (
+          <p className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 leading-snug">
+            아이템화 대기 — 오더는 완료했어요. 아이템화 또는 Drop으로 샘플을 끝내 주세요.
+          </p>
+        )}
         <p className="text-[10px] text-slate-400 leading-snug">
-          샘플이 끝나면 아이템화(원단 관리에 등록 + 이 오더 article# 연결) 또는 Drop — 둘 다 이 오더는 '완료'로 닫혀요.
+          샘플이 끝나면 아이템화(원단 관리에 등록 + 이 오더 article# 연결 → '완료') 또는 Drop(→ 'Drop', 복원하면 Drop 전 상태로).
         </p>
       </div>
     </Section>
@@ -911,7 +917,8 @@ const OrderDetailBody = ({
   const usedStepCount = ORDER_STEPS.filter(m => isStepUsed(order.steps?.[m.key])).length;
   const canPickPartner = !!(savePartner && deletePartner && makeEmptyPartner);
   const typeLabel = ORDER_TYPES.find(t => t.key === order.type)?.label || '메인';
-  const statusLabel = ORDER_STATUSES.find(s => s.key === order.status)?.label || '진행중';
+  const dropClosed = isDropClosed(order); // 설계서 Drop 으로 닫힌 샘플 → 머리에 'Drop'
+  const statusLabel = dropClosed ? 'Drop (샘플)' : (ORDER_STATUSES.find(s => s.key === order.status)?.label || '진행중');
 
   // ---------- 저장 헬퍼 ----------
   const setField = (field, value) => actions.setOrderField(order.id, field, value);
@@ -1076,7 +1083,11 @@ const OrderDetailBody = ({
                 <NumberInput value={order.lossRate} suffix="%" placeholder="10" onCommit={n => setField('lossRate', n)} />
               </Field>
 
-              <Field label="오더 상태" className="sm:col-span-2">
+              <Field
+                label="오더 상태"
+                className="sm:col-span-2"
+                hint={dropClosed ? <span className="text-rose-600 font-bold">샘플 Drop으로 닫힌 오더예요 — 다시 진행하려면 설계서를 복원해요</span> : undefined}
+              >
                 <Segment options={ORDER_STATUSES} value={order.status} colorOf={orderStatusCls} onChange={k => setField('status', k)} />
               </Field>
 

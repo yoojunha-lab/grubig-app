@@ -5,7 +5,7 @@ import {
 } from '../../../constants/production';
 import {
   describeProvisionalDue, describeStepCurrent,
-  findDailyNote, getColorStage, getDday, getKnittingEstimatedEnd, getLossRate, getStepEnd, getWorkKg,
+  findDailyNote, getColorStage, getDday, getKnittingEstimatedEnd, getLossRate, getStepEnd, getWorkKg, isDropClosed,
 } from '../../../utils/orderModel';
 import { addDaysYmd, diffDaysYmd, fmtKg, shortDate, toDate, todayYmd } from '../../../utils/orderCalculations';
 import { ProcessPopover } from '../sheet/ProcessPopover';
@@ -108,6 +108,7 @@ const OrderLabel = ({ order, sheetInfo = null, onOpenDetail }) => {
   const sub = [order.customer, order.articleNo, order.detail].filter(Boolean).join(' · ');
   const dim = order.status === 'on_hold';
   const completed = order.status === 'completed';
+  const dropClosed = isDropClosed(order); // 설계서 Drop 으로 닫힌 샘플 → '완료' 대신 'Drop'
   return (
     <button
       type="button"
@@ -120,7 +121,8 @@ const OrderLabel = ({ order, sheetInfo = null, onOpenDetail }) => {
         <span className={`${BADGE} text-[9px] px-1 ${TYPE_CHIP[order.type] || TYPE_CHIP.main}`}>{typeLabel}</span>
         <SheetLinkChips info={sheetInfo} />
         {dim && <span className={`${BADGE} text-[9px] px-1 bg-slate-200 text-slate-600 border-slate-300`}>보류</span>}
-        {completed && <span className={`${BADGE} text-[9px] px-1 bg-emerald-100 text-emerald-700 border-emerald-300`}>완료</span>}
+        {completed && !dropClosed && <span className={`${BADGE} text-[9px] px-1 bg-emerald-100 text-emerald-700 border-emerald-300`}>완료</span>}
+        {dropClosed && !sheetInfo?.dropped && <span className={`${BADGE} text-[9px] px-1 bg-rose-50 text-rose-600 border-rose-200`}>Drop</span>}
         {/* 완료 오더는 D-day 숨김 (현황표·모바일 목록과 같은 규칙) */}
         {!completed && <span className="ml-auto shrink-0"><DdayBadge due={order.finalDueDate} /></span>}
       </span>

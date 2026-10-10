@@ -6,7 +6,8 @@ import { FileText } from 'lucide-react';
 // ------------------------------------------------------------
 // - [설계서] 누르면 설계서 작성 창 (onOpen) — 누를 수 없는 곳(간트 라벨처럼 버튼 안)은 onOpen 없이 → 글자만
 // - Drop된 설계서 = 'Drop', 아이템화된 설계서 = '아이템화' 꼬리표 (샘플이 어떻게 끝났는지)
-// props: info = OrderListPage.sheetInfoOf(order) ({ sheet, dropped, articled, devOrderNo, buyerName, stageLabel }) | null
+// - '아이템화 대기' = 오더는 완료했는데 설계서가 아직 아이템화·Drop 전 (⋯ 메뉴에서 정함 — 2026-10-10)
+// props: info = OrderListPage.sheetInfoOf(order) ({ sheet, dropped, articled, awaiting, devOrderNo, buyerName, stageLabel }) | null
 //        onOpen(sheetId)?, size: 'sm'(표·간트) | 'md'(모바일·상세창)
 // ============================================================
 
@@ -48,6 +49,14 @@ export const SheetLinkChips = ({ info, onOpen, size = 'sm' }) => {
       {info.articled && (
         <span className={`py-px rounded border font-extrabold bg-emerald-50 text-emerald-700 border-emerald-200 ${text}`} title="설계서 아이템화 완료 (원단 관리에 등록)">
           아이템화
+        </span>
+      )}
+      {info.awaiting && (
+        <span
+          className={`py-px rounded border font-extrabold bg-amber-50 text-amber-800 border-amber-300 ${text}`}
+          title="오더는 완료했지만 설계서가 아직 아이템화·Drop 전이에요 — ⋯ 메뉴(또는 상세창)에서 아이템화 또는 Drop"
+        >
+          아이템화 대기
         </span>
       )}
     </>

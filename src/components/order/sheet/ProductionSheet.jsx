@@ -9,7 +9,7 @@ import {
 import {
   getWorkKg, isWorkKgManual, getLossRate, isStepUsed, getKnittingEstimatedEnd, colorHasData,
   getLotSummary, getLotsTotalKg, getLotsStatus, getConfirmState, getColorStage, getDday,
-  getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent,
+  getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed,
 } from '../../../utils/orderModel';
 import { shortDate, fmtKg, todayYmd } from '../../../utils/orderCalculations';
 import { CellText, CellNumber, CellDate, CellCheck, CellAction } from './SheetCells';
@@ -184,7 +184,8 @@ const StepSummary = ({ order, stepKey, step }) => {
   const estimated = stepKey === 'knitting' && !step.endDate ? getKnittingEstimatedEnd(order) : '';
   const end = step.endDate || estimated;
   const range = fmtRange(step.startDate, end);
-  const overdue = !!end && status !== 'done' && end < todayYmd();
+  // 완료(또는 Drop)로 닫힌 오더는 '지연' 빨간색 안 씀 — 끝난 오더에 남은 공정 일정은 늦은 게 아님
+  const overdue = !!end && status !== 'done' && order.status !== 'completed' && end < todayYmd();
   return (
     <div className="space-y-0.5">
       {step.vendor && <div className="font-bold break-words [overflow-wrap:anywhere]">{step.vendor}</div>}
@@ -353,6 +354,9 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
   const lossRate = getLossRate(order);
   const completed = order.status === 'completed';
   const onHold = order.status === 'on_hold';
+  // 설계서 샘플 오더 (연결 설계서 요약 — 없으면 null) · Drop 으로 닫힌 오더는 '완료' 대신 'Drop'
+  const sheetInfo = ctx.sheetInfoOf(order);
+  const dropClosed = isDropClosed(order);
 
   // 고정 칸은 불투명 배경 필수 (가로 스크롤 내용이 비치지 않게)
   const stickyBg = `${isDraft ? 'bg-amber-50' : 'bg-white'} group-hover/ord:bg-teal-50`;
@@ -495,10 +499,16 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
                     >
                       {order.type === 'sample' ? '샘플' : '메인'}
                     </button>
-                    <SheetLinkChips info={ctx.sheetInfoOf(order)} onOpen={ctx.openSheet} />
-                    {completed && (
+                    <SheetLinkChips info={sheetInfo} onOpen={ctx.openSheet} />
+                    {completed && !dropClosed && (
                       <span className="px-1 py-px rounded border bg-emerald-100 text-emerald-700 border-emerald-300 text-[9px] font-extrabold">
                         완료
+                      </span>
+                    )}
+                    {/* Drop 으로 닫힌 오더 — 설계서 꼬리표가 이미 'Drop'이면 한 번만 (설계서가 지워졌어도 오더에 남음) */}
+                    {dropClosed && !sheetInfo?.dropped && (
+                      <span className="px-1 py-px rounded border bg-rose-50 text-rose-600 border-rose-200 text-[9px] font-extrabold" title="설계서 Drop으로 닫힌 샘플 오더">
+                        Drop
                       </span>
                     )}
                     <button

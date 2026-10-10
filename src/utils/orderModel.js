@@ -9,6 +9,7 @@
 //     finalDueDate, lossRate(%), status('active'|'on_hold'|'completed'), notes,
 //     linkedFabricId, linkedFabricArticle, dyeVendor(염색소),
 //     linkedSheetId(설계서 id — 설계서 EZ-TEX O/D NO. 등록으로 만든 샘플 오더. 연결은 오더 쪽에만 저장),
+//     dropInfo(설계서 Drop으로 닫힌 샘플 { prevStatus: Drop 전 오더상태, at } — 없으면 null. status 는 'completed'),
 //     steps: { yarn, yarn_processing, knitting, finishing, physical_test, visual_inspection }
 //            각 { vendor, startDate, endDate, status, doneDate, notes } (+ knitting.dailyKg)
 //     colors: [{ id, name, orderKg, workKg(null=자동), greigeOutDate, greigeOutDone,
@@ -90,6 +91,7 @@ export const createEmptyOrder = (userEmail = '') => {
     linkedFabricId: null,
     linkedFabricArticle: '',
     linkedSheetId: null,
+    dropInfo: null,
     dyeVendor: '',
     steps: createSteps(),
     colors: [createColor('')],
@@ -115,6 +117,12 @@ const sameName = (a, b) => str(a).trim().toLowerCase() === str(b).trim().toLower
 const maxYmd = (list) => list.filter(Boolean).sort().pop() || '';
 const minYmd = (list) => list.filter(Boolean).sort()[0] || '';
 const normalizeOrderStatus = (s) => (s === 'completed' ? 'completed' : s === 'on_hold' ? 'on_hold' : 'active');
+
+// 설계서 Drop으로 닫힌 샘플 표시 { prevStatus, at } — '완료'로 닫힌 오더에만 남김 (그 밖은 null)
+const normalizeDropInfo = (raw, status) => {
+  if (status !== 'completed' || !raw || typeof raw !== 'object') return null;
+  return { prevStatus: normalizeOrderStatus(raw.prevStatus), at: str(raw.at) };
+};
 
 const normalizeStep = (key, raw) => {
   const base = createStep(key);
@@ -187,6 +195,7 @@ const normalizeV8 = (raw) => {
   let colors = (Array.isArray(raw.colors) ? raw.colors : []).map((c, i) => normalizeColor(c, `${id}_c${i}`));
   if (colors.length === 0) colors = [normalizeColor({}, `${id}_c0`)];
   const lossRate = numOrNull(raw.lossRate);
+  const status = normalizeOrderStatus(raw.status);
   return {
     ...raw,
     schemaVersion: ORDER_SCHEMA_VERSION,
@@ -197,11 +206,12 @@ const normalizeV8 = (raw) => {
     type: raw.type === 'sample' ? 'sample' : 'main',
     finalDueDate: str(raw.finalDueDate),
     lossRate: lossRate === null ? DEFAULT_LOSS_RATE : lossRate,
-    status: normalizeOrderStatus(raw.status),
+    status,
     notes: str(raw.notes),
     linkedFabricId: raw.linkedFabricId || null,
     linkedFabricArticle: str(raw.linkedFabricArticle),
     linkedSheetId: raw.linkedSheetId || null,
+    dropInfo: normalizeDropInfo(raw.dropInfo, status),
     dyeVendor: str(raw.dyeVendor),
     steps,
     colors,
@@ -715,6 +725,8 @@ export const applyOrderField = (order, field, value) => {
     const n = numOrNull(value);
     next.lossRate = n === null ? DEFAULT_LOSS_RATE : Math.max(0, n);
   }
+  // 오더상태를 손으로 바꾸면 'Drop으로 닫힘' 표시는 지움 (설계서 Drop 때만 붙음)
+  if (field === 'status' && value !== order.status) next.dropInfo = null;
   return next;
 };
 
@@ -859,6 +871,11 @@ export const summarizeOrderChange = (prev, next) => {
     out.push(next.linkedSheetId ? '설계서 연결' : '설계서 연결 해제');
   }
 
+  // 설계서 Drop 으로 닫힘 / 풀림 (이미 '완료'였던 오더도 Drop 표시는 변경으로 기록)
+  if (!!prev.dropInfo !== !!next.dropInfo) {
+    out.push(next.dropInfo ? '샘플 Drop으로 닫음' : 'Drop 표시 해제');
+  }
+
   ORDER_STEP_KEYS.forEach(k => {
     diffFields(prev.steps?.[k], next.steps?.[k], STEP_FIELD_LABELS, `${getStepMeta(k)?.label || k} `, out);
   });
@@ -941,9 +958,38 @@ export const isSameOrderContent = (a, b) => {
 // 7. 설계서 ↔ 샘플 오더 (대표님 요청 2026-10-10)
 // ------------------------------------------------------------
 //  설계서에 EZ-TEX O/D NO.를 등록하면 그 번호(order#)로 생산 현황에 샘플 오더가 생기고,
-//  샘플 진행(원사·편직·염가공·컨펌·출고)은 생산 현황에서 기록한다. 아이템화·Drop 되면 오더는 '완료'로 닫힘.
+//  샘플 진행(원사·편직·염가공·컨펌·출고)은 생산 현황에서 기록한다. 아이템화되면 오더는 '완료',
+//  Drop 되면 '완료' + dropInfo(Drop 전 상태 기억 — 화면·리포트에는 'Drop', 복원하면 그 상태로).
 //  연결은 오더 쪽 linkedSheetId 하나만 저장 (설계서 → 오더는 linkedSheetId 로 찾음)
 // ============================================================
+
+// 설계서 Drop 으로 닫힌 샘플 오더인지 (완료 통계·'완료' 표시에서 따로 봄)
+export const isDropClosed = (order) => !!order && order.status === 'completed' && !!order.dropInfo;
+
+// 아직 끝나지 않은 공정 — 아이템화·샘플 끝내기 확인 창에 알려 줌 (예: ['편직 진행중', '염가공 LOT 2개', '출고 1건'])
+//  공정: 진행중·문제 + 일정만 잡힌 것(예정) / 염가공 LOT: 완료 전 LOT 중 일정·상태가 있는 것 / 출고: 출고일만 있고 완료 전
+//  완료된 오더는 빈 목록
+export const getOpenWork = (order) => {
+  if (!order || order.status === 'completed') return [];
+  const out = [];
+  ORDER_STEPS.forEach(meta => {
+    const step = order.steps?.[meta.key];
+    if (!step) return;
+    const st = normalizeStatus(step.status);
+    if (st === 'in_progress') out.push(`${meta.label} 진행중`);
+    else if (st === 'issue') out.push(`${meta.label} 문제`);
+    else if (st === 'pending' && (step.startDate || step.endDate)) out.push(`${meta.label} 예정`);
+  });
+  const colors = order.colors || [];
+  const openLots = colors.flatMap(c => c.lots || []).filter(l => {
+    const st = normalizeStatus(l.status);
+    return st !== 'done' && (st !== 'pending' || l.startDate || l.endDate);
+  });
+  if (openLots.length) out.push(`염가공 LOT ${openLots.length}개`);
+  const ships = colors.filter(c => c.shipDate && !c.shipDone).length;
+  if (ships) out.push(`출고 ${ships}건`);
+  return out;
+};
 
 /**
  * 설계서 값으로 샘플 오더 칸 채우기 (구분 = 샘플 + 설계서 연결)

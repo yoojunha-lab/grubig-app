@@ -252,30 +252,47 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
   };
 
   // 설계서 아이템화 → 연결된 샘플 오더: article# = 그 원단(보관함 연결) + '완료'. 연결된 오더가 없으면 null
+  //  closed: 이번에 완료로 닫았는지 (이미 완료였으면 false) / changed: 무엇이든 바꿨는지 (false 면 알림에 안 붙임)
   const markSheetOrderArticled = async (sheetId, fabric) => {
     const o = findBySheet(sheetId);
     if (!o) return null;
-    const ok = await updateOrder(o.id, ord => ({ ...(fabric ? applyFabric(ord, fabric) : ord), status: 'completed' }), { note: '설계서 아이템화' });
-    return { ok, orderNumber: o.orderNumber };
+    const closed = o.status !== 'completed' || !!o.dropInfo;
+    const relinked = !!fabric && String(o.linkedFabricId || '') !== String(fabric.id || '');
+    if (!closed && !relinked) return { ok: true, changed: false, closed: false, orderNumber: o.orderNumber };
+    const ok = await updateOrder(
+      o.id,
+      ord => ({ ...(fabric ? applyFabric(ord, fabric) : ord), status: 'completed', dropInfo: null }),
+      { note: '설계서 아이템화' }
+    );
+    return { ok, changed: true, closed, orderNumber: o.orderNumber };
   };
 
-  // 설계서 Drop → 샘플 오더 '완료'로 닫기 (Drop 표시는 설계서 상태로 보여 줌). 연결된 오더가 없으면 null
-  //  changed: 실제로 바꿨는지 (이미 완료였으면 false → 알림에 안 붙임)
+  // 설계서 Drop → 샘플 오더를 '완료'로 닫고 Drop 표시 (dropInfo: Drop 전 상태 — 복원하면 그 상태로). 연결된 오더가 없으면 null
+  //  이미 '완료'였던 오더도 Drop 표시는 붙임 (리포트에서 완료가 아니라 Drop 으로 셈)
+  //  changed: 실제로 바꿨는지 (이미 Drop 으로 닫혀 있었으면 false → 알림에 안 붙임)
   const closeSheetOrderOnDrop = async (sheetId) => {
     const o = findBySheet(sheetId);
     if (!o) return null;
-    if (o.status === 'completed') return { ok: true, changed: false, orderNumber: o.orderNumber };
-    const ok = await updateOrder(o.id, ord => ({ ...ord, status: 'completed' }), { note: '설계서 Drop' });
+    if (o.status === 'completed' && o.dropInfo) return { ok: true, changed: false, orderNumber: o.orderNumber };
+    const at = new Date().toISOString();
+    const ok = await updateOrder(
+      o.id,
+      ord => ({ ...ord, status: 'completed', dropInfo: { prevStatus: ord.status, at } }),
+      { note: '설계서 Drop' }
+    );
     return { ok, changed: true, orderNumber: o.orderNumber };
   };
 
-  // 설계서 복원 → 닫혀 있던(완료) 샘플 오더를 다시 '진행중'. 연결된 오더가 없으면 null
+  // 설계서 복원 → Drop 으로 닫혔던 샘플 오더를 Drop 전 상태로 (진행중·보류·완료). 연결된 오더가 없으면 null
+  //  Drop 으로 닫힌 게 아니면(생산 현황에서 직접 완료한 오더 등) 그대로 둠
+  //  status: 돌려놓은 오더상태 (알림 문구용)
   const reopenSheetOrder = async (sheetId) => {
     const o = findBySheet(sheetId);
     if (!o) return null;
-    if (o.status !== 'completed') return { ok: true, changed: false, orderNumber: o.orderNumber };
-    const ok = await updateOrder(o.id, ord => ({ ...ord, status: 'active' }), { note: '설계서 복원' });
-    return { ok, changed: true, orderNumber: o.orderNumber };
+    if (!(o.status === 'completed' && o.dropInfo)) return { ok: true, changed: false, orderNumber: o.orderNumber, status: o.status };
+    const status = o.dropInfo.prevStatus || 'active';
+    const ok = await updateOrder(o.id, ord => ({ ...ord, status, dropInfo: null }), { note: '설계서 복원' });
+    return { ok, changed: true, orderNumber: o.orderNumber, status };
   };
 
   // 설계서 삭제 → 연결만 풀기 (오더는 남김)
