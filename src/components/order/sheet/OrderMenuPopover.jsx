@@ -1,21 +1,27 @@
-import { PanelRightOpen, Trash2 } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Award, FileText, PanelRightOpen, RotateCcw, Trash2, XCircle } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
 import { ORDER_STATUSES, ORDER_STATUS_COLORS } from '../../../constants/production';
 
 // ============================================================
 // 현황표 order# 칸의 `⋯` 메뉴
 // ------------------------------------------------------------
-// - 저장된 오더: 상세 보기 / 오더 상태(진행중·보류·완료) / 오더 삭제
+// - 저장된 오더: 상세 보기 / (설계서 샘플 오더면) 설계서 열기·아이템화·Drop·복원 / 오더 상태(진행중·보류·완료) / 오더 삭제
 // - 초안(order# 입력 전 새 줄): 줄 삭제만
 // - 삭제 확인창은 useOrder 훅이 띄움 (취소하면 메뉴 유지)
-// props: order, isDraft, anchorRect, onClose, onOpenDetail(orderId), actions
+// - 설계서 버튼은 개발/설계 현황과 같은 함수 (대표님 요청 2026-10-10 '아이템화·설계서 ARTICLE 연동까지 동일하게')
+//   아이템화 → (확인 창: OrderListPage.itemizeSheet) 원단 등록 + 이 오더 article# 연결·완료
+//   Drop → 이 오더 완료 / 복원 → 다시 진행중 (확인 창은 useDesignSheet)
+// props: order, isDraft, anchorRect, onClose, onOpenDetail(orderId), actions,
+//        sheetInfo(OrderListPage.sheetInfoOf), sheetActions({ open, itemize, drop, restore })
 // ============================================================
 
-const MenuButton = ({ icon: Icon, danger = false, onClick, children }) => (
+const MenuButton = ({ icon: Icon, danger = false, disabled = false, onClick, children }) => (
   <button
     type="button"
     onClick={onClick}
-    className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-bold text-left transition-colors ${
+    disabled={disabled}
+    className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-bold text-left transition-colors disabled:opacity-50 disabled:cursor-wait ${
       danger ? 'text-rose-600 hover:bg-rose-50' : 'text-slate-700 hover:bg-slate-100'
     }`}
   >
@@ -24,7 +30,14 @@ const MenuButton = ({ icon: Icon, danger = false, onClick, children }) => (
   </button>
 );
 
-export const OrderMenuPopover = ({ order, isDraft = false, anchorRect = null, onClose, onOpenDetail, actions }) => {
+export const OrderMenuPopover = ({
+  order, isDraft = false, anchorRect = null, onClose, onOpenDetail, actions,
+  sheetInfo = null, sheetActions = null,
+}) => {
+  // 설계서 처리 중 잠금 (빠른 두 번 누름 방지 — 화면 상태는 늦게 바뀌어 ref 로)
+  const busyRef = useRef(false);
+  const [busy, setBusy] = useState(false);
+
   if (!order) return null;
 
   const subtitle = isDraft
@@ -52,10 +65,37 @@ export const OrderMenuPopover = ({ order, isDraft = false, anchorRect = null, on
     onClose?.();
   };
 
+  // ---------- 설계서 (샘플 오더) ----------
+  const sheet = sheetInfo?.sheet || null;
+  const sheetLabel = sheet
+    ? [sheetInfo.devOrderNo || '자체개발', sheet.fabricName].filter(Boolean).join(' · ')
+    : '';
+
+  // 설계서 함수 실행 → 해냈으면 메뉴 닫기 (취소·막힘이면 그대로 — 알림은 설계서 훅이 띄움)
+  const runSheet = async (fn) => {
+    if (busyRef.current || typeof fn !== 'function' || !sheet) return;
+    busyRef.current = true;
+    setBusy(true);
+    let ok = false;
+    try {
+      ok = (await fn(sheet.id)) !== false;
+    } catch {
+      ok = false;
+    }
+    busyRef.current = false;
+    setBusy(false);
+    if (ok) onClose?.();
+  };
+
+  const openSheet = () => {
+    sheetActions?.open?.(sheet.id);
+    onClose?.();
+  };
+
   return (
     <PopoverShell
       anchorRect={anchorRect}
-      width={230}
+      width={240}
       title={order.orderNumber || '새 오더'}
       subtitle={subtitle}
       onClose={onClose}
@@ -69,7 +109,43 @@ export const OrderMenuPopover = ({ order, isDraft = false, anchorRect = null, on
               <MenuButton icon={PanelRightOpen} onClick={openDetail}>상세 보기</MenuButton>
             )}
 
-            <div className="px-2.5 pt-2 pb-2">
+            {/* 설계서 샘플 오더 — 설계서 열기 · 아이템화 · Drop · 복원 */}
+            {sheet && sheetActions && (
+              <div className="mt-1 pt-1.5 border-t border-slate-100">
+                <div className="px-2.5 pb-1 text-[10px] font-bold text-slate-400 truncate" title={sheetLabel}>
+                  설계서 · {sheetLabel}
+                </div>
+                {sheetActions.open && (
+                  <MenuButton icon={FileText} disabled={busy} onClick={openSheet}>설계서 열기</MenuButton>
+                )}
+                {!sheetInfo.dropped && !sheetInfo.articled && (
+                  <>
+                    {sheetActions.itemize && (
+                      <MenuButton icon={Award} disabled={busy} onClick={() => runSheet(sheetActions.itemize)}>
+                        <span className="text-emerald-700">아이템화 (원단 등록)</span>
+                      </MenuButton>
+                    )}
+                    {sheetActions.drop && (
+                      <MenuButton icon={XCircle} danger disabled={busy} onClick={() => runSheet(sheetActions.drop)}>
+                        설계서 Drop (샘플 종료)
+                      </MenuButton>
+                    )}
+                  </>
+                )}
+                {sheetInfo.dropped && sheetActions.restore && (
+                  <MenuButton icon={RotateCcw} disabled={busy} onClick={() => runSheet(sheetActions.restore)}>
+                    설계서 복원 (다시 진행)
+                  </MenuButton>
+                )}
+                {sheetInfo.articled && (
+                  <div className="px-2.5 py-1.5 text-[11px] font-bold text-emerald-700">
+                    아이템화 완료{sheet.articleNo ? ` · Article ${sheet.articleNo}` : ''}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="px-2.5 pt-2 pb-2 mt-1 border-t border-slate-100">
               <div className="text-[10px] font-bold text-slate-400 mb-1.5">오더 상태</div>
               <div className="grid grid-cols-3 gap-1">
                 {ORDER_STATUSES.map(s => {

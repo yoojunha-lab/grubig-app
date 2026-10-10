@@ -130,9 +130,10 @@ export const DEV_SAMPLE_DESIGN_SHEETS = [
     createdAt: '2026-05-06T00:00:00.000Z', updatedAt: '2026-06-12T00:00:00.000Z',
   },
   // 바이어(효성TNC) · sampling · 납기 임박(D-3)
+  //  생산 현황 샘플 오더 F-26S055 와 연결 (오더 linkedSheetId) — 생산 현황 '설계서' 표시 · 아이템화(Article PW1060) 확인용
   {
     id: 'ds_dev_6', stage: 'sampling', status: 'active', fabricName: 'W/N/PU=64/32/4, BACK 다대 스트라이프',
-    devOrderNo: 'F-26D006', eztexOrderNo: 'EZ-2404-120', devRequestId: 'dr_dev_1', deadline: '2026-06-25', registeredDate: '2026-04-03',
+    devOrderNo: 'F-26D006', eztexOrderNo: 'F-26S055', articleNo: 'PW1060', devRequestId: 'dr_dev_1', deadline: '2026-06-25', registeredDate: '2026-04-03',
     createdAt: '2026-04-03T00:00:00.000Z', updatedAt: '2026-06-13T00:00:00.000Z',
     // 옛 형식 원가 입력 (새 원가 필드 없음) — 설계서 원가 표가 기본값(A·일반·옛 편직료)으로 계산되는지 확인용
     yarns: [{ yarnId: 'y_dev_1', ratio: 64 }, { yarnId: 'y_dev_4', ratio: 36 }, { yarnId: '', ratio: 0 }, { yarnId: '', ratio: 0 }],
@@ -150,7 +151,7 @@ export const DEV_SAMPLE_DESIGN_SHEETS = [
 //   대표님 엑셀 생산 현황표의 실제 행을 본뜸. 기준일(테스트 가정) ≈ 2026-09-28.
 //   - F-26M020 : 컬러 5개, 편직 진행 + 컬러별 LOT(300/500kg 탕) + 날짜 메모
 //   - F-26M016 : 컨펌 합격 → 출고 완료/대기
-//   - F-26S055 : 샘플, 생지출고 완료 + LOT 1개 진행
+//   - F-26S055 : 샘플, 생지출고 완료 + LOT 1개 진행 — 설계서 ds_dev_6(F-26D006)과 연결된 샘플 오더
 //   - O-LEGACY-01 : v7(차수 구조) 옛 형식 → 화면에서 v8로 자동 변환되는지 확인용
 const devStep = (patch = {}) => ({ vendor: '', startDate: '', endDate: '', status: 'pending', doneDate: '', notes: '', ...patch });
 const devSteps = (patch = {}) => ({
@@ -251,6 +252,7 @@ export const DEV_SAMPLE_ORDERS = [
     id: 'ord_dev_s055', schemaVersion: 8, orderNumber: 'F-26S055', articleNo: '', detail: 'F/50 SINGLE 이중지 2',
     customer: '그루빅', type: 'sample', finalDueDate: '2026-10-05', lossRate: 10, status: 'active',
     notes: '', linkedFabricId: null, linkedFabricArticle: '', dyeVendor: '킹텍스',
+    linkedSheetId: 'ds_dev_6', // 설계서(F-26D006)에서 만든 샘플 오더
     steps: devSteps({
       knitting: { ...devStep({ vendor: '대성니트', startDate: '2026-09-08', endDate: '2026-09-15', status: 'done', doneDate: '2026-09-15' }), dailyKg: null },
     }),

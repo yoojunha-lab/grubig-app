@@ -17,6 +17,7 @@ import { OrderMenuPopover } from './OrderMenuPopover';
 import { ProcessPopover } from './ProcessPopover';
 import { ConfirmPopover } from './ColorPopovers';
 import { ProvisionalDuePopover } from './ProvisionalDuePopover';
+import { SheetLinkChips } from '../common/SheetLinkChips';
 import { PartnerPickerModal } from '../../common/PartnerPickerModal';
 
 // ============================================================
@@ -494,6 +495,7 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
                     >
                       {order.type === 'sample' ? '샘플' : '메인'}
                     </button>
+                    <SheetLinkChips info={ctx.sheetInfoOf(order)} onOpen={ctx.openSheet} />
                     {completed && (
                       <span className="px-1 py-px rounded border bg-emerald-100 text-emerald-700 border-emerald-300 text-[9px] font-extrabold">
                         완료
@@ -741,6 +743,7 @@ export const ProductionSheet = ({
   pendingFocusOrderId = null,
   onPendingFocusDone,
   allOrders,          // 필터 전 전체 오더 (외주처 제안용). 없으면 orders 사용
+  sheetLink = null,   // 설계서 샘플 오더 { infoOf(order), open, itemize, drop, restore } (OrderListPage)
 }) => {
   const scrollRef = useRef(null);
   const [hiddenCols, setHiddenCols] = useState(loadHiddenCols);
@@ -900,6 +903,8 @@ export const ProductionSheet = ({
     ),
     openLots: onOpenLots || null,
     addColorAfter,
+    sheetInfoOf: (order) => sheetLink?.infoOf?.(order) || null,
+    openSheet: sheetLink?.open || null,
   };
 
   // ---------- 오더가 하나도 없을 때 ----------
@@ -1070,6 +1075,8 @@ export const ProductionSheet = ({
           onClose={closePopover}
           onOpenDetail={onOpenDetail}
           actions={actions}
+          sheetInfo={sheetLink?.infoOf?.(popOrder) || null}
+          sheetActions={sheetLink}
         />
       )}
       {popover?.kind === 'process' && popOrder && (

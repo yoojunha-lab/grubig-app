@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, Package, Trash2, Plus, Search, Link2, RotateCcw, ChevronDown, ChevronRight,
   ClipboardList, Factory, Palette, History, FilePlus2, Pencil, AlertTriangle, Eraser, Flag,
+  FileText, Award, XCircle,
 } from 'lucide-react';
 import {
   ORDER_STEPS, PROGRESS_STATUSES, PROGRESS_STATUS_COLORS, getStatusLabel, PROCESS_THEME,
@@ -24,7 +25,7 @@ import { ConfirmPopover } from './sheet/ColorPopovers';
 // - 모바일에서는 이 창이 유일한 편집 화면 → 한 열 폼, 칸마다 바로 저장
 // - 입력 규칙은 현황표와 같음: 글자/숫자 = blur·Enter 확정, Esc 취소 / 날짜 = 고르는 즉시 / 체크 = 즉시
 // - 모든 저장은 actions(useOrder 의 orderActions)로만 한다 (Firestore 직접 호출 금지)
-// - 섹션: ① 기본정보 ② 가납기 ③ 공정 일정 ④ 컬러 ⑤ 변경 이력 ⑥ 등록/수정 시각
+// - 섹션: (설계서 샘플 오더면 맨 위에 설계서) ① 기본정보 ② 가납기 ③ 공정 일정 ④ 컬러 ⑤ 변경 이력 ⑥ 등록/수정 시각
 
 // ============================================================
 // 0. 공통 스타일 / 작은 부품
@@ -776,12 +777,96 @@ const ChangeLogSection = ({ changeLog }) => {
 };
 
 // ============================================================
+// 4-2. 설계서 (설계서 EZ-TEX O/D NO. 등록으로 만든 샘플 오더 — 대표님 요청 2026-10-10)
+//      설계서 열기 · 아이템화 · Drop · 복원 — 개발/설계 현황과 같은 함수 (sheetLink: OrderListPage)
+//      샘플은 아이템화 아니면 Drop 으로 끝나고, 둘 다 이 오더는 '완료'로 닫힘 (복원하면 다시 진행중)
+// ============================================================
+const SheetSection = ({ order, sheetLink }) => {
+  // 처리 중 잠금 (빠른 두 번 누름 방지 — 화면 상태는 늦게 바뀌어 ref 로)
+  const busyRef = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const info = sheetLink?.infoOf?.(order) || null;
+  if (!info) return null;
+  const s = info.sheet;
+  const open = !info.dropped && !info.articled;
+
+  const run = async (fn) => {
+    if (busyRef.current || typeof fn !== 'function') return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await fn(s.id);
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  const stageText = info.dropped ? 'Drop' : (info.stageLabel || '-');
+  const stageCls = info.dropped ? 'text-rose-600' : info.articled ? 'text-emerald-700' : 'text-amber-700';
+
+  return (
+    <Section icon={FileText} title="설계서 (샘플)">
+      <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-3 space-y-2">
+        <div className="min-w-0">
+          <div className="text-sm font-bold text-slate-800 break-words">{s.fabricName || '원단명 미입력'}</div>
+          <div className="mt-0.5 text-[11px] text-slate-500 flex flex-wrap gap-x-2.5 gap-y-0.5">
+            <span>개발번호 <b className="font-mono text-slate-700">{info.devOrderNo || '자체개발'}</b></span>
+            {s.eztexOrderNo && <span>EZ-TEX <b className="font-mono text-violet-700">{s.eztexOrderNo}</b></span>}
+            {info.buyerName && <span>바이어 <b className="text-slate-700">{info.buyerName}</b></span>}
+            <span>단계 <b className={stageCls}>{stageText}</b></span>
+            {s.articleNo && <span>Article <b className="font-mono text-slate-700">{s.articleNo}</b></span>}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {sheetLink.open && (
+            <button type="button" onClick={() => sheetLink.open(s.id)} disabled={busy} className={BTN_SUB}>
+              <FileText className="w-3 h-3" /> 설계서 열기
+            </button>
+          )}
+          {open && sheetLink.itemize && (
+            <button
+              type="button"
+              onClick={() => run(sheetLink.itemize)}
+              disabled={busy}
+              className={`${BTN_SUB} !text-emerald-700 !border-emerald-300 hover:!bg-emerald-50 disabled:opacity-50`}
+              title="원단 관리에 등록하고 설계서·이 오더와 연결 (개발/설계 현황의 '아이템화'와 같음)"
+            >
+              <Award className="w-3 h-3" /> 아이템화 (원단 등록)
+            </button>
+          )}
+          {open && sheetLink.drop && (
+            <button
+              type="button"
+              onClick={() => run(sheetLink.drop)}
+              disabled={busy}
+              className={`${BTN_SUB} !text-rose-600 !border-rose-200 hover:!bg-rose-50 disabled:opacity-50`}
+              title="설계서를 보관함으로 (복원 가능) — 이 오더는 완료로 닫혀요"
+            >
+              <XCircle className="w-3 h-3" /> Drop (샘플 종료)
+            </button>
+          )}
+          {info.dropped && sheetLink.restore && (
+            <button type="button" onClick={() => run(sheetLink.restore)} disabled={busy} className={`${BTN_SUB} disabled:opacity-50`}>
+              <RotateCcw className="w-3 h-3" /> 복원 (다시 진행)
+            </button>
+          )}
+        </div>
+        <p className="text-[10px] text-slate-400 leading-snug">
+          샘플이 끝나면 아이템화(원단 관리에 등록 + 이 오더 article# 연결) 또는 Drop — 둘 다 이 오더는 '완료'로 닫혀요.
+        </p>
+      </div>
+    </Section>
+  );
+};
+
+// ============================================================
 // 5. 상세창 본문 (order.id 가 바뀌면 key 로 새로 마운트 → 접힘/팝업 상태 초기화)
 // ============================================================
 const OrderDetailBody = ({
   order, isDraft, onClose, actions, masters,
   partners, savePartner, deletePartner, makeEmptyPartner,
-  savedFabrics, onOpenLots,
+  savedFabrics, onOpenLots, sheetLink = null,
 }) => {
   const panelRef = useRef(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -920,6 +1005,9 @@ const OrderDetailBody = ({
 
         {/* ---------- 본문 ---------- */}
         <div className="flex-1 overflow-y-auto overscroll-contain p-4 md:p-5 space-y-6">
+          {/* 설계서 샘플 오더면 설계서 (열기 · 아이템화 · Drop · 복원) */}
+          {!isDraft && <SheetSection order={order} sheetLink={sheetLink} />}
+
           {/* ① 기본정보 */}
           <Section icon={ClipboardList} title="기본정보">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1141,7 +1229,8 @@ const OrderDetailBody = ({
 // ============================================================
 // 6. 내보내기 — order 가 없으면 아무것도 그리지 않음
 // props: { order, isDraft, onClose, actions, masters, partners, savePartner, deletePartner,
-//          makeEmptyPartner, savedFabrics, onOpenLots?(orderId, colorId, null) }
+//          makeEmptyPartner, savedFabrics, onOpenLots?(orderId, colorId, null),
+//          sheetLink?({ infoOf, open, itemize, drop, restore } — 설계서 샘플 오더) }
 // ============================================================
 export const OrderDetailModal = (props) => {
   if (!props.order) return null;

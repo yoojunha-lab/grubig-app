@@ -1,6 +1,8 @@
-import React, { useState, useMemo, useRef } from 'react';
-import { Activity, Edit2, FileText, Plus, Search, Printer, Archive, ArrowRight, XCircle, Flame, Hourglass, Sparkles, ClipboardList, Info, ChevronDown, ChevronUp, Link2, Unlink, Calculator, Trash2, CheckCircle2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Activity, Edit2, FileText, Plus, Search, Printer, Archive, ArrowRight, XCircle, Flame, Hourglass, Sparkles, ClipboardList, Info, ChevronDown, ChevronUp, Link2, Unlink, Calculator, Trash2, CheckCircle2, PackageCheck } from 'lucide-react';
 import { DEV_REQUEST_STATUS_LABELS, DEV_REQUEST_STATUS_BADGE_CLS, SAMPLING_SUBSTAGES } from '../constants/common';
+import { COLOR_STAGES } from '../constants/production';
+import { getOrderProgressStage } from '../utils/orderModel';
 import { PendingProgressBar } from '../components/design-sheet/PendingProgressBar';
 import { DevRequestFormModal } from '../components/dashboard/DevRequestFormModal';
 import { DevArchiveModal } from '../components/dashboard/DevArchiveModal';
@@ -22,11 +24,12 @@ const DEV_REQ_STAGE_GUIDE = [
 ];
 
 // 설계서 단계 설명 (개발 확정 / 자체 개발 → 아이템화)
+//  2026-10-10: EZ-TEX O/D NO.를 등록하면 생산 현황에 샘플 오더가 생기고 '샘플 진행'으로 넘어감 → 샘플 진행은 생산 현황에서
 const DESIGN_STAGE_GUIDE = [
   { key: 'draft',    label: '설계서 작성',     desc: '원단 설계서 초안 작성 (스펙·원사 배합 등)',          dot: 'bg-slate-400' },
-  { key: 'eztex',    label: 'EZ-TEX O/D NO.', desc: '작성된 설계서를 EZ-TEX(그루빅 생산 ERP)에 오더 등록', dot: 'bg-violet-400' },
-  { key: 'sampling', label: '샘플 진행',       desc: '생산 진행 중 (원사 발주, 편직, 염가공 등)',          dot: 'bg-amber-400' },
-  { key: 'articled', label: '아이템화',        desc: '완성된 원단 설계서를 정식 등록 (최종, 보관함 이동)',  dot: 'bg-emerald-500' }
+  { key: 'eztex',    label: 'EZ-TEX O/D NO.', desc: 'EZ-TEX(그루빅 생산 ERP)에 오더 등록 — 번호를 등록하면 생산 현황에 샘플 오더가 생기고 샘플 진행으로 넘어가요', dot: 'bg-violet-400' },
+  { key: 'sampling', label: '샘플 진행',       desc: '샘플 생산 중 — 원사·편직·염가공 진행은 생산 현황(샘플 오더)에서 관리',  dot: 'bg-amber-400' },
+  { key: 'articled', label: '아이템화',        desc: '완성된 원단 설계서를 정식 등록 (최종, 보관함 이동) — 생산 현황 샘플 오더도 완료',  dot: 'bg-emerald-500' }
 ];
 
 // ── 날짜·긴급도·검색 (화면 상태와 무관한 순수 함수 — 목록 계산(useMemo)에서 그대로 씀) ──
@@ -130,6 +133,9 @@ const RowDeleteButton = ({ onClick, title, size = 'sm' }) => (size === 'md' ? (
  * - 섹션 B: 설계서 진행 현황 (draft/eztex/sampling)
  *   · [Drop] 보관함으로 (복원 가능), [삭제] 영구 삭제 — 설계서 창의 [삭제]와 같은 함수(useDesignSheet.handleDeleteSheet):
  *     연결된 개발 의뢰·원단은 남고 연결만 풀림, 샘플 진행 중이면 한 번 더 경고
+ *   · EZ-TEX O/D NO. [등록] → '샘플 진행'으로 + 생산 현황에 샘플 오더 (useDesignSheet.registerEztexOrderNo, 대표님 요청 2026-10-10)
+ *     샘플 오더가 있는 설계서는 세부단계(원사 발주/편직/염가공) 대신 생산 현황 진행을 그대로 보여 주고 [생산 현황]으로 이동
+ *     번호는 있는데 오더가 없는 예전 설계서는 [생산 현황에 올리기]
  * - 아이템화 완료된 설계서는 [설계서 보관함] 페이지에서 관리
  */
 export const DevStatusPage = ({
@@ -153,6 +159,10 @@ export const DevStatusPage = ({
   saveDevCostQuote,                       // (devReqId, costQuote, user) => 저장한 costQuote | false
   dropDevRequest,                         // (devReqId, { reason, memo }, user) => boolean
   onStartQuoteFromDev,                    // (원가 견적을 붙인 의뢰) => 견적서 화면으로
+  // ── 샘플 진행 = 생산 현황 (대표님 요청 2026-10-10) ──
+  registerEztexOrderNo,                   // (sheetId, 번호) → 저장 + '샘플 진행' + 생산 현황 샘플 오더
+  productionOrders = [],                  // 생산 현황 오더 — 설계서와 연결된 샘플 오더 진행 표시
+  onOpenProductionOrder,                  // (order#) → 생산 현황으로 가서 그 오더 보기
 }) => {
   const [showDevModal, setShowDevModal] = useState(false);
   const [costQuoteDevId, setCostQuoteDevId] = useState(null); // 원가 견적 창을 연 의뢰 id
@@ -175,7 +185,6 @@ export const DevStatusPage = ({
   const [sheetSortBy, setSheetSortBy] = useState('eztex'); // eztex | date | stage | buyer
   const [linkTargetSheet, setLinkTargetSheet] = useState(null); // '의뢰 연결' 모달 대상 설계서
   const [linkSearch, setLinkSearch] = useState('');
-  const eztexInputRefs = useRef({});
 
   const statusLabels = DEV_REQUEST_STATUS_LABELS;
   const statusCls = DEV_REQUEST_STATUS_BADGE_CLS;
@@ -195,11 +204,25 @@ export const DevStatusPage = ({
     return Math.floor((n - t) / 86400000);
   };
 
-  // 샘플 진행 세부단계 헬퍼 (현재 세부단계 객체 + 진입 후 경과일)
+  // 샘플 진행 세부단계 헬퍼 (현재 세부단계 객체 + 진입 후 경과일) — 생산 현황 샘플 오더가 없는 예전 설계서만 씀
   const subOf = (s) => SAMPLING_SUBSTAGES.find(x => x.key === (s.samplingSub || 'yarn')) || SAMPLING_SUBSTAGES[0];
   const subDaysOf = (s) => {
     const key = s.samplingSub || 'yarn';
     return daysSince(s.samplingSubEnteredAt?.[key] || s.stageEnteredAt?.sampling || s.updatedAt);
+  };
+
+  // 설계서 → 생산 현황 샘플 오더 (오더의 linkedSheetId) / 그 오더 진행을 한 단계로 (가장 덜 진행된 컬러 기준)
+  const sampleOrderBySheet = useMemo(() => {
+    const map = new Map();
+    (productionOrders || []).forEach(o => { if (o.linkedSheetId) map.set(String(o.linkedSheetId), o); });
+    return map;
+  }, [productionOrders]);
+  const sampleOrderOf = (s) => sampleOrderBySheet.get(String(s.id)) || null;
+  const orderStageOf = (o) => COLOR_STAGES[getOrderProgressStage(o)] || COLOR_STAGES.waiting;
+
+  // EZ-TEX 번호는 있는데 생산 현황 샘플 오더가 없는 설계서 → [생산 현황에 올리기] (같은 번호로 다시 등록 = 오더만 만들기·연결)
+  const pushToProduction = (s) => {
+    if (registerEztexOrderNo) registerEztexOrderNo(s.id, s.eztexOrderNo);
   };
 
   // 의뢰별 견적서 { 의뢰 id → 그 의뢰로 만든 견적서[] (최근 순) } — 목록 배지·✔ 버튼·삭제 확인이 같이 씀
@@ -439,9 +462,16 @@ export const DevStatusPage = ({
     return null;
   };
 
-  const handleEztexSubmit = (sheet) => {
-    const val = eztexInputRefs.current[sheet.id]?.value?.trim();
+  // EZ-TEX O/D NO. [등록] → 번호 저장 + '샘플 진행' + 생산 현황 샘플 오더 (대표님 요청 2026-10-10 — useDesignSheet.registerEztexOrderNo)
+  //  inputEl: 그 줄의 입력칸 — PC 표와 모바일 카드가 같은 설계서 id 로 입력칸을 하나씩 가져서,
+  //  예전처럼 id 하나로 기억하면 나중에 그려진 (숨은) 모바일 칸 값을 읽었음 (PC 표에 적은 번호가 무시됨, 2026-10-10)
+  const handleEztexSubmit = (sheet, inputEl) => {
+    const val = inputEl?.value?.trim();
     if (!val) { alert('EZ-TEX O/D NO.를 입력해주세요.'); return; }
+    if (registerEztexOrderNo) {
+      registerEztexOrderNo(sheet.id, val);
+      return;
+    }
     if (!saveDocToCloud) return;
     saveDocToCloud('designSheets', {
       ...sheet,
@@ -861,12 +891,23 @@ export const DevStatusPage = ({
                                     <option key={stage.key} value={stage.key} title={stage.desc}>{stage.label}</option>
                                   ))}
                                 </select>
-                                {/* 샘플 진행 세부단계 — 단계 셀렉트 옆으로 배치 (원사발주 → 편직 → 염가공 / 중단) */}
-                                {s.stage === 'sampling' && (
+                                {/* 샘플 진행: 생산 현황 샘플 오더가 있으면 그 진행(자동) — 누르면 생산 현황으로 */}
+                                {s.stage === 'sampling' && sampleOrderOf(s) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenProductionOrder?.(sampleOrderOf(s).orderNumber)}
+                                    title={`생산 현황 샘플 오더 ${sampleOrderOf(s).orderNumber} 진행 (자동) — 누르면 생산 현황으로`}
+                                    className={`flex-1 min-w-0 truncate text-[10px] font-bold border rounded px-1.5 py-0.5 hover:brightness-95 ${orderStageOf(sampleOrderOf(s)).cls}`}
+                                  >
+                                    {orderStageOf(sampleOrderOf(s)).label}
+                                  </button>
+                                )}
+                                {/* 샘플 오더가 없는 예전 설계서만: 세부단계 직접 선택 (원사발주 → 편직 → 염가공 / 중단) */}
+                                {s.stage === 'sampling' && !sampleOrderOf(s) && (
                                   <select
                                     value={s.samplingSub || 'yarn'}
                                     onChange={(e) => setSamplingSub && setSamplingSub(s.id, e.target.value)}
-                                    title="샘플 세부 진행단계 변경 (원사발주 → 편직 → 염가공 / 중단)"
+                                    title="샘플 세부 진행단계 변경 (원사발주 → 편직 → 염가공 / 중단) — [생산 현황에 올리기]를 하면 생산 현황에서 관리"
                                     className={`flex-1 min-w-0 text-[10px] font-bold border rounded px-1.5 py-0.5 outline-none cursor-pointer focus:ring-2 ${subOf(s).cls} ring-amber-200`}
                                   >
                                     {SAMPLING_SUBSTAGES.map(sub => (
@@ -889,8 +930,13 @@ export const DevStatusPage = ({
                               ) : (
                                 <span className="text-slate-400">{days != null ? `등록 ${days}일째` : '-'}</span>
                               )}
-                              {/* 샘플 진행 중이면 현재 세부단계 + 경과일 표시 */}
-                              {s.stage === 'sampling' && (
+                              {/* 샘플 진행 중: 생산 현황 샘플 오더 번호 / (예전 설계서) 세부단계 + 경과일 */}
+                              {s.stage === 'sampling' && sampleOrderOf(s) && (
+                                <span className="inline-flex w-fit items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-purple-50 text-purple-700 border-purple-200" title="생산 현황 샘플 오더">
+                                  <PackageCheck className="w-2.5 h-2.5" /> {sampleOrderOf(s).orderNumber}
+                                </span>
+                              )}
+                              {s.stage === 'sampling' && !sampleOrderOf(s) && (
                                 <span className={`inline-flex w-fit items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${subOf(s).cls}`} title="현재 샘플 세부단계 진입 후 경과일">
                                   <span className={`w-1.5 h-1.5 rounded-full ${subOf(s).dot}`} />
                                   {subOf(s).label}{subDaysOf(s) != null ? ` · ${subDaysOf(s)}일째` : ''}
@@ -900,17 +946,31 @@ export const DevStatusPage = ({
                           </td>
                           <td className="px-2 py-1.5">
                             <div className="flex gap-1 justify-end items-center flex-wrap">
+                              {/* 생산 현황 샘플 오더로 가기 / 번호는 있는데 오더가 없으면 올리기 */}
+                              {sampleOrderOf(s) ? (
+                                <button onClick={() => onOpenProductionOrder?.(sampleOrderOf(s).orderNumber)}
+                                  className="flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 hover:bg-purple-100 text-[10px] font-bold rounded border border-purple-200"
+                                  title={`생산 현황에서 샘플 오더 ${sampleOrderOf(s).orderNumber} 보기 (원사·편직·염가공 진행 관리)`}>
+                                  <PackageCheck className="w-3 h-3"/> 생산 현황
+                                </button>
+                              ) : (s.eztexOrderNo && s.stage !== 'eztex' && registerEztexOrderNo) ? (
+                                <button onClick={() => pushToProduction(s)}
+                                  className="flex items-center gap-1 px-2 py-0.5 bg-white text-purple-700 hover:bg-purple-50 text-[10px] font-bold rounded border border-dashed border-purple-300"
+                                  title={`EZ-TEX ${s.eztexOrderNo} 번호로 생산 현황에 샘플 오더를 만들어요 (같은 번호 오더가 있으면 연결)`}>
+                                  <PackageCheck className="w-3 h-3"/> 생산 현황에 올리기
+                                </button>
+                              ) : null}
                               {s.stage === 'eztex' && (
                                 <>
                                   <input
-                                    ref={el => { eztexInputRefs.current[s.id] = el; }}
                                     type="text"
                                     placeholder="EZ-TEX O/D"
                                     defaultValue={s.eztexOrderNo || ''}
-                                    onKeyDown={e => { if (e.key === 'Enter') handleEztexSubmit(s); }}
+                                    onKeyDown={e => { if (e.key === 'Enter') handleEztexSubmit(s, e.currentTarget); }}
                                     className="w-[100px] border border-violet-200 bg-violet-50/40 rounded px-2 py-0.5 text-[10px] font-mono focus:bg-white focus:ring-2 ring-violet-200 outline-none placeholder:text-slate-300"
                                   />
-                                  <button onClick={() => handleEztexSubmit(s)}
+                                  <button onClick={e => handleEztexSubmit(s, e.currentTarget.previousElementSibling)}
+                                    title="번호를 등록하면 '샘플 진행'으로 넘어가고 생산 현황에 샘플 오더가 생겨요"
                                     className="flex items-center gap-1 px-2 py-0.5 bg-violet-600 hover:bg-violet-700 text-white text-[10px] font-bold rounded shadow-sm">
                                     등록
                                   </button>
@@ -978,7 +1038,7 @@ export const DevStatusPage = ({
                       <div className="mb-2 flex items-center gap-2 flex-wrap">
                         <PendingProgressBar stageKey={s.stage} />
                         {db && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>}
-                        {s.stage === 'sampling' && (
+                        {s.stage === 'sampling' && !sampleOrderOf(s) && (
                           <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${subOf(s).cls}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${subOf(s).dot}`} />
                             {subOf(s).label}{subDaysOf(s) != null ? ` · ${subDaysOf(s)}일째` : ''}
@@ -994,8 +1054,22 @@ export const DevStatusPage = ({
                           <option key={stage.key} value={stage.key}>{stage.label}</option>
                         ))}
                       </select>
-                      {/* 샘플 진행 세부단계 (모바일) */}
-                      {s.stage === 'sampling' && (
+                      {/* 샘플 진행 (모바일): 생산 현황 샘플 오더가 있으면 그 진행 — 누르면 생산 현황으로 */}
+                      {s.stage === 'sampling' && sampleOrderOf(s) && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenProductionOrder?.(sampleOrderOf(s).orderNumber)}
+                          className={`mb-2 w-full flex items-center justify-between gap-2 text-[11px] font-bold border rounded px-2 py-1.5 ${orderStageOf(sampleOrderOf(s)).cls}`}
+                        >
+                          <span className="flex items-center gap-1 min-w-0">
+                            <PackageCheck className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate">생산 현황 {sampleOrderOf(s).orderNumber}</span>
+                          </span>
+                          <span className="shrink-0">{orderStageOf(sampleOrderOf(s)).label}</span>
+                        </button>
+                      )}
+                      {/* 샘플 진행 세부단계 (모바일) — 샘플 오더가 없는 예전 설계서만 */}
+                      {s.stage === 'sampling' && !sampleOrderOf(s) && (
                         <select
                           value={s.samplingSub || 'yarn'}
                           onChange={(e) => setSamplingSub && setSamplingSub(s.id, e.target.value)}
@@ -1006,17 +1080,25 @@ export const DevStatusPage = ({
                           ))}
                         </select>
                       )}
+                      {!sampleOrderOf(s) && s.eztexOrderNo && s.stage !== 'eztex' && registerEztexOrderNo && (
+                        <button
+                          type="button"
+                          onClick={() => pushToProduction(s)}
+                          className="mb-2 w-full flex items-center justify-center gap-1 text-[11px] font-bold rounded px-2 py-1.5 bg-white text-purple-700 border border-dashed border-purple-300"
+                        >
+                          <PackageCheck className="w-3.5 h-3.5" /> 생산 현황에 올리기 ({s.eztexOrderNo})
+                        </button>
+                      )}
                       {s.stage === 'eztex' && (
                         <div className="flex gap-1.5 mb-2">
                           <input
-                            ref={el => { eztexInputRefs.current[s.id] = el; }}
                             type="text"
                             placeholder="EZ-TEX O/D NO."
                             defaultValue={s.eztexOrderNo || ''}
-                            onKeyDown={e => { if (e.key === 'Enter') handleEztexSubmit(s); }}
+                            onKeyDown={e => { if (e.key === 'Enter') handleEztexSubmit(s, e.currentTarget); }}
                             className="flex-1 w-0 border border-violet-200 bg-violet-50/40 rounded px-2 py-1.5 text-xs font-mono focus:bg-white focus:ring-2 ring-violet-200 outline-none placeholder:text-slate-300"
                           />
-                          <button onClick={() => handleEztexSubmit(s)}
+                          <button onClick={e => handleEztexSubmit(s, e.currentTarget.previousElementSibling)}
                             className="flex items-center justify-center gap-1 px-3 py-1.5 bg-violet-600 text-white text-[11px] font-bold rounded">
                             등록
                           </button>

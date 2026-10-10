@@ -24,7 +24,8 @@
 | **v8 개편 3단계**: 염가공 컬러별 LOT 계획 | ✅ **완료** | `0443244` |
 | **v8 개편 4단계**: 오더별 간트 + 날짜 메모 | ✅ **완료** | (4단계 커밋) |
 | **생산 ▾ 계산기**: 선염 계산기 (스트라이프 원사 배분 · 멜란지 수량 비율) + 저장 | ✅ **완료** | (계산기 커밋) |
-| **가납기 + 간트 깃발 · 메모 아래로** (2026-10-10) | ✅ **완료** | (가납기 커밋) |
+| **가납기 + 간트 깃발 · 메모 아래로** (2026-10-10) | ✅ **완료** | `2327251` |
+| **설계서 ↔ 샘플 오더 · 메인/샘플** (2026-10-10) | ✅ **완료** | (샘플 오더 커밋) |
 
 > **🎉 Phase 1 운영 가능 상태 도달** — 등록/편집/시각화/모니터링 모두 1차 완성. 이제 사용해보면서 세부 다듬기.
 > 알람/확인게이트는 개발하지 않기로 결정 (대표님 지시).
@@ -135,6 +136,54 @@ order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, fin
 | 계산 | `utils/orderModel.js` — `getStepCurrentEnd`·`getProvisionalDueInfo`·`describeProvisionalDue`·`describeStepCurrent`·`getProvisionalDueMarks`·`applyProvisionalDue` |
 | 입력 창 | `components/order/sheet/ProvisionalDuePopover.jsx` (새 파일) |
 | 화면 | `ProductionSheet.jsx`(가납기 칸) · `OrderDetailModal.jsx`(가납기 칸) · `gantt/ganttLayout.js`·`OrderGantt.jsx`(깃발·점선·메모) |
+
+---
+
+## 설계서 ↔ 샘플 오더 · 메인/샘플 (대표님 요청 2026-10-10)
+
+> 대표님: "개발 설계서 진행 현황을 생산 현황에서 관리. 설계서 진행 자체가 샘플을 한다는 거니까 거기서 메인·샘플 모두 관리.
+> 샘플은 마무리되면 아이템화시켜서 설계서 ARTICLE과 연동시키는 것까지 동일해야 해." / "아이템화하거나 Drop일 거고, Drop한 걸 다시 아이템화할 수도 있어."
+
+### 흐름
+1. **EZ-TEX O/D NO. 등록 = 샘플 시작** — 개발/설계 현황 줄의 [등록] · 설계서 창에서 번호를 넣고 저장 (`useDesignSheet.registerEztexOrderNo` / `handleSaveSheet`)
+   - 번호는 대문자로. 설계서 작성·EZ-TEX 단계면 **'샘플 진행'으로 자동 이동** (대표님 결정 ①)
+   - 생산 현황에 **샘플 오더** (`useOrder.linkSampleOrderFromSheet`): order# = EZ-TEX O/D NO., 구분 샘플, detail = 원단명, buyer = 의뢰 바이어,
+     납기 = 설계서 납기, article# = 설계서 Article(원단 연결돼 있으면 연결도), 편직처·염색소·후가공처 = 설계서 값 (`orderModel.fillOrderFromSheet`)
+   - 같은 order# 오더가 이미 있으면 새로 안 만들고 **연결** (빈 칸만 채움). 연결된 오더가 있는데 번호를 고치면(예전 번호 그대로인 오더) **order#도 따라 바꿈**
+   - **다른 설계서의 샘플 오더 번호면 막음** — 설계서도 저장하지 않음 (`checkEztexConflict`, 번호를 잘못 넣은 경우)
+2. **샘플 진행은 생산 현황에서** — 원사·편직·염가공 LOT·컨펌·출고·가납기 (메인 오더와 똑같이)
+3. **끝: 아이템화 또는 Drop** (대표님 결정 ②)
+   - 아이템화 = 개발/설계 현황과 **같은 함수** `setStage(sheetId, 'articled')` → 원단 등록(`registerFabricFromSheet`) →
+     샘플 오더 article# = 그 원단(보관함 연결) + **'완료'** (`markSheetOrderArticled`). 설계서 창 [원단 리스트에 등록]·단계 바로 해도 같음
+   - Drop → 샘플 오더 **'완료'** + 'Drop' 표시 (`closeSheetOrderOnDrop`) / 복원 → 다시 **'진행중'** (`reopenSheetOrder`) → 그 뒤 아이템화 가능
+   - Drop된 설계서는 아이템화가 막힘 ('먼저 복원') — 보관함에 있는 채로 아이템화되지 않게
+   - 설계서 삭제 → 샘플 오더는 남고 연결만 풂 (`unlinkSheetOrder`)
+
+### 데이터
+- 오더 `linkedSheetId` = 설계서 id (**오더 쪽에만** 저장 — 설계서 → 오더는 `linkedSheetId`로 찾음, 양쪽 연결이 어긋날 일이 없게)
+- 변경 이력에 까닭이 붙음: '설계서 아이템화 — article# -→PW1060, 오더상태 진행중→완료, 원단 보관함 연결 (PW1060)' (`useOrder.persist(note)`)
+
+### 화면
+| 화면 | 내용 |
+|---|---|
+| 생산 현황 툴바 | **[전체 · 메인 · 샘플]** (구분 숫자는 고른 상태 탭 안에서, 상태 탭 숫자는 고른 구분 안에서, 마지막 선택 기억). 위 요약 칸도 고른 구분 기준 |
+| 현황표 order# 칸 · 간트 라벨 · 모바일 카드 | **'설계서'** 표시 (+ Drop / 아이템화 꼬리표). 현황표·모바일은 누르면 설계서 창 (`common/SheetLinkChips.jsx`) |
+| ⋯ 메뉴 · 상세창 '설계서 (샘플)' | 설계서 열기 · **아이템화 (원단 등록)** (확인 창 — `OrderListPage.itemizeSheet`) · **Drop (샘플 종료)** · **복원 (다시 진행)** |
+| 개발/설계 현황 '설계서 진행 현황' | 샘플 오더가 있는 설계서: 세부단계(원사 발주/편직/염가공) 고르는 칸 대신 **생산 현황 진행**(가장 덜 진행된 컬러 기준 `getOrderProgressStage`) + order# + **[생산 현황]** (그 오더를 찾아서 보여 줌) |
+| 〃 | EZ-TEX 번호는 있는데 오더가 없는 예전 설계서: **[생산 현황에 올리기]** (같은 번호로 다시 등록 = 오더 만들기·연결). 자동으로 한꺼번에 만들지는 않음 |
+
+- 고친 버그 (2026-10-10): 개발/설계 현황 PC 표의 EZ-TEX [등록]이 숨은 모바일 칸 값을 읽어서 표에 적은 번호가 무시되던 것 → 그 줄 입력칸 값을 읽음.
+- Drop 처리 순서: 설계서를 먼저 Drop으로 저장하고 저장됐을 때만 의뢰 연결을 풂 (예전엔 반대 순서).
+
+### 파일
+| 역할 | 파일 |
+|---|---|
+| 모델 | `utils/orderModel.js` — `fillOrderFromSheet`·`getOrderProgressStage`, `linkedSheetId` 정규화·이력 |
+| 오더 훅 | `hooks/domains/useOrder.js` — `sheetOrderLink { checkEztexConflict, linkSampleOrderFromSheet, markSheetOrderArticled, closeSheetOrderOnDrop, reopenSheetOrder, unlinkSheetOrder }`, `updateOrder(id, fn, { note })` |
+| 설계서 훅 | `hooks/domains/useDesignSheet.js` — 11번째 인자 `sampleOrderLink`, `registerEztexOrderNo`, 저장·아이템화·Drop·복원·삭제 때 알림에 결과를 붙임 |
+| 연결 | `apps/App.jsx` — `useOrder`를 설계서 훅보다 먼저, `sampleOrderLink`, `openSheetEditor`, `openProductionOrder`(생산 현황 focus) |
+| 화면 | `pages/OrderListPage.jsx`(메인/샘플·sheetLink·focus) · `sheet/ProductionSheet.jsx` · `sheet/OrderMenuPopover.jsx` · `OrderDetailModal.jsx` · `MobileOrderList.jsx` · `gantt/OrderGantt.jsx` · `common/SheetLinkChips.jsx`(새 파일) · `pages/DevStatusPage.jsx` |
+| DEV 샘플 | `constants/devSamples.js` — 설계서 `ds_dev_6`(EZ-TEX F-26S055, Article PW1060) ↔ 오더 `F-26S055` |
 
 ---
 

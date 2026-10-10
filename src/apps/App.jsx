@@ -469,16 +469,61 @@ const App = () => {
   // 설계서 아이템화 → 원단 저장. 저장 성공 여부(true/false)를 돌려줘야 설계서가 '없는 원단'에 연결되지 않음
   const saveFabricFromSheet = (fabricData) => saveDocToCloud('fabrics', fabricData);
 
+  // ⚓️ 생산 오더(스케줄) 훅 — v8 엑셀형 현황표 (칸 단위 즉시 저장, 레거시 오더 자동 변환)
+  //  설계서 훅보다 먼저: 설계서 EZ-TEX 등록·아이템화·Drop 이 생산 현황 샘플 오더를 같이 바꾸도록 (sampleOrderLink)
+  const {
+    orders: productionOrders,
+    drafts: productionDrafts,
+    orderActions,
+    sheetOrderLink,
+  } = useOrder(orders, saveDocToCloud, deleteDocFromCloud, showToast, user);
+
+  // 설계서 ↔ 생산 현황 샘플 오더 (대표님 요청 2026-10-10 — '설계서 진행 = 샘플 → 생산 현황에서 메인·샘플 모두 관리')
+  //  EZ-TEX O/D NO. 등록 → 샘플 오더 만들기·연결 / 아이템화 → article# 연결 + 완료 / Drop → 완료 / 복원 → 진행중 / 삭제 → 연결만 풂
+  const sheetOrderOf = (sheetId) => productionOrders.find(o => o.linkedSheetId && String(o.linkedSheetId) === String(sheetId)) || null;
+  const sheetExists = (id) => (designSheets || []).some(s => s.id === id);
+  const sampleOrderLink = {
+    checkEztexConflict: (sheet, eztexNo) => sheetOrderLink.checkEztexConflict(sheet, eztexNo, { sheetExists }),
+    onEztexRegistered: (sheet, prevEztexNo) => sheetOrderLink.linkSampleOrderFromSheet(sheet, {
+      buyerName: (devRequests || []).find(d => d.id === sheet.devRequestId)?.buyerName || '',
+      prevEztexNo,
+      sheetExists,
+    }),
+    onArticled: (sheet, fabric) => sheetOrderLink.markSheetOrderArticled(sheet.id, fabric),
+    onDropped: (sheet) => sheetOrderLink.closeSheetOrderOnDrop(sheet.id),
+    onRestored: (sheet) => sheetOrderLink.reopenSheetOrder(sheet.id),
+    onDeleted: (sheetId) => sheetOrderLink.unlinkSheetOrder(sheetId),
+    getOrderNumber: (sheetId) => sheetOrderOf(sheetId)?.orderNumber || '',
+  };
+
   const {
     sheetInput, setSheetInput, editingSheetId,
     handleSheetChange, handleSectionChange,
     handleSheetYarnChange, handleCostInputChange,
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
-    resetSheetForm, setStage, setSamplingSub,
+    resetSheetForm, setStage, setSamplingSub, registerEztexOrderNo,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
     saveSheetAndRegisterFabric, getBlankSheetInput
-  } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, exchangeRates, saveFabricFromSheet, devRequests);
+  } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, exchangeRates, saveFabricFromSheet, devRequests, sampleOrderLink);
+
+  // 생산 현황 ↔ 설계서 화면 오가기
+  //  - 설계서 열기: 생산 현황 샘플 오더의 '설계서' 표시 → 설계서 작성 창 (어느 메뉴에서든 뜨는 팝업)
+  //  - 생산 현황에서 보기: 개발/설계 현황 → 생산 현황으로 가서 그 오더를 찾아 보여 줌 (focus 요청 — nonce 로 같은 오더도 다시)
+  const openSheetEditor = (sheetId) => {
+    const sheet = (designSheets || []).find(s => s.id === sheetId);
+    if (!sheet) {
+      showToast('연결된 설계서를 찾을 수 없어요. (삭제됐을 수 있어요)', 'error');
+      return;
+    }
+    handleEditSheet(sheet);
+    setIsDesignSheetModalOpen(true);
+  };
+  const [productionFocus, setProductionFocus] = useState(null); // { orderNumber, nonce }
+  const openProductionOrder = (orderNumber) => {
+    setProductionFocus({ orderNumber, nonce: Date.now() });
+    requestSetActiveTab('orderList');
+  };
 
   // ⚓️ 메인 디테일 훅
   const {
@@ -514,13 +559,6 @@ const App = () => {
     const savedId = await handleSaveSheet(user, onLink); // 설계서 화면의 저장 버튼과 같은 저장 (검증·변경 이력 포함)
     if (savedId) setIsDesignSheetModalOpen(false);
   };
-
-  // ⚓️ 생산 오더(스케줄) 훅 — v8 엑셀형 현황표 (칸 단위 즉시 저장, 레거시 오더 자동 변환)
-  const {
-    orders: productionOrders,
-    drafts: productionDrafts,
-    orderActions,
-  } = useOrder(orders, saveDocToCloud, deleteDocFromCloud, showToast, user);
 
   // ⚓️ 컬렉션(영업) 훅 — 아티클(원단) 묶음 관리
   const {
@@ -1143,6 +1181,10 @@ const App = () => {
             saveDocToCloud={saveDocToCloud}
             setStage={setStage}
             dropDesignSheet={dropDesignSheet}
+            // 샘플 진행은 생산 현황에서 (대표님 요청 2026-10-10) — EZ-TEX 등록 → 샘플 오더, 진행 상황 표시, 생산 현황으로 이동
+            registerEztexOrderNo={registerEztexOrderNo}
+            productionOrders={productionOrders}
+            onOpenProductionOrder={openProductionOrder}
             setActiveTab={setActiveTab}
             user={user}
             buyers={buyers}
@@ -1311,6 +1353,17 @@ const App = () => {
             masters={{ knittingFactories, dyeingFactories, yarnSuppliers }}
             savedFabrics={savedFabrics}
             {...partnerBag}
+            // 설계서 샘플 오더 (대표님 요청 2026-10-10) — 설계서 열기 · 아이템화(개발/설계 현황과 같은 함수) · Drop · 복원
+            designSheets={designSheets}
+            devRequests={devRequests}
+            sheetActions={{
+              open: openSheetEditor,
+              itemize: (sheetId) => setStage(sheetId, 'articled'),
+              drop: dropDesignSheet,
+              restore: restoreFromDrop,
+            }}
+            focusRequest={productionFocus}
+            onFocusHandled={() => setProductionFocus(null)}
           />
         )}
 

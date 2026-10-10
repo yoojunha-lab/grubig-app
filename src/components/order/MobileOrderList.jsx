@@ -3,13 +3,15 @@ import { COLOR_STAGES, ORDER_TYPES, ORDER_STATUSES, ORDER_STATUS_COLORS } from '
 import { getWorkKg, getLossRate, getColorStage } from '../../utils/orderModel';
 import { fmtKg } from '../../utils/orderCalculations';
 import { DdayBadge } from './OrderDetailModal';
+import { SheetLinkChips } from './common/SheetLinkChips';
 
 // GRUBIG ERP - 생산 현황 모바일 목록 (v8)
 // ------------------------------------------------------------
 // - 좁은 화면에서는 엑셀형 표 대신 오더 카드 목록을 보여주고, 편집은 상세창(OrderDetailModal)에서 한다
 // - 카드: order#·구분·D-day / article#·buyer / detail(1줄) / 컬러마다 한 줄(컬러명, 오더kg→작지kg, 현재 단계)
 // - 카드를 누르면 onOpen(orderId). 맨 위 [+ 오더 추가] → onAdd()
-// props: { orders, drafts, onOpen(orderId), onAdd() }
+// - 설계서 샘플 오더는 '설계서' 표시 (누르면 설계서 창 — sheetLink.open)
+// props: { orders, drafts, onOpen(orderId), onAdd(), sheetLink? }
 
 // ============================================================
 // 0. 표시 상수
@@ -26,7 +28,7 @@ const kgText = (n) => fmtKg(n) || '-';
 // ============================================================
 // 1. 오더 카드
 // ============================================================
-const OrderCard = ({ order, isDraft = false, onOpen }) => {
+const OrderCard = ({ order, isDraft = false, onOpen, sheetLink = null }) => {
   const lossRate = getLossRate(order);
   const colors = order.colors || [];
   const shownColors = colors.slice(0, MAX_COLOR_LINES);
@@ -64,6 +66,7 @@ const OrderCard = ({ order, isDraft = false, onOpen }) => {
         <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${TYPE_CLS[order.type] || TYPE_CLS.main}`}>
           {typeLabel}
         </span>
+        <SheetLinkChips info={sheetLink?.infoOf?.(order) || null} onOpen={sheetLink?.open} size="md" />
         {order.status !== 'active' && statusLabel && (
           <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${statusMeta.bg} ${statusMeta.text}`}>
             {statusLabel}
@@ -126,7 +129,7 @@ const OrderCard = ({ order, isDraft = false, onOpen }) => {
 // ============================================================
 // 2. 목록 (입력 중인 새 오더를 맨 위에 → 추가 직후 바로 보이도록)
 // ============================================================
-export const MobileOrderList = ({ orders = [], drafts = [], onOpen, onAdd }) => {
+export const MobileOrderList = ({ orders = [], drafts = [], onOpen, onAdd, sheetLink = null }) => {
   const savedList = orders || [];
   const draftList = drafts || [];
   const total = savedList.length + draftList.length;
@@ -153,7 +156,7 @@ export const MobileOrderList = ({ orders = [], drafts = [], onOpen, onAdd }) => 
             오더 {savedList.length}건{draftList.length > 0 ? ` · 입력 중 ${draftList.length}건` : ''}
           </div>
           {draftList.map(o => <OrderCard key={o.id} order={o} isDraft onOpen={onOpen} />)}
-          {savedList.map(o => <OrderCard key={o.id} order={o} onOpen={onOpen} />)}
+          {savedList.map(o => <OrderCard key={o.id} order={o} onOpen={onOpen} sheetLink={sheetLink} />)}
         </>
       )}
     </div>

@@ -11,6 +11,7 @@ import { addDaysYmd, diffDaysYmd, fmtKg, shortDate, toDate, todayYmd } from '../
 import { ProcessPopover } from '../sheet/ProcessPopover';
 import { ConfirmPopover } from '../sheet/ColorPopovers';
 import { ProvisionalDuePopover } from '../sheet/ProvisionalDuePopover';
+import { SheetLinkChips } from '../common/SheetLinkChips';
 import { DayNotePopover } from './DayNotePopover';
 import {
   BAR_H, BAR_PAD, DAY_W, LABEL_W, LANE_H, MARK_H, WEEKDAY_KO, buildGanttLayout,
@@ -100,9 +101,9 @@ const DdayBadge = ({ due }) => {
   return <span className={`${BADGE} font-extrabold ${cls}`} title={due ? `납기 ${due}` : undefined}>{label}</span>;
 };
 
-// 오더 줄 라벨: order# · 구분 · D-day / buyer · article# · detail
-// (button 안에는 div 대신 span 만 — 올바른 HTML 구조)
-const OrderLabel = ({ order, onOpenDetail }) => {
+// 오더 줄 라벨: order# · 구분 · (설계서) · D-day / buyer · article# · detail
+// (button 안에는 div 대신 span 만 — 올바른 HTML 구조. 설계서 표시도 글자만 — 설계서 열기는 상세창·현황표에서)
+const OrderLabel = ({ order, sheetInfo = null, onOpenDetail }) => {
   const typeLabel = ORDER_TYPES.find(t => t.key === order.type)?.label || '메인';
   const sub = [order.customer, order.articleNo, order.detail].filter(Boolean).join(' · ');
   const dim = order.status === 'on_hold';
@@ -117,6 +118,7 @@ const OrderLabel = ({ order, onOpenDetail }) => {
       <span className={`flex items-center gap-1 w-full min-w-0 ${dim ? 'opacity-70' : ''}`}>
         <span className="font-mono font-extrabold text-xs text-teal-700 truncate">{order.orderNumber || '(order# 없음)'}</span>
         <span className={`${BADGE} text-[9px] px-1 ${TYPE_CHIP[order.type] || TYPE_CHIP.main}`}>{typeLabel}</span>
+        <SheetLinkChips info={sheetInfo} />
         {dim && <span className={`${BADGE} text-[9px] px-1 bg-slate-200 text-slate-600 border-slate-300`}>보류</span>}
         {completed && <span className={`${BADGE} text-[9px] px-1 bg-emerald-100 text-emerald-700 border-emerald-300`}>완료</span>}
         {/* 완료 오더는 D-day 숨김 (현황표·모바일 목록과 같은 규칙) */}
@@ -372,7 +374,7 @@ const GanttUnderlay = ({ layout }) => (
 // ============================================================
 // 4. 본체
 // ============================================================
-export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, onOpenLots }) => {
+export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, onOpenLots, sheetLink = null }) => {
   const today = todayYmd();
   const [hideWeekends, setHideWeekends] = useState(loadHideWeekends);
   const [popover, setPopover] = useState(null); // { kind:'process'|'confirm'|'note', orderId, stepKey?, colorId?, date?, anchorRect }
@@ -634,7 +636,9 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
           className={`sticky left-0 z-20 shrink-0 border-r-2 border-r-slate-300 ${isOrder ? 'bg-slate-50' : 'bg-white'}`}
           style={{ width: LABEL_W }}
         >
-          {isOrder ? <OrderLabel order={order} onOpenDetail={onOpenDetail} /> : <ColorLabel order={order} color={row.color} />}
+          {isOrder
+            ? <OrderLabel order={order} sheetInfo={sheetLink?.infoOf?.(order) || null} onOpenDetail={onOpenDetail} />
+            : <ColorLabel order={order} color={row.color} />}
         </div>
         <div
           className={`relative shrink-0 cursor-pointer ${isOrder ? 'bg-slate-400/[0.06]' : ''} ${dim ? 'opacity-70' : ''}`}

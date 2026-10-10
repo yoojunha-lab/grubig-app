@@ -3,7 +3,7 @@ import { detectOrderType } from '../../constants/production';
 import {
   normalizeOrder, createEmptyOrder,
   applyOrderField, applyFabric, applyColorPatch, addColorRow, removeColorRow, colorHasData,
-  applyStepPatch, applyLots, applyDailyNote, applyProvisionalDue,
+  applyStepPatch, applyLots, applyDailyNote, applyProvisionalDue, fillOrderFromSheet,
   summarizeOrderChange, isSameOrderContent, ORDER_SCHEMA_VERSION,
 } from '../../utils/orderModel';
 import { makeChangeLogEntry, appendChangeLog } from '../../utils/auditLog';
@@ -86,13 +86,15 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
   };
 
   // 저장 (변경 이력 자동 기록). 성공 true / 실패 false
-  const persist = async (prev, next, action = 'order_update') => {
+  // note: 이력 앞에 붙일 까닭 (예: '설계서 아이템화 — 오더상태 진행중→완료')
+  const persist = async (prev, next, action = 'order_update', note = '') => {
     let summary = action === 'order_create'
       ? `오더 등록 (${next.orderNumber})`
       : summarizeOrderChange(prev, next);
     // 요약에 안 잡히는 변경도 조용히 버리지 않고 저장 (이력은 '수정'으로)
     if (!summary && !isSameOrderContent(prev, next)) summary = '수정';
     if (!summary) return true; // 바뀐 게 없으면 저장 생략
+    if (note) summary = `${note} — ${summary}`;
 
     let toSave = { ...next, schemaVersion: ORDER_SCHEMA_VERSION, updatedAt: new Date().toISOString() };
     toSave = appendChangeLog(toSave, makeChangeLogEntry(user?.email, action, summary));
@@ -116,8 +118,9 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
   /**
    * 오더 하나를 updater(오더) => 새 오더 로 수정하고 저장.
    * 초안(새 줄)은 order# 가 생기는 순간 등록 저장된다.
+   * opts.note: 변경 이력 앞에 붙일 까닭 (설계서 쪽에서 바꾼 경우 등)
    */
-  const updateOrder = async (id, updater) => {
+  const updateOrder = async (id, updater, { note = '' } = {}) => {
     const draft = findDraft(id);
     const prev = draft || findLatest(id);
     if (!prev) return false;
@@ -153,7 +156,134 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       return ok;
     }
 
-    return persist(prev, next);
+    return persist(prev, next, 'order_update', note);
+  };
+
+  // ---------- 설계서 ↔ 샘플 오더 (대표님 요청 2026-10-10 — 설계서 진행 = 샘플 → 생산 현황에서 관리) ----------
+  // 최신 오더 목록 (서버 값 + 아직 반영 안 된 내 저장본) — 연달아 저장할 때도 방금 만든 오더까지 보고 찾음
+  const latestOrders = () => {
+    const map = new Map(baseOrders.map(o => [o.id, o]));
+    Object.entries(overridesRef.current).forEach(([id, entry]) => {
+      if (isOverrideAhead(entry, map.get(id) || null)) map.set(id, entry.order);
+    });
+    return [...map.values()];
+  };
+  const findBySheet = (sheetId) => (sheetId
+    ? latestOrders().find(o => String(o.linkedSheetId || '') === String(sheetId)) || null
+    : null);
+
+  /**
+   * EZ-TEX O/D NO. 를 이 설계서에 등록해도 되는지 — 설계서를 저장하기 전에 확인 (막히면 설계서도 저장하지 않음)
+   *  - 그 order# 오더가 다른 설계서(아직 있는)와 연결돼 있으면 안 됨
+   *  - 이 설계서와 연결된 오더의 번호를 바꾸는데 그 번호의 다른 오더가 이미 있으면 안 됨
+   * 반환: 막는 까닭 ('' = 괜찮음)
+   */
+  const checkEztexConflict = (sheet, eztexNo, { sheetExists = () => true } = {}) => {
+    const no = String(eztexNo || '').trim().toUpperCase();
+    if (!sheet || !no) return '';
+    const list = latestOrders();
+    const same = list.find(o => o.orderNumber === no);
+    if (!same) return '';
+    if (same.linkedSheetId && String(same.linkedSheetId) !== String(sheet.id) && sheetExists(same.linkedSheetId)) {
+      return `생산 현황 오더 '${no}'는 이미 다른 설계서와 연결돼 있어요. EZ-TEX O/D NO.를 확인해 주세요.`;
+    }
+    const linked = list.find(o => String(o.linkedSheetId || '') === String(sheet.id));
+    if (linked && linked.id !== same.id) {
+      return `생산 현황에 order# '${no}' 오더가 이미 있어요 (이 설계서의 샘플 오더는 ${linked.orderNumber}). EZ-TEX O/D NO.를 확인해 주세요.`;
+    }
+    return '';
+  };
+
+  /**
+   * 설계서 EZ-TEX O/D NO. → 생산 현황 샘플 오더 (만들기 / 연결 / 번호 따라 바꾸기)
+   *  - 이 설계서와 이미 연결된 오더: EZ-TEX 번호를 고쳤고 오더 order# 가 예전 번호 그대로면 order# 도 바꿈
+   *  - 같은 order# 오더가 있으면 새로 만들지 않고 연결 (빈 칸만 설계서 값으로). 다른 설계서와 연결된 오더면 거절
+   *  - 없으면 새 샘플 오더 등록
+   *  알림은 부른 쪽(설계서 훅)이 설계서 저장 알림과 합쳐서 띄움 — 여기선 결과만 돌려줌
+   * opts: { buyerName, prevEztexNo, sheetExists(id) — 다른 설계서가 아직 있는지 (지워진 설계서 연결은 무시) }
+   * 반환: { ok, action: 'created'|'linked'|'renamed'|'exists'|'conflict'|'failed', orderId?, orderNumber?, message? }
+   */
+  const linkSampleOrderFromSheet = async (sheet, { buyerName = '', prevEztexNo = '', sheetExists = () => true } = {}) => {
+    const no = String(sheet?.eztexOrderNo || '').trim().toUpperCase();
+    if (!sheet?.id || !no) return { ok: false, action: 'failed' };
+    const list = latestOrders();
+
+    const linked = list.find(o => String(o.linkedSheetId || '') === String(sheet.id));
+    if (linked) {
+      const prevNo = String(prevEztexNo || '').trim().toUpperCase();
+      if (linked.orderNumber === no || !prevNo || linked.orderNumber !== prevNo) {
+        return { ok: true, action: 'exists', orderId: linked.id, orderNumber: linked.orderNumber };
+      }
+      if (list.some(o => o.id !== linked.id && o.orderNumber === no)) {
+        return {
+          ok: false, action: 'conflict', orderId: linked.id, orderNumber: linked.orderNumber,
+          message: `생산 현황에 order# '${no}'가 이미 있어서, 연결된 샘플 오더(${linked.orderNumber}) 번호는 그대로 뒀어요.`,
+        };
+      }
+      const ok = await updateOrder(linked.id, o => applyOrderField(o, 'orderNumber', no), { note: '설계서 EZ-TEX O/D NO. 수정' });
+      return ok
+        ? { ok: true, action: 'renamed', orderId: linked.id, orderNumber: no }
+        : { ok: false, action: 'failed', orderId: linked.id, orderNumber: linked.orderNumber };
+    }
+
+    const same = list.find(o => o.orderNumber === no);
+    if (same) {
+      if (same.linkedSheetId && String(same.linkedSheetId) !== String(sheet.id) && sheetExists(same.linkedSheetId)) {
+        return {
+          ok: false, action: 'conflict', orderId: same.id, orderNumber: no,
+          message: `생산 현황 오더 '${no}'는 이미 다른 설계서와 연결돼 있어요. 생산 현황에서 확인해 주세요.`,
+        };
+      }
+      const ok = await updateOrder(same.id, o => fillOrderFromSheet(o, sheet, { buyerName, onlyEmpty: true }), { note: '설계서 EZ-TEX O/D NO. 등록' });
+      return ok
+        ? { ok: true, action: 'linked', orderId: same.id, orderNumber: no }
+        : { ok: false, action: 'failed', orderId: same.id, orderNumber: no };
+    }
+
+    const created = {
+      ...fillOrderFromSheet({ ...createEmptyOrder(user?.email), orderNumber: no }, sheet, { buyerName }),
+      createdBy: user?.email || '',
+      createdAt: new Date().toISOString(),
+    };
+    const ok = await persist(null, created, 'order_create', '설계서 EZ-TEX O/D NO. 등록');
+    return ok
+      ? { ok: true, action: 'created', orderId: created.id, orderNumber: no }
+      : { ok: false, action: 'failed', orderNumber: no };
+  };
+
+  // 설계서 아이템화 → 연결된 샘플 오더: article# = 그 원단(보관함 연결) + '완료'. 연결된 오더가 없으면 null
+  const markSheetOrderArticled = async (sheetId, fabric) => {
+    const o = findBySheet(sheetId);
+    if (!o) return null;
+    const ok = await updateOrder(o.id, ord => ({ ...(fabric ? applyFabric(ord, fabric) : ord), status: 'completed' }), { note: '설계서 아이템화' });
+    return { ok, orderNumber: o.orderNumber };
+  };
+
+  // 설계서 Drop → 샘플 오더 '완료'로 닫기 (Drop 표시는 설계서 상태로 보여 줌). 연결된 오더가 없으면 null
+  //  changed: 실제로 바꿨는지 (이미 완료였으면 false → 알림에 안 붙임)
+  const closeSheetOrderOnDrop = async (sheetId) => {
+    const o = findBySheet(sheetId);
+    if (!o) return null;
+    if (o.status === 'completed') return { ok: true, changed: false, orderNumber: o.orderNumber };
+    const ok = await updateOrder(o.id, ord => ({ ...ord, status: 'completed' }), { note: '설계서 Drop' });
+    return { ok, changed: true, orderNumber: o.orderNumber };
+  };
+
+  // 설계서 복원 → 닫혀 있던(완료) 샘플 오더를 다시 '진행중'. 연결된 오더가 없으면 null
+  const reopenSheetOrder = async (sheetId) => {
+    const o = findBySheet(sheetId);
+    if (!o) return null;
+    if (o.status !== 'completed') return { ok: true, changed: false, orderNumber: o.orderNumber };
+    const ok = await updateOrder(o.id, ord => ({ ...ord, status: 'active' }), { note: '설계서 복원' });
+    return { ok, changed: true, orderNumber: o.orderNumber };
+  };
+
+  // 설계서 삭제 → 연결만 풀기 (오더는 남김)
+  const unlinkSheetOrder = async (sheetId) => {
+    const o = findBySheet(sheetId);
+    if (!o) return null;
+    const ok = await updateOrder(o.id, ord => ({ ...ord, linkedSheetId: null }), { note: '설계서 삭제' });
+    return { ok, orderNumber: o.orderNumber };
   };
 
   // ---------- 편의 액션 (현황표·간트·상세창 공용) ----------
@@ -231,6 +361,15 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       setColorField, addColor, removeColor,
       setStep, setLots, setDailyNote, setProvisionalDue,
       addDraftOrder, discardDraft, deleteOrder,
+    },
+    // 설계서 ↔ 샘플 오더 (App 이 설계서 훅에 연결)
+    sheetOrderLink: {
+      checkEztexConflict,
+      linkSampleOrderFromSheet,
+      markSheetOrderArticled,
+      closeSheetOrderOnDrop,
+      reopenSheetOrder,
+      unlinkSheetOrder,
     },
   };
 };

@@ -8,6 +8,7 @@
 //     orderNumber, articleNo, detail, customer(buyer), type('main'|'sample'),
 //     finalDueDate, lossRate(%), status('active'|'on_hold'|'completed'), notes,
 //     linkedFabricId, linkedFabricArticle, dyeVendor(염색소),
+//     linkedSheetId(설계서 id — 설계서 EZ-TEX O/D NO. 등록으로 만든 샘플 오더. 연결은 오더 쪽에만 저장),
 //     steps: { yarn, yarn_processing, knitting, finishing, physical_test, visual_inspection }
 //            각 { vendor, startDate, endDate, status, doneDate, notes } (+ knitting.dailyKg)
 //     colors: [{ id, name, orderKg, workKg(null=자동), greigeOutDate, greigeOutDone,
@@ -88,6 +89,7 @@ export const createEmptyOrder = (userEmail = '') => {
     notes: '',
     linkedFabricId: null,
     linkedFabricArticle: '',
+    linkedSheetId: null,
     dyeVendor: '',
     steps: createSteps(),
     colors: [createColor('')],
@@ -199,6 +201,7 @@ const normalizeV8 = (raw) => {
     notes: str(raw.notes),
     linkedFabricId: raw.linkedFabricId || null,
     linkedFabricArticle: str(raw.linkedFabricArticle),
+    linkedSheetId: raw.linkedSheetId || null,
     dyeVendor: str(raw.dyeVendor),
     steps,
     colors,
@@ -851,6 +854,11 @@ export const summarizeOrderChange = (prev, next) => {
       : '원단 보관함 연결 해제');
   }
 
+  // 설계서 연결 (설계서 EZ-TEX O/D NO. 등록으로 만든·연결한 샘플 오더)
+  if (str(prev.linkedSheetId) !== str(next.linkedSheetId)) {
+    out.push(next.linkedSheetId ? '설계서 연결' : '설계서 연결 해제');
+  }
+
   ORDER_STEP_KEYS.forEach(k => {
     diffFields(prev.steps?.[k], next.steps?.[k], STEP_FIELD_LABELS, `${getStepMeta(k)?.label || k} `, out);
   });
@@ -927,4 +935,64 @@ export const isSameOrderContent = (a, b) => {
     return stableKey(rest);
   };
   return pick(a) === pick(b);
+};
+
+// ============================================================
+// 7. 설계서 ↔ 샘플 오더 (대표님 요청 2026-10-10)
+// ------------------------------------------------------------
+//  설계서에 EZ-TEX O/D NO.를 등록하면 그 번호(order#)로 생산 현황에 샘플 오더가 생기고,
+//  샘플 진행(원사·편직·염가공·컨펌·출고)은 생산 현황에서 기록한다. 아이템화·Drop 되면 오더는 '완료'로 닫힘.
+//  연결은 오더 쪽 linkedSheetId 하나만 저장 (설계서 → 오더는 linkedSheetId 로 찾음)
+// ============================================================
+
+/**
+ * 설계서 값으로 샘플 오더 칸 채우기 (구분 = 샘플 + 설계서 연결)
+ *  detail = 원단명 · buyer = 의뢰 바이어 · 납기 = 설계서 납기 · article# = 설계서 Article (원단이 연결돼 있으면 연결도)
+ *  편직처 = 설계서 편직처 · 염색소 = 설계서 염색처 · 후가공처 = 설계서 후가공처
+ *  onlyEmpty: 이미 있는 오더에 연결할 때 — 비어 있는 칸만 채움 (생산 현황에 적어 둔 값은 그대로)
+ */
+export const fillOrderFromSheet = (order, sheet, { buyerName = '', onlyEmpty = false } = {}) => {
+  if (!order || !sheet) return order;
+  const take = (cur, val) => {
+    const v = str(val).trim();
+    if (!v) return cur;
+    return onlyEmpty && str(cur).trim() ? cur : v;
+  };
+  let next = {
+    ...order,
+    type: 'sample',
+    linkedSheetId: sheet.id,
+    detail: take(order.detail, sheet.fabricName),
+    customer: take(order.customer, buyerName),
+    finalDueDate: take(order.finalDueDate, sheet.deadline),
+    dyeVendor: take(order.dyeVendor, sheet.dyeing?.factory),
+  };
+  const article = str(sheet.articleNo).trim();
+  if (article && !(onlyEmpty && str(order.articleNo).trim())) {
+    next.articleNo = article;
+    next.linkedFabricId = sheet.linkedFabricId || null;
+    next.linkedFabricArticle = sheet.linkedFabricId ? article : '';
+  }
+  [['knitting', sheet.knitting?.factory], ['finishing', sheet.finishing?.factory]].forEach(([key, vendor]) => {
+    const cur = next.steps?.[key]?.vendor || '';
+    const v = take(cur, vendor);
+    if (v !== cur) next = applyStepPatch(next, key, { vendor: v });
+  });
+  return next;
+};
+
+// 오더 진행을 한 단계로 (개발/설계 현황의 '샘플 진행' 칸) — 가장 덜 진행된 컬러 기준, 문제가 있으면 '문제'
+// 반환: COLOR_STAGES 키 (오더가 없으면 null)
+const STAGE_FLOW = [
+  'waiting', 'yarn', 'knit_wait', 'knitting', 'greige_wait', 'dye_wait', 'dyeing',
+  'finish_wait', 'finishing', 'inspection', 'confirm_wait', 'confirm', 'ship_wait', 'shipped',
+];
+export const getOrderProgressStage = (order) => {
+  if (!order) return null;
+  if (order.status === 'completed') return 'completed';
+  if (order.status === 'on_hold') return 'on_hold';
+  const stages = (order.colors || []).map(c => getColorStage(order, c));
+  if (!stages.length) return 'waiting';
+  if (stages.includes('issue')) return 'issue';
+  return stages.reduce((min, s) => (STAGE_FLOW.indexOf(s) < STAGE_FLOW.indexOf(min) ? s : min), stages[0]);
 };
