@@ -222,8 +222,8 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       }
     }
 
-    // Drop(rejected)에서 다른 단계로 되돌리면(복원) Drop 사유·메모는 지움
-    const { dropReason: _dropReason, dropMemo: _dropMemo, droppedBy: _droppedBy, ...withoutDrop } = devReq;
+    // Drop(rejected)에서 다른 단계로 되돌리면(복원) Drop 사유·메모·같이 Drop된 설계서 표시는 지움
+    const { dropReason: _dropReason, dropMemo: _dropMemo, droppedBy: _droppedBy, droppedSheetId: _droppedSheetId, ...withoutDrop } = devReq;
     const base = devReq.status === 'rejected' && newStatus !== 'rejected' ? withoutDrop : devReq;
 
     const now = new Date().toISOString();
@@ -247,7 +247,8 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
   // Drop(미진행) — 사유와 같이 (대표님 요청 2026-10-06: 원가 견적을 보고 비싸서 Drop된 건을 따로 보려고)
   //  반환: 저장됐으면 true (사유를 안 골랐거나 저장 실패면 false — Drop 창 그대로)
   //  note: 알림에 덧붙일 말 (예: 설계서도 같이 Drop했을 때 — 개발/설계 현황, 2026-10-10)
-  const dropDevRequest = async (devReqId, { reason, memo = '', note = '' } = {}, user) => {
+  //  sheetId: 같이 Drop한 설계서 → droppedSheetId 로 남김 (보관함 [복원] 때 설계서까지 같이 되살리려고 — 2026-10-10)
+  const dropDevRequest = async (devReqId, { reason, memo = '', note = '', sheetId = null } = {}, user) => {
     const devReq = (devRequests || []).find(d => d.id === devReqId);
     if (!devReq) { showToast('개발 의뢰를 찾지 못했어요.', 'error'); return false; }
     const found = DEV_DROP_REASONS.find(r => r.key === reason);
@@ -261,6 +262,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       dropReason: found.key,
       dropMemo: String(memo || '').trim(),
       droppedBy: user?.email || '',
+      droppedSheetId: sheetId || null,
       statusEnteredAt: { ...(devReq.statusEnteredAt || {}), rejected: now },
       updatedAt: now
     });
@@ -295,9 +297,12 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
 
   // 설계서 저장 시 자동 확정 (연결 + confirmed 전환)
   // 설계서가 저장되면 이 함수가 호출 → 의뢰를 자동 '개발투입확정'으로
+  //  Drop(미진행)된 의뢰는 건드리지 않음 — 되살리는 건 [복원]으로만 (Drop된 설계서를 열어 저장했다고
+  //  Drop 사유가 남은 채 '개발 확정'으로 살아나던 문제, 2026-10-10)
   const linkAndConfirm = (devReqId, designSheetId) => {
     const devReq = devRequests.find(d => d.id === devReqId);
     if (!devReq) return;
+    if (devReq.status === 'rejected') return;
     // 이미 확정+연결된 경우 → 중복 저장 방지 (설계서 수정 저장 시)
     if (devReq.status === 'confirmed' && devReq.linkedDesignSheetId === designSheetId) return;
     const now = new Date().toISOString();

@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { X, Archive, Search, RotateCcw, Link, Award, ArrowRight, Calendar, Target } from 'lucide-react';
+import { X, Archive, Search, RotateCcw, Link, Award, ArrowRight, Calendar, Target, FileText } from 'lucide-react';
 import { ModalBackdrop } from '../common/ModalBackdrop';
 import { DevQuoteBadge } from './DevQuoteBadge';
 import { DEV_DROP_REASONS } from '../../constants/common';
+import { COLOR_STAGES } from '../../constants/production';
 import { getDevQuoteBadge, indexDevQuotes } from '../../utils/devQuoteModel';
+import { getOrderProgressStage, isDropClosed } from '../../utils/orderModel';
 import { formatMonthDay } from '../../utils/helpers';
 
 // 진입 날짜 → "MM/DD" (공용 helpers.formatMonthDay — 비었으면 '')
@@ -14,6 +16,18 @@ const textMatches = (q, text) => !q || String(text || '').toLowerCase().includes
 
 // Drop 사유 찾기 — 사유 기능 전에 Drop된 의뢰(값 없음)는 null
 const findDropReason = (key) => DEV_DROP_REASONS.find(r => r.key === key) || null;
+
+// 생산 현황 샘플 오더의 지금 상황 (보관함 '샘플 진행' 카드) — { label, cls }
+//  Drop 으로 닫힘 / 완료했지만 설계서가 아직 = 아이템화 대기 / 그 밖엔 가장 덜 진행된 컬러 단계 (편직중·염색중 …)
+const productionStateOf = (order, sheet) => {
+  if (!order) return null;
+  if (isDropClosed(order)) return { label: 'Drop', cls: 'bg-rose-50 text-rose-600 border-rose-200' };
+  if (order.status === 'completed' && sheet?.stage !== 'articled') {
+    return { label: '완료 · 아이템화 대기', cls: 'bg-amber-50 text-amber-800 border-amber-300' };
+  }
+  const stage = COLOR_STAGES[getOrderProgressStage(order)];
+  return stage ? { label: stage.label, cls: stage.cls } : null;
+};
 
 // 'inProgress' = 샘플 진행 (생산 현황) — EZ-TEX 를 등록해 생산 현황 샘플 오더로 넘어간 의뢰 (2026-10-10)
 //  (설계서를 쓰는 중인 의뢰는 개발/설계 현황 표에 그대로 있음 — 예전 '진행중 (설계서 연결)' 탭)
@@ -32,8 +46,9 @@ export const DevArchiveModal = ({
   designSheets = [],
   savedQuotes = [],     // 견적서 — Drop된 의뢰의 원가 견적·견적가 표시
   updateDevStatus,
+  restoreSheet,             // (sheetId) => 설계서 복원 (useDesignSheet.restoreFromDrop — 의뢰도 '개발 확정'으로 같이 되살림)
   handleEditSheet,
-  sampleOrderNoOf,          // (sheetId) => 생산 현황 샘플 오더 order# ('' = 없음) — '샘플 진행' 카드
+  sampleOrderOf,            // (sheetId) => 생산 현황 샘플 오더 (없으면 null) — '샘플 진행' 카드 (order#·생산 상황)
   onOpenProductionOrder,    // (order#) => 생산 현황으로 가서 그 오더 보기
 }) => {
   const [activeTab, setActiveTab] = useState('rejected');
@@ -85,7 +100,22 @@ export const DevArchiveModal = ({
     return designSheets.find(s => s.devRequestId === devReq.id && s.status !== 'dropped');
   };
 
+  // 의뢰와 같이 Drop된 설계서 (의뢰 Drop 사유 창에서 설계서까지 같이 Drop한 경우 — droppedSheetId, 2026-10-10)
+  //  지금도 Drop 상태이고 이 의뢰를 가리킬 때만 (그사이 지워졌거나 따로 복원된 설계서는 아님)
+  const droppedSheetOf = (devReq) => {
+    if (!devReq?.droppedSheetId) return null;
+    const s = designSheets.find(x => x.id === devReq.droppedSheetId);
+    return s && s.status === 'dropped' && s.devRequestId === devReq.id ? s : null;
+  };
+
+  // [복원] — 설계서까지 같이 Drop된 의뢰는 설계서를 복원 (의뢰도 '개발 확정'으로 같이, 확인 창은 설계서 훅)
+  //  설계서 없이 Drop된 의뢰는 '의뢰 접수'로
   const handleRestore = (devReq) => {
+    const sheet = droppedSheetOf(devReq);
+    if (sheet && restoreSheet) {
+      restoreSheet(sheet.id);
+      return;
+    }
     if (!window.confirm(`'${devReq.devOrderNo}' 의뢰를 복원할까요?\n('의뢰접수' 단계로 되돌리고, Drop 사유는 지워요)`)) return;
     updateDevStatus?.(devReq.id, 'pending');
   };
@@ -187,6 +217,7 @@ export const DevArchiveModal = ({
                   const reason = findDropReason(d.dropReason);
                   const quote = getDevQuoteBadge(d, quoteIndex.get(String(d.id)) || []);
                   const targetPrice = String(d.targetSpec?.targetPrice || '').trim();
+                  const droppedSheet = droppedSheetOf(d);
                   return (
                     <div key={d.id} className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm">
                       <div className="flex items-center justify-between mb-1.5 gap-2">
@@ -218,6 +249,12 @@ export const DevArchiveModal = ({
                       {d.dropMemo && (
                         <p className="text-[10px] text-slate-600 bg-slate-50 border border-slate-100 rounded px-1.5 py-1 mt-1.5 break-words">📝 {d.dropMemo}</p>
                       )}
+                      {droppedSheet && (
+                        <p className="flex items-center gap-1 text-[10px] font-bold text-indigo-700 mt-1.5 min-w-0" title="이 의뢰와 같이 Drop된 설계서 — [복원]하면 같이 돌아와요">
+                          <FileText className="w-3 h-3 shrink-0" />
+                          <span className="truncate">설계서도 같이 Drop · {droppedSheet.fabricName || '원단명 미입력'}</span>
+                        </p>
+                      )}
                       <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
                         <span className="flex items-center gap-1 text-[9px] text-slate-400">
                           <Calendar className="w-2.5 h-2.5" />
@@ -225,6 +262,9 @@ export const DevArchiveModal = ({
                           {d.droppedBy && <span> · {String(d.droppedBy).split('@')[0]}</span>}
                         </span>
                         <button onClick={() => handleRestore(d)}
+                          title={droppedSheet
+                            ? "의뢰·설계서(·생산 현황 샘플 오더)를 같이 되살려요 — 의뢰는 '개발 확정'으로"
+                            : "의뢰를 '의뢰 접수'로 되살려요 (Drop 사유는 지워져요)"}
                           className="flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10px] font-bold rounded border border-blue-200">
                           <RotateCcw className="w-3 h-3" /> 복원
                         </button>
@@ -247,7 +287,9 @@ export const DevArchiveModal = ({
                   const stageLabel = {
                     draft: '설계서 작성', eztex: 'EZ-TEX', sampling: '샘플 진행', articled: '아이템화'
                   }[sheet?.stage] || '-';
-                  const orderNo = sheet && sampleOrderNoOf ? sampleOrderNoOf(sheet.id) : '';
+                  const order = sheet && sampleOrderOf ? sampleOrderOf(sheet.id) : null;
+                  const orderNo = order?.orderNumber || '';
+                  const prodState = productionStateOf(order, sheet);
                   return (
                     <div key={d.id}
                       onClick={() => sheet && handleEditSheet?.(sheet)}
@@ -263,6 +305,11 @@ export const DevArchiveModal = ({
                       <div className="flex gap-1.5 text-[10px] mt-1.5 flex-wrap items-center">
                         <span className="bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-bold">{stageLabel}</span>
                         {sheet?.eztexOrderNo && <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded">{sheet.eztexOrderNo}</span>}
+                        {prodState && (
+                          <span className={`px-1.5 py-0.5 rounded border font-bold ${prodState.cls}`} title="생산 현황 샘플 오더의 지금 상황">
+                            생산: {prodState.label}
+                          </span>
+                        )}
                         {orderNo && onOpenProductionOrder && (
                           <button
                             type="button"

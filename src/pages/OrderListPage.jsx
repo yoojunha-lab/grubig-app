@@ -6,9 +6,11 @@ import { OrderGantt } from '../components/order/gantt/OrderGantt';
 import { OrderDetailModal } from '../components/order/OrderDetailModal';
 import { MobileOrderList } from '../components/order/MobileOrderList';
 import { SampleCloseDialog } from '../components/order/common/SampleCloseDialog';
+import { DevDropModal } from '../components/dashboard/DevDropModal';
 import { getDday, isDropClosed, getOpenWork } from '../utils/orderModel';
 import { todayYmd } from '../utils/orderCalculations';
 import { isYarnRatioComplete, sumYarnRatio } from '../utils/costModel';
+import { getDevQuoteBadge, indexDevQuotes } from '../utils/devQuoteModel';
 import { DESIGN_STAGES } from '../constants/common';
 
 // ============================================================
@@ -97,9 +99,11 @@ export const OrderListPage = ({
   masters = {},         // { knittingFactories, dyeingFactories, yarnSuppliers }
   savedFabrics = [],
   partners = [], savePartner, deletePartner, makeEmptyPartner,
-  designSheets = [],    // 설계서 (샘플 오더의 '설계서' 표시·아이템화)
-  devRequests = [],     // 설계서의 바이어 이름
-  sheetActions = null,  // { open(sheetId), itemize(sheetId), drop(sheetId), restore(sheetId) } — App 의 설계서 훅 함수
+  designSheets,         // 설계서 (샘플 오더의 '설계서' 표시·아이템화)
+  devRequests,          // 설계서의 바이어 이름 · 샘플 Drop 때 같이 Drop 할 개발 의뢰
+  savedQuotes,          // 견적서 — 샘플 Drop 사유 창에 원가 견적·견적가 표시 (개발/설계 현황 Drop 창과 같게)
+  // { open(sheetId), itemize(sheetId), drop(sheetId), dropWithDev(devId, sheetId, reason, memo), restore(sheetId, opts) } — App
+  sheetActions = null,
   focusRequest = null,  // { orderNumber, nonce } — 개발/설계 현황에서 '생산 현황에서 보기'
   onFocusHandled,
 }) => {
@@ -183,12 +187,40 @@ export const OrderListPage = ({
   const closeOrder = closeTarget ? orders.find(o => o.id === closeTarget.orderId) || null : null;
   const closeSheet = closeTarget ? sheetById.get(closeTarget.sheetId) || null : null;
 
+  // ---------- 샘플 Drop (대표님 결정 2026-10-10 — 개발 의뢰가 있는 설계서면 의뢰도 같이 Drop) ----------
+  //  의뢰가 살아 있으면 개발/설계 현황과 같은 Drop 사유 창 → 의뢰·설계서·샘플 오더 같이 (App.dropDevWithSheet)
+  //  자체개발(의뢰 없음)·의뢰가 이미 Drop 이면 설계서만 (확인 창은 설계서 훅)
+  //  반환: 창을 열었거나 Drop 했으면 true (메뉴 닫기)
+  const [dropTarget, setDropTarget] = useState(null); // { sheetId, devId }
+  const devQuoteIndex = useMemo(() => indexDevQuotes(savedQuotes || []), [savedQuotes]);
+  const requestSampleDrop = async (sheetId) => {
+    const sheet = sheetById.get(sheetId);
+    if (!sheet) return false;
+    const dev = sheet.devRequestId ? devById.get(sheet.devRequestId) : null;
+    const live = sheet.status !== 'dropped' && sheet.stage !== 'articled';
+    if (dev && dev.status !== 'rejected' && live && sheetActions?.dropWithDev) {
+      setDropTarget({ sheetId, devId: dev.id });
+      return true;
+    }
+    return sheetActions?.drop ? sheetActions.drop(sheetId) : false;
+  };
+  const dropSheet = dropTarget ? sheetById.get(dropTarget.sheetId) || null : null;
+  const dropDev = dropTarget ? devById.get(dropTarget.devId) || null : null;
+  const dropOrderNo = dropTarget
+    ? (orders.find(o => String(o.linkedSheetId || '') === String(dropTarget.sheetId))?.orderNumber || '')
+    : '';
+  const confirmSampleDrop = async (reason, memo) => {
+    if (!dropTarget || !sheetActions?.dropWithDev) return;
+    const ok = await sheetActions.dropWithDev(dropTarget.devId, dropTarget.sheetId, reason, memo);
+    if (ok) setDropTarget(null);
+  };
+
   // 표·간트·상세창·모바일에 같이 넘기는 묶음
   const sheetLink = {
     infoOf: sheetInfoOf,
     open: sheetActions?.open,
     itemize: sheetActions?.itemize ? itemizeSheet : undefined,
-    drop: sheetActions?.drop,
+    drop: sheetActions?.drop ? requestSampleDrop : undefined,
     restore: sheetActions?.restore,
   };
 
@@ -495,6 +527,18 @@ export const OrderListPage = ({
           onItemize={() => { setCloseTarget(null); itemizeSheet(closeSheet.id, { skipConfirm: true }); }}
           onDrop={() => { setCloseTarget(null); sheetLink.drop?.(closeSheet.id); }}
           onCompleteOnly={() => { setCloseTarget(null); actions.setOrderField(closeOrder.id, 'status', 'completed'); }}
+        />
+      )}
+
+      {/* 샘플 Drop 사유 창 — 개발 의뢰가 있는 설계서 (의뢰·설계서·샘플 오더 같이 Drop) */}
+      {dropSheet && dropDev && (
+        <DevDropModal
+          devReq={dropDev}
+          quoteInfo={getDevQuoteBadge(dropDev, devQuoteIndex.get(String(dropDev.id)) || [])}
+          sheet={dropSheet}
+          orderNo={dropOrderNo}
+          onClose={() => setDropTarget(null)}
+          onConfirm={confirmSampleDrop}
         />
       )}
     </div>

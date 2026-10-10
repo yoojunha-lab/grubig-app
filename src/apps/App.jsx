@@ -525,6 +525,25 @@ const App = () => {
     requestSetActiveTab('orderList');
   };
 
+  // 개발 의뢰 + 설계서(+ 생산 현황 샘플 오더) 같이 Drop — Drop 사유 창의 [Drop 처리] (대표님 결정 2026-10-10)
+  //  개발/설계 현황의 의뢰 Drop · 생산 현황의 샘플 Drop(의뢰가 있는 설계서)이 같이 씀
+  //  설계서를 먼저 (확인 창·알림 없이, 의뢰 연결은 바로 뒤 의뢰 저장이 풂) → 샘플 오더는 'Drop'으로 닫힘 → 의뢰 (사유 저장 + 알림)
+  //  설계서 Drop 이 안 되면 의뢰도 그대로 (창도 그대로). 반환: 의뢰까지 Drop 했으면 true
+  const dropDevWithSheet = async (devReqId, sheetId, reason, memo) => {
+    if (!devReqId || !reason) return false;
+    let note = '';
+    if (sheetId) {
+      const orderNo = sheetOrderOf(sheetId)?.orderNumber || '';
+      const res = await dropDesignSheet(sheetId, { confirm: false, quiet: true, keepDevLink: true });
+      if (!res) return false;
+      const orderFailed = res.order && !res.order.ok;
+      note = orderFailed
+        ? `설계서도 같이 Drop했어요. (생산 현황 샘플 오더(${orderNo || '-'})는 바꾸지 못했어요 — 생산 현황에서 확인해 주세요)`
+        : `설계서${orderNo ? `·샘플 오더(${orderNo})` : ''}도 같이 Drop했어요.`;
+    }
+    return dropDevRequest(devReqId, { reason, memo, note, sheetId: sheetId || null }, user);
+  };
+
   // ⚓️ 메인 디테일 훅
   const {
     detailInput, setDetailInput, editingDetailId, setEditingDetailId,
@@ -1201,7 +1220,8 @@ const App = () => {
             calculateCost={calculateCost}
             createQuoteItem={createQuoteItem}
             saveDevCostQuote={saveDevCostQuote}
-            dropDevRequest={dropDevRequest}
+            dropDevWithSheet={dropDevWithSheet}
+            restoreFromDrop={restoreFromDrop}
             onStartQuoteFromDev={handleStartQuoteFromDev}
             {...partnerBag}
           />
@@ -1356,10 +1376,12 @@ const App = () => {
             // 설계서 샘플 오더 (대표님 요청 2026-10-10) — 설계서 열기 · 아이템화(개발/설계 현황과 같은 함수) · Drop · 복원
             designSheets={designSheets}
             devRequests={devRequests}
+            savedQuotes={savedQuotes}
             sheetActions={{
               open: openSheetEditor,
               itemize: (sheetId) => setStage(sheetId, 'articled'),
               drop: dropDesignSheet,
+              dropWithDev: dropDevWithSheet, // 개발 의뢰가 있는 샘플 → Drop 사유 창 → 의뢰·설계서·샘플 오더 같이
               restore: restoreFromDrop,
             }}
             focusRequest={productionFocus}

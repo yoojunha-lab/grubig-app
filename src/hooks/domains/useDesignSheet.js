@@ -261,12 +261,13 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     if (!DESIGN_STAGES.some(s => s.key === targetStage)) return false;
     if (sheet.stage === targetStage) return false;
 
+    // Drop된 설계서는 복원부터 (보관함에 있는 채로 단계가 바뀌거나 아이템화되면 현황·보관함 어디에도 맞지 않음)
+    if (sheet.status === 'dropped') {
+      showToast(`Drop된 설계서예요. 먼저 복원한 뒤 ${targetStage === 'articled' ? '아이템화' : '단계를 바꿔'} 주세요.`, 'error');
+      return false;
+    }
+
     if (targetStage === 'articled') {
-      // Drop된 설계서는 복원부터 (보관함에 있는 채로 아이템화되면 현황·보관함 어디에도 맞지 않음)
-      if (sheet.status === 'dropped') {
-        showToast('Drop된 설계서예요. 먼저 복원한 뒤 아이템화해 주세요.', 'error');
-        return false;
-      }
       if (!sheet.articleNo) {
         showToast('Article 번호를 먼저 입력해주세요.', 'error');
         return false;
@@ -721,7 +722,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     }
 
     // 의뢰 연결: devRequestId가 있으면 의뢰에 설계서 ID를 기록
-    if (itemToSave.devRequestId && onLinkToDevRequest) {
+    //  Drop된 설계서는 연결·확정하지 않음 — 보관함의 설계서를 열어 고쳐 저장해도 의뢰가 되살아나지 않게 (복원은 [복원]으로)
+    if (itemToSave.devRequestId && onLinkToDevRequest && itemToSave.status !== 'dropped') {
       onLinkToDevRequest(itemToSave.devRequestId, itemToSave.id);
     }
 
@@ -873,6 +875,12 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   const registerFabricFromSheet = async (sheet, { toastPrefix = '' } = {}) => {
     if (!saveFabricFromSheet) return false;
 
+    // Drop된 설계서는 복원부터 — 'Drop인데 아이템화'(보관함에도 아이템화 목록에도 안 맞는 상태)가 되지 않게
+    if (sheet.status === 'dropped') {
+      showToast('Drop된 설계서예요. 먼저 복원한 뒤 원단으로 등록해 주세요.', 'error');
+      return false;
+    }
+
     // [A2 방어] 이미 원단이 등록된 설계서는 중복 등록 차단
     if (sheet.linkedFabricId) {
       showToast('이미 원단이 등록된 설계서입니다.', 'error');
@@ -964,6 +972,10 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   //  반환: 등록까지 끝났으면 true (편집 창 닫기), 아니면 false (폼 그대로)
   const saveSheetAndRegisterFabric = async (user, onLinkToDevRequest) => {
     if (!editingSheetId) return false;
+    if (sheetInput.status === 'dropped') {
+      showToast('Drop된 설계서예요. 먼저 복원한 뒤 원단으로 등록해 주세요.', 'error');
+      return false;
+    }
     if (!sheetInput.articleNo?.trim()) {
       showToast('원단을 등록하려면 상단의 [Article 번호]를 입력해 주세요.', 'error');
       return false;
@@ -996,7 +1008,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   //   confirm: false = 확인 창 없이 (의뢰 Drop 사유 창에서 이미 확인함)
   //   quiet: true   = 알림 안 띄움 (의뢰 Drop 알림에 합침)
   //   keepDevLink: true = 의뢰 쪽 연결을 여기서 풀지 않음 (바로 뒤 의뢰 Drop 저장이 같이 풂 — 두 번 덮어쓰지 않게)
-  //  반환: Drop 했으면 true
+  //  반환: Drop 했으면 { order: 생산 현황 샘플 오더 처리 결과(없으면 null) } — quiet 일 때 부른 쪽 알림에 붙이려고
+  //        못 했으면(막힘·취소·저장 실패) false
   const dropDesignSheet = async (sheetId, { confirm = true, quiet = false, keepDevLink = false } = {}) => {
     const sheet = designSheets.find(s => s.id === sheetId);
     if (!sheet) return false;
@@ -1034,7 +1047,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
     const res = await notifyOrder('onDropped', { ...sheet, ...dropPatch });
     if (!quiet) showToast(`DROP 처리되었습니다.${sheetOrderNote(res, "는 'Drop'으로 닫았어요.")}`, res && !res.ok ? 'error' : 'success');
-    return true;
+    return { order: res };
   };
 
   // DROP 복원 (실수로 Drop한 것 되돌리기) — 생산 현황 샘플 오더도 Drop 전 상태로 (Drop 때 닫았던 것)
@@ -1043,6 +1056,20 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   const restoreFromDrop = async (sheetId, { lead = '' } = {}) => {
     const sheet = designSheets.find(s => s.id === sheetId);
     if (!sheet) return false;
+    // 같은 개발 의뢰가 그사이 다른 설계서로 진행 중이면 막음 — 복원하면 한 의뢰에 설계서가 둘이 됨 (2026-10-10)
+    if (sheet.devRequestId) {
+      const dev = (devRequests || []).find(d => d.id === sheet.devRequestId) || null;
+      const otherLive = (designSheets || []).find(s => s.id !== sheetId && s.status !== 'dropped'
+        && (s.devRequestId === sheet.devRequestId || (!!dev?.linkedDesignSheetId && s.id === dev.linkedDesignSheetId)));
+      if (otherLive) {
+        showToast(
+          `이 설계서의 개발 의뢰(${dev?.devOrderNo || sheet.devOrderNo || '-'})는 지금 다른 설계서(${otherLive.fabricName || '원단명 미입력'})로 진행 중이에요. `
+          + '그 설계서를 Drop하거나 의뢰 연결을 푼 뒤 복원해 주세요.',
+          'error'
+        );
+        return false;
+      }
+    }
     // 다시 연결할 개발 의뢰 — 의뢰가 그사이 Drop(미진행)됐으면 같이 되살아나므로 확인 창에 미리 알려 줌 (2026-10-06)
     //  (예전엔 '가격' 사유로 Drop한 의뢰가 확인 없이 '개발 확정'으로 돌아가고 Drop 사유도 남았음)
     const relinkDev = sheet.devRequestId && devRequests
@@ -1074,7 +1101,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     //   DROP 후 사용자가 수동으로 바꾼 상태(pending/analyzing 등)를 덮어쓰지 않음
     //   rejected → confirmed 로 되살릴 때는 Drop 사유·메모를 지우고 확정 날짜를 기록 (보관함 복원과 같은 규칙)
     if (relinkDev) {
-      const { dropReason: _dropReason, dropMemo: _dropMemo, droppedBy: _droppedBy, ...withoutDrop } = relinkDev;
+      const { dropReason: _dropReason, dropMemo: _dropMemo, droppedBy: _droppedBy, droppedSheetId: _droppedSheetId, ...withoutDrop } = relinkDev;
       saveDocToCloud('devRequests', {
         ...(revivesDropped ? withoutDrop : relinkDev),
         linkedDesignSheetId: sheetId,

@@ -230,7 +230,8 @@ export const DevStatusPage = ({
   exchangeRates = null,                   // 공통 환율 두 칸 { domestic, export } — 원가 견적 창이 고른 시장의 환율을 씀
   calculateCost, createQuoteItem,         // 원단과 같은 원가 엔진 · 견적서 품목 계산
   saveDevCostQuote,                       // (devReqId, costQuote, user) => 저장한 costQuote | false
-  dropDevRequest,                         // (devReqId, { reason, memo }, user) => boolean
+  dropDevWithSheet,                       // (devReqId, sheetId|null, reason, memo) => boolean — 의뢰 Drop (설계서가 있으면 같이, App)
+  restoreFromDrop,                        // (sheetId) => 설계서 복원 — 보관함에서 같이 Drop된 의뢰를 복원할 때 설계서까지
   onStartQuoteFromDev,                    // (원가 견적을 붙인 의뢰) => 견적서 화면으로
   // ── 샘플 진행 = 생산 현황 (대표님 요청 2026-10-10) ──
   registerEztexOrderNo,                   // (sheetId, 번호) → 저장 + '샘플 진행' + 생산 현황 샘플 오더
@@ -345,8 +346,10 @@ export const DevStatusPage = ({
   }, [devRequests, designSheets, sheetOfDev, sampleOrderBySheet]);
 
   // 보관함: 생산 현황으로 넘어간 의뢰 (샘플 진행) · 아이템화된 설계서 · Drop된 의뢰
+  //  샘플 진행 = Drop 안 된 의뢰 중 설계서가 생산 현황 샘플 오더로 넘어간 것 — '개발 확정' 전 단계여도 (의뢰 단계를 되돌린 뒤
+  //  EZ-TEX 를 등록하면 표에도 보관함에도 안 보이던 것, 2026-10-10)
   const inProductionDevs = useMemo(() => (devRequests || []).filter(d => {
-    if (d.status !== 'confirmed') return false;
+    if (d.status === 'rejected') return false;
     const s = sheetOfDev(d);
     return !!s && s.stage !== 'articled' && sampleOrderBySheet.has(String(s.id));
   }), [devRequests, sheetOfDev, sampleOrderBySheet]);
@@ -458,7 +461,7 @@ export const DevStatusPage = ({
 
   // [Drop] — 사유 창을 띄움 (가격·납기·품질/스펙·바이어 사정·기타). 사유 창이 없으면 예전처럼 확인만
   const handleDropDev = (devReq) => {
-    if (dropDevRequest) { setDropTargetId(devReq.id); return; }
+    if (dropDevWithSheet) { setDropTargetId(devReq.id); return; }
     if (!updateDevStatus) return;
     if (window.confirm(`개발 의뢰 ${devReq.devOrderNo}를 Drop(미진행) 처리할까요?`)) {
       updateDevStatus(devReq.id, 'rejected');
@@ -471,16 +474,11 @@ export const DevStatusPage = ({
   const dropTargetSheet = dropTargetDev ? workRows.find(r => r.dev?.id === dropTargetDev.id)?.sheet || null : null;
 
   // 의뢰 Drop 사유 창의 [Drop 처리] — 설계서까지 쓴 개발 건은 설계서도 같이 Drop (대표님 결정 2026-10-10)
-  //  설계서를 먼저 (확인 창·알림 없이, 의뢰 연결은 바로 뒤 의뢰 저장이 풂), 그다음 의뢰 (사유 저장 + 알림)
+  //  App.dropDevWithSheet: 설계서 먼저 → 의뢰 (사유 저장 + 알림). 생산 현황 샘플 Drop 과 같은 함수
   //  설계서 Drop 이 안 되면 의뢰도 그대로 두고 창도 그대로
   const confirmDrop = async (reason, memo) => {
-    if (!dropTargetId || !dropDevRequest) return;
-    const sheet = dropTargetSheet;
-    if (sheet && dropDesignSheet) {
-      const okSheet = await dropDesignSheet(sheet.id, { confirm: false, quiet: true, keepDevLink: true });
-      if (!okSheet) return;
-    }
-    const ok = await dropDevRequest(dropTargetId, { reason, memo, note: sheet ? '설계서도 같이 Drop했어요.' : '' }, user);
+    if (!dropTargetId || !dropDevWithSheet) return;
+    const ok = await dropDevWithSheet(dropTargetId, dropTargetSheet?.id || null, reason, memo);
     if (ok) setDropTargetId(null);
   };
 
@@ -1044,8 +1042,9 @@ export const DevStatusPage = ({
             designSheets={designSheets}
             savedQuotes={savedQuotes}
             updateDevStatus={updateDevStatus}
+            restoreSheet={restoreFromDrop}
             handleEditSheet={handleEditSheet}
-            sampleOrderNoOf={(sheetId) => sampleOrderBySheet.get(String(sheetId))?.orderNumber || ''}
+            sampleOrderOf={(sheetId) => sampleOrderBySheet.get(String(sheetId)) || null}
             onOpenProductionOrder={onOpenProductionOrder}
           />
         )}
