@@ -974,8 +974,12 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
   // DROP 처리 (설계서를 보관함으로 이동, 현황에서 숨김)
   //  생산 현황 샘플 오더는 '완료'로 닫음 (샘플은 아이템화 아니면 Drop으로 끝남 — 대표님 2026-10-10). 복원하면 다시 진행중
+  //  opts (개발/설계 현황에서 의뢰를 Drop할 때 설계서도 같이 — 대표님 결정 2026-10-10):
+  //   confirm: false = 확인 창 없이 (의뢰 Drop 사유 창에서 이미 확인함)
+  //   quiet: true   = 알림 안 띄움 (의뢰 Drop 알림에 합침)
+  //   keepDevLink: true = 의뢰 쪽 연결을 여기서 풀지 않음 (바로 뒤 의뢰 Drop 저장이 같이 풂 — 두 번 덮어쓰지 않게)
   //  반환: Drop 했으면 true
-  const dropDesignSheet = async (sheetId) => {
+  const dropDesignSheet = async (sheetId, { confirm = true, quiet = false, keepDevLink = false } = {}) => {
     const sheet = designSheets.find(s => s.id === sheetId);
     if (!sheet) return false;
 
@@ -985,9 +989,11 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       return false;
     }
 
-    const orderNo = sampleOrderLink?.getOrderNumber?.(sheetId) || '';
-    const orderMsg = orderNo ? `\n생산 현황 샘플 오더(${orderNo})는 '완료'로 닫혀요. (복원하면 다시 진행중)` : '';
-    if (!window.confirm(`이 설계서를 DROP 처리하시겠습니까?\n(보관함으로 이동되며 현황에서 숨겨집니다)${orderMsg}`)) return false;
+    if (confirm) {
+      const orderNo = sampleOrderLink?.getOrderNumber?.(sheetId) || '';
+      const orderMsg = orderNo ? `\n생산 현황 샘플 오더(${orderNo})는 '완료'로 닫혀요. (복원하면 다시 진행중)` : '';
+      if (!window.confirm(`이 설계서를 DROP 처리하시겠습니까?\n(보관함으로 이동되며 현황에서 숨겨집니다)${orderMsg}`)) return false;
+    }
 
     // 설계서를 먼저 Drop으로 저장하고, 저장됐을 때만 연결 정리 (저장 실패인데 의뢰 연결만 풀리는 일 방지)
     const dropPatch = { status: 'dropped', updatedAt: new Date().toISOString() };
@@ -997,7 +1003,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
     // [B3] DROP 시 연결된 의뢰의 linkedDesignSheetId만 해제 (status는 보존)
     // → 의뢰는 confirmed 상태 그대로 유지되어 다른 설계서로 재시도 가능
-    if (sheet.devRequestId && devRequests) {
+    if (!keepDevLink && sheet.devRequestId && devRequests) {
       const linkedDev = devRequests.find(d => d.id === sheet.devRequestId);
       if (linkedDev?.linkedDesignSheetId === sheetId) {
         saveDocToCloud('devRequests', {
@@ -1009,7 +1015,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     }
 
     const res = await notifyOrder('onDropped', { ...sheet, ...dropPatch });
-    showToast(`DROP 처리되었습니다.${sheetOrderNote(res, '는 완료로 닫았어요.')}`, res && !res.ok ? 'error' : 'success');
+    if (!quiet) showToast(`DROP 처리되었습니다.${sheetOrderNote(res, '는 완료로 닫았어요.')}`, res && !res.ok ? 'error' : 'success');
     return true;
   };
 

@@ -246,7 +246,8 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
 
   // Drop(미진행) — 사유와 같이 (대표님 요청 2026-10-06: 원가 견적을 보고 비싸서 Drop된 건을 따로 보려고)
   //  반환: 저장됐으면 true (사유를 안 골랐거나 저장 실패면 false — Drop 창 그대로)
-  const dropDevRequest = async (devReqId, { reason, memo = '' } = {}, user) => {
+  //  note: 알림에 덧붙일 말 (예: 설계서도 같이 Drop했을 때 — 개발/설계 현황, 2026-10-10)
+  const dropDevRequest = async (devReqId, { reason, memo = '', note = '' } = {}, user) => {
     const devReq = (devRequests || []).find(d => d.id === devReqId);
     if (!devReq) { showToast('개발 의뢰를 찾지 못했어요.', 'error'); return false; }
     const found = DEV_DROP_REASONS.find(r => r.key === reason);
@@ -264,7 +265,7 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       updatedAt: now
     });
     if (ok === false) return false;
-    showToast(`Drop 처리했어요 (사유: ${found.label}). 보관함에서 볼 수 있어요.`, 'success');
+    showToast(`Drop 처리했어요 (사유: ${found.label}).${note ? ` ${note}` : ''} 보관함에서 볼 수 있어요.`, 'success');
     return true;
   };
 

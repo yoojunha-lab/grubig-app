@@ -15,9 +15,11 @@ const textMatches = (q, text) => !q || String(text || '').toLowerCase().includes
 // Drop 사유 찾기 — 사유 기능 전에 Drop된 의뢰(값 없음)는 null
 const findDropReason = (key) => DEV_DROP_REASONS.find(r => r.key === key) || null;
 
+// 'inProgress' = 샘플 진행 (생산 현황) — EZ-TEX 를 등록해 생산 현황 샘플 오더로 넘어간 의뢰 (2026-10-10)
+//  (설계서를 쓰는 중인 의뢰는 개발/설계 현황 표에 그대로 있음 — 예전 '진행중 (설계서 연결)' 탭)
 const TABS = [
   { key: 'rejected',  label: 'Drop된 의뢰',     icon: X,      color: 'text-rose-600 bg-rose-100',     accent: 'rose' },
-  { key: 'inProgress', label: '진행중 (설계서 연결)', icon: Link,   color: 'text-violet-600 bg-violet-100', accent: 'violet' },
+  { key: 'inProgress', label: '샘플 진행 (생산 현황)', icon: Link,   color: 'text-violet-600 bg-violet-100', accent: 'violet' },
   { key: 'articled',  label: '아이템화 완료',   icon: Award,  color: 'text-emerald-600 bg-emerald-100', accent: 'emerald' }
 ];
 
@@ -25,12 +27,14 @@ export const DevArchiveModal = ({
   isOpen,
   onClose,
   rejectedDevs = [],
-  confirmedLinkedDevs = [],
+  confirmedLinkedDevs = [],   // 샘플 진행 (생산 현황) 의뢰 — 설계서가 생산 현황 샘플 오더로 넘어간 의뢰
   articledSheets = [],
   designSheets = [],
   savedQuotes = [],     // 견적서 — Drop된 의뢰의 원가 견적·견적가 표시
   updateDevStatus,
   handleEditSheet,
+  sampleOrderNoOf,          // (sheetId) => 생산 현황 샘플 오더 order# ('' = 없음) — '샘플 진행' 카드
+  onOpenProductionOrder,    // (order#) => 생산 현황으로 가서 그 오더 보기
 }) => {
   const [activeTab, setActiveTab] = useState('rejected');
   const [searchTerm, setSearchTerm] = useState('');
@@ -110,7 +114,7 @@ export const DevArchiveModal = ({
             <div>
               <h2 className="text-lg font-extrabold text-slate-800 tracking-tight">개발의뢰 보관함</h2>
               <p className="text-[11px] text-slate-500 flex items-center gap-2">
-                총 <span className="font-bold text-slate-700">{total}</span>건 (Drop {counts.rejected} / 진행중 {counts.inProgress} / 아이템화 {counts.articled})
+                총 <span className="font-bold text-slate-700">{total}</span>건 (Drop {counts.rejected} / 샘플 진행 {counts.inProgress} / 아이템화 {counts.articled})
               </p>
             </div>
           </div>
@@ -235,7 +239,7 @@ export const DevArchiveModal = ({
           {/* TAB 2: 진행중 (설계서 연결) */}
           {activeTab === 'inProgress' && (
             filteredInProgress.length === 0 ? (
-              <EmptyMessage icon={Link} text="진행 중인 항목이 없습니다." />
+              <EmptyMessage icon={Link} text="생산 현황에서 샘플 진행 중인 의뢰가 없습니다." />
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                 {filteredInProgress.map(d => {
@@ -243,21 +247,32 @@ export const DevArchiveModal = ({
                   const stageLabel = {
                     draft: '설계서 작성', eztex: 'EZ-TEX', sampling: '샘플 진행', articled: '아이템화'
                   }[sheet?.stage] || '-';
+                  const orderNo = sheet && sampleOrderNoOf ? sampleOrderNoOf(sheet.id) : '';
                   return (
                     <div key={d.id}
                       onClick={() => sheet && handleEditSheet?.(sheet)}
                       className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm hover:border-violet-300 cursor-pointer transition-all">
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-violet-50 text-violet-700 border-violet-200">진행중</span>
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-violet-50 text-violet-700 border-violet-200">샘플 진행 (생산 현황)</span>
                         <span className="text-xs font-mono font-extrabold text-violet-600">{d.devOrderNo}</span>
                       </div>
                       <p className="text-xs font-bold text-slate-800">{d.buyerName}</p>
                       {sheet?.fabricName && (
                         <p className="text-[11px] text-slate-600 font-semibold mt-0.5">{sheet.fabricName}</p>
                       )}
-                      <div className="flex gap-1.5 text-[10px] mt-1.5 flex-wrap">
+                      <div className="flex gap-1.5 text-[10px] mt-1.5 flex-wrap items-center">
                         <span className="bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-bold">{stageLabel}</span>
                         {sheet?.eztexOrderNo && <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded">{sheet.eztexOrderNo}</span>}
+                        {orderNo && onOpenProductionOrder && (
+                          <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); onClose?.(); onOpenProductionOrder(orderNo); }}
+                            className="ml-auto px-1.5 py-0.5 rounded border border-purple-200 bg-purple-50 text-purple-700 font-bold hover:bg-purple-100"
+                            title={`생산 현황에서 샘플 오더 ${orderNo} 보기`}
+                          >
+                            생산 현황 →
+                          </button>
+                        )}
                       </div>
                       <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
                         <span className="flex items-center gap-1 text-[9px] text-slate-400">

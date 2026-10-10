@@ -1,8 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Activity, Edit2, FileText, Plus, Search, Printer, Archive, ArrowRight, XCircle, Flame, Hourglass, Sparkles, ClipboardList, Info, ChevronDown, ChevronUp, Link2, Unlink, Calculator, Trash2, CheckCircle2, PackageCheck } from 'lucide-react';
-import { DEV_REQUEST_STATUS_LABELS, DEV_REQUEST_STATUS_BADGE_CLS, SAMPLING_SUBSTAGES } from '../constants/common';
-import { COLOR_STAGES } from '../constants/production';
-import { getOrderProgressStage } from '../utils/orderModel';
+import { DEV_REQUEST_STATUS_LABELS, DEV_REQUEST_STATUS_BADGE_CLS } from '../constants/common';
 import { PendingProgressBar } from '../components/design-sheet/PendingProgressBar';
 import { DevRequestFormModal } from '../components/dashboard/DevRequestFormModal';
 import { DevArchiveModal } from '../components/dashboard/DevArchiveModal';
@@ -24,12 +22,12 @@ const DEV_REQ_STAGE_GUIDE = [
 ];
 
 // 설계서 단계 설명 (개발 확정 / 자체 개발 → 아이템화)
-//  2026-10-10: EZ-TEX O/D NO.를 등록하면 생산 현황에 샘플 오더가 생기고 '샘플 진행'으로 넘어감 → 샘플 진행은 생산 현황에서
+//  2026-10-10: EZ-TEX O/D NO.를 등록하면 '샘플 진행'으로 넘어가고 생산 현황(샘플)으로 → 이 화면에서는 빠짐
 const DESIGN_STAGE_GUIDE = [
-  { key: 'draft',    label: '설계서 작성',     desc: '원단 설계서 초안 작성 (스펙·원사 배합 등)',          dot: 'bg-slate-400' },
-  { key: 'eztex',    label: 'EZ-TEX O/D NO.', desc: 'EZ-TEX(그루빅 생산 ERP)에 오더 등록 — 번호를 등록하면 생산 현황에 샘플 오더가 생기고 샘플 진행으로 넘어가요', dot: 'bg-violet-400' },
-  { key: 'sampling', label: '샘플 진행',       desc: '샘플 생산 중 — 원사·편직·염가공 진행은 생산 현황(샘플 오더)에서 관리',  dot: 'bg-amber-400' },
-  { key: 'articled', label: '아이템화',        desc: '완성된 원단 설계서를 정식 등록 (최종, 보관함 이동) — 생산 현황 샘플 오더도 완료',  dot: 'bg-emerald-500' }
+  { key: 'draft',    label: '설계서 작성',     desc: '개발 확정 의뢰의 [설계 시작] 또는 [자체 설계서] — 스펙·원사 배합 작성', dot: 'bg-slate-400' },
+  { key: 'eztex',    label: 'EZ-TEX O/D NO.', desc: 'EZ-TEX(그루빅 생산 ERP)에 오더 등록 → 줄의 번호 칸에 넣고 [등록]하면 생산 현황(샘플)으로 넘어가요', dot: 'bg-violet-400' },
+  { key: 'sampling', label: '샘플 진행',       desc: '생산 현황(샘플)에서 원사·편직·염가공 진행 관리 — 이 표에서는 빠져요', dot: 'bg-amber-400' },
+  { key: 'articled', label: '아이템화',        desc: '샘플이 끝나면 생산 현황에서 아이템화(원단 등록) — 또는 Drop', dot: 'bg-emerald-500' }
 ];
 
 // ── 날짜·긴급도·검색 (화면 상태와 무관한 순수 함수 — 목록 계산(useMemo)에서 그대로 씀) ──
@@ -46,8 +44,6 @@ const getUrgency = (deadlineDate) => {
   if (days <= 3) return 'urgent';
   return 'normal';
 };
-const getDevReqUrgency = (d) => getUrgency(getDevReqDeadline(d));
-const getSheetUrgency = (s) => getUrgency(s.deadline);
 const isCreatedToday = (iso) => {
   if (!iso) return false;
   const t = new Date(iso); const n = new Date();
@@ -61,27 +57,47 @@ const passesPriorityFilter = (priorityFilter, urgency, item) => {
   if (priorityFilter === 'newToday') return isCreatedToday(item?.createdAt);
   return true;
 };
-// 검색어 — 비었으면 모두 통과
-const devMatchesSearch = (d, searchTerm) => {
-  if (!searchTerm.trim()) return true;
-  const q = searchTerm.toLowerCase();
-  return String(d.buyerName || '').toLowerCase().includes(q) ||
-    String(d.devOrderNo || '').toLowerCase().includes(q) ||
-    String(d.devItem || '').toLowerCase().includes(q) ||
-    String(d.targetSpec?.composition || '').toLowerCase().includes(q);
+// ── 개발 건 한 줄 (대표님 요청 2026-10-10 — '설계서 진행 현황' 표를 없애고 개발 의뢰 현황 한 표로) ──
+//  row = { key, kind, dev, sheet, linkedDev }
+//   kind 'dev'  = 의뢰만 (의뢰 접수 ~ 개발 확정 — 설계서 아직 없음)
+//        'both' = 의뢰 + 설계서 (설계서 작성 ~ EZ-TEX 등록 전)
+//        'self' = 설계서만 (자체개발 — 또는 의뢰가 Drop·삭제된 설계서. linkedDev = 설계서가 가리키는 의뢰)
+//  빠지는 것: EZ-TEX 를 등록해 생산 현황 샘플 오더가 생긴 설계서(→ 생산 현황) · 아이템화 · Drop
+const rowOdNo = (row) => String(row.dev?.devOrderNo || row.sheet?.devOrderNo || '').trim();
+const rowTitle = (row) => (row.dev
+  ? (row.dev.devItem || row.dev.targetSpec?.composition || '품목명 미입력')
+  : (row.sheet?.fabricName || '원단명 미입력'));
+// 의뢰 + 설계서 줄: 설계서 원단명을 둘째 줄에 (품목명과 같으면 한 번만)
+const showSheetName = (row) => !!(row.dev && row.sheet)
+  && String(row.sheet.fabricName || '').trim() !== String(rowTitle(row)).trim();
+// 납기: 설계서가 있으면 설계서 납기(없으면 의뢰 샘플 납기), 의뢰만이면 그 단계의 납기 (분석 마감 / 샘플 납기)
+const rowDeadline = (row) => (row.sheet
+  ? (row.sheet.deadline || (row.dev ? getDevReqDeadline(row.dev) : null) || null)
+  : getDevReqDeadline(row.dev));
+const rowUrgency = (row) => getUrgency(rowDeadline(row));
+// 지금 단계에 들어온 때 (📅 MM/DD · N일째)
+const rowEnteredAt = (row) => (row.sheet
+  ? (row.sheet.stageEnteredAt?.[row.sheet.stage] || row.sheet.updatedAt || row.sheet.createdAt)
+  : (row.dev.statusEnteredAt?.[row.dev.status] || row.dev.updatedAt || row.dev.createdAt));
+const rowCreatedAt = (row) => row.dev?.createdAt || row.sheet?.createdAt || '';
+const rowUpdatedAt = (row) => [row.dev?.updatedAt || row.dev?.createdAt, row.sheet?.updatedAt || row.sheet?.createdAt]
+  .filter(Boolean).sort().pop() || '';
+// 단계순: 의뢰 접수 → 분석 → 대기 → 개발 확정(설계 대기) → 설계서 작성 → EZ-TEX → 샘플 진행(번호만 있고 생산 현황 전)
+const ROW_STAGE_ORDER = { pending: 0, analyzing: 1, hold: 2, confirmed: 3, draft: 4, eztex: 5, sampling: 6 };
+const rowStageOrder = (row) => ROW_STAGE_ORDER[row.sheet ? row.sheet.stage : row.dev.status] ?? 9;
+const rowBuyerName = (row) => row.dev?.buyerName || row.linkedDev?.buyerName || '';
+// 설계서 줄의 [연결] / [해제]: 의뢰를 가리키지 않거나 그 의뢰가 없으면 연결, 아니면 해제
+const canLinkSheet = (row) => !row.sheet?.devRequestId || (!row.dev && !row.linkedDev);
+// 검색어 — 비었으면 모두 통과 (의뢰 + 설계서 칸)
+const rowMatchesSearch = (row, searchTerm) => {
+  const q = searchTerm.trim().toLowerCase();
+  if (!q) return true;
+  const { dev: d, sheet: s } = row;
+  return [
+    rowBuyerName(row), d?.devOrderNo, d?.devItem, d?.targetSpec?.composition,
+    s?.fabricName, s?.devOrderNo, s?.articleNo, s?.eztexOrderNo,
+  ].some(v => String(v || '').toLowerCase().includes(q));
 };
-const sheetMatchesSearch = (s, searchTerm, linkedDev) => {
-  if (!searchTerm.trim()) return true;
-  const q = searchTerm.toLowerCase();
-  return String(s.fabricName||'').toLowerCase().includes(q) ||
-    String(s.devOrderNo||'').toLowerCase().includes(q) ||
-    String(s.articleNo||'').toLowerCase().includes(q) ||
-    String(s.eztexOrderNo||'').toLowerCase().includes(q) ||
-    String(linkedDev?.buyerName||'').toLowerCase().includes(q);
-};
-// 단계순 정렬용 인덱스
-const devStageOrder = { pending: 0, analyzing: 1, hold: 2, confirmed: 3 };
-const sheetStageOrder = { draft: 0, eztex: 1, sampling: 2, articled: 3 };
 
 // 단계 진입 날짜 → "MM/DD · N일째" 포맷
 const formatStageEntry = (iso) => {
@@ -125,17 +141,74 @@ const RowDeleteButton = ({ onClick, title, size = 'sm' }) => (size === 'md' ? (
   </button>
 ));
 
+// 설계서 줄의 EZ-TEX O/D NO. 칸 + [등록] (대표님 요청 2026-10-10)
+//  등록하면 '샘플 진행'으로 넘어가고 생산 현황에 샘플 오더가 생김 → 그 줄은 이 표에서 빠짐 (useDesignSheet.registerEztexOrderNo)
+//  번호가 이미 있는 설계서(예전에 등록)는 버튼이 [생산 현황에 올리기] — 같은 번호로 다시 등록 = 샘플 오더 만들기·연결
+//  onSubmit(sheet, 입력칸) — PC 표·모바일 카드가 칸을 하나씩 가지므로 누른 줄의 칸을 같이 넘김
+const EztexRegister = ({ sheet, onSubmit, size = 'sm' }) => {
+  const has = !!String(sheet.eztexOrderNo || '').trim();
+  const title = has
+    ? `EZ-TEX ${sheet.eztexOrderNo} 번호로 생산 현황에 샘플 오더를 만들어요 ('샘플 진행'으로)`
+    : "EZ-TEX O/D NO.를 넣고 등록하면 '샘플 진행'으로 넘어가고 생산 현황에 샘플 오더가 생겨요";
+  const input = (cls) => (
+    <input
+      key={`${sheet.id}_${sheet.eztexOrderNo || ''}`}
+      type="text"
+      placeholder={size === 'md' ? 'EZ-TEX O/D NO.' : 'EZ-TEX O/D'}
+      defaultValue={sheet.eztexOrderNo || ''}
+      onKeyDown={e => { if (e.key === 'Enter') onSubmit(sheet, e.currentTarget); }}
+      className={`border border-violet-200 bg-violet-50/40 rounded font-mono focus:bg-white focus:ring-2 ring-violet-200 outline-none placeholder:text-slate-300 ${cls}`}
+    />
+  );
+  const button = (cls) => (
+    <button
+      onClick={e => onSubmit(sheet, e.currentTarget.previousElementSibling)}
+      title={title}
+      className={`flex items-center justify-center gap-1 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded shadow-sm whitespace-nowrap ${cls}`}
+    >
+      {has ? <><PackageCheck className="w-3 h-3"/> 생산 현황에 올리기</> : '등록'}
+    </button>
+  );
+  if (size === 'md') {
+    return (
+      <div className="flex gap-1.5">
+        {input('flex-1 w-0 px-2 py-1.5 text-xs')}
+        {button('px-3 py-1.5 text-[11px]')}
+      </div>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      {input('w-[96px] px-2 py-0.5 text-[10px]')}
+      {button('px-2 py-0.5 text-[10px]')}
+    </span>
+  );
+};
+
+// 바이어 칸: 의뢰 바이어 / 설계서가 가리키는 의뢰(Drop 등)의 바이어 + 상태 / 자체개발
+const RowBuyer = ({ row }) => {
+  if (row.dev) return <>{row.dev.buyerName || '-'}</>;
+  if (row.linkedDev) {
+    return (
+      <span title="이 설계서가 가리키는 개발 의뢰는 지금 이 표에 없어요 (Drop 등)">
+        {row.linkedDev.buyerName || '-'}
+        <span className="ml-1 text-[9px] font-normal text-slate-400">(의뢰 {DEV_REQUEST_STATUS_LABELS[row.linkedDev.status] || row.linkedDev.status})</span>
+      </span>
+    );
+  }
+  return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-slate-100 text-slate-500 border-slate-200">자체개발</span>;
+};
+
 /**
  * 개발/설계 현황 — 리스트형 대시보드
- * - 섹션 A: 개발 의뢰 현황 (pending/analyzing/hold + 확정-설계서미연결)
+ * - 개발 의뢰 현황 한 표 (대표님 요청 2026-10-10 — 예전 '설계서 진행 현황' 표를 합침). 한 줄 = 개발 건 하나 (위 row 설명)
+ *   · 의뢰: 의뢰 접수 → 분석 → 대기 → 개발 확정 → [설계 시작]
  *   · [원가 견적] 예상 스펙으로 원가·판매가 계산 → 저장 / [견적서 만들기] (대표님 요청 2026-10-06 — 가격 보고 개발 여부를 정하는 바이어)
- *   · [Drop] 사유와 같이, [삭제] 의뢰 영구 삭제 (설계서가 연결된 의뢰는 막힘)
- * - 섹션 B: 설계서 진행 현황 (draft/eztex/sampling)
- *   · [Drop] 보관함으로 (복원 가능), [삭제] 영구 삭제 — 설계서 창의 [삭제]와 같은 함수(useDesignSheet.handleDeleteSheet):
- *     연결된 개발 의뢰·원단은 남고 연결만 풀림, 샘플 진행 중이면 한 번 더 경고
- *   · EZ-TEX O/D NO. [등록] → '샘플 진행'으로 + 생산 현황에 샘플 오더 (useDesignSheet.registerEztexOrderNo, 대표님 요청 2026-10-10)
- *     샘플 오더가 있는 설계서는 세부단계(원사 발주/편직/염가공) 대신 생산 현황 진행을 그대로 보여 주고 [생산 현황]으로 이동
- *     번호는 있는데 오더가 없는 예전 설계서는 [생산 현황에 올리기]
+ *   · 설계서가 있는 줄: 설계서 단계 · [설계서 열기] · EZ-TEX O/D NO. [등록] → '샘플 진행' + 생산 현황 샘플 오더 → 이 표에서 빠짐
+ *     (useDesignSheet.registerEztexOrderNo). 번호만 있고 오더가 없는 예전 설계서는 [생산 현황에 올리기]
+ *   · [Drop] 의뢰 줄 = 사유와 같이 (설계서가 있으면 설계서도 같이 Drop — 대표님 결정) / 자체개발 줄 = 설계서 Drop (보관함, 복원 가능)
+ *   · 🗑 의뢰만 있는 줄 = 의뢰 영구 삭제 / 설계서가 있는 줄 = 설계서만 삭제 (useDesignSheet.handleDeleteSheet — 의뢰·원단·샘플 오더는 남고 연결만 풀림)
+ * - 샘플 진행·아이템화·Drop 은 생산 현황(샘플)에서. 생산 현황으로 넘어간 의뢰는 보관함 '샘플 진행 (생산 현황)'
  * - 아이템화 완료된 설계서는 [설계서 보관함] 페이지에서 관리
  */
 export const DevStatusPage = ({
@@ -144,7 +217,7 @@ export const DevStatusPage = ({
   handleEditDevRequest, handleDeleteDevRequest, resetDevForm,
   createDesignSheetFromDev, initFromDevRequest, updateDevStatus,
   handleEditSheet, handleDeleteSheet, saveDocToCloud, setStage, dropDesignSheet,
-  setSamplingSub, linkSheetToDevRequest, unlinkSheetFromDevRequest,
+  linkSheetToDevRequest, unlinkSheetFromDevRequest,
   setActiveTab, user, buyers,
   generateDevOrderNo, setIsBuyerModalOpen,
   setIsDesignSheetModalOpen,
@@ -161,8 +234,9 @@ export const DevStatusPage = ({
   onStartQuoteFromDev,                    // (원가 견적을 붙인 의뢰) => 견적서 화면으로
   // ── 샘플 진행 = 생산 현황 (대표님 요청 2026-10-10) ──
   registerEztexOrderNo,                   // (sheetId, 번호) → 저장 + '샘플 진행' + 생산 현황 샘플 오더
-  productionOrders = [],                  // 생산 현황 오더 — 설계서와 연결된 샘플 오더 진행 표시
-  onOpenProductionOrder,                  // (order#) → 생산 현황으로 가서 그 오더 보기
+  productionOrders = [],                  // 생산 현황 오더 — 샘플 오더가 생긴 설계서는 이 표에서 빠짐
+  onOpenProductionOrder,                  // (order#) → 생산 현황으로 가서 그 오더 보기 (보관함 '샘플 진행')
+  onNewSelfSheet,                         // [자체 설계서] — 의뢰 없이 새 설계서 (자체개발 줄)
 }) => {
   const [showDevModal, setShowDevModal] = useState(false);
   const [costQuoteDevId, setCostQuoteDevId] = useState(null); // 원가 견적 창을 연 의뢰 id
@@ -182,7 +256,6 @@ export const DevStatusPage = ({
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [showGuide, setShowGuide] = useState(false);
   const [devSortBy, setDevSortBy] = useState('odno');   // odno | date | stage | buyer
-  const [sheetSortBy, setSheetSortBy] = useState('eztex'); // eztex | date | stage | buyer
   const [linkTargetSheet, setLinkTargetSheet] = useState(null); // '의뢰 연결' 모달 대상 설계서
   const [linkSearch, setLinkSearch] = useState('');
 
@@ -204,26 +277,12 @@ export const DevStatusPage = ({
     return Math.floor((n - t) / 86400000);
   };
 
-  // 샘플 진행 세부단계 헬퍼 (현재 세부단계 객체 + 진입 후 경과일) — 생산 현황 샘플 오더가 없는 예전 설계서만 씀
-  const subOf = (s) => SAMPLING_SUBSTAGES.find(x => x.key === (s.samplingSub || 'yarn')) || SAMPLING_SUBSTAGES[0];
-  const subDaysOf = (s) => {
-    const key = s.samplingSub || 'yarn';
-    return daysSince(s.samplingSubEnteredAt?.[key] || s.stageEnteredAt?.sampling || s.updatedAt);
-  };
-
-  // 설계서 → 생산 현황 샘플 오더 (오더의 linkedSheetId) / 그 오더 진행을 한 단계로 (가장 덜 진행된 컬러 기준)
+  // 설계서 → 생산 현황 샘플 오더 (오더의 linkedSheetId) — 샘플 오더가 생긴 설계서는 생산 현황에서 관리 (이 표에서 빠짐)
   const sampleOrderBySheet = useMemo(() => {
     const map = new Map();
     (productionOrders || []).forEach(o => { if (o.linkedSheetId) map.set(String(o.linkedSheetId), o); });
     return map;
   }, [productionOrders]);
-  const sampleOrderOf = (s) => sampleOrderBySheet.get(String(s.id)) || null;
-  const orderStageOf = (o) => COLOR_STAGES[getOrderProgressStage(o)] || COLOR_STAGES.waiting;
-
-  // EZ-TEX 번호는 있는데 생산 현황 샘플 오더가 없는 설계서 → [생산 현황에 올리기] (같은 번호로 다시 등록 = 오더만 만들기·연결)
-  const pushToProduction = (s) => {
-    if (registerEztexOrderNo) registerEztexOrderNo(s.id, s.eztexOrderNo);
-  };
 
   // 의뢰별 견적서 { 의뢰 id → 그 의뢰로 만든 견적서[] (최근 순) } — 목록 배지·✔ 버튼·삭제 확인이 같이 씀
   //  견적서가 바뀔 때만 한 번 만듦 (예전엔 줄마다·PC/모바일마다 전체 견적을 다시 훑었음 — 검색할 때마다)
@@ -252,70 +311,64 @@ export const DevStatusPage = ({
       !(designSheets || []).some(s => s.devRequestId === d.id && s.status !== 'dropped')
     ), [devRequests, designSheets]);
 
-  // 데이터 분류
-  const confirmedDevReqs = useMemo(() => (devRequests||[]).filter(d=>d.status==='confirmed'), [devRequests]);
+  // 데이터 분류 — 개발 건 한 줄씩 (위 row 설명, 대표님 요청 2026-10-10)
   const rejectedDevReqs = useMemo(() => (devRequests||[]).filter(d=>d.status==='rejected'), [devRequests]);
 
-  const activeSheets = useMemo(() => (designSheets||[]).filter(s=>s.status!=='dropped').sort((a,b)=> {
-    const da = getDaysUntil(a.deadline) ?? 9999;
-    const db = getDaysUntil(b.deadline) ?? 9999;
-    if (da !== db) return da - db;
-    return (b.updatedAt||'').localeCompare(a.updatedAt||'');
-  }), [designSheets]);
+  // 의뢰가 쓰고 있는 설계서 (Drop 제외 — 아이템화·생산 현황으로 간 것도 찾아서 그 의뢰를 표에서 빼는 데 씀)
+  const sheetOfDev = useMemo(() => {
+    const live = (designSheets || []).filter(s => s.status !== 'dropped');
+    return (d) => live.find(s => s.devRequestId === d.id || (d.linkedDesignSheetId && s.id === d.linkedDesignSheetId)) || null;
+  }, [designSheets]);
+  // 줄 만들기 — 끝났거나(아이템화) 생산 현황 샘플 오더로 넘어간 설계서는 이 표에서 빠짐
+  const workRows = useMemo(() => {
+    const rows = [];
+    const placed = new Set();
+    (devRequests || []).forEach(d => {
+      if (!['pending', 'analyzing', 'hold', 'confirmed'].includes(d.status)) return;
+      const s = sheetOfDev(d);
+      if (!s) {
+        rows.push({ key: `d_${d.id}`, kind: 'dev', dev: d, sheet: null, linkedDev: null });
+        return;
+      }
+      placed.add(s.id);
+      if (s.stage === 'articled' || sampleOrderBySheet.has(String(s.id))) return;
+      rows.push({ key: `d_${d.id}`, kind: 'both', dev: d, sheet: s, linkedDev: null });
+    });
+    // 의뢰 줄에 붙지 않은 진행 중 설계서 = 자체개발 (또는 의뢰가 Drop·삭제된 설계서)
+    (designSheets || []).forEach(s => {
+      if (s.status === 'dropped' || placed.has(s.id)) return;
+      if (s.stage === 'articled' || sampleOrderBySheet.has(String(s.id))) return;
+      const linkedDev = s.devRequestId ? (devRequests || []).find(d => d.id === s.devRequestId) || null : null;
+      rows.push({ key: `s_${s.id}`, kind: 'self', dev: null, sheet: s, linkedDev });
+    });
+    return rows;
+  }, [devRequests, designSheets, sheetOfDev, sampleOrderBySheet]);
 
-  const sheetsByStage = useMemo(() => {
-    const grouped = { draft: [], eztex: [], sampling: [], articled: [] };
-    activeSheets.forEach(s => { if(grouped[s.stage]) grouped[s.stage].push(s); });
-    return grouped;
-  }, [activeSheets]);
-
-  const confirmedLinkedDevs = useMemo(
-    () => confirmedDevReqs.filter(d => {
-      if (d.linkedDesignSheetId) return true;
-      return (designSheets||[]).some(s => s.devRequestId === d.id && s.status !== 'dropped');
-    }),
-    [confirmedDevReqs, designSheets]
+  // 보관함: 생산 현황으로 넘어간 의뢰 (샘플 진행) · 아이템화된 설계서 · Drop된 의뢰
+  const inProductionDevs = useMemo(() => (devRequests || []).filter(d => {
+    if (d.status !== 'confirmed') return false;
+    const s = sheetOfDev(d);
+    return !!s && s.stage !== 'articled' && sampleOrderBySheet.has(String(s.id));
+  }), [devRequests, sheetOfDev, sampleOrderBySheet]);
+  const articledSheets = useMemo(
+    () => (designSheets || []).filter(s => s.status !== 'dropped' && s.stage === 'articled'),
+    [designSheets]
   );
-  const articledSheets = sheetsByStage.articled;
-  const archiveCount = rejectedDevReqs.length + confirmedLinkedDevs.length + articledSheets.length;
-
-  // confirmed 이지만 설계서 미연결 → "설계 대기" (의뢰 리스트에 포함)
-  const designPendingDevs = useMemo(
-    () => confirmedDevReqs.filter(d => !d.linkedDesignSheetId &&
-      !(designSheets||[]).some(s => s.devRequestId === d.id && s.status !== 'dropped')),
-    [confirmedDevReqs, designSheets]
-  );
-
-  // 의뢰 리스트 데이터: pending/analyzing/hold + confirmed(설계서 미연결)
-  const devReqItems = useMemo(() => {
-    const active = (devRequests||[]).filter(d => ['pending','analyzing','hold'].includes(d.status));
-    return [...active, ...designPendingDevs];
-  }, [devRequests, designPendingDevs]);
+  const archiveCount = rejectedDevReqs.length + inProductionDevs.length + articledSheets.length;
 
   // 의뢰 줄마다 원가 견적 배지 ('견적'/'예상' · ⚠) — PC 표·모바일 카드가 같이 쓰므로 한 번만 계산
   const devQuoteBadges = useMemo(
-    () => new Map(devReqItems.map(d => [d.id, getDevQuoteBadge(d, devQuoteIndex.get(String(d.id)) || [])])),
-    [devReqItems, devQuoteIndex]
+    () => new Map(workRows.filter(r => r.dev).map(r => [r.dev.id, getDevQuoteBadge(r.dev, devQuoteIndex.get(String(r.dev.id)) || [])])),
+    [workRows, devQuoteIndex]
   );
 
-  // 설계서 리스트 데이터: articled 제외
-  const sheetItems = useMemo(() =>
-    activeSheets.filter(s => s.stage !== 'articled')
-  , [activeSheets]);
-
-  // 요약 메트릭
-  const metrics = useMemo(() => {
-    const allItems = [
-      ...devReqItems.map(d => ({ urgency: getDevReqUrgency(d), createdAt: d.createdAt })),
-      ...sheetItems.map(s => ({ urgency: getSheetUrgency(s), createdAt: s.createdAt }))
-    ];
-    return {
-      total: allItems.length,
-      overdue: allItems.filter(x => x.urgency === 'overdue').length,
-      urgent: allItems.filter(x => x.urgency === 'urgent').length,
-      newToday: (devRequests||[]).filter(d => isCreatedToday(d.createdAt)).length
-    };
-  }, [devReqItems, sheetItems, devRequests]);
+  // 요약 메트릭 (표의 개발 건 기준)
+  const metrics = useMemo(() => ({
+    total: workRows.length,
+    overdue: workRows.filter(r => rowUrgency(r) === 'overdue').length,
+    urgent: workRows.filter(r => rowUrgency(r) === 'urgent').length,
+    newToday: workRows.filter(r => isCreatedToday(rowCreatedAt(r))).length,
+  }), [workRows]);
 
   // 의뢰 상태 → 통합 단계 매핑
   const devStageKey = (d) => {
@@ -323,63 +376,34 @@ export const DevStatusPage = ({
     return d.status;
   };
 
-  const getLinkedDev = (devReqId) => (devRequests||[]).find(d=>d.id===devReqId);
-
-  const visibleDevReqs = useMemo(() => {
-    const filtered = devReqItems.filter(d => devMatchesSearch(d, searchTerm) && passesPriorityFilter(priorityFilter, getDevReqUrgency(d), d));
+  const visibleRows = useMemo(() => {
+    const filtered = workRows.filter(r => rowMatchesSearch(r, searchTerm)
+      && passesPriorityFilter(priorityFilter, rowUrgency(r), { createdAt: rowCreatedAt(r) }));
     const sorted = [...filtered];
     if (devSortBy === 'odno') {
-      // O/D No.(개발번호) 오름차순 — 번호 없는 건 뒤로
+      // O/D No.(개발번호) 오름차순 — 번호 없는 건(자체개발 등) 뒤로, 그 안에서는 최근 순
       sorted.sort((a, b) => {
-        const na = String(a.devOrderNo || '').trim();
-        const nb = String(b.devOrderNo || '').trim();
+        const na = rowOdNo(a);
+        const nb = rowOdNo(b);
         if (!!na !== !!nb) return na ? -1 : 1;
-        return na.localeCompare(nb, 'ko');
+        if (na && nb) return na.localeCompare(nb, 'ko');
+        return rowUpdatedAt(b).localeCompare(rowUpdatedAt(a));
       });
     } else if (devSortBy === 'date') {
-      sorted.sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
+      sorted.sort((a, b) => rowUpdatedAt(b).localeCompare(rowUpdatedAt(a)));
     } else if (devSortBy === 'stage') {
-      sorted.sort((a, b) => (devStageOrder[a.status] ?? 99) - (devStageOrder[b.status] ?? 99));
+      sorted.sort((a, b) => rowStageOrder(a) - rowStageOrder(b));
     } else if (devSortBy === 'buyer') {
-      sorted.sort((a, b) => String(a.buyerName || '').localeCompare(String(b.buyerName || ''), 'ko'));
-    }
-    return sorted;
-  }, [devReqItems, searchTerm, priorityFilter, devSortBy]);
-
-  const visibleSheets = useMemo(() => {
-    // 연결된 개발 의뢰(바이어명 검색·바이어순 정렬) — 개발 의뢰가 늦게 불러와지거나 바뀌어도 다시 계산되게 devRequests를 의존성에
-    const linkedDevOf = (devReqId) => (devRequests || []).find(d => d.id === devReqId);
-    const filtered = sheetItems.filter(s => sheetMatchesSearch(s, searchTerm, linkedDevOf(s.devRequestId)) && passesPriorityFilter(priorityFilter, getSheetUrgency(s), s));
-    const sorted = [...filtered];
-    if (sheetSortBy === 'eztex') {
-      // EZ-TEX No. 오름차순 — 번호 있는 설계서 먼저, 없는 건 등록일 최신순으로 뒤에
+      // 자체개발(바이어 없음)은 뒤로
       sorted.sort((a, b) => {
-        const ea = (a.eztexOrderNo || '').trim();
-        const eb = (b.eztexOrderNo || '').trim();
-        if (!!ea !== !!eb) return ea ? -1 : 1;
-        if (ea && eb) { const c = ea.localeCompare(eb, 'ko'); if (c !== 0) return c; }
-        const ka = a.registeredDate || (a.createdAt || '').slice(0, 10);
-        const kb = b.registeredDate || (b.createdAt || '').slice(0, 10);
-        return kb.localeCompare(ka);
-      });
-    } else if (sheetSortBy === 'date') {
-      // 등록 날짜(registeredDate) 우선, 없으면 createdAt 의 날짜 부분으로 폴백 (최신순)
-      sorted.sort((a, b) => {
-        const ka = a.registeredDate || (a.createdAt || '').slice(0, 10);
-        const kb = b.registeredDate || (b.createdAt || '').slice(0, 10);
-        return kb.localeCompare(ka);
-      });
-    } else if (sheetSortBy === 'stage') {
-      sorted.sort((a, b) => (sheetStageOrder[a.stage] ?? 99) - (sheetStageOrder[b.stage] ?? 99));
-    } else if (sheetSortBy === 'buyer') {
-      sorted.sort((a, b) => {
-        const da = linkedDevOf(a.devRequestId)?.buyerName || (a.devRequestId ? '' : 'zzz_자체개발');
-        const db = linkedDevOf(b.devRequestId)?.buyerName || (b.devRequestId ? '' : 'zzz_자체개발');
-        return String(da).localeCompare(String(db), 'ko');
+        const ba = rowBuyerName(a);
+        const bb = rowBuyerName(b);
+        if (!!ba !== !!bb) return ba ? -1 : 1;
+        return ba.localeCompare(bb, 'ko');
       });
     }
     return sorted;
-  }, [sheetItems, searchTerm, priorityFilter, sheetSortBy, devRequests]);
+  }, [workRows, searchTerm, priorityFilter, devSortBy]);
 
   // 핸들러
   const handleGoToSheet = (devReq) => {
@@ -440,16 +464,27 @@ export const DevStatusPage = ({
       updateDevStatus(devReq.id, 'rejected');
     }
   };
-  const confirmDrop = async (reason, memo) => {
-    if (!dropTargetId || !dropDevRequest) return;
-    const ok = await dropDevRequest(dropTargetId, { reason, memo }, user);
-    if (ok) setDropTargetId(null);
-  };
-
   // 원가 견적 창 — 열린 의뢰는 최신 목록에서 다시 찾음 (저장하면 목록 값이 바뀜)
   const costQuoteDev = costQuoteDevId ? (devRequests || []).find(d => d.id === costQuoteDevId) : null;
   const dropTargetDev = dropTargetId ? (devRequests || []).find(d => d.id === dropTargetId) : null;
+  // Drop 하려는 의뢰가 쓰고 있는 설계서 (이 표에 있는 것 — 생산 현황으로 간 것·아이템화는 아님)
+  const dropTargetSheet = dropTargetDev ? workRows.find(r => r.dev?.id === dropTargetDev.id)?.sheet || null : null;
 
+  // 의뢰 Drop 사유 창의 [Drop 처리] — 설계서까지 쓴 개발 건은 설계서도 같이 Drop (대표님 결정 2026-10-10)
+  //  설계서를 먼저 (확인 창·알림 없이, 의뢰 연결은 바로 뒤 의뢰 저장이 풂), 그다음 의뢰 (사유 저장 + 알림)
+  //  설계서 Drop 이 안 되면 의뢰도 그대로 두고 창도 그대로
+  const confirmDrop = async (reason, memo) => {
+    if (!dropTargetId || !dropDevRequest) return;
+    const sheet = dropTargetSheet;
+    if (sheet && dropDesignSheet) {
+      const okSheet = await dropDesignSheet(sheet.id, { confirm: false, quiet: true, keepDevLink: true });
+      if (!okSheet) return;
+    }
+    const ok = await dropDevRequest(dropTargetId, { reason, memo, note: sheet ? '설계서도 같이 Drop했어요.' : '' }, user);
+    if (ok) setDropTargetId(null);
+  };
+
+  // 자체개발 설계서 줄의 [Drop] — 설계서만 (확인 창은 설계서 훅)
   const handleDropSheet = (sheetId) => {
     if (dropDesignSheet) dropDesignSheet(sheetId);
   };
@@ -495,7 +530,7 @@ export const DevStatusPage = ({
               <div className="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-200"><Activity className="w-6 h-6 text-white"/></div>
               개발/설계 현황
             </h1>
-            <p className="text-xs text-slate-500 mt-0.5">의뢰 접수부터 설계, 샘플 진행까지 한 곳에서 관리합니다. (아이템화 완료는 [설계서 보관함])</p>
+            <p className="text-xs text-slate-500 mt-0.5">의뢰 접수 → 설계서 작성 → EZ-TEX 등록까지 여기서, 샘플 진행·아이템화는 생산 현황(샘플)에서 관리합니다.</p>
           </div>
           <div className="flex flex-wrap gap-2 items-center">
             <div className="relative flex-1 min-w-[200px] md:max-w-[280px]">
@@ -510,11 +545,18 @@ export const DevStatusPage = ({
             </div>
             <button onClick={() => setIsArchiveOpen(true)}
               className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors"
-              title="Drop 의뢰 / 설계서 연결됨 / 아이템화 완료 항목 보기"
+              title="Drop된 의뢰 / 샘플 진행(생산 현황으로 넘어간 의뢰) / 아이템화 완료 항목 보기"
             >
               <Archive className="w-3.5 h-3.5" /> 보관함
               {archiveCount > 0 && <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[10px]">{archiveCount}</span>}
             </button>
+            {onNewSelfSheet && (
+              <button onClick={onNewSelfSheet}
+                className="flex items-center gap-1.5 px-3 py-2 border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-lg hover:bg-indigo-100 transition-colors"
+                title="의뢰 없이 그루빅 자체개발 설계서를 작성해요 (표에 '자체개발' 줄로 보여요)">
+                <FileText className="w-3.5 h-3.5"/> 자체 설계서
+              </button>
+            )}
             <button onClick={openNewModal} className="flex items-center gap-1.5 px-4 py-2 bg-slate-800 text-white text-xs font-bold rounded-lg shadow-md hover:shadow-lg active:scale-95 transition-all">
               <Plus className="w-3.5 h-3.5"/> 새 의뢰 등록
             </button>
@@ -541,7 +583,7 @@ export const DevStatusPage = ({
           >
             <span className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
               <Info className="w-4 h-4 text-blue-600"/>
-              단계 안내 — 개발 의뢰 3단계 + 설계서 4단계
+              단계 안내 — 개발 의뢰 → 설계서 → 생산 현황(샘플)
             </span>
             {showGuide ? <ChevronUp className="w-4 h-4 text-slate-500"/> : <ChevronDown className="w-4 h-4 text-slate-500"/>}
           </button>
@@ -573,7 +615,7 @@ export const DevStatusPage = ({
                   <FileText className="w-3.5 h-3.5"/> 설계서 단계 (4)
                 </div>
                 <p className="text-[10px] text-slate-500 mb-3 leading-relaxed">
-                  개발 확정된 의뢰 또는 그루빅 자체 개발 건을 설계서로 작성·생산하는 단계입니다.
+                  개발 확정된 의뢰(또는 자체 개발 건)를 설계서로 작성하고, EZ-TEX 번호를 등록하면 생산 현황(샘플)에서 진행해요.
                 </p>
                 <ol className="space-y-2">
                   {DESIGN_STAGE_GUIDE.map((s, i) => (
@@ -591,14 +633,20 @@ export const DevStatusPage = ({
           )}
         </div>
 
-        {/* === 섹션 A: 개발 의뢰 현황 === */}
+        {/* === 개발 의뢰 현황 (한 표) — 의뢰 + 설계서 + 자체개발 (대표님 요청 2026-10-10) ===
+            한 줄 = 개발 건 하나: 의뢰 접수 → 분석 → 대기 → 개발 확정 → [설계 시작] → 설계서 작성 → EZ-TEX 번호 [등록]
+            → 생산 현황 샘플 오더로 넘어가면 이 표에서 빠짐 (샘플 진행·아이템화·Drop 은 생산 현황에서)
+            예전 '설계서 진행 현황' 표는 없앰 — 설계서는 그 의뢰 줄에, 의뢰 없는 설계서는 '자체개발' 줄로 */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-          <div className="bg-gradient-to-r from-purple-50 to-pink-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-            <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
-              <ClipboardList className="w-4 h-4 text-purple-600"/>
-              개발 의뢰 현황
-              <span className="text-[11px] font-normal text-slate-600 bg-white border border-slate-200 px-2 py-0.5 rounded-full">{visibleDevReqs.length}건</span>
-            </h3>
+          <div className="bg-gradient-to-r from-purple-50 to-pink-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-2 flex-wrap">
+            <div className="min-w-0">
+              <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
+                <ClipboardList className="w-4 h-4 text-purple-600"/>
+                개발 의뢰 현황
+                <span className="text-[11px] font-normal text-slate-600 bg-white border border-slate-200 px-2 py-0.5 rounded-full">{visibleRows.length}건</span>
+              </h3>
+              <p className="text-[10px] text-slate-500 mt-0.5">개발 확정 → 설계서 작성 → EZ-TEX 번호를 [등록]하면 생산 현황(샘플)으로 넘어가요</p>
+            </div>
             <div className="flex items-center gap-2">
               <label className="text-[10px] text-slate-500 font-bold">정렬</label>
               <select
@@ -614,41 +662,54 @@ export const DevStatusPage = ({
             </div>
           </div>
 
-          {visibleDevReqs.length === 0 ? (
+          {visibleRows.length === 0 ? (
             <div className="text-center py-10 text-slate-400">
               <ClipboardList className="w-10 h-10 mx-auto mb-2 opacity-30"/>
-              <p className="text-xs font-bold">진행 중인 개발 의뢰가 없습니다.</p>
+              <p className="text-xs font-bold">진행 중인 개발 건이 없습니다.</p>
+              <p className="text-[10px] mt-1">EZ-TEX를 등록한 건은 생산 현황(샘플)에서 관리해요.</p>
             </div>
           ) : (
             <>
               {/* 데스크톱 테이블 */}
               <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[1000px]">
+                <table className="w-full text-left border-collapse min-w-[1100px]">
                   <thead>
                     <tr className="bg-slate-100/70 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                       <th className="px-2 py-1.5 border-r border-slate-200 w-[110px]">O/D No.</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 w-[130px]">바이어</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200">품목명</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200 w-[120px]">바이어</th>
+                      <th className="px-2 py-1.5 border-r border-slate-200">품목명 · 설계서</th>
                       <th className="px-2 py-1.5 border-r border-slate-200 w-[185px]">현재 단계</th>
                       <th className="px-2 py-1.5 border-r border-slate-200 w-[115px]">납기(경과)</th>
-                      <th className="px-2 py-1.5 w-[390px] text-right">관리</th>
+                      <th className="px-2 py-1.5 w-[450px] text-right">관리</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleDevReqs.map(d => {
-                      const urgency = getDevReqUrgency(d);
-                      const stageEntry = formatStageEntry(d.statusEnteredAt?.[d.status] || d.updatedAt || d.createdAt);
-                      const devDl = getDevReqDeadline(d);
-                      const db = deadlineBadge(devDl);
-                      const enteredDays = daysSince(d.statusEnteredAt?.[d.status] || d.updatedAt || d.createdAt);
-                      const nextAction = nextStatusAction(d.status);
-                      const quoteBadge = devQuoteBadges.get(d.id);
+                    {visibleRows.map(row => {
+                      const { dev: d, sheet: s } = row;
+                      const urgency = rowUrgency(row);
+                      const dl = rowDeadline(row);
+                      const db = deadlineBadge(dl);
+                      const enteredIso = rowEnteredAt(row);
+                      const stageEntry = formatStageEntry(enteredIso);
+                      const enteredDays = daysSince(enteredIso);
+                      const quoteBadge = d ? devQuoteBadges.get(d.id) : null;
+                      const nextAction = d && !s ? nextStatusAction(d.status) : null;
                       return (
-                        <tr key={d.id} className={`border-b border-slate-100 hover:bg-slate-50/50 transition-colors ${rowBg(urgency)}`}>
-                          <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-mono font-extrabold text-violet-700">{d.devOrderNo || '-'}</td>
-                          <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-bold text-slate-700 truncate">{d.buyerName || '-'}</td>
-                          <td className="px-2 py-1.5 border-r border-slate-100 text-xs font-bold text-slate-800 truncate">
-                            {d.devItem || d.targetSpec?.composition || '품목명 미입력'}
+                        <tr key={row.key} className={`border-b border-slate-100 hover:bg-slate-50/50 transition-colors ${rowBg(urgency)}`}>
+                          <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-mono font-extrabold text-violet-700">
+                            {rowOdNo(row) || (d ? '-' : <span className="text-slate-500">자체</span>)}
+                          </td>
+                          <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-bold text-slate-700 truncate">
+                            <RowBuyer row={row} />
+                          </td>
+                          <td className="px-2 py-1.5 border-r border-slate-100 text-xs font-bold text-slate-800">
+                            <div className="truncate">{rowTitle(row)}</div>
+                            {showSheetName(row) && (
+                              <div className="flex items-center gap-1 text-[10px] font-semibold text-indigo-700 min-w-0" title="이 의뢰로 쓰는 설계서">
+                                <FileText className="w-3 h-3 shrink-0"/>
+                                <span className="truncate">{s.fabricName || '원단명 미입력'}</span>
+                              </div>
+                            )}
                             {(stageEntry || quoteBadge) && (
                               <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                                 {stageEntry && <span className="text-[9px] text-slate-400 font-medium">📅 {stageEntry}</span>}
@@ -658,24 +719,37 @@ export const DevStatusPage = ({
                           </td>
                           <td className="px-2 py-1.5 border-r border-slate-100">
                             <div className="flex flex-col gap-1">
-                              <PendingProgressBar stageKey={devStageKey(d)} />
-                              <select
-                                value={d.status}
-                                onChange={(e) => updateDevStatus && updateDevStatus(d.id, e.target.value)}
-                                title="단계를 변경하려면 선택하세요"
-                                className="w-full max-w-[170px] text-[10px] font-bold border border-slate-300 rounded px-1.5 py-0.5 bg-white hover:border-purple-300 focus:ring-2 ring-purple-200 outline-none cursor-pointer"
-                              >
-                                {DEV_REQ_STAGE_GUIDE.map(s => (
-                                  <option key={s.key} value={s.key} title={s.desc}>{s.label}</option>
-                                ))}
-                                <option value="confirmed" title="개발 가능 확정 — 설계서 작성 가능">개발 확정</option>
-                              </select>
+                              <PendingProgressBar stageKey={s ? s.stage : devStageKey(d)} />
+                              {s ? (
+                                <select
+                                  value={s.stage}
+                                  onChange={(e) => setStage && setStage(s.id, e.target.value)}
+                                  title="설계서 단계 — EZ-TEX 번호를 [등록]하면 '샘플 진행'으로 자동으로 넘어가요"
+                                  className="w-full max-w-[170px] text-[10px] font-bold border border-indigo-200 rounded px-1.5 py-0.5 bg-white hover:border-indigo-300 focus:ring-2 ring-indigo-200 outline-none cursor-pointer"
+                                >
+                                  {DESIGN_STAGE_GUIDE.map(stage => (
+                                    <option key={stage.key} value={stage.key} title={stage.desc}>{stage.label}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <select
+                                  value={d.status}
+                                  onChange={(e) => updateDevStatus && updateDevStatus(d.id, e.target.value)}
+                                  title="단계를 변경하려면 선택하세요"
+                                  className="w-full max-w-[170px] text-[10px] font-bold border border-slate-300 rounded px-1.5 py-0.5 bg-white hover:border-purple-300 focus:ring-2 ring-purple-200 outline-none cursor-pointer"
+                                >
+                                  {DEV_REQ_STAGE_GUIDE.map(st => (
+                                    <option key={st.key} value={st.key} title={st.desc}>{st.label}</option>
+                                  ))}
+                                  <option value="confirmed" title="개발 가능 확정 — 설계서 작성 가능">개발 확정</option>
+                                </select>
+                              )}
                             </div>
                           </td>
                           <td className="px-2 py-1.5 border-r border-slate-100 text-xs">
-                            {devDl ? (
+                            {dl ? (
                               <div className="flex flex-col gap-0.5">
-                                <span className="font-mono font-bold text-slate-700">{devDl}</span>
+                                <span className="font-mono font-bold text-slate-700">{dl}</span>
                                 {db
                                   ? <span className={`inline-block w-fit text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>
                                   : (enteredDays != null && <span className="text-[9px] text-slate-400">{enteredDays}일째</span>)}
@@ -686,7 +760,16 @@ export const DevStatusPage = ({
                           </td>
                           <td className="px-2 py-1.5">
                             <div className="flex gap-1 justify-end flex-wrap items-center">
-                              {d.status === 'confirmed' ? (
+                              {s ? (
+                                <>
+                                  <EztexRegister sheet={s} onSubmit={handleEztexSubmit} />
+                                  <button onClick={() => handleEditSheet?.(s)}
+                                    className="flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-[10px] font-bold rounded border border-indigo-200"
+                                    title="설계서 열기 (보기·수정)">
+                                    <FileText className="w-3 h-3"/> 설계서 열기
+                                  </button>
+                                </>
+                              ) : d.status === 'confirmed' ? (
                                 <button onClick={() => handleGoToSheet(d)}
                                   className="flex items-center gap-1 px-2 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded shadow-sm"
                                   title="설계서 작성 시작">
@@ -699,34 +782,62 @@ export const DevStatusPage = ({
                                   <ArrowRight className="w-3 h-3"/> {nextAction.label}
                                 </button>
                               )}
-                              {saveDevCostQuote && (
+                              {d && saveDevCostQuote && (
                                 <CostQuoteButton devReq={d} quoteCount={quotesOfDev(d.id).length} onClick={() => setCostQuoteDevId(d.id)} />
                               )}
-                              <div className="relative">
-                                <button onClick={() => setPrintMenuId(printMenuId === d.id ? null : d.id)}
-                                  className="flex items-center gap-1 px-2 py-0.5 bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-bold rounded border border-slate-200"
-                                  title="의뢰서 인쇄 (편직처용 / 내부용)">
-                                  <Printer className="w-3 h-3"/>
-                                  <ChevronDown className="w-2.5 h-2.5"/>
+                              {d && (
+                                <div className="relative">
+                                  <button onClick={() => setPrintMenuId(printMenuId === d.id ? null : d.id)}
+                                    className="flex items-center gap-1 px-2 py-0.5 bg-slate-50 text-slate-600 hover:bg-slate-100 text-[10px] font-bold rounded border border-slate-200"
+                                    title="의뢰서 인쇄 (편직처용 / 내부용)">
+                                    <Printer className="w-3 h-3"/>
+                                    <ChevronDown className="w-2.5 h-2.5"/>
+                                  </button>
+                                  {printMenuId === d.id && (
+                                    <PrintModeMenu
+                                      onSelect={(mode) => handlePrint(d, mode)}
+                                      onClose={() => setPrintMenuId(null)}
+                                    />
+                                  )}
+                                </div>
+                              )}
+                              {d && (
+                                <button onClick={() => openEditModal(d)}
+                                  className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10px] font-bold rounded border border-blue-200"
+                                  title="의뢰 수정">
+                                  <Edit2 className="w-3 h-3"/> {s ? '의뢰 수정' : '수정'}
                                 </button>
-                                {printMenuId === d.id && (
-                                  <PrintModeMenu
-                                    onSelect={(mode) => handlePrint(d, mode)}
-                                    onClose={() => setPrintMenuId(null)}
-                                  />
-                                )}
-                              </div>
-                              <button onClick={() => openEditModal(d)}
-                                className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10px] font-bold rounded border border-blue-200"
-                                title="의뢰 수정">
-                                <Edit2 className="w-3 h-3"/> 수정
-                              </button>
-                              <button onClick={() => handleDropDev(d)}
+                              )}
+                              {s && (canLinkSheet(row) ? (
+                                <button onClick={() => { setLinkSearch(''); setLinkTargetSheet(s); }}
+                                  className="flex items-center gap-1 px-2 py-0.5 bg-violet-50 text-violet-600 hover:bg-violet-100 text-[10px] font-bold rounded border border-violet-200"
+                                  title="기존 개발 의뢰와 수동 연결">
+                                  <Link2 className="w-3 h-3"/> 연결
+                                </button>
+                              ) : (
+                                <button onClick={() => unlinkSheetFromDevRequest?.(s.id)}
+                                  className="flex items-center px-1.5 py-0.5 bg-slate-50 text-slate-500 hover:bg-slate-100 text-[10px] font-bold rounded border border-slate-200"
+                                  title="개발 의뢰 연결 해제 (설계서는 자체개발 줄로, 의뢰는 '개발 확정' 줄로 나뉘어요)">
+                                  <Unlink className="w-3 h-3"/>
+                                </button>
+                              ))}
+                              <button onClick={() => (d ? handleDropDev(d) : handleDropSheet(s.id))}
                                 className="flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 hover:bg-red-100 text-[10px] font-bold rounded border border-red-200"
-                                title="의뢰 Drop (미진행 — 보관함에 남음)">
+                                title={d
+                                  ? (s ? '의뢰와 설계서를 같이 Drop (사유 선택 — 보관함에 남음)' : '의뢰 Drop (미진행 — 보관함에 남음)')
+                                  : '설계서 Drop (보관함으로 — 복원 가능)'}>
                                 <XCircle className="w-3 h-3"/> Drop
                               </button>
-                              <RowDeleteButton onClick={() => handleRowDelete(d)} title="의뢰 삭제 (영구 삭제 — 복구할 수 없어요. 보관만 하려면 Drop)" />
+                              {s ? (
+                                handleDeleteSheet && (
+                                  <RowDeleteButton onClick={() => handleDeleteSheet(s.id)}
+                                    title={d
+                                      ? "설계서만 삭제 (영구 삭제 — 의뢰는 남아서 '개발 확정' 줄로 돌아가요)"
+                                      : '설계서 삭제 (영구 삭제 — 복구할 수 없어요. 보관만 하려면 Drop)'} />
+                                )
+                              ) : (
+                                <RowDeleteButton onClick={() => handleRowDelete(d)} title="의뢰 삭제 (영구 삭제 — 복구할 수 없어요. 보관만 하려면 Drop)" />
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -738,37 +849,66 @@ export const DevStatusPage = ({
 
               {/* 모바일 카드 */}
               <div className="block md:hidden p-3 space-y-2 bg-slate-50">
-                {visibleDevReqs.map(d => {
-                  const days = daysSince(d.updatedAt || d.createdAt);
-                  const db = deadlineBadge(getDevReqDeadline(d));
-                  const nextAction = nextStatusAction(d.status);
-                  const quoteBadge = devQuoteBadges.get(d.id);
+                {visibleRows.map(row => {
+                  const { dev: d, sheet: s } = row;
+                  const days = daysSince(rowUpdatedAt(row));
+                  const db = deadlineBadge(rowDeadline(row));
+                  const nextAction = d && !s ? nextStatusAction(d.status) : null;
+                  const quoteBadge = d ? devQuoteBadges.get(d.id) : null;
                   return (
-                    <div key={d.id} className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
+                    <div key={row.key} className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-purple-50 text-purple-700 border-purple-200">의뢰</span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${s ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-purple-50 text-purple-700 border-purple-200'}`}>
+                          {row.kind === 'dev' ? '의뢰' : row.kind === 'both' ? '의뢰 · 설계서' : '자체개발 설계서'}
+                        </span>
                         <span className="text-[10px] text-slate-400">{days != null ? `${days}일 경과` : ''}</span>
                       </div>
-                      <p className="text-xs font-mono font-extrabold text-violet-700 mb-0.5">{d.devOrderNo || '-'}</p>
-                      <p className="text-sm font-bold text-slate-800 mb-0.5">{d.devItem || d.targetSpec?.composition || '품목명 미입력'}</p>
-                      <p className="text-[11px] text-slate-500 mb-2">{d.buyerName || '-'}</p>
+                      <p className="text-xs font-mono font-extrabold text-violet-700 mb-0.5">{rowOdNo(row) || (d ? '-' : '자체')}</p>
+                      <p className="text-sm font-bold text-slate-800 mb-0.5">{rowTitle(row)}</p>
+                      {showSheetName(row) && (
+                        <p className="flex items-center gap-1 text-[11px] font-semibold text-indigo-700 mb-0.5">
+                          <FileText className="w-3 h-3 shrink-0"/> {s.fabricName || '원단명 미입력'}
+                        </p>
+                      )}
+                      <p className="text-[11px] text-slate-500 mb-2"><RowBuyer row={row} /></p>
                       {quoteBadge && <div className="mb-2"><DevQuoteBadge badge={quoteBadge} /></div>}
-                      <div className="mb-2 flex items-center gap-2">
-                        <PendingProgressBar stageKey={devStageKey(d)} />
+                      <div className="mb-2 flex items-center gap-2 flex-wrap">
+                        <PendingProgressBar stageKey={s ? s.stage : devStageKey(d)} />
                         {db && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>}
                       </div>
-                      <select
-                        value={d.status}
-                        onChange={(e) => updateDevStatus && updateDevStatus(d.id, e.target.value)}
-                        className="mb-2 w-full text-[11px] font-bold border border-slate-300 rounded px-2 py-1.5 bg-white"
-                      >
-                        {DEV_REQ_STAGE_GUIDE.map(s => (
-                          <option key={s.key} value={s.key}>{s.label}</option>
-                        ))}
-                        <option value="confirmed">개발 확정</option>
-                      </select>
+                      {s ? (
+                        <select
+                          value={s.stage}
+                          onChange={(e) => setStage && setStage(s.id, e.target.value)}
+                          className="mb-2 w-full text-[11px] font-bold border border-indigo-200 rounded px-2 py-1.5 bg-white"
+                        >
+                          {DESIGN_STAGE_GUIDE.map(stage => (
+                            <option key={stage.key} value={stage.key}>{stage.label}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <select
+                          value={d.status}
+                          onChange={(e) => updateDevStatus && updateDevStatus(d.id, e.target.value)}
+                          className="mb-2 w-full text-[11px] font-bold border border-slate-300 rounded px-2 py-1.5 bg-white"
+                        >
+                          {DEV_REQ_STAGE_GUIDE.map(st => (
+                            <option key={st.key} value={st.key}>{st.label}</option>
+                          ))}
+                          <option value="confirmed">개발 확정</option>
+                        </select>
+                      )}
+                      {s && (
+                        <div className="mb-2">
+                          <EztexRegister sheet={s} onSubmit={handleEztexSubmit} size="md" />
+                        </div>
+                      )}
                       <div className="flex flex-wrap gap-1.5">
-                        {d.status === 'confirmed' ? (
+                        {s ? (
+                          <button onClick={() => handleEditSheet?.(s)} className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-indigo-50 text-indigo-700 text-[11px] font-bold rounded border border-indigo-200">
+                            <FileText className="w-3 h-3"/> 설계서 열기
+                          </button>
+                        ) : d.status === 'confirmed' ? (
                           <button onClick={() => handleGoToSheet(d)} className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-indigo-600 text-white text-[11px] font-bold rounded">
                             <ArrowRight className="w-3 h-3"/> 설계 시작
                           </button>
@@ -777,335 +917,29 @@ export const DevStatusPage = ({
                             <ArrowRight className="w-3 h-3"/> {nextAction.label}
                           </button>
                         )}
-                        {saveDevCostQuote && (
+                        {d && saveDevCostQuote && (
                           <CostQuoteButton size="md" devReq={d} quoteCount={quotesOfDev(d.id).length} onClick={() => setCostQuoteDevId(d.id)} />
                         )}
-                        <div className="relative">
-                          <button onClick={() => setPrintMenuId(printMenuId === d.id ? null : d.id)}
-                            className="flex items-center justify-center gap-1 px-2 py-1.5 bg-slate-50 text-slate-600 text-[11px] font-bold rounded border border-slate-200">
-                            <Printer className="w-3 h-3"/> 인쇄
-                          </button>
-                          {printMenuId === d.id && (
-                            <PrintModeMenu
-                              onSelect={(mode) => handlePrint(d, mode)}
-                              onClose={() => setPrintMenuId(null)}
-                            />
-                          )}
-                        </div>
-                        <button onClick={() => openEditModal(d)} className="flex items-center justify-center gap-1 px-2 py-1.5 bg-blue-50 text-blue-600 text-[11px] font-bold rounded border border-blue-200">
-                          <Edit2 className="w-3 h-3"/> 수정
-                        </button>
-                        <button onClick={() => handleDropDev(d)} className="flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 text-[11px] font-bold rounded border border-red-200">
-                          <XCircle className="w-3 h-3"/> Drop
-                        </button>
-                        <RowDeleteButton size="md" onClick={() => handleRowDelete(d)} title="의뢰 삭제 (영구 삭제 — 복구할 수 없어요)" />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* === 섹션 B: 설계서 진행 현황 === */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-          <div className="bg-gradient-to-r from-indigo-50 to-blue-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-            <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
-              <FileText className="w-4 h-4 text-indigo-600"/>
-              설계서 진행 현황
-              <span className="text-[11px] font-normal text-slate-600 bg-white border border-slate-200 px-2 py-0.5 rounded-full">{visibleSheets.length}건</span>
-            </h3>
-            <div className="flex items-center gap-2">
-              <label className="text-[10px] text-slate-500 font-bold">정렬</label>
-              <select
-                value={sheetSortBy}
-                onChange={(e) => setSheetSortBy(e.target.value)}
-                className="text-[11px] font-bold border border-slate-300 rounded px-2 py-1 bg-white hover:border-indigo-300 focus:ring-2 ring-indigo-200 outline-none cursor-pointer"
-              >
-                <option value="eztex">EZ-TEX No.순 (기본)</option>
-                <option value="date">등록 날짜순 (최신)</option>
-                <option value="stage">단계순</option>
-                <option value="buyer">바이어순</option>
-              </select>
-            </div>
-          </div>
-
-          {visibleSheets.length === 0 ? (
-            <div className="text-center py-10 text-slate-400">
-              <FileText className="w-10 h-10 mx-auto mb-2 opacity-30"/>
-              <p className="text-xs font-bold">진행 중인 설계서가 없습니다.</p>
-            </div>
-          ) : (
-            <>
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[1020px]">
-                  <thead>
-                    <tr className="bg-slate-100/70 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
-                      <th className="px-2 py-1.5 border-r border-slate-200 w-[105px]">EZ-Tex No.</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 w-[100px]">개발번호</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 w-[120px]">바이어</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 w-[95px]">등록 날짜</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200">원단명</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 w-[180px]">현재 단계</th>
-                      <th className="px-2 py-1.5 border-r border-slate-200 w-[115px]">납기(경과)</th>
-                      <th className="px-2 py-1.5 w-[290px] text-right">관리</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleSheets.map(s => {
-                      const dev = getLinkedDev(s.devRequestId);
-                      const isSelfDev = !s.devRequestId || !dev;
-                      const days = daysSince(s.updatedAt || s.createdAt);
-                      const urgency = getSheetUrgency(s);
-                      const stageEntry = formatStageEntry(s.stageEnteredAt?.[s.stage] || s.updatedAt);
-                      const db = deadlineBadge(s.deadline);
-                      const regDate = s.registeredDate || (s.createdAt || '').slice(0, 10) || '-';
-                      return (
-                        <tr key={s.id} className={`border-b border-slate-100 hover:bg-slate-50/50 transition-colors ${rowBg(urgency)}`}>
-                          <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-mono font-bold text-violet-700">
-                            {s.eztexOrderNo || <span className="text-slate-300 font-sans">-</span>}
-                          </td>
-                          <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-mono font-extrabold text-slate-600">{s.devOrderNo || '자체'}</td>
-                          <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-bold text-slate-700 truncate">
-                            {isSelfDev
-                              ? <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-slate-100 text-slate-500 border-slate-200">자체개발</span>
-                              : (dev?.buyerName || '-')}
-                          </td>
-                          <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-mono text-blue-700 font-bold">{regDate}</td>
-                          <td className="px-2 py-1.5 border-r border-slate-100 text-xs font-bold text-slate-800 truncate">
-                            {s.fabricName || '원단명 미입력'}
-                            {stageEntry && <div className="text-[9px] text-slate-400 font-medium mt-0.5">📅 {stageEntry}</div>}
-                          </td>
-                          <td className="px-2 py-1.5 border-r border-slate-100">
-                            <div className="flex flex-col gap-1">
-                              <PendingProgressBar stageKey={s.stage} />
-                              <div className="flex items-center gap-1">
-                                <select
-                                  value={s.stage}
-                                  onChange={(e) => setStage && setStage(s.id, e.target.value)}
-                                  title="단계를 변경하려면 선택하세요"
-                                  className="flex-1 min-w-0 text-[10px] font-bold border border-slate-300 rounded px-1.5 py-0.5 bg-white hover:border-indigo-300 focus:ring-2 ring-indigo-200 outline-none cursor-pointer"
-                                >
-                                  {DESIGN_STAGE_GUIDE.map(stage => (
-                                    <option key={stage.key} value={stage.key} title={stage.desc}>{stage.label}</option>
-                                  ))}
-                                </select>
-                                {/* 샘플 진행: 생산 현황 샘플 오더가 있으면 그 진행(자동) — 누르면 생산 현황으로 */}
-                                {s.stage === 'sampling' && sampleOrderOf(s) && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onOpenProductionOrder?.(sampleOrderOf(s).orderNumber)}
-                                    title={`생산 현황 샘플 오더 ${sampleOrderOf(s).orderNumber} 진행 (자동) — 누르면 생산 현황으로`}
-                                    className={`flex-1 min-w-0 truncate text-[10px] font-bold border rounded px-1.5 py-0.5 hover:brightness-95 ${orderStageOf(sampleOrderOf(s)).cls}`}
-                                  >
-                                    {orderStageOf(sampleOrderOf(s)).label}
-                                  </button>
-                                )}
-                                {/* 샘플 오더가 없는 예전 설계서만: 세부단계 직접 선택 (원사발주 → 편직 → 염가공 / 중단) */}
-                                {s.stage === 'sampling' && !sampleOrderOf(s) && (
-                                  <select
-                                    value={s.samplingSub || 'yarn'}
-                                    onChange={(e) => setSamplingSub && setSamplingSub(s.id, e.target.value)}
-                                    title="샘플 세부 진행단계 변경 (원사발주 → 편직 → 염가공 / 중단) — [생산 현황에 올리기]를 하면 생산 현황에서 관리"
-                                    className={`flex-1 min-w-0 text-[10px] font-bold border rounded px-1.5 py-0.5 outline-none cursor-pointer focus:ring-2 ${subOf(s).cls} ring-amber-200`}
-                                  >
-                                    {SAMPLING_SUBSTAGES.map(sub => (
-                                      <option key={sub.key} value={sub.key}>{sub.label}</option>
-                                    ))}
-                                  </select>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-2 py-1.5 border-r border-slate-100 text-xs">
-                            <div className="flex flex-col gap-0.5">
-                              {s.deadline ? (
-                                <>
-                                  <span className="font-mono font-bold text-slate-700">{s.deadline}</span>
-                                  {db
-                                    ? <span className={`inline-block w-fit text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>
-                                    : (days != null && <span className="text-[9px] text-slate-400">등록 {days}일째</span>)}
-                                </>
-                              ) : (
-                                <span className="text-slate-400">{days != null ? `등록 ${days}일째` : '-'}</span>
-                              )}
-                              {/* 샘플 진행 중: 생산 현황 샘플 오더 번호 / (예전 설계서) 세부단계 + 경과일 */}
-                              {s.stage === 'sampling' && sampleOrderOf(s) && (
-                                <span className="inline-flex w-fit items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-purple-50 text-purple-700 border-purple-200" title="생산 현황 샘플 오더">
-                                  <PackageCheck className="w-2.5 h-2.5" /> {sampleOrderOf(s).orderNumber}
-                                </span>
-                              )}
-                              {s.stage === 'sampling' && !sampleOrderOf(s) && (
-                                <span className={`inline-flex w-fit items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${subOf(s).cls}`} title="현재 샘플 세부단계 진입 후 경과일">
-                                  <span className={`w-1.5 h-1.5 rounded-full ${subOf(s).dot}`} />
-                                  {subOf(s).label}{subDaysOf(s) != null ? ` · ${subDaysOf(s)}일째` : ''}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-2 py-1.5">
-                            <div className="flex gap-1 justify-end items-center flex-wrap">
-                              {/* 생산 현황 샘플 오더로 가기 / 번호는 있는데 오더가 없으면 올리기 */}
-                              {sampleOrderOf(s) ? (
-                                <button onClick={() => onOpenProductionOrder?.(sampleOrderOf(s).orderNumber)}
-                                  className="flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 hover:bg-purple-100 text-[10px] font-bold rounded border border-purple-200"
-                                  title={`생산 현황에서 샘플 오더 ${sampleOrderOf(s).orderNumber} 보기 (원사·편직·염가공 진행 관리)`}>
-                                  <PackageCheck className="w-3 h-3"/> 생산 현황
-                                </button>
-                              ) : (s.eztexOrderNo && s.stage !== 'eztex' && registerEztexOrderNo) ? (
-                                <button onClick={() => pushToProduction(s)}
-                                  className="flex items-center gap-1 px-2 py-0.5 bg-white text-purple-700 hover:bg-purple-50 text-[10px] font-bold rounded border border-dashed border-purple-300"
-                                  title={`EZ-TEX ${s.eztexOrderNo} 번호로 생산 현황에 샘플 오더를 만들어요 (같은 번호 오더가 있으면 연결)`}>
-                                  <PackageCheck className="w-3 h-3"/> 생산 현황에 올리기
-                                </button>
-                              ) : null}
-                              {s.stage === 'eztex' && (
-                                <>
-                                  <input
-                                    type="text"
-                                    placeholder="EZ-TEX O/D"
-                                    defaultValue={s.eztexOrderNo || ''}
-                                    onKeyDown={e => { if (e.key === 'Enter') handleEztexSubmit(s, e.currentTarget); }}
-                                    className="w-[100px] border border-violet-200 bg-violet-50/40 rounded px-2 py-0.5 text-[10px] font-mono focus:bg-white focus:ring-2 ring-violet-200 outline-none placeholder:text-slate-300"
-                                  />
-                                  <button onClick={e => handleEztexSubmit(s, e.currentTarget.previousElementSibling)}
-                                    title="번호를 등록하면 '샘플 진행'으로 넘어가고 생산 현황에 샘플 오더가 생겨요"
-                                    className="flex items-center gap-1 px-2 py-0.5 bg-violet-600 hover:bg-violet-700 text-white text-[10px] font-bold rounded shadow-sm">
-                                    등록
-                                  </button>
-                                </>
-                              )}
-                              {isSelfDev ? (
-                                <button onClick={() => { setLinkSearch(''); setLinkTargetSheet(s); }}
-                                  className="flex items-center gap-1 px-2 py-0.5 bg-violet-50 text-violet-600 hover:bg-violet-100 text-[10px] font-bold rounded border border-violet-200"
-                                  title="기존 개발 의뢰와 수동 연결">
-                                  <Link2 className="w-3 h-3"/> 연결
-                                </button>
-                              ) : (
-                                <button onClick={() => unlinkSheetFromDevRequest?.(s.id)}
-                                  className="flex items-center gap-1 px-2 py-0.5 bg-slate-50 text-slate-500 hover:bg-slate-100 text-[10px] font-bold rounded border border-slate-200"
-                                  title="개발 의뢰 연결 해제 (자체개발로 전환)">
-                                  <Unlink className="w-3 h-3"/> 해제
-                                </button>
-                              )}
-                              <button onClick={() => handleEditSheet?.(s)}
-                                className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10px] font-bold rounded border border-blue-200"
-                                title="설계서 수정">
-                                <Edit2 className="w-3 h-3"/> 수정
-                              </button>
-                              <button onClick={() => handleDropSheet(s.id)}
-                                className="flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 hover:bg-red-100 text-[10px] font-bold rounded border border-red-200"
-                                title="설계서 Drop (보관함으로 — 복원 가능)">
-                                <XCircle className="w-3 h-3"/> Drop
-                              </button>
-                              {handleDeleteSheet && (
-                                <RowDeleteButton onClick={() => handleDeleteSheet(s.id)} title="설계서 삭제 (영구 삭제 — 복구할 수 없어요. 보관만 하려면 Drop)" />
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="block md:hidden p-3 space-y-2 bg-slate-50">
-                {visibleSheets.map(s => {
-                  const dev = getLinkedDev(s.devRequestId);
-                  const isSelfDev = !s.devRequestId || !dev;
-                  const days = daysSince(s.updatedAt || s.createdAt);
-                  const db = deadlineBadge(s.deadline);
-                  return (
-                    <div key={s.id} className="bg-white rounded-lg border border-slate-200 p-3 shadow-sm">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200">설계서</span>
-                        <span className="text-[10px] text-slate-400">{days != null ? `${days}일 경과` : ''}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                        {s.eztexOrderNo && (
-                          <span className="text-[10px] font-mono font-bold text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded border border-violet-100">EZ {s.eztexOrderNo}</span>
+                        {d && (
+                          <div className="relative">
+                            <button onClick={() => setPrintMenuId(printMenuId === d.id ? null : d.id)}
+                              className="flex items-center justify-center gap-1 px-2 py-1.5 bg-slate-50 text-slate-600 text-[11px] font-bold rounded border border-slate-200">
+                              <Printer className="w-3 h-3"/> 인쇄
+                            </button>
+                            {printMenuId === d.id && (
+                              <PrintModeMenu
+                                onSelect={(mode) => handlePrint(d, mode)}
+                                onClose={() => setPrintMenuId(null)}
+                              />
+                            )}
+                          </div>
                         )}
-                        <span className="text-xs font-mono font-extrabold text-slate-600">{s.devOrderNo || '자체'}</span>
-                      </div>
-                      <p className="text-sm font-bold text-slate-800 mb-0.5">{s.fabricName || '원단명 미입력'}</p>
-                      <p className="text-[11px] text-slate-500 mb-2">
-                        {isSelfDev
-                          ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-500 border-slate-200">자체개발</span>
-                          : (dev?.buyerName || '-')}
-                      </p>
-                      <div className="mb-2 flex items-center gap-2 flex-wrap">
-                        <PendingProgressBar stageKey={s.stage} />
-                        {db && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>}
-                        {s.stage === 'sampling' && !sampleOrderOf(s) && (
-                          <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${subOf(s).cls}`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${subOf(s).dot}`} />
-                            {subOf(s).label}{subDaysOf(s) != null ? ` · ${subDaysOf(s)}일째` : ''}
-                          </span>
-                        )}
-                      </div>
-                      <select
-                        value={s.stage}
-                        onChange={(e) => setStage && setStage(s.id, e.target.value)}
-                        className="mb-2 w-full text-[11px] font-bold border border-slate-300 rounded px-2 py-1.5 bg-white"
-                      >
-                        {DESIGN_STAGE_GUIDE.map(stage => (
-                          <option key={stage.key} value={stage.key}>{stage.label}</option>
-                        ))}
-                      </select>
-                      {/* 샘플 진행 (모바일): 생산 현황 샘플 오더가 있으면 그 진행 — 누르면 생산 현황으로 */}
-                      {s.stage === 'sampling' && sampleOrderOf(s) && (
-                        <button
-                          type="button"
-                          onClick={() => onOpenProductionOrder?.(sampleOrderOf(s).orderNumber)}
-                          className={`mb-2 w-full flex items-center justify-between gap-2 text-[11px] font-bold border rounded px-2 py-1.5 ${orderStageOf(sampleOrderOf(s)).cls}`}
-                        >
-                          <span className="flex items-center gap-1 min-w-0">
-                            <PackageCheck className="w-3.5 h-3.5 shrink-0" />
-                            <span className="truncate">생산 현황 {sampleOrderOf(s).orderNumber}</span>
-                          </span>
-                          <span className="shrink-0">{orderStageOf(sampleOrderOf(s)).label}</span>
-                        </button>
-                      )}
-                      {/* 샘플 진행 세부단계 (모바일) — 샘플 오더가 없는 예전 설계서만 */}
-                      {s.stage === 'sampling' && !sampleOrderOf(s) && (
-                        <select
-                          value={s.samplingSub || 'yarn'}
-                          onChange={(e) => setSamplingSub && setSamplingSub(s.id, e.target.value)}
-                          className={`mb-2 w-full text-[11px] font-bold border rounded px-2 py-1.5 outline-none ${subOf(s).cls}`}
-                        >
-                          {SAMPLING_SUBSTAGES.map(sub => (
-                            <option key={sub.key} value={sub.key}>└ {sub.label}</option>
-                          ))}
-                        </select>
-                      )}
-                      {!sampleOrderOf(s) && s.eztexOrderNo && s.stage !== 'eztex' && registerEztexOrderNo && (
-                        <button
-                          type="button"
-                          onClick={() => pushToProduction(s)}
-                          className="mb-2 w-full flex items-center justify-center gap-1 text-[11px] font-bold rounded px-2 py-1.5 bg-white text-purple-700 border border-dashed border-purple-300"
-                        >
-                          <PackageCheck className="w-3.5 h-3.5" /> 생산 현황에 올리기 ({s.eztexOrderNo})
-                        </button>
-                      )}
-                      {s.stage === 'eztex' && (
-                        <div className="flex gap-1.5 mb-2">
-                          <input
-                            type="text"
-                            placeholder="EZ-TEX O/D NO."
-                            defaultValue={s.eztexOrderNo || ''}
-                            onKeyDown={e => { if (e.key === 'Enter') handleEztexSubmit(s, e.currentTarget); }}
-                            className="flex-1 w-0 border border-violet-200 bg-violet-50/40 rounded px-2 py-1.5 text-xs font-mono focus:bg-white focus:ring-2 ring-violet-200 outline-none placeholder:text-slate-300"
-                          />
-                          <button onClick={e => handleEztexSubmit(s, e.currentTarget.previousElementSibling)}
-                            className="flex items-center justify-center gap-1 px-3 py-1.5 bg-violet-600 text-white text-[11px] font-bold rounded">
-                            등록
+                        {d && (
+                          <button onClick={() => openEditModal(d)} className="flex items-center justify-center gap-1 px-2 py-1.5 bg-blue-50 text-blue-600 text-[11px] font-bold rounded border border-blue-200">
+                            <Edit2 className="w-3 h-3"/> {s ? '의뢰 수정' : '수정'}
                           </button>
-                        </div>
-                      )}
-                      <div className="flex gap-1.5">
-                        {isSelfDev ? (
+                        )}
+                        {s && (canLinkSheet(row) ? (
                           <button onClick={() => { setLinkSearch(''); setLinkTargetSheet(s); }}
                             className="flex items-center justify-center gap-1 px-2 py-1.5 bg-violet-50 text-violet-600 text-[11px] font-bold rounded border border-violet-200">
                             <Link2 className="w-3 h-3"/> 연결
@@ -1115,17 +949,18 @@ export const DevStatusPage = ({
                             className="flex items-center justify-center gap-1 px-2 py-1.5 bg-slate-50 text-slate-500 text-[11px] font-bold rounded border border-slate-200">
                             <Unlink className="w-3 h-3"/> 해제
                           </button>
-                        )}
-                        <button onClick={() => handleEditSheet?.(s)}
-                          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-blue-50 text-blue-600 text-[11px] font-bold rounded border border-blue-200">
-                          <Edit2 className="w-3 h-3"/> 수정
-                        </button>
-                        <button onClick={() => handleDropSheet(s.id)}
+                        ))}
+                        <button onClick={() => (d ? handleDropDev(d) : handleDropSheet(s.id))}
                           className="flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 text-[11px] font-bold rounded border border-red-200">
                           <XCircle className="w-3 h-3"/> Drop
                         </button>
-                        {handleDeleteSheet && (
-                          <RowDeleteButton size="md" onClick={() => handleDeleteSheet(s.id)} title="설계서 삭제 (영구 삭제 — 복구할 수 없어요)" />
+                        {s ? (
+                          handleDeleteSheet && (
+                            <RowDeleteButton size="md" onClick={() => handleDeleteSheet(s.id)}
+                              title={d ? '설계서만 삭제 (의뢰는 남아요)' : '설계서 삭제 (영구 삭제 — 복구할 수 없어요)'} />
+                          )
+                        ) : (
+                          <RowDeleteButton size="md" onClick={() => handleRowDelete(d)} title="의뢰 삭제 (영구 삭제 — 복구할 수 없어요)" />
                         )}
                       </div>
                     </div>
@@ -1186,28 +1021,32 @@ export const DevStatusPage = ({
           />
         )}
 
-        {/* Drop 사유 창 */}
+        {/* Drop 사유 창 — 설계서까지 쓴 의뢰면 설계서도 같이 Drop 된다는 안내 */}
         {dropTargetDev && (
           <DevDropModal
             devReq={dropTargetDev}
             quoteInfo={getDevQuoteBadge(dropTargetDev, quotesOfDev(dropTargetDev.id))}
+            sheet={dropTargetSheet}
             onClose={() => setDropTargetId(null)}
             onConfirm={confirmDrop}
           />
         )}
 
-        {/* 통합 보관함 모달 — 열 때마다 새로 그림 (탭·검색·Drop 사유 필터가 지난번 상태로 남지 않게) */}
+        {/* 통합 보관함 모달 — 열 때마다 새로 그림 (탭·검색·Drop 사유 필터가 지난번 상태로 남지 않게)
+            '샘플 진행 (생산 현황)' = EZ-TEX 를 등록해 생산 현황 샘플 오더로 넘어간 의뢰 (2026-10-10) */}
         {isArchiveOpen && (
           <DevArchiveModal
             isOpen={isArchiveOpen}
             onClose={() => setIsArchiveOpen(false)}
             rejectedDevs={rejectedDevReqs}
-            confirmedLinkedDevs={confirmedLinkedDevs}
+            confirmedLinkedDevs={inProductionDevs}
             articledSheets={articledSheets}
             designSheets={designSheets}
             savedQuotes={savedQuotes}
             updateDevStatus={updateDevStatus}
             handleEditSheet={handleEditSheet}
+            sampleOrderNoOf={(sheetId) => sampleOrderBySheet.get(String(sheetId))?.orderNumber || ''}
+            onOpenProductionOrder={onOpenProductionOrder}
           />
         )}
 

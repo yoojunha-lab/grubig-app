@@ -501,7 +501,7 @@ const App = () => {
     handleSheetChange, handleSectionChange,
     handleSheetYarnChange, handleCostInputChange,
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
-    resetSheetForm, setStage, setSamplingSub, registerEztexOrderNo,
+    resetSheetForm, setStage, registerEztexOrderNo,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
     getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
     saveSheetAndRegisterFabric, getBlankSheetInput
@@ -1175,16 +1175,16 @@ const App = () => {
             updateDevStatus={updateDevStatus}
             handleEditSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
             handleDeleteSheet={handleDeleteSheet}
-            setSamplingSub={setSamplingSub}
             linkSheetToDevRequest={linkSheetToDevRequest}
             unlinkSheetFromDevRequest={unlinkSheetFromDevRequest}
             saveDocToCloud={saveDocToCloud}
             setStage={setStage}
             dropDesignSheet={dropDesignSheet}
-            // 샘플 진행은 생산 현황에서 (대표님 요청 2026-10-10) — EZ-TEX 등록 → 샘플 오더, 진행 상황 표시, 생산 현황으로 이동
+            // 샘플 진행은 생산 현황에서 (대표님 요청 2026-10-10) — 개발 의뢰 현황 한 표: EZ-TEX 등록 → 샘플 오더(표에서 빠짐)
             registerEztexOrderNo={registerEztexOrderNo}
             productionOrders={productionOrders}
             onOpenProductionOrder={openProductionOrder}
+            onNewSelfSheet={() => { resetSheetForm(); setIsDesignSheetModalOpen(true); }}
             setActiveTab={setActiveTab}
             user={user}
             buyers={buyers}

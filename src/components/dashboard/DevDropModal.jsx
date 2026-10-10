@@ -17,9 +17,10 @@ const BLANK_DROP = { reason: '', memo: '' };
  *
  * @param {Object}   devReq    Drop할 의뢰
  * @param {Object}   quoteInfo getDevQuoteBadge 결과 (없으면 null)
+ * @param {Object}   sheet     이 의뢰로 쓰고 있는 설계서 (있으면 같이 Drop — 대표님 결정 2026-10-10, 안내 한 줄)
  * @param {Function} onConfirm async (reason, memo) => 저장됐으면 true (그때 부르는 쪽이 창을 닫음)
  */
-export const DevDropModal = ({ devReq, quoteInfo, onClose, onConfirm }) => {
+export const DevDropModal = ({ devReq, quoteInfo, sheet = null, onClose, onConfirm }) => {
   const [draft, setDraft] = useState(BLANK_DROP);
   const [needReason, setNeedReason] = useState(false); // 사유 없이 Drop 처리를 누르면 빨갛게 안내
   const [leavePending, setLeavePending] = useState(false);
@@ -59,6 +60,12 @@ export const DevDropModal = ({ devReq, quoteInfo, onClose, onConfirm }) => {
           </div>
 
           <div className="p-4 space-y-3 overflow-y-auto">
+            {sheet && (
+              <div className="px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-[11px] text-indigo-800 leading-snug">
+                <b>설계서({sheet.fabricName || '원단명 미입력'})도 같이 Drop돼요.</b> 둘 다 보관함으로 가요.
+                <span className="block text-indigo-600/80">설계서 보관함에서 설계서를 복원하면 의뢰도 '개발 확정'으로 같이 돌아와요.</span>
+              </div>
+            )}
             {(quoteInfo || targetPrice) && (
               <div className="flex flex-wrap gap-1.5 text-[11px]">
                 <DevQuoteBadge badge={quoteInfo} size="md" />

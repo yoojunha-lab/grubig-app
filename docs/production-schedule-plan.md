@@ -169,8 +169,7 @@ order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, fin
 | 생산 현황 툴바 | **[전체 · 메인 · 샘플]** (구분 숫자는 고른 상태 탭 안에서, 상태 탭 숫자는 고른 구분 안에서, 마지막 선택 기억). 위 요약 칸도 고른 구분 기준 |
 | 현황표 order# 칸 · 간트 라벨 · 모바일 카드 | **'설계서'** 표시 (+ Drop / 아이템화 꼬리표). 현황표·모바일은 누르면 설계서 창 (`common/SheetLinkChips.jsx`) |
 | ⋯ 메뉴 · 상세창 '설계서 (샘플)' | 설계서 열기 · **아이템화 (원단 등록)** (확인 창 — `OrderListPage.itemizeSheet`) · **Drop (샘플 종료)** · **복원 (다시 진행)** |
-| 개발/설계 현황 '설계서 진행 현황' | 샘플 오더가 있는 설계서: 세부단계(원사 발주/편직/염가공) 고르는 칸 대신 **생산 현황 진행**(가장 덜 진행된 컬러 기준 `getOrderProgressStage`) + order# + **[생산 현황]** (그 오더를 찾아서 보여 줌) |
-| 〃 | EZ-TEX 번호는 있는데 오더가 없는 예전 설계서: **[생산 현황에 올리기]** (같은 번호로 다시 등록 = 오더 만들기·연결). 자동으로 한꺼번에 만들지는 않음 |
+| 개발/설계 현황 | **'설계서 진행 현황' 표를 없애고 '개발 의뢰 현황' 한 표로** (대표님 요청 2026-10-10 — 아래 '개발 의뢰 현황 한 표' 절) |
 
 - 고친 버그 (2026-10-10): 개발/설계 현황 PC 표의 EZ-TEX [등록]이 숨은 모바일 칸 값을 읽어서 표에 적은 번호가 무시되던 것 → 그 줄 입력칸 값을 읽음.
 - Drop 처리 순서: 설계서를 먼저 Drop으로 저장하고 저장됐을 때만 의뢰 연결을 풂 (예전엔 반대 순서).
@@ -184,6 +183,26 @@ order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, fin
 | 연결 | `apps/App.jsx` — `useOrder`를 설계서 훅보다 먼저, `sampleOrderLink`, `openSheetEditor`, `openProductionOrder`(생산 현황 focus) |
 | 화면 | `pages/OrderListPage.jsx`(메인/샘플·sheetLink·focus) · `sheet/ProductionSheet.jsx` · `sheet/OrderMenuPopover.jsx` · `OrderDetailModal.jsx` · `MobileOrderList.jsx` · `gantt/OrderGantt.jsx` · `common/SheetLinkChips.jsx`(새 파일) · `pages/DevStatusPage.jsx` |
 | DEV 샘플 | `constants/devSamples.js` — 설계서 `ds_dev_6`(EZ-TEX F-26S055, Article PW1060) ↔ 오더 `F-26S055` |
+
+### 개발 의뢰 현황 한 표 (대표님 요청 2026-10-10 후속)
+> 대표님: "설계서 진행 현황이라는 걸 없애고, 개발 의뢰 현황에서 EZ-TEX 오더 등록되면 생산 현황에서 관리.
+> 개발 의뢰 현황에서 샘플 진행하기로 했으면 설계서 작성해서 EZ-TEX 번호 넣으면 생산 현황으로 넘어가게끔."
+
+- `DevStatusPage` 의 '설계서 진행 현황' 표 삭제 → **'개발 의뢰 현황' 한 표**. 한 줄 = 개발 건 하나 (`workRows`):
+  | 줄 (`kind`) | 무엇 | 단계 칸 | 관리 |
+  |---|---|---|---|
+  | `dev` | 의뢰만 (의뢰 접수 ~ 개발 확정) | 의뢰 단계 고르기 | 다음 단계 / [설계 시작] · 원가 견적 · 인쇄 · 수정 · Drop · 🗑(의뢰 삭제) |
+  | `both` | 의뢰 + 설계서 | 설계서 단계 고르기 | **EZ-TEX 칸 + [등록]** · [설계서 열기] · 원가 견적 · 인쇄 · 의뢰 수정 · 해제 · Drop(**둘 다**) · 🗑(**설계서만**) |
+  | `self` | 설계서만 — 자체개발 (또는 의뢰가 Drop·삭제된 설계서) | 설계서 단계 고르기 | EZ-TEX 칸 + [등록] · [설계서 열기] · 연결/해제 · Drop(설계서) · 🗑(설계서) |
+  - 번호가 이미 있는 설계서는 [등록] 대신 **[생산 현황에 올리기]** (같은 번호로 다시 등록 = 샘플 오더 만들기·연결)
+  - **빠지는 줄**: 생산 현황 샘플 오더가 생긴 설계서(→ 생산 현황) · 아이템화 · Drop. 생산 현황으로 간 의뢰는 보관함 **'샘플 진행 (생산 현황)'** 탭 (예전 '진행중 (설계서 연결)', [생산 현황 →] 버튼)
+  - 자체개발 자리: 같은 표 (대표님 선택). 머리에 **[자체 설계서]** 버튼 (의뢰 없이 새 설계서)
+- **의뢰 Drop = 설계서도 같이** (대표님 결정): Drop 사유 창에 '설계서(원단명)도 같이 Drop돼요' 안내 →
+  설계서 먼저 `dropDesignSheet(id, { confirm:false, quiet:true, keepDevLink:true })`, 그다음 `dropDevRequest(..., { note })`.
+  복원은 설계서 보관함에서 설계서 복원 → 의뢰도 '개발 확정'으로 같이 (기존 `restoreFromDrop`)
+- 🗑 (설계서가 있는 줄) = 설계서만 삭제 (`handleDeleteSheet` — 의뢰는 남아 '개발 확정'(설계 대기) 줄로)
+- 요약 카드(진행중·지연·임박·오늘 신규)·검색·정렬(O/D No.·날짜·단계·바이어)은 이 줄 기준. 납기 = 설계서 납기(없으면 의뢰 샘플 납기)
+- 설계서 세부단계(원사 발주/편직/염가공/중단) 고르는 칸은 화면에서 없어짐 (샘플 진행은 생산 현황) — `setSamplingSub`·`samplingSub` 데이터는 남아 있음
 
 ---
 
