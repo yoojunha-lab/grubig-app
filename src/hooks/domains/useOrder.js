@@ -172,10 +172,18 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     ? latestOrders().find(o => String(o.linkedSheetId || '') === String(sheetId)) || null
     : null);
 
+  // 같은 order# 의 메인 오더를 설계서 샘플 오더로 끌어오면 안 됨 — 연결하면 샘플로 바뀌고, 설계서 Drop·아이템화 때
+  //  그 메인 오더가 닫혀 버림 (설계서 EZ-TEX 칸에 메인 오더 번호를 잘못 넣은 경우, 2026-10-10)
+  const mainOrderMessage = (no) =>
+    `생산 현황에 order# '${no}' 메인 오더가 있어요. 샘플 EZ-TEX O/D NO.가 맞는지 확인해 주세요. `
+    + "(그 오더를 이 설계서의 샘플 오더로 쓰려면 생산 현황에서 구분을 '샘플'로 바꾼 뒤 다시 등록)";
+
   /**
    * EZ-TEX O/D NO. 를 이 설계서에 등록해도 되는지 — 설계서를 저장하기 전에 확인 (막히면 설계서도 저장하지 않음)
    *  - 그 order# 오더가 다른 설계서(아직 있는)와 연결돼 있으면 안 됨
+   *  - 연결 안 된 메인 오더면 안 됨 (위 mainOrderMessage)
    *  - 이 설계서와 연결된 오더의 번호를 바꾸는데 그 번호의 다른 오더가 이미 있으면 안 됨
+   *    (새 설계서 = 아직 id 가 없어 연결된 오더도 없음 — 예전엔 '연결 안 된 아무 오더'를 연결된 오더로 잘못 봐서 막혔음)
    * 반환: 막는 까닭 ('' = 괜찮음)
    */
   const checkEztexConflict = (sheet, eztexNo, { sheetExists = () => true } = {}) => {
@@ -184,10 +192,11 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     const list = latestOrders();
     const same = list.find(o => o.orderNumber === no);
     if (!same) return '';
-    if (same.linkedSheetId && String(same.linkedSheetId) !== String(sheet.id) && sheetExists(same.linkedSheetId)) {
+    if (same.linkedSheetId && String(same.linkedSheetId) !== String(sheet.id || '') && sheetExists(same.linkedSheetId)) {
       return `생산 현황 오더 '${no}'는 이미 다른 설계서와 연결돼 있어요. EZ-TEX O/D NO.를 확인해 주세요.`;
     }
-    const linked = list.find(o => String(o.linkedSheetId || '') === String(sheet.id));
+    if (!same.linkedSheetId && same.type === 'main') return mainOrderMessage(no);
+    const linked = sheet.id ? list.find(o => String(o.linkedSheetId || '') === String(sheet.id)) : null;
     if (linked && linked.id !== same.id) {
       return `생산 현황에 order# '${no}' 오더가 이미 있어요 (이 설계서의 샘플 오더는 ${linked.orderNumber}). EZ-TEX O/D NO.를 확인해 주세요.`;
     }
@@ -197,11 +206,12 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
   /**
    * 설계서 EZ-TEX O/D NO. → 생산 현황 샘플 오더 (만들기 / 연결 / 번호 따라 바꾸기)
    *  - 이 설계서와 이미 연결된 오더: EZ-TEX 번호를 고쳤고 오더 order# 가 예전 번호 그대로면 order# 도 바꿈
-   *  - 같은 order# 오더가 있으면 새로 만들지 않고 연결 (빈 칸만 설계서 값으로). 다른 설계서와 연결된 오더면 거절
+   *  - 아이템화·Drop된 설계서: 새로 만들거나 연결하지 않음 ('skipped' — 끝난 샘플이 '진행중' 오더로 생기지 않게)
+   *  - 같은 order# 오더가 있으면 새로 만들지 않고 연결 (빈 칸만 설계서 값으로). 다른 설계서와 연결된 오더·메인 오더면 거절
    *  - 없으면 새 샘플 오더 등록
    *  알림은 부른 쪽(설계서 훅)이 설계서 저장 알림과 합쳐서 띄움 — 여기선 결과만 돌려줌
    * opts: { buyerName, prevEztexNo, sheetExists(id) — 다른 설계서가 아직 있는지 (지워진 설계서 연결은 무시) }
-   * 반환: { ok, action: 'created'|'linked'|'renamed'|'exists'|'conflict'|'failed', orderId?, orderNumber?, message? }
+   * 반환: { ok, action: 'created'|'linked'|'renamed'|'exists'|'skipped'|'conflict'|'failed', orderId?, orderNumber?, message? }
    */
   const linkSampleOrderFromSheet = async (sheet, { buyerName = '', prevEztexNo = '', sheetExists = () => true } = {}) => {
     const no = String(sheet?.eztexOrderNo || '').trim().toUpperCase();
@@ -226,6 +236,11 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
         : { ok: false, action: 'failed', orderId: linked.id, orderNumber: linked.orderNumber };
     }
 
+    // 아이템화·Drop된 설계서 — 샘플은 이미 끝남 (설계서 창에서 번호만 적어 넣은 경우)
+    if (sheet.status === 'dropped' || sheet.stage === 'articled') {
+      return { ok: true, action: 'skipped', orderNumber: no };
+    }
+
     const same = list.find(o => o.orderNumber === no);
     if (same) {
       if (same.linkedSheetId && String(same.linkedSheetId) !== String(sheet.id) && sheetExists(same.linkedSheetId)) {
@@ -233,6 +248,9 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
           ok: false, action: 'conflict', orderId: same.id, orderNumber: no,
           message: `생산 현황 오더 '${no}'는 이미 다른 설계서와 연결돼 있어요. 생산 현황에서 확인해 주세요.`,
         };
+      }
+      if (!same.linkedSheetId && same.type === 'main') {
+        return { ok: false, action: 'conflict', orderId: same.id, orderNumber: no, message: mainOrderMessage(no) };
       }
       const ok = await updateOrder(same.id, o => fillOrderFromSheet(o, sheet, { buyerName, onlyEmpty: true }), { note: '설계서 EZ-TEX O/D NO. 등록' });
       return ok

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { DESIGN_STAGES, SAMPLING_SUBSTAGES, DEV_DROP_REASONS } from '../../constants/common';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
 import { makeInitialCostFields } from '../../utils/costFields';
@@ -16,10 +16,19 @@ import { devQuoteToSheetFields } from '../../utils/devQuoteModel';
 //                                            Drop → 샘플 오더 'Drop'(완료 + Drop 표시) / 복원 → Drop 전 상태로
 //   onDeleted(sheetId)                    → { ok, orderNumber } | null           삭제 → 샘플 오더는 남기고 연결만 풂
 //   getOrderNumber(sheetId)               → 연결된 샘플 오더 order# ('' = 없음) — 삭제 확인 창 안내용
+//   getOrderInfo(sheetId)                 → { orderNumber, status, openWork } | null — 단계 이동·아이템화 확인 창
 //   (없으면 설계서만 저장 — 생산 현황 연동은 건너뜀)
+
+// 연결 칸 — 단계 버튼·EZ-TEX 등록·의뢰 연결/해제·원단 등록처럼 다른 곳에서 바로 저장되는 값
+//  편집 창을 연 뒤 다른 곳(다른 PC 포함)에서 바뀌었는데 이 창에서 손대지 않았으면, 저장할 때 저장소 값을 씀
+const LINK_KEYS = ['eztexOrderNo', 'devRequestId', 'devOrderNo', 'linkedFabricId'];
+const pickLinkFields = (src) => Object.fromEntries(LINK_KEYS.filter(k => k in (src || {})).map(k => [k, src[k]]));
+const sameLinkValue = (a, b) => String(a ?? '').trim() === String(b ?? '').trim();
 
 export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, exchangeRates, saveFabricFromSheet, devRequests, sampleOrderLink = null) => {
   const [editingSheetId, setEditingSheetId] = useState(null);
+  // 편집 창을 열 때의 연결 칸 값 (LINK_KEYS) — 저장 때 '이 창에서 바꿨는지' 비교용
+  const loadedLinksRef = useRef(null);
 
   // 설계서 초기 입력 폼
   const getInitialSheetInput = () => ({
@@ -138,6 +147,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   const syncOpenSheet = (sheetId, patch) => {
     if (String(editingSheetId) !== String(sheetId)) return;
     setSheetInput(prev => ({ ...prev, ...patch }));
+    // 저장소와 같게 맞춘 연결 칸은 '창을 열 때 값'도 같이 (이 창에서 바꾼 것으로 보지 않게)
+    if (loadedLinksRef.current) loadedLinksRef.current = { ...loadedLinksRef.current, ...pickLinkFields(patch) };
   };
 
   // --- 생산 현황 샘플 오더 연동 (sampleOrderLink — 맨 위 설명) ---
@@ -160,6 +171,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     if (res.action === 'linked') return ` 생산 현황 오더(${res.orderNumber})에 연결했어요.`;
     if (res.action === 'renamed') return ` 생산 현황 오더 번호도 바꿨어요 (${res.orderNumber}).`;
     if (res.action === 'exists') return ` 생산 현황 샘플 오더(${res.orderNumber})와 연결돼 있어요.`;
+    if (res.action === 'skipped') return ' (아이템화·Drop된 설계서라 생산 현황 샘플 오더는 만들지 않았어요)';
     return '';
   };
 
@@ -246,17 +258,24 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   const resetSheetForm = () => {
     setSheetInput(getInitialSheetInput());
     setEditingSheetId(null);
+    loadedLinksRef.current = null;
   };
 
   // --- 진행 단계 관리 ---
 
-  // 단계 직접 선택 (수동 전이) — 사용자가 스텝퍼에서 임의의 단계를 클릭하면 호출됨
+  // 단계 직접 선택 (수동 전이) — 설계서 창 단계 바·개발 의뢰 현황 단계 칸에서 고르면 호출됨
   // 앞/뒤 양방향 이동 모두 허용. articled 진입 시에만 필수값 검증 + 원단 자동 등록.
   // 생산 현황 [아이템화]도 이 함수 (대표님 요청 2026-10-10 '아이템화·설계서 ARTICLE 연동까지 동일하게')
   //  → 아이템화되면 연결된 샘플 오더도 article# 연결 + '완료' (registerFabricFromSheet → sampleOrderLink.onArticled)
-  // 반환: 단계를 바꿨으면 true (막힘·실패·같은 단계면 false)
-  const setStage = async (sheetId, targetStage) => {
-    const sheet = designSheets.find(s => s.id === sheetId);
+  // 생산 현황 샘플 오더와 맞추기 (2026-10-10):
+  //  · '샘플 진행' = EZ-TEX 등록과 같음 — 샘플 오더가 없으면 EZ-TEX 번호로 만들면서 넘어감 (번호가 없으면 막음)
+  //  · 샘플 오더가 있는 '샘플 진행' 설계서·아이템화된 설계서를 앞 단계로 되돌리면 확인 (오더·원단은 그대로)
+  //  · 진행 중인 샘플 오더가 있는데 아이템화하면 확인 (오더가 '완료'로 닫힘 — 끝나지 않은 공정 안내)
+  // opts.confirmed: 부른 쪽에서 이미 확인함 (생산 현황 [아이템화] 확인 창)
+  // opts.base: 방금 저장한 설계서 (목록에 아직 안 들어왔을 때 — 설계서 창에서 저장하고 바로 단계를 바꿀 때)
+  // 반환: 단계를 바꿨으면 true (막힘·취소·실패·같은 단계면 false)
+  const setStage = async (sheetId, targetStage, { confirmed = false, base = null } = {}) => {
+    const sheet = base || designSheets.find(s => s.id === sheetId);
     if (!sheet) return false;
     if (!DESIGN_STAGES.some(s => s.key === targetStage)) return false;
     if (sheet.stage === targetStage) return false;
@@ -265,6 +284,21 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     if (sheet.status === 'dropped') {
       showToast(`Drop된 설계서예요. 먼저 복원한 뒤 ${targetStage === 'articled' ? '아이템화' : '단계를 바꿔'} 주세요.`, 'error');
       return false;
+    }
+
+    // 생산 현황 샘플 오더 { orderNumber, status, openWork } (없으면 null)
+    const order = sampleOrderLink?.getOrderInfo?.(sheetId) || null;
+    const targetLabel = DESIGN_STAGES.find(s => s.key === targetStage)?.label || targetStage;
+
+    // '샘플 진행' = EZ-TEX 등록 (설계서 작성·EZ-TEX 단계에서, 생산 현황 샘플 오더가 아직 없을 때)
+    //  예전엔 단계만 바뀌고 생산 현황에는 아무것도 안 생겼음
+    if (targetStage === 'sampling' && !order && ['draft', 'eztex', undefined, ''].includes(sheet.stage)) {
+      const no = String(sheet.eztexOrderNo || '').trim();
+      if (!no) {
+        showToast("'샘플 진행'은 EZ-TEX O/D NO.를 [등록]하면 넘어가요. 번호를 먼저 넣어 주세요 (등록하면 생산 현황에 샘플 오더가 생겨요).", 'error');
+        return false;
+      }
+      return registerEztexOrderNo(sheetId, no, { base: sheet });
     }
 
     if (targetStage === 'articled') {
@@ -282,6 +316,26 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         showToast(`아이템화 전에 원사 혼용률 합계를 100%로 맞춰 주세요. (현재 ${sumYarnRatio(sheet.yarns)}%)`, 'error');
         return false;
       }
+      // 진행 중인 샘플 오더가 있으면 한 번 확인 — 생산 관리자가 진행 중인 오더가 모르는 새 닫히지 않게
+      if (!confirmed && order && order.status !== 'completed') {
+        const work = order.openWork?.length ? `\n아직 끝나지 않은 공정: ${order.openWork.join(', ')}` : '';
+        if (!window.confirm(
+          `생산 현황 샘플 오더(${order.orderNumber})가 아직 진행 중이에요.${work}\n\n`
+          + "아이템화하면 원단이 등록되고 이 오더는 '완료'로 닫혀요. 계속할까요?"
+        )) return false;
+      }
+    } else if (sheet.stage === 'articled') {
+      // 아이템화 → 앞 단계로 되돌림 (원단·샘플 오더는 그대로)
+      const fabricMsg = sheet.linkedFabricId ? `\n· 등록된 원단(Article ${sheet.articleNo || '-'})은 원단 관리에 그대로 남아요.` : '';
+      const orderMsg = order?.status === 'completed'
+        ? `\n· 생산 현황 샘플 오더(${order.orderNumber})는 '완료' 그대로라 '아이템화 대기'로 보여요.` : '';
+      if (!window.confirm(`아이템화된 설계서예요. 단계를 '${targetLabel}'(으)로 되돌릴까요?${fabricMsg}${orderMsg}`)) return false;
+    } else if (order && sheet.stage === 'sampling') {
+      // 샘플 진행 → 설계서 작성·EZ-TEX (생산 현황 샘플 오더는 그대로)
+      if (!window.confirm(
+        `생산 현황 샘플 오더(${order.orderNumber})가 있는 설계서예요.\n`
+        + `설계서 단계만 '${targetLabel}'(으)로 바뀌고 샘플 오더는 그대로예요. 바꿀까요?`
+      )) return false;
     }
 
     const now = new Date().toISOString();
@@ -339,10 +393,16 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   // [EZ-TEX O/D NO. 등록] 개발/설계 현황 줄의 입력칸 [등록] · [생산 현황에 올리기] (대표님 요청 2026-10-10)
   //  번호 저장(대문자) → 설계서 작성·EZ-TEX 단계면 '샘플 진행'으로 자동 이동(대표님 결정) → 생산 현황에 샘플 오더 만들기·연결
   //  번호가 그대로면 설계서는 저장하지 않고 샘플 오더만 확인 (예전에 등록해 오더가 없는 설계서 → 이걸로 생산 현황에 올림)
-  //  반환: 처리했으면 true (빈 번호·저장 실패면 false)
-  const registerEztexOrderNo = async (sheetId, rawValue) => {
-    const sheet = designSheets.find(s => s.id === sheetId);
+  //  단계 칸에서 '샘플 진행'을 골라도 이 함수 (setStage)
+  //  opts.base: 방금 저장한 설계서 (목록에 아직 안 들어왔을 때)
+  //  반환: 처리했으면 true (빈 번호·Drop된 설계서·저장 실패면 false)
+  const registerEztexOrderNo = async (sheetId, rawValue, { base = null } = {}) => {
+    const sheet = base || designSheets.find(s => s.id === sheetId);
     if (!sheet) return false;
+    if (sheet.status === 'dropped') {
+      showToast('Drop된 설계서예요. 먼저 복원한 뒤 EZ-TEX O/D NO.를 등록해 주세요.', 'error');
+      return false;
+    }
     const typed = String(rawValue ?? '').trim();
     if (!typed) {
       showToast('EZ-TEX O/D NO.를 입력해 주세요.', 'error');
@@ -466,6 +526,27 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   // 반환: 저장한 설계서 문서(성공) / null(검증 실패·취소·저장 실패 — 폼은 그대로)
   const handleSaveSheet = async (user, onLinkToDevRequest, opts = {}) => {
     let finalInput = { ...sheetInput };
+    const storedSheet = editingSheetId ? designSheets.find(s => s.id === editingSheetId) || null : null;
+
+    // [두 사람이 같은 설계서를 볼 때 — 2026-10-10] 창을 연 뒤 다른 곳(다른 PC의 EZ-TEX 등록·의뢰 연결/해제·원단 등록)에서
+    //  바뀐 연결 칸은, 이 창에서 손대지 않았으면 저장소 값을 씀 → 열어 둔 창의 옛 값으로 번호·연결이 지워지지 않게
+    if (storedSheet && loadedLinksRef.current) {
+      const loaded = loadedLinksRef.current;
+      LINK_KEYS.forEach(k => {
+        if (k in loaded && sameLinkValue(finalInput[k], loaded[k])) {
+          finalInput[k] = storedSheet[k] ?? (k === 'devRequestId' || k === 'linkedFabricId' ? null : '');
+        }
+      });
+    }
+
+    // [생산 현황 연동 보호] 샘플 오더가 있는 설계서는 EZ-TEX O/D NO.를 비울 수 없음 (번호는 새 번호로 바꾸기만)
+    if (storedSheet && String(storedSheet.eztexOrderNo || '').trim() && !String(finalInput.eztexOrderNo || '').trim()) {
+      const linkedNo = sampleOrderLink?.getOrderNumber?.(editingSheetId) || '';
+      if (linkedNo) {
+        showToast(`생산 현황 샘플 오더(${linkedNo})와 연결된 설계서라 EZ-TEX O/D NO.를 비울 수 없어요. 번호를 바꾸려면 새 번호를 넣어 주세요.`, 'error');
+        return null;
+      }
+    }
 
     // [New] 자체 설계서인 경우 개발오더넘버를 필수값에서 제외
     // 의뢰가 연결된 설계서만 개발번호 필수 입력 검증
@@ -576,8 +657,9 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       createdAt: isNew ? now : (existing?.createdAt || now),
       updatedAt: now
     };
-    // EZ-TEX O/D NO. 등록 → '샘플 진행' (설계서 작성·EZ-TEX 단계일 때만 — 아이템화 등 뒤 단계는 그대로)
-    const autoSampling = eztexRegistered && ['draft', 'eztex', undefined, ''].includes(itemToSave.stage);
+    // EZ-TEX O/D NO. 등록 → '샘플 진행' (설계서 작성·EZ-TEX 단계일 때만 — 아이템화 등 뒤 단계·Drop된 설계서는 그대로)
+    const autoSampling = eztexRegistered && itemToSave.status !== 'dropped'
+      && ['draft', 'eztex', undefined, ''].includes(itemToSave.stage);
     if (autoSampling) Object.assign(itemToSave, samplingEntryPatch(itemToSave, now));
 
     // === 변경 이력 감지 (수정 모드에서만) ===
@@ -770,6 +852,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       orderNumbers: sheet.orderNumbers || []
     });
     setEditingSheetId(sheet.id);
+    loadedLinksRef.current = pickLinkFields({ ...Object.fromEntries(LINK_KEYS.map(k => [k, null])), ...sheet });
   };
 
   // 반환: 삭제했으면 true (취소·차단·실패면 false — 편집 창은 그대로 두도록)
@@ -853,6 +936,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       deadline: devData.sampleDeadline || ''  // 샘플 생산 납기 자동 연동
     });
     setEditingSheetId(null);
+    loadedLinksRef.current = null;
     if (!fromQuote) return;
     // 직접 입력한 원사는 설계서에 단가 칸이 없어 원사 칸이 비어 있음 → 라이브러리 원사를 골라야 원가가 계산됨
     if (fromQuote.manualNames.length > 0) {

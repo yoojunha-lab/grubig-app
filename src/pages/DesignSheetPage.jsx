@@ -1,5 +1,5 @@
 import React from 'react';
-import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download, ChevronDown, DollarSign } from 'lucide-react';
+import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download, ChevronDown, DollarSign, RotateCcw } from 'lucide-react';
 import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
@@ -107,6 +107,9 @@ export const DesignSheetPage = ({
   handleDeleteSheet,
   resetSheetForm,
   setStage,
+  restoreFromDrop,   // (sheetId) => Drop된 설계서 복원 (맨 위 'Drop됨' 안내의 [복원])
+  isSheetDirty,      // () => 저장 안 한 변경이 있는지 — 단계 바를 누를 때 저장부터 (App 의 sheetGuard)
+  onSavedKeepOpen,   // (저장한 설계서) => 창을 연 채로 저장했을 때 폼·저장 확인 기준을 저장본으로 (App)
   getDesignCost,
   yarnSelectOptions,
   user,
@@ -148,6 +151,25 @@ export const DesignSheetPage = ({
   const isEztexLocked = stageIdx >= 2;
   const isFullyLocked = false; // stageIdx >= 3; -> 대표님 요청: 아이템화 완료 후에도 '설계 변경 사유'를 통해 수정 가능
   const isLinkedToFabric = !!sheetInput.linkedFabricId; // 원단 연동 시 공유 변수 Lock
+  // Drop된 설계서 (보관함·생산 현황 [설계서 열기]로 연 것) — 보기·고치기만, 단계·원단 등록은 복원 뒤 (2026-10-10)
+  const isDropped = !isTempMode && sheetInput.status === 'dropped';
+
+  // 단계 바 · [EZ-TEX 단계로] — 저장 안 한 변경이 있으면 먼저 저장하고 그 저장본으로 단계 이동
+  //  (예전엔 저장된 값으로 검사해서, 방금 적은 Article 이 있어도 'Article 번호를 먼저 입력' 이 떴음)
+  const changeStage = async (target) => {
+    if (!editingSheetId || typeof setStage !== 'function') return;
+    if (target === (sheetInput.stage || 'draft')) return;
+    if (isSheetDirty?.()) {
+      if (!window.confirm('저장하지 않은 변경이 있어요.\n먼저 저장하고 단계를 바꿀까요?')) return;
+      const onLink = (devReqId, sheetId) => { if (linkAndConfirm) linkAndConfirm(devReqId, sheetId); };
+      const saved = await handleSaveSheet(user, onLink, { keepForm: true });
+      if (!saved) return;
+      onSavedKeepOpen?.(saved);
+      await setStage(editingSheetId, target, { base: saved });
+      return;
+    }
+    await setStage(editingSheetId, target);
+  };
 
   // 가설계서 불러오기 모달 상태
   const [isTempLoadModalOpen, setIsTempLoadModalOpen] = React.useState(false);
@@ -290,8 +312,15 @@ export const DesignSheetPage = ({
           {editingSheetId && !isFullyLocked && !isTempMode && (
             <button onClick={async () => { if (!(await handleDeleteSheet(editingSheetId))) return; if (closeModal) closeModal(); else setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded shadow-sm transition-colors flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> 삭제</button>
           )}
-          {editingSheetId && !isTempMode && sheetInput?.stage === 'draft' && typeof setStage === 'function' && (
-            <button onClick={() => setStage(editingSheetId, 'eztex')} className="px-4 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded shadow-sm transition-colors flex items-center gap-1"><Check className="w-3.5 h-3.5" /> 생산팀 이관하기</button>
+          {/* 설계서 작성 → EZ-TEX 단계 (예전 '생산팀 이관하기' — 실제로 생산 현황(샘플)으로 넘어가는 건 EZ-TEX 번호 [등록], 2026-10-10) */}
+          {editingSheetId && !isTempMode && !isDropped && sheetInput?.stage === 'draft' && typeof setStage === 'function' && (
+            <button
+              onClick={() => changeStage('eztex')}
+              title="EZ-TEX 단계로 넘겨요 — EZ-TEX O/D NO.를 [등록]하면 '샘플 진행'으로 넘어가고 생산 현황(샘플)에 샘플 오더가 생겨요"
+              className="px-4 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded shadow-sm transition-colors flex items-center gap-1"
+            >
+              <Check className="w-3.5 h-3.5" /> EZ-TEX 단계로
+            </button>
           )}
           {/* 가설계서 모드: 삭제 버튼 */}
           {isTempMode && editingSheetId && (
@@ -315,13 +344,32 @@ export const DesignSheetPage = ({
           <p className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">Fabric Design &amp; Production Specification</p>
         </div>
 
-        {/* 진행 상태 바 (가설계서 모드에서는 숨김) */}
+        {/* Drop된 설계서 안내 — 보기·고치기는 되지만 단계·원단 등록은 복원한 뒤 (2026-10-10) */}
+        {isDropped && (
+          <div className="mb-3 bg-rose-50 border border-rose-200 px-3 py-2 flex items-center gap-2 rounded flex-wrap">
+            <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span className="text-xs font-bold text-rose-700 flex-1 min-w-[200px]">
+              Drop된 설계서예요 (보관함). 내용 보기·고치기는 되지만, 단계 이동·원단 등록은 복원한 뒤에 할 수 있어요.
+            </span>
+            {editingSheetId && restoreFromDrop && (
+              <button
+                type="button"
+                onClick={() => restoreFromDrop(editingSheetId)}
+                className="px-3 py-1 text-[11px] font-bold text-blue-700 bg-white border border-blue-200 hover:bg-blue-50 rounded shadow-sm flex items-center gap-1"
+              >
+                <RotateCcw className="w-3 h-3" /> 복원
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* 진행 상태 바 (가설계서 모드에서는 숨김) — Drop된 설계서는 누를 수 없음 */}
         {!isTempMode && (
         <div className="mb-3 -mx-2">
           <DesignStepper
             currentStage={sheetInput.stage || 'draft'}
-            onStageClick={editingSheetId && typeof setStage === 'function' && !isFullyLocked
-              ? (target) => setStage(editingSheetId, target)
+            onStageClick={editingSheetId && typeof setStage === 'function' && !isFullyLocked && !isDropped
+              ? (target) => changeStage(target)
               : undefined}
           />
         </div>
@@ -733,6 +781,9 @@ export const DesignSheetPage = ({
               </span>
               <span className="text-[10px] text-slate-500">양방향 동기화 활성</span>
             </div>
+          ) : isDropped ? (
+            // Drop된 설계서는 원단 등록·연결 안 함 — 복원한 뒤에 (2026-10-10)
+            <p className="text-[11px] font-bold text-rose-600">Drop된 설계서예요. 원단 등록·연결은 맨 위 [복원]을 누른 뒤에 할 수 있어요.</p>
           ) : (
             <div className="flex flex-wrap gap-2">
               {/* 설계서 내용으로 새 원단 등록 */}

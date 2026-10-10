@@ -33,6 +33,7 @@ import { useQuoteExport } from '../hooks/domains/useQuoteExport';
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
 import { DEFAULT_EXCHANGE_RATE, rateLabel } from '../utils/helpers';
 import { resolveCostSettings } from '../utils/costModel';
+import { getOpenWork } from '../utils/orderModel';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
 import { Toast } from '../components/common/Toast';
@@ -494,6 +495,11 @@ const App = () => {
     onRestored: (sheet) => sheetOrderLink.reopenSheetOrder(sheet.id),
     onDeleted: (sheetId) => sheetOrderLink.unlinkSheetOrder(sheetId),
     getOrderNumber: (sheetId) => sheetOrderOf(sheetId)?.orderNumber || '',
+    // 단계 이동·아이템화 확인 창용 — 오더 상태와 아직 끝나지 않은 공정
+    getOrderInfo: (sheetId) => {
+      const o = sheetOrderOf(sheetId);
+      return o ? { orderNumber: o.orderNumber, status: o.status, openWork: getOpenWork(o) } : null;
+    },
   };
 
   const {
@@ -1243,6 +1249,10 @@ const App = () => {
                 handleDeleteSheet={handleDeleteSheet}
                 resetSheetForm={resetSheetForm}
                 setStage={setStage}
+                restoreFromDrop={restoreFromDrop}
+                // 단계 바를 누를 때 저장 안 한 변경이 있으면 저장부터 (저장본으로 단계 이동 — 2026-10-10)
+                isSheetDirty={sheetGuard.isDirty}
+                onSavedKeepOpen={(saved) => { handleEditSheet(saved); sheetGuard.rebase(); }}
                 getDesignCost={getDesignCost}
                 yarnSelectOptions={yarnSelectOptions}
                 user={user}
@@ -1379,7 +1389,7 @@ const App = () => {
             savedQuotes={savedQuotes}
             sheetActions={{
               open: openSheetEditor,
-              itemize: (sheetId) => setStage(sheetId, 'articled'),
+              itemize: (sheetId) => setStage(sheetId, 'articled', { confirmed: true }), // 확인 창은 생산 현황에서 이미 띄움
               drop: dropDesignSheet,
               dropWithDev: dropDevWithSheet, // 개발 의뢰가 있는 샘플 → Drop 사유 창 → 의뢰·설계서·샘플 오더 같이
               restore: restoreFromDrop,
