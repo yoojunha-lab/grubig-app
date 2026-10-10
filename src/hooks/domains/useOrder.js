@@ -3,7 +3,8 @@ import { detectOrderType } from '../../constants/production';
 import {
   normalizeOrder, createEmptyOrder,
   applyOrderField, applyFabric, applyColorPatch, addColorRow, removeColorRow, colorHasData,
-  applyStepPatch, applyLots, applyDailyNote, summarizeOrderChange, isSameOrderContent, ORDER_SCHEMA_VERSION,
+  applyStepPatch, applyLots, applyDailyNote, applyProvisionalDue,
+  summarizeOrderChange, isSameOrderContent, ORDER_SCHEMA_VERSION,
 } from '../../utils/orderModel';
 import { makeChangeLogEntry, appendChangeLog } from '../../utils/auditLog';
 
@@ -162,6 +163,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
   const setStep = (id, stepKey, patch) => updateOrder(id, o => applyStepPatch(o, stepKey, patch));
   const setLots = (id, colorId, lots) => updateOrder(id, o => applyLots(o, colorId, lots));
   const setDailyNote = (id, note) => updateOrder(id, o => applyDailyNote(o, note));
+  const setProvisionalDue = (id, patch) => updateOrder(id, o => applyProvisionalDue(o, patch)); // 가납기 { yarn, knitting, dyeing, visual_inspection }
 
   // 컬러 줄 추가 → 새 컬러 id 반환 (저장은 뒤에서 진행)
   const addColor = (id, afterColorId = null) => {
@@ -227,7 +229,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       updateOrder,
       setOrderField, setFabric,
       setColorField, addColor, removeColor,
-      setStep, setLots, setDailyNote,
+      setStep, setLots, setDailyNote, setProvisionalDue,
       addDraftOrder, discardDraft, deleteOrder,
     },
   };

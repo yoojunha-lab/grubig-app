@@ -24,6 +24,7 @@
 | **v8 개편 3단계**: 염가공 컬러별 LOT 계획 | ✅ **완료** | `0443244` |
 | **v8 개편 4단계**: 오더별 간트 + 날짜 메모 | ✅ **완료** | (4단계 커밋) |
 | **생산 ▾ 계산기**: 선염 계산기 (스트라이프 원사 배분 · 멜란지 수량 비율) + 저장 | ✅ **완료** | (계산기 커밋) |
+| **가납기 + 간트 깃발 · 메모 아래로** (2026-10-10) | ✅ **완료** | (가납기 커밋) |
 
 > **🎉 Phase 1 운영 가능 상태 도달** — 등록/편집/시각화/모니터링 모두 1차 완성. 이제 사용해보면서 세부 다듬기.
 > 알람/확인게이트는 개발하지 않기로 결정 (대표님 지시).
@@ -100,6 +101,40 @@ order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, fin
 - 현황표 엑셀 내보내기(SheetJS), 인쇄
 - 외주처(편직소·염색소)별 보기, 염색소 LOT 일정표
 - 납기 임박/지연 강조 규칙 조정
+
+---
+
+## 가납기 · 간트 메모 아래로 (대표님 요청 2026-10-10)
+
+### 가납기 = 공정별 대략적인 목표 날짜
+- 오더마다 **원사 · 편직 · 염가공 · 외관검사** 4개 (염가공도 컬러별이 아니라 오더 하나에 하나 — 대표님 '대략적인 납기').
+- 문서 필드 `provisionalDue: { yarn, knitting, dyeing, visual_inspection }` ('YYYY-MM-DD', '' = 없음). 예전 오더는 읽을 때 모두 빈칸.
+- **지금 일정과 비교** (`orderModel.getProvisionalDueInfo`):
+  | 현재 날짜 (`getStepCurrentEnd`) | |
+  |---|---|
+  | 원사·편직·외관검사 | 완료면 완료일(없으면 종료일), 아니면 종료일 (편직은 일일 생산량으로 계산한 예상 종료일도) |
+  | 염가공 | 모든 컬러 LOT 중 가장 늦은 완료예정일, LOT 전부 완료면 완료 |
+  - 상태: 맞음/N일 여유(초록) · **N일 늦음**(현재 날짜 > 가납기, 빨강) · **N일 지남**(가납기가 지났는데 미완료, 빨강) ·
+    완료(초록) · N일 늦게 완료(주황) · 일정 미입력(회색). 완료된 오더는 미완료 공정도 끝난 것으로 봄 (빨간 경고가 남지 않게).
+  - 상태별 색은 `constants/production.js` `PROVISIONAL_STATES` (chip·flag·line).
+- 입력: 현황표 **'가납기' 칸**(납기 오른쪽, 항상 표시) → `ProvisionalDuePopover` (4개 한 번에, 넣는 동안 바로 비교 · 순서가 뒤바뀌면 노란 안내만) /
+  오더 상세창 '가납기' 칸 (모바일) / 간트 깃발 클릭. 저장은 `orderActions.setProvisionalDue(id, patch)`, 변경 이력 '가납기 편직 10/25→10/28'.
+
+### 간트
+- **오더 줄 맨 위 가납기 깃발** (`ganttLayout.placeFlags`): 그 날짜 칸 오른쪽 끝(납기 점선과 같은 기준)에 '⚑편직 +3' — 같은 칸이면 '편직·염가공'으로 합치고 더 나쁜 상태 색.
+  그 날짜에 **오더 묶음 전체를 지나는 세로 점선**(상태 색) → 아래 막대 끝과 비교. 마우스를 올리면 '편직 9/25 현재 종료 10/1 (예상) → 6일 늦음'.
+- **날짜 메모를 막대 아래로, 글자 전부** (대표님 선택 '날짜 메모를 줄 아래 다 보이게'):
+  예전엔 줄 위쪽 18px에 한 줄로 잘렸음('9/17 라인 출…'). 이제 막대 레인 아래 CSS grid — 그 날짜 칸에서 시작해 글자 길이만큼(최대 4칸) 넓게,
+  더 길면 줄바꿈. 바로 옆 날짜에도 메모가 있으면 아래 단(lane)으로 → 줄 높이가 늘어남 (`row.minH` 최소 높이만 고정).
+  메모 글자를 누르면 그 메모 날짜의 메모 창 (옆 칸까지 넓게 써진 부분을 눌러도).
+
+### 파일
+| 역할 | 파일 |
+|---|---|
+| 상수 | `constants/production.js` — `PROVISIONAL_DUE_STEPS`·`PROVISIONAL_DUE_KEYS`·`PROVISIONAL_STATES` |
+| 계산 | `utils/orderModel.js` — `getStepCurrentEnd`·`getProvisionalDueInfo`·`describeProvisionalDue`·`describeStepCurrent`·`getProvisionalDueMarks`·`applyProvisionalDue` |
+| 입력 창 | `components/order/sheet/ProvisionalDuePopover.jsx` (새 파일) |
+| 화면 | `ProductionSheet.jsx`(가납기 칸) · `OrderDetailModal.jsx`(가납기 칸) · `gantt/ganttLayout.js`·`OrderGantt.jsx`(깃발·점선·메모) |
 
 ---
 

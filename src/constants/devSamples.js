@@ -200,11 +200,13 @@ export const DEV_SAMPLE_ORDERS = [
       }),
     ],
     dailyNotes: [
-      { id: 'n_m020_1', date: '2026-09-15', colorId: 'c_m020_bk', text: '염색 12시 오후 가공예정', tone: 'dyeing' },
+      { id: 'n_m020_1', date: '2026-09-15', colorId: 'c_m020_bk', text: '염색 12시 오후 가공예정 — 가공 끝나면 롤 라벨 확인하고 라인에 출고 요청', tone: 'dyeing' },
       { id: 'n_m020_2', date: '2026-09-16', colorId: 'c_m020_bk', text: 'black x 3 roll', tone: 'dyeing' },
       { id: 'n_m020_3', date: '2026-09-18', colorId: 'c_m020_or', text: 'orange x 3 roll 추가 배색요청', tone: 'dyeing' },
       { id: 'n_m020_4', date: '2026-09-21', colorId: 'c_m020_kh', text: '편직대기', tone: 'knitting' },
     ],
+    // 가납기: 편직은 예상 종료가 늦음 / 염가공은 가납기가 지났는데 LOT 미완료 / 외관검사는 일정 미입력
+    provisionalDue: { yarn: '', knitting: '2026-09-25', dyeing: '2026-10-08', visual_inspection: '2026-10-13' },
     changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-08-20T00:00:00.000Z', updatedAt: '2026-09-25T00:00:00.000Z',
   },
   {
@@ -241,6 +243,8 @@ export const DEV_SAMPLE_ORDERS = [
       { id: 'n_m016_1', date: '2026-09-17', colorId: 'c_m016_bk', text: '9/17 라인 출고 요청', tone: 'ship' },
       { id: 'n_m016_2', date: '2026-09-18', colorId: 'c_m016_bk', text: '라인 택배 발송', tone: 'ship' },
     ],
+    // 가납기: 편직은 하루 늦게 완료 / 염가공은 가납기 안에 완료
+    provisionalDue: { yarn: '', knitting: '2026-08-28', dyeing: '2026-09-10', visual_inspection: '' },
     changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-08-10T00:00:00.000Z', updatedAt: '2026-09-22T00:00:00.000Z',
   },
   {

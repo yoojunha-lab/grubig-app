@@ -4,17 +4,19 @@ import {
 } from 'lucide-react';
 import {
   ORDER_STEPS, PROCESS_THEME, PROGRESS_STATUS_COLORS, getStatusLabel, COLOR_STAGES,
-  CONFIRM_RESULTS, DEFAULT_LOSS_RATE,
+  CONFIRM_RESULTS, DEFAULT_LOSS_RATE, PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES,
 } from '../../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, isStepUsed, getKnittingEstimatedEnd, colorHasData,
   getLotSummary, getLotsTotalKg, getLotsStatus, getConfirmState, getColorStage, getDday,
+  getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent,
 } from '../../../utils/orderModel';
 import { shortDate, fmtKg, todayYmd } from '../../../utils/orderCalculations';
 import { CellText, CellNumber, CellDate, CellCheck, CellAction } from './SheetCells';
 import { OrderMenuPopover } from './OrderMenuPopover';
 import { ProcessPopover } from './ProcessPopover';
 import { ConfirmPopover } from './ColorPopovers';
+import { ProvisionalDuePopover } from './ProvisionalDuePopover';
 import { PartnerPickerModal } from '../../common/PartnerPickerModal';
 
 // ============================================================
@@ -40,11 +42,12 @@ const LEFT_COLS = [
   { key: 'color',       label: 'color',    width: 84 },
 ];
 
-// 수량·납기 (항상 표시)
+// 수량·납기·가납기 (항상 표시)
 const QTY_COLS = [
-  { key: 'orderKg', label: '오더kg', width: 70, align: 'right' },
-  { key: 'workKg',  label: '작지kg', width: 78, align: 'right' },
-  { key: 'due',     label: '납기',   width: 96 },
+  { key: 'orderKg',     label: '오더kg', width: 70, align: 'right' },
+  { key: 'workKg',      label: '작지kg', width: 78, align: 'right' },
+  { key: 'due',         label: '납기',   width: 96 },
+  { key: 'provisional', label: '가납기', width: 150, title: '원사·편직·염가공·외관검사 대략적인 목표 날짜 — 지금 일정과 비교' },
 ];
 
 // 공정/컬러 칸 (보이기/숨기기 가능). step = 오더 단위 공정 칸(rowSpan)
@@ -223,6 +226,43 @@ const StepCell = ({ order, stepKey, span, bg, ctx }) => {
         {used
           ? <StepSummary order={order} stepKey={stepKey} step={step} />
           : <span className="text-slate-300">+ 입력</span>}
+      </CellAction>
+    </td>
+  );
+};
+
+// 가납기 칸 (오더 단위, rowSpan) — 넣은 공정만 한 줄씩 '편직 10/25 [3일 늦음]', 클릭하면 ProvisionalDuePopover
+const ProvisionalCell = ({ order, span, bg, ctx }) => {
+  const lines = PROVISIONAL_DUE_STEPS
+    .map(s => ({ meta: s, info: getProvisionalDueInfo(order, s.key) }))
+    .filter(x => x.info.due);
+  const open = (el) => ctx.openProvisional(order.id, el);
+  return (
+    <td rowSpan={span} onClick={e => open(e.currentTarget)} className={cellCls({ thick: true, extra: `${CLICKABLE} ${bg}` })}>
+      <CellAction navKey="provisional" onActivate={open} title="가납기 입력 (클릭 또는 Enter)">
+        {lines.length ? (
+          <div className="space-y-0.5">
+            {lines.map(({ meta, info }) => {
+              const desc = describeProvisionalDue(info);
+              const st = PROVISIONAL_STATES[info.state] || PROVISIONAL_STATES.none;
+              return (
+                <div
+                  key={meta.key}
+                  className="flex items-center gap-1 min-w-0"
+                  title={`${meta.label} 가납기 ${info.due} · 현재 ${describeStepCurrent(info)}${desc.text ? ` → ${desc.text}` : ''}`}
+                >
+                  <span className="w-8 shrink-0 text-[10px] font-bold text-slate-500">{meta.short}</span>
+                  <span className="shrink-0 font-mono text-[10px] text-slate-700">{shortDate(info.due)}</span>
+                  {desc.text && (
+                    <span className={`min-w-0 truncate px-1 py-px rounded-full border text-[9px] font-bold ${st.chip}`}>{desc.text}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <span className="text-slate-300">+ 가납기</span>
+        )}
       </CellAction>
     </td>
   );
@@ -675,6 +715,9 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
               </td>
             )}
 
+            {/* ---------- 가납기 (원사·편직·염가공·외관검사) ---------- */}
+            {first && <ProvisionalCell order={order} span={span} bg={plainBg} ctx={ctx} />}
+
             {visibleFlow.map(col => renderFlowCell(col, color, first, last))}
           </tr>
         );
@@ -852,6 +895,9 @@ export const ProductionSheet = ({
     openConfirm: (orderId, colorId, cell) => openPopover(
       'confirm', orderId, cell.getBoundingClientRect(), { colorId, returnFocus: cellFocusTarget(cell) }
     ),
+    openProvisional: (orderId, cell) => openPopover(
+      'provisional', orderId, cell.getBoundingClientRect(), { returnFocus: cellFocusTarget(cell) }
+    ),
     openLots: onOpenLots || null,
     addColorAfter,
   };
@@ -967,7 +1013,7 @@ export const ProductionSheet = ({
                 </th>
               ))}
               {QTY_COLS.map(c => (
-                <th key={c.key} className={`${TH} border-r border-r-slate-200 ${c.align === 'right' ? 'text-right' : ''}`}>
+                <th key={c.key} title={c.title} className={`${TH} border-r border-r-slate-200 ${c.align === 'right' ? 'text-right' : ''}`}>
                   {c.label}
                 </th>
               ))}
@@ -1045,6 +1091,15 @@ export const ProductionSheet = ({
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={rounds => actions.setColorField(popOrder.id, popColor.id, { confirmRounds: rounds })}
+        />
+      )}
+      {popover?.kind === 'provisional' && popOrder && (
+        <ProvisionalDuePopover
+          key={`provisional_${popOrder.id}`}
+          order={popOrder}
+          anchorRect={popover.anchorRect}
+          onClose={closePopover}
+          onSave={patch => actions.setProvisionalDue(popOrder.id, patch)}
         />
       )}
       {buyerOrderId && canPickBuyer && (

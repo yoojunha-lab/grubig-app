@@ -2,11 +2,16 @@
 // ------------------------------------------------------------
 // - 표시 기간(날짜 칸 목록) / 주말 숨기기 시 날짜 → 칸 번호 변환
 // - 오더 줄 + 컬러 줄마다 막대 레인 배정, 날짜 메모 칸 배치, 줄 높이
+// - 오더 줄 맨 위 가납기 깃발 (대표님 요청 2026-10-10)
 // - React/DOM 의존 없음 → OrderGantt.jsx 가 useMemo 로 한 번만 계산
 // 날짜는 전부 'YYYY-MM-DD' 문자열 (orderCalculations 헬퍼 사용)
+//
+// ■ 한 줄의 모양 (위 → 아래)
+//   [가납기 깃발 줄 — 오더 줄만, 가납기가 있을 때]  [막대 레인]  [날짜 메모 — 글자 전부, 길면 줄바꿈]
+//   메모 높이는 글자 길이에 따라 화면에서 정해짐 (CSS grid) → 여기서는 최소 높이만 정함
 
 import { NOTE_TONE_CLASSES, PROCESS_THEME } from '../../../constants/production';
-import { getOrderTimeline } from '../../../utils/orderModel';
+import { getOrderTimeline, getProvisionalDueMarks } from '../../../utils/orderModel';
 import { addDaysYmd, diffDaysYmd, toDate } from '../../../utils/orderCalculations';
 
 // ============================================================
@@ -14,17 +19,19 @@ import { addDaysYmd, diffDaysYmd, toDate } from '../../../utils/orderCalculation
 // ============================================================
 export const DAY_W = 72;        // 날짜 칸 폭
 export const LABEL_W = 240;     // 왼쪽 고정 라벨 칸 폭
-export const NOTE_H = 18;       // 줄 위쪽 메모 줄 높이
+export const MARK_H = 18;       // 오더 줄 맨 위 가납기 깃발 줄 높이
 export const LANE_H = 22;       // 막대 레인 높이
 export const BAR_H = 18;        // 막대 높이 (레인 안)
-export const ROW_MIN_H = 44;    // 줄 최소 높이
+export const BAR_PAD = 3;       // 막대 레인 위아래 여백
+const ORDER_ROW_MIN_H = 44;     // 오더 줄 최소 높이 (라벨 두 줄)
+const COLOR_ROW_MIN_H = 32;     // 컬러 줄 최소 높이
 
 const PAST_DAYS = 7;            // 최소 표시: 오늘-7일
 const FUTURE_DAYS = 30;         //           ~ 오늘+30일
 const MAX_PAST = 120;           // 최대 표시: 오늘-120일
 const MAX_FUTURE = 180;         //           ~ 오늘+180일
 const PAD_DAYS = 3;             // 데이터 앞뒤 여유
-const NOTE_MAX_SPAN = 4;        // 메모 글자가 빈 옆 칸으로 넘쳐 보일 수 있는 최대 칸 수 (엑셀처럼)
+const NOTE_MAX_SPAN = 4;        // 메모 글자가 빈 옆 칸으로 넓게 쓸 수 있는 최대 칸 수 (그보다 길면 줄바꿈)
 
 export const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -161,10 +168,12 @@ const placeBars = (bars, range, colFwd, colBwd, lastCol) => {
 };
 
 // ============================================================
-// 5. 날짜 메모 → 메모 줄 칸
+// 5. 날짜 메모 → 막대 아래 메모 칸 (글자 전부 보이게 — 대표님 요청 2026-10-10)
 //    - 같은 칸에 여러 메모(숨긴 주말 메모 + 월요일 메모)면 ' / ' 로 합침
 //    - 색: tone 지정 → NOTE_TONE_CLASSES, 자동('') → 그날 걸친 막대의 cell 색, 없으면 회색
-//    - span: 글자가 빈 옆 칸으로 넘쳐 보일 수 있는 칸 수 (다음 메모 전까지, 최대 4칸)
+//    - span: 메모가 넓게 쓰는 칸 수 (글자 길이만큼, 최대 4칸). 그보다 길면 줄을 바꿔서 전부 보여줌
+//    - lane: 겹치는 메모는 아래 단으로 (메모 줄 높이가 늘어남)
+//    - date: 그 칸의 날짜 (메모를 누르면 그 날짜 메모 창)
 // ============================================================
 const AUTO_NOTE_CLS = 'bg-slate-100 text-slate-700';
 
@@ -176,6 +185,14 @@ const autoToneCls = (bars, col) => {
   return pick ? (PROCESS_THEME[pick.theme]?.cell || AUTO_NOTE_CLS) : AUTO_NOTE_CLS;
 };
 
+// 메모 글자 폭 어림 (10px 글씨: 한글 ≈ 10px, 영문·숫자 ≈ 6px, 띄어쓰기 3px + 좌우 여백). 줄바꿈이 있으면 가장 긴 줄
+const HANGUL = /[ᄀ-ᇿ㄰-㆏가-힯]/;
+const estimateNotePx = (text) => Math.max(0, ...String(text || '').split('\n').map(line =>
+  [...line].reduce((w, ch) => w + (HANGUL.test(ch) ? 10 : ch === ' ' ? 3 : 6), 0)
+)) + 10;
+
+//  - lane: 메모 줄 안의 몇째 단인지 — 바로 다음 날에도 메모가 있으면 겹치지 않게 아래 단으로
+//    (예전처럼 다음 메모 전까지만 쓰면 긴 메모가 한 칸 폭에 갇혀 세로로 길어졌음)
 const placeNotes = (notes, bars, range, colFwd, days) => {
   const byCol = new Map();
   notes.forEach(n => {
@@ -187,7 +204,8 @@ const placeNotes = (notes, bars, range, colFwd, days) => {
   });
 
   const cols = [...byCol.keys()].sort((a, b) => a - b);
-  return cols.map((col, i) => {
+  const laneEnds = [];
+  return cols.map(col => {
     const list = byCol.get(col).slice().sort((a, b) => a.date.localeCompare(b.date));
     const colYmd = days[col]?.ymd;
     // 숨긴 주말 메모는 앞에 '(토)' '(일)' 표시
@@ -196,53 +214,94 @@ const placeNotes = (notes, bars, range, colFwd, days) => {
       const d = toDate(n.date);
       return `(${WEEKDAY_KO[d.getDay()]}) ${n.text}`;
     });
+    const text = parts.join(' / ');
     const last = list[list.length - 1];
     const tone = last.tone || '';
     const cls = tone ? (NOTE_TONE_CLASSES[tone] || AUTO_NOTE_CLS) : autoToneCls(bars, col);
-    const nextCol = i + 1 < cols.length ? cols[i + 1] : days.length;
-    const span = Math.max(1, Math.min(NOTE_MAX_SPAN, nextCol - col));
+    // 글자 길이만큼 옆 칸까지 (최대 4칸, 표 끝까지만). 그보다 길면 줄바꿈
+    const need = Math.ceil(estimateNotePx(text) / DAY_W);
+    const span = Math.max(1, Math.min(NOTE_MAX_SPAN, need, days.length - col));
+    let lane = laneEnds.findIndex(end => end < col);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(col + span - 1);
+    } else {
+      laneEnds[lane] = col + span - 1;
+    }
     const title = list.map(n => `${fmtDayLabel(n.date)} ${n.text}`).join('\n');
-    return { col, text: parts.join(' / '), tone, cls, span, title };
+    return { col, date: colYmd, text, tone, cls, span, lane, title };
   });
 };
 
-const rowHeight = (laneCount) => Math.max(ROW_MIN_H, NOTE_H + 4 + Math.max(1, laneCount) * LANE_H);
+// ============================================================
+// 5-2. 가납기 깃발 → 날짜 칸 (같은 칸에 여러 공정이면 한 깃발로 합침)
+//    가납기 = 그날까지 → 납기처럼 그 날짜 칸 (주말을 숨겼으면 다음 월요일 칸 — 납기와 같은 규칙)
+//    [{ col, marks: [{ key, label, short, date, info }] }]
+// ============================================================
+const placeFlags = (marks, colFwd) => {
+  const byCol = new Map();
+  marks.forEach(m => {
+    const col = colFwd(m.date);
+    if (col === null) return;
+    if (!byCol.has(col)) byCol.set(col, []);
+    byCol.get(col).push(m);
+  });
+  return [...byCol.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([col, list]) => ({ col, marks: list }));
+};
+
+// 막대 레인 높이 (막대가 없어도 한 레인 — 빈 곳을 눌러 메모를 쓸 수 있게)
+const barsHeight = (laneCount) => BAR_PAD * 2 + Math.max(1, laneCount) * LANE_H;
 
 // ============================================================
 // 6. 전체 배치
 // ------------------------------------------------------------
 // 반환:
 //  { range:{start,end}, days:[...], months:[...], width, todayCol, todayShown,
-//    colFwd(ymd), groups:[{ order, dueCol, rows:[{ key, kind:'order'|'color', color, bars, notes, laneCount, height }] }] }
+//    colFwd(ymd), groups:[{ order, dueCol, flags,
+//      rows:[{ key, kind:'order'|'color', color, bars, notes, flags, laneCount, barsH, minH }] }] }
+//  flags: 가납기 깃발 (오더 줄에만, 그룹에도 같은 값 — 오더 묶음 전체를 지나는 세로 점선용)
 // ============================================================
 export const buildGanttLayout = (orders = [], { today, hideWeekends = true } = {}) => {
-  // 오더마다 타임라인 먼저 (기간 계산 + 배치에 재사용)
-  const timelines = orders.map(order => ({ order, tl: getOrderTimeline(order) }));
+  // 오더마다 타임라인·가납기 먼저 (기간 계산 + 배치에 재사용)
+  const timelines = orders.map(order => ({
+    order,
+    tl: getOrderTimeline(order),
+    marks: getProvisionalDueMarks(order, today),
+  }));
 
   const dates = [];
-  timelines.forEach(({ order, tl }) => {
+  timelines.forEach(({ order, tl, marks }) => {
     tl.orderBars.forEach(b => dates.push(b.start, b.end));
     tl.colorRows.forEach(r => r.bars.forEach(b => dates.push(b.start, b.end)));
     (order.dailyNotes || []).forEach(n => { if (n.date && n.text) dates.push(n.date); });
     if (order.finalDueDate) dates.push(order.finalDueDate);
+    marks.forEach(m => dates.push(m.date));
   });
   const range = computeRange(dates.filter(d => toDate(d)), today);
   const { days, colFwd, colBwd } = buildColumns(range.start, range.end, hideWeekends, today);
   const lastCol = days.length - 1;
 
-  const groups = timelines.map(({ order, tl }) => {
+  const groups = timelines.map(({ order, tl, marks }) => {
     const notes = order.dailyNotes || [];
+    const flags = placeFlags(marks, colFwd);
     const makeRow = (key, kind, color, rawBars, colorId) => {
       const { bars, laneCount } = placeBars(rawBars, range, colFwd, colBwd, lastCol);
       const rowNotes = placeNotes(notes.filter(n => String(n.colorId || '') === colorId), bars, range, colFwd, days);
-      return { key, kind, color, bars, notes: rowNotes, laneCount, height: rowHeight(laneCount) };
+      return {
+        key, kind, color, bars, notes: rowNotes, laneCount,
+        flags: kind === 'order' ? flags : [],
+        barsH: barsHeight(laneCount),
+        minH: kind === 'order' ? ORDER_ROW_MIN_H : COLOR_ROW_MIN_H,
+      };
     };
     const rows = [makeRow(`${order.id}__order`, 'order', null, tl.orderBars, '')];
     tl.colorRows.forEach(({ color, bars }) => {
       rows.push(makeRow(`${order.id}__${color.id}`, 'color', color, bars, String(color.id)));
     });
     const dueCol = order.finalDueDate ? colFwd(order.finalDueDate) : null;
-    return { order, rows, dueCol, height: rows.reduce((s, r) => s + r.height, 0) };
+    return { order, rows, dueCol, flags };
   });
 
   const todayCol = colFwd(today);

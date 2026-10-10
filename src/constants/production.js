@@ -178,3 +178,31 @@ export const NOTE_TONE_CLASSES = {
 //    kg = yd × gsm × widthFull × 0.02322576 / 1000
 // ============================================================
 export const KG_CONVERSION_COEFFICIENT = 0.02322576;
+
+// ============================================================
+// 9. 가납기 (대표님 요청 2026-10-10 — 대략적인 공정별 목표 날짜)
+// ------------------------------------------------------------
+//  오더마다 4개 (염가공도 컬러별이 아니라 오더 하나에 하나).
+//  현재 일정(종료일·완료일, 염가공은 가장 늦은 LOT 완료예정일)과 비교해 늦음/맞음 표시 → orderModel.getProvisionalDueInfo
+//  short: 간트 깃발·현황표 칸처럼 좁은 곳에 쓰는 이름
+// ============================================================
+export const PROVISIONAL_DUE_STEPS = [
+  { key: 'yarn',              label: '원사',     short: '원사' },
+  { key: 'knitting',          label: '편직',     short: '편직' },
+  { key: 'dyeing',            label: '염가공',   short: '염가공' },
+  { key: 'visual_inspection', label: '외관검사', short: '외관' },
+];
+
+export const PROVISIONAL_DUE_KEYS = PROVISIONAL_DUE_STEPS.map(s => s.key);
+
+// 가납기 비교 상태별 색 (getProvisionalDueInfo().state)
+//  chip: 현황표·상세창·입력 창 뱃지 / flag: 간트 깃발 / line: 간트 세로 점선 / rank: 깃발을 합칠 때 더 나쁜 상태 우선
+export const PROVISIONAL_STATES = {
+  none:      { rank: 0, chip: 'bg-white text-slate-300 border-slate-200',          flag: 'bg-white text-slate-500 border-slate-300',          line: 'border-slate-300'   },
+  done:      { rank: 1, chip: 'bg-emerald-100 text-emerald-700 border-emerald-300', flag: 'bg-emerald-100 text-emerald-800 border-emerald-400', line: 'border-emerald-500' },
+  ok:        { rank: 2, chip: 'bg-emerald-50 text-emerald-700 border-emerald-200',  flag: 'bg-emerald-50 text-emerald-800 border-emerald-400',  line: 'border-emerald-500' },
+  unplanned: { rank: 3, chip: 'bg-slate-100 text-slate-500 border-slate-200',      flag: 'bg-white text-slate-600 border-slate-400',          line: 'border-slate-400'   },
+  done_late: { rank: 4, chip: 'bg-orange-100 text-orange-700 border-orange-300',   flag: 'bg-orange-100 text-orange-800 border-orange-400',   line: 'border-orange-500'  },
+  late:      { rank: 5, chip: 'bg-red-100 text-red-700 border-red-300',            flag: 'bg-red-500 text-white border-red-600',              line: 'border-red-500'     },
+  overdue:   { rank: 5, chip: 'bg-red-100 text-red-700 border-red-300',            flag: 'bg-red-500 text-white border-red-600',              line: 'border-red-500'     },
+};

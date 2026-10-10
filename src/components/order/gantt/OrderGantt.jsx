@@ -1,26 +1,30 @@
 import { useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CalendarDays, Check, Crosshair, StickyNote } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Check, Crosshair, Flag, StickyNote } from 'lucide-react';
 import {
-  COLOR_STAGES, ORDER_STEPS, ORDER_TYPES, PROCESS_THEME, getStatusLabel, getStepMeta,
+  COLOR_STAGES, ORDER_STEPS, ORDER_TYPES, PROCESS_THEME, PROVISIONAL_STATES, getStatusLabel, getStepMeta,
 } from '../../../constants/production';
 import {
+  describeProvisionalDue, describeStepCurrent,
   findDailyNote, getColorStage, getDday, getKnittingEstimatedEnd, getLossRate, getStepEnd, getWorkKg,
 } from '../../../utils/orderModel';
 import { addDaysYmd, diffDaysYmd, fmtKg, shortDate, toDate, todayYmd } from '../../../utils/orderCalculations';
 import { ProcessPopover } from '../sheet/ProcessPopover';
 import { ConfirmPopover } from '../sheet/ColorPopovers';
+import { ProvisionalDuePopover } from '../sheet/ProvisionalDuePopover';
 import { DayNotePopover } from './DayNotePopover';
 import {
-  BAR_H, DAY_W, LABEL_W, LANE_H, NOTE_H, WEEKDAY_KO, buildGanttLayout,
+  BAR_H, BAR_PAD, DAY_W, LABEL_W, LANE_H, MARK_H, WEEKDAY_KO, buildGanttLayout,
 } from './ganttLayout';
 
 // ============================================================
 // 오더별 간트 (엑셀 현황표의 날짜별 status 칸 느낌)
 // ------------------------------------------------------------
 // - 가로 = 날짜 칸(하루 1칸), 세로 = 오더 줄 + 그 아래 컬러 줄
-// - 줄마다 위쪽은 "메모 줄"(그날 짧은 현황 + 칸 색), 아래는 공정 막대 레인
+// - 줄마다 위쪽은 공정 막대 레인, 그 아래는 날짜 메모 (그날 현황 + 칸 색, 글자 전부 — 길면 줄바꿈)
+// - 오더 줄 맨 위 = 가납기 깃발 (늦으면 빨강) + 그 날짜에 오더 묶음 전체를 지나는 세로 점선 → 막대와 비교
 // - 막대 클릭: 공정 → ProcessPopover / LOT → onOpenLots / 컨펌 → ConfirmPopover / 생지출고·출고 → 상세창
-// - 빈 곳 클릭 → 그날 메모(DayNotePopover) → actions.setDailyNote
+// - 깃발 클릭 → 가납기 입력(ProvisionalDuePopover) → actions.setProvisionalDue
+// - 빈 곳·메모 클릭 → 그날 메모(DayNotePopover) → actions.setDailyNote
 // - 주말 숨기기(기본 켬, 엑셀처럼 평일만) — 브라우저에 기억
 // props: orders(저장된 오더, 현황표와 같은 순서), actions, masters, onOpenDetail(orderId), onOpenLots(orderId, colorId, anchorRect)
 // ============================================================
@@ -39,15 +43,17 @@ const loadHideWeekends = () => {
   }
 };
 
-// 날짜 칸 세로선 (줄마다 div 수백 개 대신 배경 그림으로) + 메모 줄 아래 옅은 선
+// 날짜 칸 세로선 (줄마다 div 수백 개 대신 배경 그림으로)
 const GRID_BG = {
-  backgroundImage: [
-    'linear-gradient(to right, rgb(226 232 240) 1px, transparent 1px)',
-    `linear-gradient(to bottom, transparent ${NOTE_H}px, rgb(241 245 249) ${NOTE_H}px, rgb(241 245 249) ${NOTE_H + 1}px, transparent ${NOTE_H + 1}px)`,
-  ].join(', '),
-  backgroundSize: `${DAY_W}px 100%, 100% 100%`,
-  backgroundRepeat: 'repeat-x, no-repeat',
+  backgroundImage: 'linear-gradient(to right, rgb(226 232 240) 1px, transparent 1px)',
+  backgroundSize: `${DAY_W}px 100%`,
+  backgroundRepeat: 'repeat-x',
 };
+
+// 같은 칸에 공정이 여럿인 깃발 → 가장 나쁜 상태 (색·꼬리 글자는 그 상태로)
+const worstMark = (marks) => marks.reduce((w, m) => (
+  (PROVISIONAL_STATES[m.info.state]?.rank ?? 0) > (PROVISIONAL_STATES[w.info.state]?.rank ?? 0) ? m : w
+), marks[0]);
 
 const BADGE = 'inline-flex items-center px-1.5 py-px rounded-full border text-[10px] font-bold whitespace-nowrap';
 
@@ -182,13 +188,22 @@ const BarTooltip = ({ apiRef }) => {
       <div className="text-[10px] text-slate-300 truncate">{info.owner}</div>
       <div className="font-extrabold">{info.title}</div>
       <div className="mt-1 space-y-0.5">
-        <div>
-          <span className="text-slate-400">기간</span> {info.range}
-          {info.days ? <span className="text-slate-400"> ({info.days}일)</span> : null}
-        </div>
-        <div><span className="text-slate-400">상태</span> {info.status}</div>
-        {info.vendorLabel && (
-          <div><span className="text-slate-400">{info.vendorLabel}</span> {info.vendor || '미입력'}</div>
+        {info.rows ? (
+          // 가납기 깃발: 공정마다 한 줄 (가납기 → 현재 일정 비교)
+          info.rows.map(r => (
+            <div key={r.label}><span className="text-slate-400">{r.label}</span> {r.value}</div>
+          ))
+        ) : (
+          <>
+            <div>
+              <span className="text-slate-400">기간</span> {info.range}
+              {info.days ? <span className="text-slate-400"> ({info.days}일)</span> : null}
+            </div>
+            <div><span className="text-slate-400">상태</span> {info.status}</div>
+            {info.vendorLabel && (
+              <div><span className="text-slate-400">{info.vendorLabel}</span> {info.vendor || '미입력'}</div>
+            )}
+          </>
         )}
         {info.extra && <div className="text-slate-300">{info.extra}</div>}
       </div>
@@ -277,6 +292,20 @@ const describeBar = (order, color, bar) => {
     hint: '누르면 오더 상세 보기',
   };
 };
+
+// 가납기 깃발 → 툴팁 (같은 칸에 공정이 여럿이면 공정마다 한 줄: '편직 10/25  현재 종료 10/28 → 3일 늦음')
+const describeFlag = (order, flag) => ({
+  owner: `${order.orderNumber || '새 오더'} · 가납기`,
+  title: `${flag.marks.map(m => m.label).join(' · ')} 가납기`,
+  rows: flag.marks.map(m => {
+    const desc = describeProvisionalDue(m.info);
+    return {
+      label: `${m.label} ${shortDate(m.date)}`,
+      value: `현재 ${describeStepCurrent(m.info)}${desc.text ? ` → ${desc.text}` : ''}`,
+    };
+  }),
+  hint: '누르면 가납기 수정',
+});
 
 // ============================================================
 // 3. 날짜 머리글 (월 / M/D + 요일)
@@ -419,6 +448,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
   // 막대 클릭
   const handleBarClick = (e, order, color, bar) => {
     e.stopPropagation();
+    skipCellClickRef.current = false; // 빈 칸 클릭 처리로 안 넘어갔으니 '닫기만' 표시도 여기서 지움
     tipRef.current?.hide();
     const r = e.currentTarget.getBoundingClientRect();
     // 긴 막대는 누른 위치 근처에 팝오버 (키보드 Enter 면 막대 왼쪽)
@@ -443,24 +473,48 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
     skipCellClickRef.current = !!document.querySelector('[role="dialog"]');
   };
 
-  // 빈 곳 / 메모 줄 클릭 → 그날 메모 (클릭 위치 ÷ 칸 폭 = 날짜)
-  const handleCellClick = (e, order, color) => {
+  // 그 날짜 칸 메모 창 — 누른 높이 바로 아래에 뜸 (줄이 메모로 길어져도 누른 곳 근처)
+  const openNote = (e, order, color, col, left) => {
     if (skipCellClickRef.current) {
       skipCellClickRef.current = false;
       return;
     }
-    const r = e.currentTarget.getBoundingClientRect();
-    const col = Math.floor((e.clientX - r.left) / DAY_W);
     const day = layout.days[col];
     if (!day) return;
     tipRef.current?.hide();
-    const left = r.left + col * DAY_W;
+    const y = e.clientY || 0;
     setPopover({
       kind: 'note',
       orderId: order.id,
       colorId: color ? color.id : '',
       date: day.ymd,
-      anchorRect: { left, right: left + DAY_W, top: r.top, bottom: r.top + NOTE_H + 2, width: DAY_W, height: NOTE_H + 2 },
+      anchorRect: { left, right: left + DAY_W, top: y - 10, bottom: y + 10, width: DAY_W, height: 20 },
+    });
+  };
+
+  // 빈 곳 클릭 → 그날 메모 (클릭 위치 ÷ 칸 폭 = 날짜)
+  const handleCellClick = (e, order, color) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const col = Math.floor((e.clientX - r.left) / DAY_W);
+    openNote(e, order, color, col, r.left + col * DAY_W);
+  };
+
+  // 메모 글자 클릭 → 그 메모 날짜 (글자가 옆 칸까지 넓게 써져 있어도 그 메모의 날짜로)
+  const handleNoteClick = (e, order, color, note) => {
+    e.stopPropagation();
+    openNote(e, order, color, note.col, e.currentTarget.getBoundingClientRect().left);
+  };
+
+  // 가납기 깃발 클릭 → 가납기 입력 창
+  const handleFlagClick = (e, order) => {
+    e.stopPropagation();
+    skipCellClickRef.current = false;
+    tipRef.current?.hide();
+    const r = e.currentTarget.getBoundingClientRect();
+    setPopover({
+      kind: 'provisional',
+      orderId: order.id,
+      anchorRect: { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height },
     });
   };
 
@@ -468,6 +522,10 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.type === 'mouseenter' && e.clientX ? Math.max(rect.left, e.clientX - 20) : rect.left;
     tipRef.current?.show({ x, rect, info: describeBar(order, color, bar) });
+  };
+  const showFlagTip = (e, order, flag) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    tipRef.current?.show({ x: rect.left, rect, info: describeFlag(order, flag) });
   };
   const hideTip = () => tipRef.current?.hide();
 
@@ -493,7 +551,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
         style={{
           left: bar.startCol * DAY_W + (bar.clipL ? 0 : 2),
           width: (bar.endCol - bar.startCol + 1) * DAY_W - (bar.clipL ? 0 : 2) - (bar.clipR ? 0 : 2),
-          top: NOTE_H + 3 + bar.lane * LANE_H,
+          top: BAR_PAD + bar.lane * LANE_H,
           height: BAR_H,
         }}
       >
@@ -507,30 +565,71 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
     );
   };
 
-  // ---------- 메모 칸 (엑셀 날짜 칸처럼 색 + 글자, 글자는 빈 옆 칸으로 넘쳐 보임) ----------
-  const renderNote = (note) => (
+  // ---------- 메모 (막대 아래, 엑셀 날짜 칸처럼 색 + 글자 전부) ----------
+  //  그 날짜 칸에서 시작해 글자 길이만큼(최대 4칸) 넓게 쓰고, 그보다 길면 줄을 바꿈.
+  //  바로 옆 날짜에도 메모가 있으면 아래 단(lane)으로 → 줄 높이가 늘어남
+  const renderNote = (order, color, note) => (
     <div
       key={`n${note.col}`}
-      className={`absolute top-0 z-[1] ${note.cls}`}
-      style={{ left: note.col * DAY_W + 1, width: DAY_W - 1, height: NOTE_H }}
-      title={note.title}
+      onClick={e => handleNoteClick(e, order, color, note)}
+      className={`relative z-[1] justify-self-start self-start ml-px mt-0.5 px-1 py-px rounded-sm text-[10px] font-semibold leading-snug whitespace-pre-wrap break-words cursor-pointer hover:brightness-95 ${note.cls}`}
+      style={{
+        gridColumn: `${note.col + 1} / span ${note.span}`,
+        gridRow: note.lane + 1,
+        minWidth: DAY_W - 2,
+        maxWidth: note.span * DAY_W - 2,
+      }}
+      title={`${note.title}\n(누르면 메모 수정)`}
     >
-      <span
-        className="absolute left-0 top-0 px-1 text-[10px] font-semibold whitespace-nowrap overflow-hidden text-ellipsis pointer-events-none"
-        style={{ maxWidth: note.span * DAY_W - 2, lineHeight: `${NOTE_H}px` }}
-      >
-        {note.text}
-      </span>
+      {note.text}
     </div>
   );
 
+  // ---------- 가납기 깃발 (오더 줄 맨 위) — 깃발 오른쪽 끝 = 그 날짜 칸 끝 (납기 점선과 같은 기준) ----------
+  const renderFlag = (order, flag) => {
+    const worst = worstMark(flag.marks);
+    const st = PROVISIONAL_STATES[worst.info.state] || PROVISIONAL_STATES.none;
+    const tail = describeProvisionalDue(worst.info).short;
+    return (
+      <button
+        key={`f${flag.col}`}
+        type="button"
+        onClick={e => handleFlagClick(e, order)}
+        onMouseEnter={e => showFlagTip(e, order, flag)}
+        onMouseLeave={hideTip}
+        onFocus={e => showFlagTip(e, order, flag)}
+        onBlur={hideTip}
+        className={`absolute top-0.5 z-[4] inline-flex items-center gap-0.5 px-1 rounded-sm border text-[9px] font-extrabold leading-none whitespace-nowrap shadow-sm hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${st.flag}`}
+        style={{ right: layout.width - (flag.col + 1) * DAY_W + 1, height: MARK_H - 3 }}
+      >
+        <Flag className="w-2.5 h-2.5 shrink-0" strokeWidth={2.5} />
+        {flag.marks.map(m => m.short).join('·')}
+        {tail && <span>{tail}</span>}
+      </button>
+    );
+  };
+
+  // 가납기 세로 점선 — 오더 묶음(오더 줄 + 컬러 줄) 전체를 지나서 아래 막대 끝과 비교
+  const renderFlagGuide = (flag) => {
+    const st = PROVISIONAL_STATES[worstMark(flag.marks).info.state] || PROVISIONAL_STATES.none;
+    return (
+      <div
+        key={`g${flag.col}`}
+        className={`absolute top-0 bottom-0 z-[1] pointer-events-none border-r-2 border-dotted opacity-60 ${st.line}`}
+        style={{ left: LABEL_W + flag.col * DAY_W, width: DAY_W }}
+        aria-hidden="true"
+      />
+    );
+  };
+
   // ---------- 한 줄 (오더 줄 / 컬러 줄) ----------
+  //  [가납기 깃발 줄(오더 줄만)] [막대 레인] [메모] — 메모가 길면 줄 높이가 늘어남 (minHeight)
   const renderRow = (group, row) => {
     const { order } = group;
     const isOrder = row.kind === 'order';
     const dim = order.status === 'on_hold';
     return (
-      <div key={row.key} className="flex border-b border-slate-100 last:border-b-0" style={{ height: row.height }}>
+      <div key={row.key} className="flex border-b border-slate-100 last:border-b-0" style={{ minHeight: row.minH }}>
         <div
           className={`sticky left-0 z-20 shrink-0 border-r-2 border-r-slate-300 ${isOrder ? 'bg-slate-50' : 'bg-white'}`}
           style={{ width: LABEL_W }}
@@ -546,8 +645,19 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
           {group.dueCol !== null && (
             <div className="absolute top-0 bottom-0 bg-red-50/70" style={{ left: group.dueCol * DAY_W, width: DAY_W }} aria-hidden="true" />
           )}
-          {row.notes.map(renderNote)}
-          {row.bars.map(bar => renderBar(order, row.color, bar))}
+          {row.flags.length > 0 && (
+            <div className="relative" style={{ height: MARK_H }}>
+              {row.flags.map(flag => renderFlag(order, flag))}
+            </div>
+          )}
+          <div className="relative" style={{ height: row.barsH }}>
+            {row.bars.map(bar => renderBar(order, row.color, bar))}
+          </div>
+          {row.notes.length > 0 && (
+            <div className="grid pb-1" style={{ gridTemplateColumns: `repeat(${layout.days.length}, ${DAY_W}px)` }}>
+              {row.notes.map(note => renderNote(order, row.color, note))}
+            </div>
+          )}
           {group.dueCol !== null && (
             <div
               className="absolute top-0 bottom-0 z-[3] pointer-events-none border-r-2 border-dashed border-red-500/80"
@@ -587,7 +697,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
       <div className="bg-white border border-slate-200 rounded-xl p-10 text-center shadow-sm">
         <CalendarDays className="w-8 h-8 mx-auto text-slate-300" />
         <p className="mt-2 text-sm font-bold text-slate-600">간트에 표시할 오더가 없어요.</p>
-        <p className="mt-1 text-xs text-slate-400">현황표에서 오더를 추가하고 공정 일정·LOT·출고일을 입력하면 여기에 막대로 그려져요.</p>
+        <p className="mt-1 text-xs text-slate-400">현황표에서 오더를 추가하고 공정 일정·LOT·출고일·가납기를 입력하면 여기에 그려져요.</p>
       </div>
     );
   }
@@ -631,6 +741,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
             {layout.groups.map(group => (
               <div key={group.order.id} className="relative border-b-2 border-slate-300">
                 {group.rows.map(row => renderRow(group, row))}
+                {group.flags.map(renderFlagGuide)}
               </div>
             ))}
             {layout.todayCol >= 0 && (
@@ -660,11 +771,16 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
         <span className="text-slate-300">|</span>
         <span className="inline-flex items-center gap-1"><span className="w-0.5 h-3 bg-teal-500" />오늘</span>
         <span className="inline-flex items-center gap-1"><span className="h-3 border-r-2 border-dashed border-red-500" />납기</span>
+        <span className="inline-flex items-center gap-1" title="오더 줄 맨 위 깃발 + 세로 점선. 지금 일정이 가납기보다 늦으면 빨강">
+          <Flag className="w-3 h-3 text-slate-500" />가납기
+          <span className={`px-1 rounded-sm border text-[9px] font-extrabold ${PROVISIONAL_STATES.ok.flag}`}>맞음</span>
+          <span className={`px-1 rounded-sm border text-[9px] font-extrabold ${PROVISIONAL_STATES.late.flag}`}>늦음</span>
+        </span>
         <span className="inline-flex items-center gap-1"><Check className="w-3 h-3" strokeWidth={3} />완료(흐리게)</span>
         <span className="inline-flex items-center gap-1"><span className="w-3 h-2.5 rounded-sm ring-2 ring-red-500 bg-white" />문제</span>
         <span className="inline-flex items-center gap-1"><span className="w-3 h-2.5 rounded-sm border border-dashed border-yellow-500 bg-yellow-100" />예상</span>
         <span className="ml-auto inline-flex items-center gap-1 font-bold text-teal-700">
-          <StickyNote className="w-3.5 h-3.5" /> 빈 칸을 누르면 그날 메모를 적을 수 있어요
+          <StickyNote className="w-3.5 h-3.5" /> 빈 칸을 누르면 그날 메모 — 막대 아래에 글자 전부 보여요
         </span>
       </div>
 
@@ -702,6 +818,15 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={note => actions.setDailyNote(popOrder.id, note)}
+        />
+      )}
+      {popover?.kind === 'provisional' && popOrder && (
+        <ProvisionalDuePopover
+          key={`provisional_${popOrder.id}`}
+          order={popOrder}
+          anchorRect={popover.anchorRect}
+          onClose={closePopover}
+          onSave={patch => actions.setProvisionalDue(popOrder.id, patch)}
         />
       )}
     </div>

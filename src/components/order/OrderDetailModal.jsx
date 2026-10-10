@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, Package, Trash2, Plus, Search, Link2, RotateCcw, ChevronDown, ChevronRight,
-  ClipboardList, Factory, Palette, History, FilePlus2, Pencil, AlertTriangle, Eraser,
+  ClipboardList, Factory, Palette, History, FilePlus2, Pencil, AlertTriangle, Eraser, Flag,
 } from 'lucide-react';
 import {
   ORDER_STEPS, PROGRESS_STATUSES, PROGRESS_STATUS_COLORS, getStatusLabel, PROCESS_THEME,
   COLOR_STAGES, ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_TYPES,
+  PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES,
 } from '../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, getOrderTotals, isStepUsed, getKnittingEstimatedEnd,
   getLotSummary, getLotsTotalKg, getLotsStatus, getConfirmState, getColorStage, getDday, colorHasData,
+  getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent,
 } from '../../utils/orderModel';
 import { shortDate, isYmd, round1, toNumberOrNull, fmtKg, todayYmd } from '../../utils/orderCalculations';
 import { CHANGE_ACTIONS } from '../../utils/auditLog';
@@ -22,7 +24,7 @@ import { ConfirmPopover } from './sheet/ColorPopovers';
 // - 모바일에서는 이 창이 유일한 편집 화면 → 한 열 폼, 칸마다 바로 저장
 // - 입력 규칙은 현황표와 같음: 글자/숫자 = blur·Enter 확정, Esc 취소 / 날짜 = 고르는 즉시 / 체크 = 즉시
 // - 모든 저장은 actions(useOrder 의 orderActions)로만 한다 (Firestore 직접 호출 금지)
-// - 섹션: ① 기본정보 ② 공정 일정 ③ 컬러 ④ 변경 이력 ⑤ 등록/수정 시각
+// - 섹션: ① 기본정보 ② 가납기 ③ 공정 일정 ④ 컬러 ⑤ 변경 이력 ⑥ 등록/수정 시각
 
 // ============================================================
 // 0. 공통 스타일 / 작은 부품
@@ -996,7 +998,39 @@ const OrderDetailBody = ({
             </div>
           </Section>
 
-          {/* ② 공정 일정 */}
+          {/* ② 가납기 (대략적인 공정별 목표 날짜 — 지금 일정과 비교) */}
+          <Section
+            icon={Flag}
+            title="가납기"
+            right={<span className="text-[11px] text-slate-400">대략적인 목표 날짜 · 지금 일정과 비교</span>}
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {PROVISIONAL_DUE_STEPS.map(s => {
+                const info = getProvisionalDueInfo(order, s.key);
+                const desc = describeProvisionalDue(info);
+                const st = PROVISIONAL_STATES[info.state] || PROVISIONAL_STATES.none;
+                return (
+                  <Field key={s.key} label={s.label} hint={`현재 ${describeStepCurrent(info)}`}>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <DateInput value={info.due} onCommit={v => actions.setProvisionalDue(order.id, { [s.key]: v })} />
+                      </div>
+                      {desc.text && info.state !== 'none' && (
+                        <span className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-bold whitespace-nowrap ${st.chip}`}>
+                          {desc.text}
+                        </span>
+                      )}
+                    </div>
+                  </Field>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1.5">
+              비교 기준: 그 공정 종료일(완료면 완료일) · 염가공은 가장 늦은 LOT 완료예정일. 날짜를 고르면 바로 저장돼요.
+            </p>
+          </Section>
+
+          {/* ③ 공정 일정 */}
           <Section
             icon={Factory}
             title="공정 일정"
@@ -1026,7 +1060,7 @@ const OrderDetailBody = ({
             <p className="text-[10px] text-slate-400 mt-1.5">칸을 채운 공정이 "사용하는 공정"이에요. 입력하면 바로 저장돼요.</p>
           </Section>
 
-          {/* ③ 컬러 */}
+          {/* ④ 컬러 */}
           <Section
             icon={Palette}
             title={`컬러 (${colors.length})`}
@@ -1062,10 +1096,10 @@ const OrderDetailBody = ({
             </button>
           </Section>
 
-          {/* ④ 변경 이력 */}
+          {/* ⑤ 변경 이력 */}
           <ChangeLogSection changeLog={order.changeLog} />
 
-          {/* ⑤ 등록 / 수정 시각 */}
+          {/* ⑥ 등록 / 수정 시각 */}
           <div className="border-t border-slate-100 pt-3 text-[11px] text-slate-400 space-y-0.5 break-all">
             {isDraft ? (
               <div className="text-amber-600">아직 저장되지 않은 새 오더예요. order#를 입력하면 등록돼요.</div>

@@ -15,6 +15,7 @@
 //                confirmRounds: [{ round, sentDate, resultDate, result }],
 //                shipDate, shipDone, notes, legacyYd? }]
 //     dailyNotes: [{ id, date, colorId(''=오더 전체), text, tone }]
+//     provisionalDue: { yarn, knitting, dyeing, visual_inspection }   // 가납기 ('YYYY-MM-DD', '' = 없음)
 //     changeLog, createdBy, createdAt, updatedAt
 //   }
 //
@@ -27,6 +28,7 @@
 import {
   ORDER_STEPS, ORDER_STEP_KEYS, DEFAULT_LOSS_RATE,
   normalizeStatus, getStatusLabel, getStepMeta, ORDER_TYPES, ORDER_STATUSES,
+  PROVISIONAL_DUE_STEPS, PROVISIONAL_DUE_KEYS,
 } from '../constants/production';
 import { addDaysYmd, diffDaysYmd, todayYmd, round1, calcKgFromYd, shortDate } from './orderCalculations';
 
@@ -66,6 +68,9 @@ export const createLot = (no = 1, machineKg = null, qtyKg = null) => ({ ...LOT_D
 
 export const createConfirmRound = (round = 1) => ({ round, sentDate: '', resultDate: '', result: '' });
 
+// 가납기 빈 값 { yarn: '', knitting: '', dyeing: '', visual_inspection: '' }
+export const createProvisionalDue = () => Object.fromEntries(PROVISIONAL_DUE_KEYS.map(k => [k, '']));
+
 // 새 오더 (현황표 [+ 오더 추가]) — order#를 입력해야 저장된다
 export const createEmptyOrder = (userEmail = '') => {
   const now = new Date().toISOString();
@@ -87,6 +92,7 @@ export const createEmptyOrder = (userEmail = '') => {
     steps: createSteps(),
     colors: [createColor('')],
     dailyNotes: [],
+    provisionalDue: createProvisionalDue(),
     changeLog: [],
     createdBy: userEmail || '',
     createdAt: now,
@@ -167,6 +173,12 @@ const normalizeColor = (raw, fallbackId) => {
   };
 };
 
+// 가납기: 정해진 4공정만, 날짜 글자로 (예전 오더는 없음 → 모두 빈칸)
+const normalizeProvisionalDue = (raw) => {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  return Object.fromEntries(PROVISIONAL_DUE_KEYS.map(k => [k, str(src[k])]));
+};
+
 const normalizeV8 = (raw) => {
   const id = raw.id;
   const steps = Object.fromEntries(ORDER_STEP_KEYS.map(k => [k, normalizeStep(k, raw.steps?.[k])]));
@@ -193,6 +205,7 @@ const normalizeV8 = (raw) => {
     dailyNotes: (Array.isArray(raw.dailyNotes) ? raw.dailyNotes : [])
       .filter(n => n && n.date)
       .map((n, i) => ({ id: n.id || `${id}_n${i}`, date: str(n.date), colorId: str(n.colorId), text: str(n.text), tone: str(n.tone) })),
+    provisionalDue: normalizeProvisionalDue(raw.provisionalDue),
     changeLog: Array.isArray(raw.changeLog) ? raw.changeLog : [],
   };
 };
@@ -520,6 +533,87 @@ export const getColorStage = (order, color) => {
 // 납기 D-day (양수 = 남은 일수, 0 = 오늘, 음수 = 지남). 납기 없으면 null
 export const getDday = (finalDueDate) => (finalDueDate ? diffDaysYmd(todayYmd(), finalDueDate) : null);
 
+// ---------- 가납기 (대략적인 공정별 목표 날짜 — 원사·편직·염가공·외관검사) ----------
+
+/**
+ * 가납기와 비교할 그 공정의 "현재 날짜".
+ *  - 원사·편직·외관검사: 완료면 완료일(없으면 종료일), 아니면 종료일 (편직은 일일 생산량으로 계산한 예상 종료일도)
+ *  - 염가공: 모든 컬러 LOT 중 가장 늦은 완료예정일. LOT 가 전부 완료면 완료
+ * 반환 { date('' = 일정 없음), done, estimated(편직 예상 종료) }
+ */
+export const getStepCurrentEnd = (order, key) => {
+  if (key === 'dyeing') {
+    const lots = (order?.colors || []).flatMap(c => c.lots || []);
+    if (!lots.length) return { date: '', done: false, estimated: false };
+    const done = lots.every(l => normalizeStatus(l.status) === 'done');
+    return { date: maxYmd(lots.map(l => l.endDate)), done, estimated: false };
+  }
+  const step = order?.steps?.[key];
+  if (!step) return { date: '', done: false, estimated: false };
+  if (normalizeStatus(step.status) === 'done') {
+    return { date: str(step.doneDate || step.endDate), done: true, estimated: false };
+  }
+  const end = getStepEnd(order, key);
+  return { date: end, done: false, estimated: !!end && !step.endDate };
+};
+
+/**
+ * 가납기 비교 (현황표 가납기 칸 · 상세창 · 입력 창 · 간트 깃발 공용)
+ *  state: 'none'(가납기 없음) | 'unplanned'(일정 미입력) | 'ok'(맞음·여유) | 'late'(현재 일정이 늦음)
+ *         | 'overdue'(가납기가 지났는데 아직 완료 아님) | 'done'(가납기 안에 완료) | 'done_late'(늦게 완료)
+ *  diff : late·done_late·ok = 현재 날짜 - 가납기 (양수 = 늦음) / overdue = 가납기가 지난 날 수
+ *  완료된 오더는 아직 완료 체크가 안 된 공정도 끝난 것으로 봄 (빨간 경고가 남지 않게)
+ */
+export const getProvisionalDueInfo = (order, key, today = todayYmd()) => {
+  const due = str(order?.provisionalDue?.[key]);
+  const cur = getStepCurrentEnd(order, key);
+  const done = cur.done || order?.status === 'completed';
+  const base = { key, due, current: cur.date, done, estimated: cur.estimated, diff: null };
+  if (!due) return { ...base, state: 'none' };
+  if (done) {
+    if (!cur.date) return { ...base, state: 'done' };
+    const diff = diffDaysYmd(due, cur.date);
+    return { ...base, diff, state: diff > 0 ? 'done_late' : 'done' };
+  }
+  if (cur.date) {
+    const diff = diffDaysYmd(due, cur.date);
+    if (diff > 0) return { ...base, diff, state: 'late' };
+    if (due < today) return { ...base, diff: diffDaysYmd(due, today), state: 'overdue' };
+    return { ...base, diff, state: 'ok' };
+  }
+  if (due < today) return { ...base, diff: diffDaysYmd(due, today), state: 'overdue' };
+  return { ...base, state: 'unplanned' };
+};
+
+// 가납기 비교 글자 — text: 뱃지 (예: '3일 늦음') / short: 간트 깃발 꼬리 (예: '+3')
+export const describeProvisionalDue = (info) => {
+  const d = Number(info?.diff) || 0;
+  switch (info?.state) {
+    case 'ok':        return { text: d < 0 ? `${-d}일 여유` : '맞음', short: '' };
+    case 'late':      return { text: `${d}일 늦음`, short: `+${d}` };
+    case 'overdue':   return { text: `${d}일 지남`, short: '지남' };
+    case 'done':      return { text: '완료', short: '✓' };
+    case 'done_late': return { text: `${d}일 늦게 완료`, short: `+${d}` };
+    case 'unplanned': return { text: '일정 미입력', short: '' };
+    default:          return { text: '', short: '' };
+  }
+};
+
+// 가납기와 비교한 "현재" 설명 (예: '종료 10/28 (예상)', 'LOT 완료예정 11/5', '완료 10/20', '일정 없음')
+export const describeStepCurrent = (info) => {
+  if (!info?.current) return info?.done ? '완료' : '일정 없음';
+  const d = shortDate(info.current);
+  if (info.done) return `완료 ${d}`;
+  if (info.key === 'dyeing') return `LOT 완료예정 ${d}`;
+  return `종료 ${d}${info.estimated ? ' (예상)' : ''}`;
+};
+
+// 간트 가납기 깃발 — 가납기가 있는 공정만 [{ key, label, short, date, info }]
+export const getProvisionalDueMarks = (order, today = todayYmd()) => PROVISIONAL_DUE_STEPS
+  .map(s => ({ key: s.key, label: s.label, short: s.short, info: getProvisionalDueInfo(order, s.key, today) }))
+  .filter(m => m.info.due)
+  .map(m => ({ ...m, date: m.info.due }));
+
 // ============================================================
 // 4. 간트용 타임라인 막대
 // ------------------------------------------------------------
@@ -700,6 +794,15 @@ export const applyDailyNote = (order, { date, colorId = '', text = '', tone = ''
 export const findDailyNote = (order, date, colorId = '') =>
   (order?.dailyNotes || []).find(n => n.date === date && str(n.colorId) === str(colorId)) || null;
 
+// 가납기 patch ({ knitting: '2026-10-25', dyeing: '' … }) — 정해진 4공정만 바꿈, 빈칸 = 지움
+export const applyProvisionalDue = (order, patch) => {
+  const next = normalizeProvisionalDue(order.provisionalDue);
+  Object.entries(patch || {}).forEach(([k, v]) => {
+    if (PROVISIONAL_DUE_KEYS.includes(k)) next[k] = str(v);
+  });
+  return { ...order, provisionalDue: next };
+};
+
 // ============================================================
 // 6. 변경 이력 요약 (감사 로그) — 이전/이후 오더 비교해 한국어 한 줄로
 // ============================================================
@@ -750,6 +853,13 @@ export const summarizeOrderChange = (prev, next) => {
 
   ORDER_STEP_KEYS.forEach(k => {
     diffFields(prev.steps?.[k], next.steps?.[k], STEP_FIELD_LABELS, `${getStepMeta(k)?.label || k} `, out);
+  });
+
+  // 가납기 (예: '가납기 편직 10/25→10/28')
+  PROVISIONAL_DUE_STEPS.forEach(s => {
+    const a = str(prev.provisionalDue?.[s.key]);
+    const b = str(next.provisionalDue?.[s.key]);
+    if (a !== b) out.push(`가납기 ${s.label} ${fmtVal('dueDate', a)}→${fmtVal('dueDate', b)}`);
   });
 
   const prevColors = prev.colors || [];
