@@ -335,7 +335,8 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
   const setStep = (id, stepKey, patch) => updateOrder(id, o => applyStepPatch(o, stepKey, patch));
   const setLots = (id, colorId, lots) => updateOrder(id, o => applyLots(o, colorId, lots));
   const setDailyNote = (id, note) => updateOrder(id, o => applyDailyNote(o, note));
-  const setProvisionalDue = (id, patch) => updateOrder(id, o => applyProvisionalDue(o, patch)); // 가납기 { yarn, knitting, dyeing, visual_inspection }
+  // 가납기 { yarn, knitting, dyeing, visual_inspection } (+ plan: 가납기 일수 { base, days } — 주면 같이 저장)
+  const setProvisionalDue = (id, patch, plan = undefined) => updateOrder(id, o => applyProvisionalDue(o, patch, plan));
 
   // 컬러 줄 추가 → 새 컬러 id 반환 (저장은 뒤에서 진행)
   const addColor = (id, afterColorId = null) => {

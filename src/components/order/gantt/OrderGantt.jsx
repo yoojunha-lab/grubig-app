@@ -860,7 +860,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
           order={popOrder}
           anchorRect={popover.anchorRect}
           onClose={closePopover}
-          onSave={patch => actions.setProvisionalDue(popOrder.id, patch)}
+          onSave={(patch, plan) => actions.setProvisionalDue(popOrder.id, patch, plan)}
         />
       )}
     </div>

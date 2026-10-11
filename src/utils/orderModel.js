@@ -20,6 +20,8 @@
 //                shipDate, shipDone, notes, legacyYd? }]
 //     dailyNotes: [{ id, date, colorId(''=오더 전체), text, tone }]
 //     provisionalDue: { yarn, knitting, dyeing, visual_inspection }   // 가납기 ('YYYY-MM-DD', '' = 없음)
+//     provisionalPlan: { base: 기준일, days: { yarn, knitting, dyeing, visual_inspection } }  // 가납기 일수 (null = 날짜만)
+//       가납기 = 앞 공정 가납기(첫 공정은 기준일) + 일수 (대표님 요청 2026-10-11) — 기준일이 비면 오더 등록일
 //     changeLog, createdBy, createdAt, updatedAt
 //   }
 //
@@ -34,7 +36,7 @@ import {
   normalizeStatus, getStatusLabel, getStepMeta, ORDER_TYPES, ORDER_STATUSES,
   PROVISIONAL_DUE_STEPS, PROVISIONAL_DUE_KEYS, PROCESS_THEME, isCustomStepKey,
 } from '../constants/production';
-import { addDaysYmd, diffDaysYmd, todayYmd, round1, calcKgFromYd, shortDate } from './orderCalculations';
+import { addDaysYmd, diffDaysYmd, todayYmd, toYmd, round1, calcKgFromYd, shortDate } from './orderCalculations';
 
 export const ORDER_SCHEMA_VERSION = 8;
 
@@ -81,6 +83,12 @@ export const createConfirmRound = (round = 1) => ({ round, sentDate: '', resultD
 // 가납기 빈 값 { yarn: '', knitting: '', dyeing: '', visual_inspection: '' }
 export const createProvisionalDue = () => Object.fromEntries(PROVISIONAL_DUE_KEYS.map(k => [k, '']));
 
+// 가납기 일수 빈 값 { base: '', days: { yarn: null, … } }
+export const createProvisionalPlan = () => ({
+  base: '',
+  days: Object.fromEntries(PROVISIONAL_DUE_KEYS.map(k => [k, null])),
+});
+
 // 새 오더 (현황표 [+ 오더 추가]) — order#를 입력해야 저장된다
 export const createEmptyOrder = (userEmail = '') => {
   const now = new Date().toISOString();
@@ -105,6 +113,7 @@ export const createEmptyOrder = (userEmail = '') => {
     colors: [createColor('')],
     dailyNotes: [],
     provisionalDue: createProvisionalDue(),
+    provisionalPlan: createProvisionalPlan(),
     changeLog: [],
     createdBy: userEmail || '',
     createdAt: now,
@@ -228,6 +237,19 @@ const normalizeProvisionalDue = (raw) => {
   return Object.fromEntries(PROVISIONAL_DUE_KEYS.map(k => [k, str(src[k])]));
 };
 
+// 가납기 일수: 0 이상 정수만 (그 밖은 null = 일수 안 씀)
+const normalizeProvisionalPlan = (raw) => {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const days = src.days && typeof src.days === 'object' ? src.days : {};
+  return {
+    base: str(src.base),
+    days: Object.fromEntries(PROVISIONAL_DUE_KEYS.map(k => {
+      const n = numOrNull(days[k]);
+      return [k, n !== null && n >= 0 ? Math.round(n) : null];
+    })),
+  };
+};
+
 const normalizeV8 = (raw) => {
   const id = raw.id;
   const steps = Object.fromEntries(ORDER_STEP_KEYS.map(k => [k, normalizeStep(k, raw.steps?.[k], `${id}_${k}`)]));
@@ -262,6 +284,7 @@ const normalizeV8 = (raw) => {
       .filter(n => n && n.date)
       .map((n, i) => ({ id: n.id || `${id}_n${i}`, date: str(n.date), colorId: str(n.colorId), text: str(n.text), tone: str(n.tone) })),
     provisionalDue: normalizeProvisionalDue(raw.provisionalDue),
+    provisionalPlan: normalizeProvisionalPlan(raw.provisionalPlan),
     changeLog: Array.isArray(raw.changeLog) ? raw.changeLog : [],
   };
 };
@@ -685,6 +708,43 @@ export const describeStepCurrent = (info) => {
   return `예상 종료 ${d}${info.estimated ? ' (생산량 계산)' : ''}`;
 };
 
+// 가납기 기준일 — 저장한 기준일, 없으면 오더 등록일 (새 줄이면 오늘)
+export const getProvisionalBase = (order) => {
+  const saved = str(order?.provisionalPlan?.base);
+  if (saved) return saved;
+  const created = order?.createdAt ? new Date(order.createdAt) : null;
+  return created && !Number.isNaN(created.getTime()) ? toYmd(created) : todayYmd();
+};
+
+/**
+ * 가납기 일수 → 날짜 이어서 계산 (대표님 요청 2026-10-11 '각 단계별로 일 수를 쓰면 자동으로 날짜')
+ *  가납기 = 앞 공정 가납기(첫 공정은 기준일) + 일수
+ *  일수가 없는 공정은 날짜를 그대로 두고, 그 날짜가 다음 공정의 기준 / 날짜도 일수도 없는 공정은 건너뜀
+ *  rows: { [key]: { days: number|null, date } } → 같은 모양 (일수가 있는 공정만 날짜가 바뀜)
+ */
+export const chainProvisionalDates = (base, rows) => {
+  let anchor = str(base);
+  const out = {};
+  PROVISIONAL_DUE_KEYS.forEach(k => {
+    const r = rows?.[k] || { days: null, date: '' };
+    const days = numOrNull(r.days);
+    const date = days !== null && days >= 0 && anchor ? addDaysYmd(anchor, Math.round(days)) : str(r.date);
+    out[k] = { ...r, date };
+    if (date) anchor = date;
+  });
+  return out;
+};
+
+// 그 공정 가납기의 기준 날짜 (앞 공정 중 가장 가까운 가납기, 없으면 기준일) — 날짜를 직접 고쳤을 때 일수 다시 세기용
+export const provisionalAnchorOf = (base, rows, key) => {
+  let anchor = str(base);
+  for (const k of PROVISIONAL_DUE_KEYS) {
+    if (k === key) return anchor;
+    if (rows?.[k]?.date) anchor = rows[k].date;
+  }
+  return anchor;
+};
+
 // 간트 가납기 깃발 — 가납기가 있는 공정만 [{ key, label, short, date, info }]
 export const getProvisionalDueMarks = (order, today = todayYmd()) => PROVISIONAL_DUE_STEPS
   .map(s => ({ key: s.key, label: s.label, short: s.short, info: getProvisionalDueInfo(order, s.key, today) }))
@@ -893,12 +953,15 @@ export const findDailyNote = (order, date, colorId = '') =>
   (order?.dailyNotes || []).find(n => n.date === date && str(n.colorId) === str(colorId)) || null;
 
 // 가납기 patch ({ knitting: '2026-10-25', dyeing: '' … }) — 정해진 4공정만 바꿈, 빈칸 = 지움
-export const applyProvisionalDue = (order, patch) => {
+//  plan: 가납기 일수 { base, days } (주면 통째로 바꿈, 안 주면 그대로)
+export const applyProvisionalDue = (order, patch, plan = undefined) => {
   const next = normalizeProvisionalDue(order.provisionalDue);
   Object.entries(patch || {}).forEach(([k, v]) => {
     if (PROVISIONAL_DUE_KEYS.includes(k)) next[k] = str(v);
   });
-  return { ...order, provisionalDue: next };
+  const out = { ...order, provisionalDue: next };
+  if (plan !== undefined) out.provisionalPlan = normalizeProvisionalPlan(plan);
+  return out;
 };
 
 // ============================================================
@@ -994,11 +1057,19 @@ export const summarizeOrderChange = (prev, next, stepDefs = ORDER_STEPS) => {
     diffStep(prev.steps?.[k] || createStep(k), next.steps?.[k] || createStep(k), label, out);
   });
 
-  // 가납기 (예: '가납기 편직 10/25→10/28')
+  // 가납기 (예: '가납기 편직 10/25→10/28') + 기준일 · 일수 (날짜가 그대로인데 일수만 바뀐 경우)
+  const planA = normalizeProvisionalPlan(prev.provisionalPlan);
+  const planB = normalizeProvisionalPlan(next.provisionalPlan);
+  if (planA.base !== planB.base && (planA.base || planB.base)) {
+    out.push(`가납기 기준일 ${fmtVal('baseDate', planA.base)}→${fmtVal('baseDate', planB.base)}`);
+  }
   PROVISIONAL_DUE_STEPS.forEach(s => {
     const a = str(prev.provisionalDue?.[s.key]);
     const b = str(next.provisionalDue?.[s.key]);
     if (a !== b) out.push(`가납기 ${s.label} ${fmtVal('dueDate', a)}→${fmtVal('dueDate', b)}`);
+    else if (planA.days[s.key] !== planB.days[s.key]) {
+      out.push(`가납기 ${s.label} 일수 ${planA.days[s.key] ?? '-'}→${planB.days[s.key] ?? '-'}일`);
+    }
   });
 
   const prevColors = prev.colors || [];

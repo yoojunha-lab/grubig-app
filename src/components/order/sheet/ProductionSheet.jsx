@@ -297,6 +297,11 @@ const ProvisionalCell = ({ order, span, bg, ctx }) => {
                 >
                   <span className="w-8 shrink-0 text-[10px] font-bold text-slate-500">{meta.short}</span>
                   <span className="shrink-0 font-mono text-[10px] text-slate-700">{shortDate(info.due)}</span>
+                  {order.provisionalPlan?.days?.[meta.key] !== null && order.provisionalPlan?.days?.[meta.key] !== undefined && (
+                    <span className="shrink-0 text-[9px] text-slate-400" title="앞 공정 가납기(첫 공정은 기준일)부터 일수">
+                      {order.provisionalPlan.days[meta.key]}일
+                    </span>
+                  )}
                   {desc.text && (
                     <span className={`min-w-0 truncate px-1 py-px rounded-full border text-[9px] font-bold ${st.chip}`}>{desc.text}</span>
                   )}
@@ -1178,7 +1183,7 @@ export const ProductionSheet = ({
           order={popOrder}
           anchorRect={popover.anchorRect}
           onClose={closePopover}
-          onSave={patch => actions.setProvisionalDue(popOrder.id, patch)}
+          onSave={(patch, plan) => actions.setProvisionalDue(popOrder.id, patch, plan)}
         />
       )}
       {stepManagerRect && onSaveCustomSteps && (

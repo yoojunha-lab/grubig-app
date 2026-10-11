@@ -20,6 +20,7 @@ import { PartnerPickerModal } from '../common/PartnerPickerModal';
 import { ModalBackdrop } from '../common/ModalBackdrop';
 import { ConfirmPopover } from './sheet/ColorPopovers';
 import { ProcessPopover } from './sheet/ProcessPopover';
+import { ProvisionalDuePopover } from './sheet/ProvisionalDuePopover';
 import { StatusSelect } from './common/StatusSelect';
 
 // GRUBIG ERP - 생산 오더 상세창 (v8: 엑셀형 현황표)
@@ -808,6 +809,7 @@ const OrderDetailBody = ({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmColorId, setConfirmColorId] = useState(null);
   const [processKey, setProcessKey] = useState(null); // 공정 입력 창을 연 공정
+  const [provisionalOpen, setProvisionalOpen] = useState(false); // 가납기 입력 창
   const [newColorId, setNewColorId] = useState(null); // 방금 추가한 컬러 → 컬러명 칸 자동 포커스
   const [deleting, setDeleting] = useState(false);
 
@@ -1029,35 +1031,52 @@ const OrderDetailBody = ({
             </div>
           </Section>
 
-          {/* ② 가납기 (대략적인 공정별 목표 날짜 — 지금 일정과 비교) */}
+          {/* ② 가납기 (대략적인 공정별 목표 날짜 — 일수로 이어서 계산, 지금 일정과 비교) */}
           <Section
             icon={Flag}
             title="가납기"
-            right={<span className="text-[11px] text-slate-400">대략적인 목표 날짜 · 지금 일정과 비교</span>}
+            right={(
+              <button type="button" onClick={() => setProvisionalOpen(true)} className={BTN_SUB}>
+                <Pencil className="w-3 h-3" /> 일수 · 날짜 입력
+              </button>
+            )}
           >
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setProvisionalOpen(true)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setProvisionalOpen(true);
+                }
+              }}
+              className="rounded-xl border border-slate-200 divide-y divide-slate-100 cursor-pointer hover:border-teal-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
+            >
               {PROVISIONAL_DUE_STEPS.map(s => {
                 const info = getProvisionalDueInfo(order, s.key);
                 const desc = describeProvisionalDue(info);
                 const st = PROVISIONAL_STATES[info.state] || PROVISIONAL_STATES.none;
+                const days = order.provisionalPlan?.days?.[s.key];
                 return (
-                  <Field key={s.key} label={s.label} hint={`현재 ${describeStepCurrent(info)}`}>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 min-w-0">
-                        <DateInput value={info.due} onCommit={v => actions.setProvisionalDue(order.id, { [s.key]: v })} />
-                      </div>
-                      {desc.text && info.state !== 'none' && (
-                        <span className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-bold whitespace-nowrap ${st.chip}`}>
-                          {desc.text}
-                        </span>
-                      )}
-                    </div>
-                  </Field>
+                  <div key={s.key} className="flex items-center gap-2 px-3 py-1.5 text-xs">
+                    <span className="w-14 shrink-0 font-extrabold text-slate-600">{s.label}</span>
+                    <span className={`w-16 shrink-0 font-mono ${info.due ? 'font-bold text-slate-800' : 'text-slate-300'}`}>
+                      {info.due ? shortDate(info.due) : '-'}
+                    </span>
+                    <span className="w-10 shrink-0 text-[10px] text-slate-400">{days !== null && days !== undefined ? `${days}일` : ''}</span>
+                    <span className="flex-1 min-w-0 truncate text-[10px] text-slate-500">현재 {describeStepCurrent(info)}</span>
+                    {desc.text && info.state !== 'none' && (
+                      <span className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-bold whitespace-nowrap ${st.chip}`}>
+                        {desc.text}
+                      </span>
+                    )}
+                  </div>
                 );
               })}
             </div>
             <p className="text-[10px] text-slate-400 mt-1.5">
-              비교 기준: 그 공정 종료일(완료면 완료일) · 염가공은 가장 늦은 LOT 완료예정일. 날짜를 고르면 바로 저장돼요.
+              누르면 기준일 · 공정별 일수로 가납기를 이어서 계산해요. 비교 기준: 그 공정 예상 종료일(완료면 완료일) · 염가공은 가장 늦은 LOT 완료예정일.
             </p>
           </Section>
 
@@ -1156,6 +1175,15 @@ const OrderDetailBody = ({
           anchorRect={null}
           onClose={() => setConfirmColorId(null)}
           onSave={rounds => actions.setColorField(order.id, confirmColor.id, { confirmRounds: rounds })}
+        />
+      )}
+      {provisionalOpen && (
+        <ProvisionalDuePopover
+          key={`provisional_${order.id}`}
+          order={order}
+          anchorRect={null}
+          onClose={() => setProvisionalOpen(false)}
+          onSave={(patch, plan) => actions.setProvisionalDue(order.id, patch, plan)}
         />
       )}
       {processMeta && (
