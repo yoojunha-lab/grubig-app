@@ -4,12 +4,13 @@ import {
 } from 'lucide-react';
 import {
   PROCESS_THEME, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, COLOR_STAGES,
-  CONFIRM_RESULTS, DEFAULT_LOSS_RATE, PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS,
+  DEFAULT_LOSS_RATE, PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS,
+  TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES,
   buildFlowOrder, findStepMeta, getStepDefs, isCustomStepKey,
 } from '../../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, isStepUsed, getKnittingEstimatedEnd, getEndShift, colorHasData,
-  getLotSummary, getLotsTotalKg, getLotsStatus, getConfirmState, getColorStage, getDday,
+  getLotOverview, getLotsStatus, getColorStage, getDday, getTrackEvent, isTestReportPassed,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState,
 } from '../../../utils/orderModel';
 import { shortDate, fmtKg, todayYmd } from '../../../utils/orderCalculations';
@@ -62,7 +63,7 @@ const STEP_SHORT_LABELS = { physical_test: '이화학', visual_inspection: '외�
 const COLOR_COLS = {
   '#greige':  { key: 'greige',  label: '생지출고',   width: 116 },
   '#dyeing':  { key: 'dyeing',  label: '염가공 LOT', width: 150 },
-  '#confirm': { key: 'confirm', label: '컨펌',       width: 104 },
+  '#confirm': { key: 'confirm', label: '컨펌 · 성적서', width: 172 },
   '#ship':    { key: 'ship',    label: '출고',       width: 116 },
 };
 const TAIL_COLS = [
@@ -129,13 +130,6 @@ const CLICKABLE = 'cursor-pointer hover:ring-2 hover:ring-inset hover:ring-teal-
 const TH = 'sticky top-0 z-20 bg-slate-100 border-b border-b-slate-300 px-1.5 py-1.5 text-left text-[11px] font-extrabold text-slate-600 whitespace-nowrap';
 
 const BADGE = 'inline-flex items-center px-1.5 py-px rounded-full border text-[10px] font-bold whitespace-nowrap';
-
-const CONFIRM_BADGE = {
-  pass:  CONFIRM_RESULTS.find(r => r.key === 'pass')?.cls || 'bg-emerald-100 text-emerald-700 border-emerald-300',
-  fail:  CONFIRM_RESULTS.find(r => r.key === 'fail')?.cls || 'bg-rose-100 text-rose-700 border-rose-300',
-  sent:  'bg-sky-100 text-sky-700 border-sky-300',
-  ready: 'bg-slate-100 text-slate-600 border-slate-300',
-};
 
 // 'M/D~M/D' (한쪽만 있으면 'M/D~' / '~M/D')
 const fmtRange = (start, end) => {
@@ -360,22 +354,18 @@ const GreigeCell = ({ order, color, last, bg, ctx }) => {
   );
 };
 
-// 염가공 LOT 칸 (컬러 단위) — onOpenLots 가 있을 때만 클릭 가능
-const LotCell = ({ order, color, lossRate, last, bg, ctx }) => {
+// 염가공 LOT 칸 (컬러 단위) — onOpenLots 가 있을 때만 클릭 가능 (LOT 개수 · 완료 · 투입~완료예정)
+const LotCell = ({ order, color, last, bg, ctx }) => {
   const lots = color.lots || [];
   const has = lots.length > 0;
   const canOpen = !!ctx.openLots;
   const open = (el) => ctx.openLots(order.id, color.id, el.getBoundingClientRect());
 
-  const workKg = getWorkKg(color, lossRate);
-  const total = getLotsTotalKg(lots);
+  const ov = getLotOverview(lots);
   const status = getLotsStatus(lots);
-  const mismatch = has && workKg !== null && Math.abs(total - workKg) >= 0.05;
-  const starts = lots.map(l => l.startDate).filter(Boolean).sort();
-  const ends = lots.map(l => l.endDate).filter(Boolean).sort();
-  const range = fmtRange(starts[0], ends[ends.length - 1]);
+  const range = fmtRange(ov.start, ov.end);
   const tooltip = has
-    ? lots.map(l => `LOT${l.no} ${l.machineKg ? `${fmtKg(l.machineKg)}kg탕 ` : ''}${fmtKg(l.qtyKg) || '-'}kg · ${getStatusLabel(l.status)}`).join('\n')
+    ? lots.map(l => `LOT${l.no} · ${getStatusLabel(l.status)}${l.startDate || l.endDate ? ` · ${fmtRange(l.startDate, l.endDate)}` : ''}${l.notes ? ` · ${l.notes}` : ''}`).join('\n')
     : (canOpen ? '염가공 LOT 계획 입력' : undefined);
 
   return (
@@ -393,13 +383,15 @@ const LotCell = ({ order, color, lossRate, last, bg, ctx }) => {
                   title={getStatusLabel(status)}
                 />
               )}
-              <span className="px-1 rounded bg-white/70 border border-orange-200 font-mono font-bold text-[10px] truncate">
-                {getLotSummary(lots)}
-              </span>
+              <span className="font-bold text-[10px]">LOT {ov.count}개</span>
+              <span className="text-[10px] opacity-80">· 완료 {ov.done}</span>
             </div>
-            <div className={`font-mono text-[10px] ${mismatch ? 'text-orange-600 font-extrabold' : 'opacity-80'}`}>
-              {lots.length} LOT · {fmtKg(total)}{workKg !== null ? `/${fmtKg(workKg)}` : ''}kg
-            </div>
+            {(ov.inProgress > 0 || ov.issue > 0) && (
+              <div className="text-[10px] opacity-80">
+                {ov.inProgress > 0 ? `진행 ${ov.inProgress}` : ''}{ov.inProgress > 0 && ov.issue > 0 ? ' · ' : ''}
+                {ov.issue > 0 ? <b className="text-red-600">문제 {ov.issue}</b> : null}
+              </div>
+            )}
             {range && <div className="font-mono text-[10px] opacity-70">{range}</div>}
           </div>
         ) : (
@@ -410,25 +402,73 @@ const LotCell = ({ order, color, lossRate, last, bg, ctx }) => {
   );
 };
 
-// 컨펌 칸 (컬러 단위) — 클릭하면 ConfirmPopover
+// 컨펌 칸 (컬러 단위) — 시험성적서(체크 + 상태) · 브랜드 컨펌(상태). 드롭다운 = 바로 저장(그날 날짜로 기록)
+//  칸을 누르면 ConfirmPopover (발행 예상일 · 날짜 · 기록 고치기)
+const TEST_OPTIONS = TEST_REPORT_STATUSES;
+const BRAND_OPTIONS = BRAND_CONFIRM_STATUSES;
 const ConfirmCell = ({ order, color, last, bg, ctx }) => {
-  const st = getConfirmState(color);
-  const rounds = color.confirmRounds || [];
-  const lastRound = rounds[rounds.length - 1];
   const open = (el) => ctx.openConfirm(order.id, color.id, el);
+  const needed = !!color.testReport?.needed;
+  const testEv = getTrackEvent(color, 'testReport');
+  const brandEv = getTrackEvent(color, 'brandConfirm');
+  const expected = color.testReport?.expectedDate || '';
+  const expectedLate = needed && expected && !isTestReportPassed(color) && expected < todayYmd();
+  const addEvent = (track) => (status) => ctx.actions.addTrackEvent(order.id, color.id, track, status);
   return (
     <td onClick={e => open(e.currentTarget)} className={cellCls({ thick: last, extra: `${CLICKABLE} ${bg}` })}>
-      <CellAction navKey="confirm" onActivate={open} title="브랜드 컨펌 기록 (클릭 또는 Enter)">
-        {st.key === 'none' ? (
-          <span className="text-slate-300">+ 컨펌</span>
-        ) : (
-          <div className="space-y-0.5">
-            <span className={`${BADGE} ${CONFIRM_BADGE[st.key] || CONFIRM_BADGE.ready}`}>{st.label}</span>
-            {lastRound?.sentDate && (
-              <div className="font-mono text-[10px] text-slate-500">{shortDate(lastRound.sentDate)} 발송</div>
+      <CellAction navKey="confirm" onActivate={open} title="시험성적서 · 브랜드 컨펌 — 누르면 날짜·기록 수정 (드롭다운은 바로 저장)">
+        <div className="space-y-1">
+          {/* 시험성적서 */}
+          <div className="flex items-center gap-1 flex-wrap">
+            <label
+              onClick={e => e.stopPropagation()}
+              className="inline-flex items-center gap-0.5 text-[10px] font-bold text-slate-600 cursor-pointer select-none"
+              title="이 컬러는 시험성적서가 필요해요 (체크 = 바로 저장)"
+            >
+              <input
+                type="checkbox"
+                tabIndex={-1}
+                checked={needed}
+                onChange={e => ctx.actions.setColorTracks(order.id, color.id, { testReport: { needed: e.target.checked } })}
+                className="w-3 h-3 accent-fuchsia-600 cursor-pointer"
+              />
+              성적서
+            </label>
+            {needed && (
+              <StatusSelect
+                value={testEv?.status || ''}
+                options={TEST_OPTIONS}
+                onChange={addEvent('testReport')}
+                placeholder="상태"
+                tabIndex={-1}
+                title="시험성적서 상태 (바꾸면 오늘 날짜로 기록)"
+              />
             )}
           </div>
-        )}
+          {needed && (testEv?.date || expected) && (
+            <div className="font-mono text-[9px] text-slate-500">
+              {testEv?.date ? shortDate(testEv.date) : ''}
+              {expected && (
+                <span className={expectedLate ? 'text-red-600 font-bold' : ''} title={expectedLate ? '발행 예상일이 지났어요' : '발행 예상일'}>
+                  {testEv?.date ? ' · ' : ''}예정 {shortDate(expected)}
+                </span>
+              )}
+            </div>
+          )}
+          {/* 브랜드 컨펌 */}
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-[10px] font-bold text-slate-600">브랜드</span>
+            <StatusSelect
+              value={brandEv?.status || ''}
+              options={BRAND_OPTIONS}
+              onChange={addEvent('brandConfirm')}
+              placeholder="상태"
+              tabIndex={-1}
+              title="브랜드 컨펌 상태 (바꾸면 오늘 날짜로 기록)"
+            />
+            {brandEv?.date && <span className="font-mono text-[9px] text-slate-500">{shortDate(brandEv.date)}</span>}
+          </div>
+        </div>
       </CellAction>
     </td>
   );
@@ -466,7 +506,7 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
       case 'greige':
         return <GreigeCell key="greige" order={order} color={color} last={last} bg={plainBg} ctx={ctx} />;
       case 'dyeing':
-        return <LotCell key="dyeing" order={order} color={color} lossRate={lossRate} last={last} bg={plainBg} ctx={ctx} />;
+        return <LotCell key="dyeing" order={order} color={color} last={last} bg={plainBg} ctx={ctx} />;
       case 'confirm':
         return <ConfirmCell key="confirm" order={order} color={color} last={last} bg={plainBg} ctx={ctx} />;
       case 'ship':
@@ -854,7 +894,7 @@ export const ProductionSheet = ({
       const cs = o.colors || [];
       if (cs.some(c => (c.greigeOuts || []).length)) bump('greige');
       if (cs.some(c => (c.lots || []).length)) bump('dyeing');
-      if (cs.some(c => (c.confirmRounds || []).length)) bump('confirm');
+      if (cs.some(c => c.testReport?.needed || (c.brandConfirm?.events || []).length)) bump('confirm');
       if (cs.some(c => c.shipDate || c.shipDone)) bump('ship');
       if (o.notes) bump('memo');
     });
@@ -1198,7 +1238,7 @@ export const ProductionSheet = ({
           color={popColor}
           anchorRect={popover.anchorRect}
           onClose={closePopover}
-          onSave={rounds => actions.setColorField(popOrder.id, popColor.id, { confirmRounds: rounds })}
+          onSave={patch => actions.setColorTracks(popOrder.id, popColor.id, patch)}
         />
       )}
       {popover?.kind === 'greige' && popOrder && popColor && (

@@ -176,6 +176,7 @@ export const PROCESS_THEME = {
   physical_test:     { label: '이화학검사', cell: 'bg-violet-100 text-violet-800',   bar: 'bg-violet-200 border-violet-400 text-violet-900',  dot: 'bg-violet-400'  },
   visual_inspection: { label: '외관검사',   cell: 'bg-violet-100 text-violet-800',   bar: 'bg-violet-200 border-violet-400 text-violet-900',  dot: 'bg-violet-400'  },
   confirm:           { label: '컨펌',       cell: 'bg-sky-100 text-sky-800',         bar: 'bg-sky-200 border-sky-400 text-sky-900',           dot: 'bg-sky-400'     },
+  test:              { label: '시험성적서', cell: 'bg-fuchsia-100 text-fuchsia-800', bar: 'bg-fuchsia-200 border-fuchsia-400 text-fuchsia-900', dot: 'bg-fuchsia-400' },
   ship:              { label: '출고',       cell: 'bg-blue-100 text-blue-800',       bar: 'bg-blue-200 border-blue-400 text-blue-900',        dot: 'bg-blue-500'    },
   custom:            { label: '추가 공정',  cell: 'bg-indigo-100 text-indigo-800',   bar: 'bg-indigo-200 border-indigo-400 text-indigo-900',  dot: 'bg-indigo-400'  },
 };
@@ -236,13 +237,10 @@ export const detectOrderType = (orderNumber) => {
 };
 
 // ============================================================
-// 7. 수량 / 로스율 / 염색탕(LOT)
+// 7. 수량 / 로스율 / 생지 출고
 // ============================================================
 // 작지수량 = 오더수량 × (1 + 로스율/100). 엑셀 실측 대부분 10%
 export const DEFAULT_LOSS_RATE = 10;
-
-// 염색탕 용량 프리셋 (kg). 목록에 없으면 LOT 편집에서 직접 입력
-export const DYE_MACHINE_PRESETS = [300, 500];
 
 // 생지 출고 종류 (컬러별 출고 기록 한 줄마다 — 대표님 요청 2026-10-11)
 //  전체 = 남은 생지 전부 (체크하면 그 컬러 생지 출고 끝) / 부분 = 일부만 (메모에 어떤 분인지)
@@ -251,11 +249,31 @@ export const GREIGE_OUT_KINDS = [
   { key: 'partial', label: '부분 출고', short: '부분', cls: 'bg-amber-50 text-amber-800 border-amber-300' },
 ];
 
-// 브랜드 컨펌 결과
-export const CONFIRM_RESULTS = [
-  { key: 'pass', label: '합격',   cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
-  { key: 'fail', label: '불합격', cls: 'bg-rose-100 text-rose-700 border-rose-300' },
+// ============================================================
+// 7-B. 상태 기록 드롭다운 (컬러별 — 대표님 요청 2026-10-11)
+// ------------------------------------------------------------
+//  드롭다운을 바꿀 때마다 그날 날짜로 한 줄씩 남음 (날짜는 고칠 수 있음) → 마지막 줄이 지금 상태
+//  phase: 'active'(진행) · 'done'(끝) · 'issue'(문제) — 간트 막대 색 · 컬러 단계 계산용
+//  startsRound: 이 상태로 새 차수가 시작됨 (간트 막대 = 시작 ~ 결과)
+// ============================================================
+// 시험성적서 (컨펌 칸 — '시험성적서'를 체크한 컬러만)
+export const TEST_REPORT_STATUSES = [
+  { key: 'issuing',  label: '발행중', phase: 'active', startsRound: true,  cls: 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-300' },
+  { key: 'pass',     label: '합격',   phase: 'done',   startsRound: false, cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  { key: 'fail',     label: '불합격', phase: 'issue',  startsRound: false, cls: 'bg-rose-100 text-rose-700 border-rose-300' },
+  { key: 'resubmit', label: '재투입', phase: 'active', startsRound: true,  cls: 'bg-amber-100 text-amber-800 border-amber-300' },
+  { key: 'repass',   label: '재합격', phase: 'done',   startsRound: false, cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
 ];
+
+// 브랜드 컨펌 (가공지를 브랜드에 보내 승인받기)
+export const BRAND_CONFIRM_STATUSES = [
+  { key: 'sent',      label: '전달', phase: 'active', startsRound: true,  cls: 'bg-sky-100 text-sky-700 border-sky-300' },
+  { key: 'confirmed', label: '컨펌', phase: 'done',   startsRound: false, cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  { key: 'rejected',  label: '리젝', phase: 'issue',  startsRound: false, cls: 'bg-rose-100 text-rose-700 border-rose-300' },
+];
+
+// 상태 목록에서 한 줄 찾기 (없으면 null)
+export const findStatusMeta = (list, key) => (list || []).find(s => s.key === key) || null;
 
 // 간트/일일 메모 칸 색상 선택지 (엑셀처럼 칸 색으로 단계 표시). '' = 자동(그날 진행 공정 색)
 export const NOTE_TONES = [

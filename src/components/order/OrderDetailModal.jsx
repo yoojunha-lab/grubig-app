@@ -7,14 +7,14 @@ import {
 import {
   ORDER_STEPS, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, PROCESS_THEME,
   COLOR_STAGES, ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_TYPES,
-  PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS,
+  PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS, TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES,
 } from '../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, getOrderTotals, isStepUsed, getKnittingEstimatedEnd, getEndShift,
-  getLotSummary, getLotsTotalKg, getLotsStatus, getConfirmState, getColorStage, getDday, colorHasData,
+  getLotOverview, getLotsStatus, getTrackEvent, isTestReportPassed, getColorStage, getDday, colorHasData,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState,
 } from '../../utils/orderModel';
-import { shortDate, isYmd, round1, toNumberOrNull, fmtKg, todayYmd } from '../../utils/orderCalculations';
+import { shortDate, isYmd, toNumberOrNull, fmtKg, todayYmd } from '../../utils/orderCalculations';
 import { CHANGE_ACTIONS } from '../../utils/auditLog';
 import { PartnerPickerModal } from '../common/PartnerPickerModal';
 import { ModalBackdrop } from '../common/ModalBackdrop';
@@ -44,20 +44,10 @@ const TYPE_CLS = {
   sample: 'bg-amber-100 text-amber-700 border-amber-300',
 };
 
-// 컨펌 상태(getConfirmState key) → 뱃지 색
-const CONFIRM_STATE_CLS = {
-  pass:  'bg-emerald-100 text-emerald-700 border-emerald-300',
-  fail:  'bg-red-100 text-red-700 border-red-300',
-  sent:  'bg-sky-100 text-sky-700 border-sky-300',
-  ready: 'bg-slate-100 text-slate-600 border-slate-300',
-};
-
 const orderStatusCls = (key) => {
   const c = ORDER_STATUS_COLORS[key] || ORDER_STATUS_COLORS.active;
   return `${c.bg} ${c.text} ${c.border}`;
 };
-
-const kgOrDash = (n) => fmtKg(n) || '-';
 
 // 완료 체크 시 날짜가 비어 있으면 오늘 날짜도 함께 채움 (현황표와 같은 규칙 → 리포트·간트에 반영되도록)
 const doneWithDate = (color, doneKey, dateKey, done) => (
@@ -494,7 +484,7 @@ const StepRow = ({ meta, step, order, onOpen, onStatus }) => {
 // ============================================================
 const ColorCard = ({
   order, color, index, lossRate, single, autoFocusName,
-  onPatch, onRemove, onOpenLots, onOpenConfirm, onOpenGreige, onGreigeDone,
+  onPatch, onRemove, onOpenLots, onOpenConfirm, onOpenGreige, onGreigeDone, onTracks, onTrackEvent,
 }) => {
   const stageMeta = COLOR_STAGES[getColorStage(order, color)] || COLOR_STAGES.waiting;
   const greige = getGreigeState(color);
@@ -502,12 +492,13 @@ const ColorCard = ({
   const workKg = getWorkKg(color, lossRate);
   const autoWork = getWorkKg({ ...color, workKg: null }, lossRate);
   const lots = color.lots || [];
-  const lotSum = getLotsTotalKg(lots);
+  const lotOv = getLotOverview(lots);
   const lotStatus = getLotsStatus(lots);
-  const lotMismatch = lots.length > 0 && workKg !== null && round1(lotSum) !== round1(workKg);
-  const confirm = getConfirmState(color);
-  const rounds = color.confirmRounds || [];
-  const lastSent = rounds.length ? rounds[rounds.length - 1].sentDate : '';
+  const testNeeded = !!color.testReport?.needed;
+  const testEv = getTrackEvent(color, 'testReport');
+  const brandEv = getTrackEvent(color, 'brandConfirm');
+  const expected = color.testReport?.expectedDate || '';
+  const expectedLate = testNeeded && expected && !isTestReportPassed(color) && expected < todayYmd();
 
   // 작지kg: 자동값 그대로면 저장 안 함, 비우면 자동으로 되돌림
   const commitWorkKg = (n) => {
@@ -637,13 +628,12 @@ const ColorCard = ({
           </div>
           {lots.length ? (
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-              <span className="px-1.5 py-0.5 rounded bg-white/70 border border-orange-200 font-mono font-bold">{getLotSummary(lots)}</span>
-              <span
-                className={`font-mono ${lotMismatch ? 'text-orange-600 font-bold' : ''}`}
-                title={lotMismatch ? 'LOT 합계가 작지 kg과 달라요' : undefined}
-              >
-                {lots.length} LOT · {kgOrDash(lotSum)} / {kgOrDash(workKg)} kg
+              <span className="px-1.5 py-0.5 rounded bg-white/70 border border-orange-200 font-bold">
+                LOT {lotOv.count}개 · 완료 {lotOv.done}
               </span>
+              {(lotOv.start || lotOv.end) && (
+                <span className="font-mono text-[11px]">{shortDate(lotOv.start) || '?'}~{shortDate(lotOv.end) || '?'}</span>
+              )}
               {lotStatus && (
                 <span className="inline-flex items-center gap-1 text-[11px]">
                   <span className={`w-2 h-2 rounded-full ${(PROGRESS_STATUS_COLORS[lotStatus] || PROGRESS_STATUS_COLORS.pending).dot}`} />
@@ -656,24 +646,56 @@ const ColorCard = ({
           )}
         </div>
 
-        {/* 브랜드 컨펌 요약 (편집은 컨펌 팝오버) */}
-        <div className={`col-span-2 rounded-lg border px-2.5 py-2 ${rounds.length ? 'bg-sky-50/60 border-sky-200' : 'border-dashed border-slate-200'}`}>
+        {/* 컨펌 — 시험성적서(체크 + 상태) · 브랜드 컨펌(상태). 드롭다운 = 바로 저장(그날 날짜로 기록), 날짜·기록은 [기록 편집] */}
+        <div className={`col-span-2 rounded-lg border px-2.5 py-2 space-y-1.5 ${testNeeded || brandEv ? 'bg-sky-50/50 border-sky-200' : 'border-dashed border-slate-200'}`}>
           <div className="flex items-center justify-between gap-2">
-            <div className="text-[11px] font-bold text-slate-500">브랜드 컨펌</div>
+            <div className="text-[11px] font-bold text-slate-500">컨펌 · 시험성적서</div>
             <button type="button" onClick={onOpenConfirm} className={BTN_SUB}>
-              {confirm.key === 'none' ? <><Plus className="w-3 h-3" /> 컨펌</> : '컨펌 편집'}
+              <Pencil className="w-3 h-3" /> 기록 편집
             </button>
           </div>
-          {confirm.key === 'none' ? (
-            <div className="mt-1 text-[11px] text-slate-400">컨펌 기록이 없어요.</div>
-          ) : (
-            <div className="mt-1 flex items-center gap-2 flex-wrap">
-              <span className={`px-1.5 py-0.5 rounded border text-[11px] font-bold ${CONFIRM_STATE_CLS[confirm.key] || CONFIRM_STATE_CLS.ready}`}>
-                {confirm.label}
-              </span>
-              {lastSent && <span className="text-[11px] text-slate-500 font-mono">{shortDate(lastSent)} 발송</span>}
-            </div>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={testNeeded}
+                onChange={e => onTracks({ testReport: { needed: e.target.checked } })}
+                className="w-4 h-4 accent-fuchsia-600"
+              />
+              시험성적서
+            </label>
+            {testNeeded && (
+              <>
+                <StatusSelect
+                  value={testEv?.status || ''}
+                  options={TEST_REPORT_STATUSES}
+                  onChange={st => onTrackEvent('testReport', st)}
+                  size="md"
+                  placeholder="상태"
+                  ariaLabel="시험성적서 상태"
+                />
+                {testEv?.date && <span className="font-mono text-[11px] text-slate-500">{shortDate(testEv.date)}</span>}
+                {expected && (
+                  <span className={`text-[11px] ${expectedLate ? 'font-bold text-red-600' : 'text-slate-500'}`}>
+                    발행 예정 {shortDate(expected)}
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-slate-600 w-[74px]">브랜드 컨펌</span>
+            <StatusSelect
+              value={brandEv?.status || ''}
+              options={BRAND_CONFIRM_STATUSES}
+              onChange={st => onTrackEvent('brandConfirm', st)}
+              size="md"
+              placeholder="상태"
+              ariaLabel="브랜드 컨펌 상태"
+            />
+            {brandEv?.date && <span className="font-mono text-[11px] text-slate-500">{shortDate(brandEv.date)}</span>}
+          </div>
+          <p className="text-[10px] text-slate-400">상태를 바꾸면 오늘 날짜로 기록돼요. 날짜·발행 예상일은 [기록 편집].</p>
         </div>
 
         {/* 출고 */}
@@ -1160,6 +1182,8 @@ const OrderDetailBody = ({
                   onOpenConfirm={() => setConfirmColorId(c.id)}
                   onOpenGreige={() => setGreigeColorId(c.id)}
                   onGreigeDone={(entryId, done) => actions.setGreigeOutDone(order.id, c.id, entryId, done)}
+                  onTracks={patch => actions.setColorTracks(order.id, c.id, patch)}
+                  onTrackEvent={(track, st) => actions.addTrackEvent(order.id, c.id, track, st)}
                 />
               ))}
             </div>
@@ -1207,7 +1231,7 @@ const OrderDetailBody = ({
           color={confirmColor}
           anchorRect={null}
           onClose={() => setConfirmColorId(null)}
-          onSave={rounds => actions.setColorField(order.id, confirmColor.id, { confirmRounds: rounds })}
+          onSave={patch => actions.setColorTracks(order.id, confirmColor.id, patch)}
         />
       )}
       {greigeColor && (

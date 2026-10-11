@@ -70,7 +70,8 @@ const LEGEND = [
   { key: 'presetting', label: '프리세팅' },
   { key: 'greige', label: '생지출고' },
   { key: 'dyeing', label: '염가공 LOT' },
-  { key: 'confirm', label: '컨펌' },
+  { key: 'test', label: '시험성적서' },
+  { key: 'confirm', label: '브랜드 컨펌' },
   { key: 'ship', label: '출고' },
 ];
 const OTHER_STEP_DOTS = ['yarn', 'finishing', 'physical_test'];
@@ -231,11 +232,6 @@ const rawBarDates = (order, color, bar) => {
     const lot = (color?.lots || []).find(l => l.id === bar.lotId) || {};
     return { s: lot.startDate || '', e: lot.endDate || '', sName: '투입일', eName: '완료예정일' };
   }
-  if (bar.kind === 'confirm') {
-    const ri = Number(String(bar.id).slice(String(bar.id).lastIndexOf('_') + 1));
-    const r = (color?.confirmRounds || [])[ri] || {};
-    return { s: r.sentDate || '', e: r.resultDate || '', sName: '발송일', eName: '결과일' };
-  }
   return { s: bar.start, e: bar.end, sName: '', eName: '' };
 };
 
@@ -279,17 +275,18 @@ const describeBar = (order, color, bar, metaOf = getStepMeta) => {
   }
   if (bar.kind === 'lot') {
     const lot = (color?.lots || []).find(l => l.id === bar.lotId) || {};
-    const extra = [
-      lot.qtyKg ? `수량 ${fmtKg(lot.qtyKg)}kg` : '',
-      lot.machineKg ? `탕 ${fmtKg(lot.machineKg)}kg` : '',
-      lot.rolls ? `${lot.rolls}롤` : '',
-      lot.notes || '',
-    ].filter(Boolean).join(' · ');
-    return { ...base, status: getStatusLabel(bar.status), vendorLabel: '염색소', vendor: order.dyeVendor, extra, hint: '누르면 LOT 계획 편집' };
+    return { ...base, status: getStatusLabel(bar.status), vendorLabel: '염색소', vendor: order.dyeVendor, extra: lot.notes || '', hint: '누르면 LOT 계획 편집' };
   }
-  if (bar.kind === 'confirm') {
-    const status = bar.status === 'done' ? '합격' : bar.status === 'issue' ? '불합격' : '결과 대기';
-    return { ...base, status, vendorLabel: 'buyer', vendor: order.customer, hint: '누르면 컨펌 기록 수정' };
+  if (bar.kind === 'confirm' || bar.kind === 'test') {
+    const isTest = bar.kind === 'test';
+    const status = bar.dashed ? '발행 예상일' : bar.open ? '결과 기다리는 중' : bar.status === 'done' ? '끝 (합격·컨펌)' : bar.status === 'issue' ? '불합격·리젝' : '진행중';
+    return {
+      ...base,
+      status,
+      vendorLabel: isTest ? '' : 'buyer',
+      vendor: isTest ? '' : order.customer,
+      hint: '누르면 시험성적서 · 브랜드 컨펌 기록 수정',
+    };
   }
   if (bar.kind === 'greige') {
     const g = (color?.greigeOuts || []).find(x => x.id === bar.greigeId) || {};
@@ -480,7 +477,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
     } else if (bar.kind === 'lot' && color) {
       if (onOpenLots) onOpenLots(order.id, color.id, anchorRect);
       else onOpenDetail?.(order.id);
-    } else if (bar.kind === 'confirm' && color) {
+    } else if ((bar.kind === 'confirm' || bar.kind === 'test') && color) {
       setPopover({ kind: 'confirm', orderId: order.id, colorId: color.id, anchorRect });
     } else if (bar.kind === 'greige' && color) {
       setPopover({ kind: 'greige', orderId: order.id, colorId: color.id, anchorRect });
@@ -574,6 +571,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
     const done = bar.status === 'done';
     const issue = bar.status === 'issue';
     const estimated = isEstimatedBar(order, bar);
+    const dashed = estimated || !!bar.dashed;
     const rounded = `${bar.clipL ? 'rounded-l-none border-l-0' : 'rounded-l-md'} ${bar.clipR ? 'rounded-r-none border-r-0' : 'rounded-r-md'}`;
     const button = (
       <button
@@ -586,7 +584,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
         onBlur={hideTip}
         className={`absolute z-[2] flex items-center px-1 border text-[10px] font-bold leading-none whitespace-nowrap text-left transition-shadow hover:shadow-md hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${theme.bar} ${rounded} ${
           done ? 'opacity-60' : ''
-        } ${issue ? 'ring-2 ring-red-500' : ''} ${estimated ? 'border-dashed' : ''}`}
+        } ${issue ? 'ring-2 ring-red-500' : ''} ${dashed ? 'border-dashed' : ''}`}
         style={{
           left: bar.startCol * DAY_W + (bar.clipL ? 0 : 2),
           width: (bar.endCol - bar.startCol + 1) * DAY_W - (bar.clipL ? 0 : 2) - (bar.clipR ? 0 : 2),
@@ -850,7 +848,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
           color={popColor}
           anchorRect={popover.anchorRect}
           onClose={closePopover}
-          onSave={rounds => actions.setColorField(popOrder.id, popColor.id, { confirmRounds: rounds })}
+          onSave={patch => actions.setColorTracks(popOrder.id, popColor.id, patch)}
         />
       )}
       {popover?.kind === 'greige' && popOrder && popColor && (

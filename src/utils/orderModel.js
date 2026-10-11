@@ -17,8 +17,10 @@
 //     colors: [{ id, name, orderKg, workKg(null=자동),
 //                greigeOuts: [{ id, date, kind('full'|'partial'), memo, done }]  (생지 출고 — 여러 번, 전체/부분 — 2026-10-11)
 //                greigeOutDate, greigeOutDone (← greigeOuts 에서 계산해 같이 저장하는 값: 마지막 출고일 · 전체 출고 끝)
-//                lots: [{ id, no, machineKg, qtyKg, startDate, endDate, status, rolls, notes }],
-//                confirmRounds: [{ round, sentDate, resultDate, result }],
+//                lots: [{ id, no, startDate(투입), endDate(완료예정), status, notes }]  (탕·수량·롤은 예전 값만 남음 — 2026-10-11)
+//                testReport: { needed(시험성적서 체크), expectedDate(발행 예상일), events: [{ id, status, date }] }
+//                brandConfirm: { events: [{ id, status('sent'|'confirmed'|'rejected'), date }] }
+//                  (상태 드롭다운을 바꿀 때마다 그날 날짜로 한 줄 — 마지막 줄 = 지금 상태. 예전 confirmRounds 는 자동 변환)
 //                shipDate, shipDone, notes, legacyYd? }]
 //     dailyNotes: [{ id, date, colorId(''=오더 전체), text, tone }]
 //     provisionalDue: { yarn, knitting, dyeing, visual_inspection }   // 가납기 ('YYYY-MM-DD', '' = 없음)
@@ -37,6 +39,7 @@ import {
   ORDER_STEPS, ORDER_STEP_KEYS, DEFAULT_LOSS_RATE,
   normalizeStatus, getStatusLabel, getStepMeta, ORDER_TYPES, ORDER_STATUSES,
   PROVISIONAL_DUE_STEPS, PROVISIONAL_DUE_KEYS, PROCESS_THEME, isCustomStepKey,
+  TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES, findStatusMeta,
 } from '../constants/production';
 import { addDaysYmd, diffDaysYmd, todayYmd, toYmd, round1, calcKgFromYd, shortDate } from './orderCalculations';
 
@@ -69,22 +72,37 @@ const COLOR_DEFAULTS = {
   greigeOutDate: '',     // ↑ 에서 계산 (마지막 출고일) — 예전 화면·리포트 호환
   greigeOutDone: false,  // ↑ 에서 계산 (전체 출고 끝)
   lots: [],
-  confirmRounds: [],
+  confirmRounds: [],     // 예전 브랜드 컨펌 라운드 (읽기 전용 — brandConfirm 으로 변환)
   shipDate: '',
   shipDone: false,
   notes: '',
 };
 
-export const createColor = (name = '') => ({ ...COLOR_DEFAULTS, id: uid('col'), name, greigeOuts: [], lots: [], confirmRounds: [] });
+// 시험성적서 · 브랜드 컨펌 빈 값 (컬러마다 새 객체)
+export const createTestReport = () => ({ needed: false, expectedDate: '', events: [] });
+export const createBrandConfirm = () => ({ events: [] });
+
+export const createColor = (name = '') => ({
+  ...COLOR_DEFAULTS, id: uid('col'), name, greigeOuts: [], lots: [], confirmRounds: [],
+  testReport: createTestReport(), brandConfirm: createBrandConfirm(),
+});
+
+// 상태 기록 한 줄 (드롭다운을 바꾼 날 — 고칠 수 있음)
+export const createStatusEvent = (status, date = todayYmd()) => ({ id: uid('ev'), status, date });
+
+// 상태 기록 종류별 상태 목록 (컬러의 칸 이름 → 상태 목록)
+export const TRACK_STATUSES = {
+  testReport: TEST_REPORT_STATUSES,
+  brandConfirm: BRAND_CONFIRM_STATUSES,
+};
 
 // 생지 출고 한 번 (첫 출고는 '전체', 그 뒤는 '부분'이 보통)
 export const createGreigeOut = (kind = 'full') => ({ id: uid('go'), date: '', kind, memo: '', done: false });
 
+// LOT 기본값 — machineKg·qtyKg·rolls 는 예전 오더 값만 그대로 남김 (화면에서는 안 씀)
 const LOT_DEFAULTS = { no: 1, machineKg: null, qtyKg: null, startDate: '', endDate: '', status: 'pending', rolls: null, notes: '' };
 
-export const createLot = (no = 1, machineKg = null, qtyKg = null) => ({ ...LOT_DEFAULTS, id: uid('lot'), no, machineKg, qtyKg });
-
-export const createConfirmRound = (round = 1) => ({ round, sentDate: '', resultDate: '', result: '' });
+export const createLot = (no = 1) => ({ ...LOT_DEFAULTS, id: uid('lot'), no });
 
 // 가납기 빈 값 { yarn: '', knitting: '', dyeing: '', visual_inspection: '' }
 export const createProvisionalDue = () => Object.fromEntries(PROVISIONAL_DUE_KEYS.map(k => [k, '']));
@@ -251,6 +269,34 @@ const withGreigeSummary = (color) => {
   return { ...color, greigeOutDate: st.lastDate, greigeOutDone: st.fullDone };
 };
 
+// 상태 기록 정리 — 그 칸에 없는 상태는 버림 (id 가 없으면 결정적으로 만듦)
+const normalizeEvents = (list, track, idBase) => {
+  const allowed = (TRACK_STATUSES[track] || []).map(s => s.key);
+  return (Array.isArray(list) ? list : [])
+    .filter(e => e && typeof e === 'object' && allowed.includes(e.status))
+    .map((e, i) => ({ id: e.id || `${idBase}_e${i}`, status: e.status, date: str(e.date) }));
+};
+
+const normalizeTestReport = (raw, idBase) => {
+  const t = raw && typeof raw === 'object' ? raw : {};
+  return { needed: !!t.needed, expectedDate: str(t.expectedDate), events: normalizeEvents(t.events, 'testReport', `${idBase}_t`) };
+};
+
+// 브랜드 컨펌 — 예전 1차·2차 라운드(발송일·결과일·합격/불합격)는 전달 → 컨펌/리젝 기록으로
+const normalizeBrandConfirm = (raw, c, idBase) => {
+  if (raw && typeof raw === 'object') {
+    return { events: normalizeEvents(raw.events, 'brandConfirm', `${idBase}_b`) };
+  }
+  const events = [];
+  (Array.isArray(c.confirmRounds) ? c.confirmRounds : []).forEach(r => {
+    if (!r) return;
+    if (str(r.sentDate)) events.push({ status: 'sent', date: str(r.sentDate) });
+    if (r.result === 'pass') events.push({ status: 'confirmed', date: str(r.resultDate) });
+    if (r.result === 'fail') events.push({ status: 'rejected', date: str(r.resultDate) });
+  });
+  return { events: normalizeEvents(events, 'brandConfirm', `${idBase}_b`) };
+};
+
 const normalizeColor = (raw, fallbackId) => {
   const c = raw && typeof raw === 'object' ? raw : {};
   const id = c.id || fallbackId;
@@ -273,6 +319,8 @@ const normalizeColor = (raw, fallbackId) => {
       resultDate: str(r?.resultDate),
       result: r?.result === 'pass' || r?.result === 'fail' ? r.result : '',
     })),
+    testReport: normalizeTestReport(c.testReport, id),
+    brandConfirm: normalizeBrandConfirm(c.brandConfirm, c, id),
     shipDate: str(c.shipDate),
     shipDone: !!c.shipDone,
     notes: str(c.notes),
@@ -589,53 +637,66 @@ export const getStepEnd = (order, key) => {
 };
 
 // ---------- LOT ----------
-
-export const getLotsTotalKg = (lots = []) => round1(lots.reduce((s, l) => s + (Number(l.qtyKg) || 0), 0));
-
-// 탕 용량별 묶음 요약: "300×2 · 500×1" (용량 미입력은 "용량?×N")
-export const getLotSummary = (lots = []) => {
-  if (!lots.length) return '';
-  const groups = new Map();
-  lots.forEach(l => {
-    const k = numOrNull(l.machineKg);
-    const key = k === null ? '용량?' : String(k);
-    groups.set(key, (groups.get(key) || 0) + 1);
-  });
-  return [...groups.entries()].map(([k, n]) => (n > 1 ? `${k}×${n}` : k)).join(' · ');
-};
+// LOT = 염색기(탕)를 한 번 돌리는 단위. 탕·수량·롤은 쓰지 않음 (대표님 요청 2026-10-11) — 투입일·완료예정·상태·메모
 
 // 컬러의 염가공 상태 (LOT 없으면 null)
 export const getLotsStatus = (lots = []) => (lots.length ? aggregateStatus(lots.map(l => normalizeStatus(l.status))) : null);
 
-/**
- * 탕 용량으로 LOT 자동 분할 제안.
- * 예) 1231.2kg, 500kg 탕 → 3 LOT (410.4 / 410.4 / 410.4)
- * 마지막 LOT가 반올림 오차를 흡수해 합계가 정확히 totalKg와 같다.
- */
-export const suggestLots = (totalKg, machineKg, startNo = 1) => {
-  const total = Number(totalKg) || 0;
-  const cap = Number(machineKg) || 0;
-  if (total <= 0 || cap <= 0) return [];
-  const n = Math.max(1, Math.ceil(total / cap - 1e-9));
-  const each = round1(total / n);
-  return Array.from({ length: n }, (_, i) => {
-    const qty = i === n - 1 ? round1(total - each * (n - 1)) : each;
-    return createLot(startNo + i, cap, qty);
-  });
+// LOT 요약 { count, done, inProgress, issue, start(가장 이른 투입), end(가장 늦은 완료예정) }
+export const getLotOverview = (lots = []) => {
+  const st = lots.map(l => normalizeStatus(l.status));
+  return {
+    count: lots.length,
+    done: st.filter(x => x === 'done').length,
+    inProgress: st.filter(x => x === 'in_progress').length,
+    issue: st.filter(x => x === 'issue').length,
+    start: minYmd(lots.map(l => l.startDate)),
+    end: maxYmd(lots.map(l => l.endDate)),
+  };
 };
 
-// ---------- 컨펌 ----------
+// ---------- 상태 기록 (시험성적서 · 브랜드 컨펌 …) ----------
 
-// key: 'none' | 'ready'(라운드만 있음) | 'sent'(발송·결과대기) | 'pass' | 'fail'
-export const getConfirmState = (color) => {
-  const rounds = color?.confirmRounds || [];
-  if (!rounds.length) return { key: 'none', label: '', round: 0 };
-  const last = rounds[rounds.length - 1];
-  const r = last.round || rounds.length;
-  if (last.result === 'pass') return { key: 'pass', label: `${r}차 합격`, round: r };
-  if (last.result === 'fail') return { key: 'fail', label: `${r}차 불합격`, round: r };
-  if (last.sentDate) return { key: 'sent', label: `${r}차 컨펌중`, round: r };
-  return { key: 'ready', label: `${r}차 준비`, round: r };
+// 지금 상태 = 마지막 줄 (없으면 null / '')
+export const getTrackEvent = (color, track) => {
+  const events = color?.[track]?.events || [];
+  return events.length ? events[events.length - 1] : null;
+};
+export const getTrackStatus = (color, track) => getTrackEvent(color, track)?.status || '';
+export const getTrackStatusMeta = (color, track) => findStatusMeta(TRACK_STATUSES[track], getTrackStatus(color, track));
+
+/**
+ * 상태 기록 → 차수 (간트 막대 · 요약용)
+ *  시작 상태(전달 · 발행중 · 재투입)로 한 차수가 시작되고 결과(컨펌·리젝 / 합격·불합격·재합격)로 끝남
+ *  [{ no, start, end, startStatus, result('' = 아직), startEventId }]
+ */
+export const getTrackRounds = (events, track) => {
+  const list = TRACK_STATUSES[track] || [];
+  const rounds = [];
+  let cur = null;
+  (events || []).forEach(e => {
+    const meta = findStatusMeta(list, e.status);
+    if (!meta) return;
+    if (meta.startsRound) {
+      if (cur) rounds.push(cur);
+      cur = { start: e.date, end: '', startStatus: e.status, result: '', startEventId: e.id };
+      return;
+    }
+    if (!cur) cur = { start: e.date, end: '', startStatus: '', result: '', startEventId: e.id };
+    cur.end = e.date;
+    cur.result = e.status;
+    rounds.push(cur);
+    cur = null;
+  });
+  if (cur) rounds.push(cur);
+  return rounds.map((r, i) => ({ ...r, no: i + 1 }));
+};
+
+// 시험성적서 합격(재합격 포함)인지 — 체크 안 한 컬러는 성적서가 필요 없으니 true
+export const isTestReportPassed = (color) => {
+  if (!color?.testReport?.needed) return true;
+  const s = getTrackStatus(color, 'testReport');
+  return s === 'pass' || s === 'repass';
 };
 
 // ---------- 컬러 줄 현재 단계 (COLOR_STAGES 키) ----------
@@ -650,20 +711,23 @@ export const getColorStage = (order, color) => {
   const st = (k) => normalizeStatus(steps[k]?.status);
   const lots = color.lots || [];
   const lotSt = lots.map(l => normalizeStatus(l.status));
-  const confirm = getConfirmState(color);
+  const brand = getTrackStatus(color, 'brandConfirm');
+  const testNeeded = !!color.testReport?.needed;
+  const test = testNeeded ? getTrackStatus(color, 'testReport') : '';
+  const testPassed = isTestReportPassed(color);
 
-  if (lotSt.includes('issue') || confirm.key === 'fail') return 'issue';
-  if (confirm.key === 'pass') return 'ship_wait';
-  if (confirm.key === 'sent') return 'confirm';
+  if (lotSt.includes('issue') || brand === 'rejected' || test === 'fail') return 'issue';
+  if (brand === 'confirmed' && testPassed) return 'ship_wait';
+  if (brand === 'sent' || test === 'issuing' || test === 'resubmit') return 'confirm';
 
   const lotsAllDone = lotSt.length > 0 && lotSt.every(s => s === 'done');
   if (lotsAllDone) {
     if (['finishing', 'physical_test', 'visual_inspection'].some(k => st(k) === 'issue')) return 'issue';
     if (st('finishing') === 'in_progress') return 'finishing';
     if (st('physical_test') === 'in_progress' || st('visual_inspection') === 'in_progress') return 'inspection';
-    // 후가공 외주처·일정만 입력되고 아직 시작 전 → 후가공대기 / 컨펌 라운드만 만들고 발송 전 → 컨펌대기
+    // 후가공 외주처·일정만 입력되고 아직 시작 전 → 후가공대기 / 시험성적서가 아직(체크한 컬러) → 컨펌대기
     if (isStepUsed(steps.finishing) && st('finishing') !== 'done') return 'finish_wait';
-    return confirm.key === 'ready' ? 'confirm_wait' : 'ship_wait';
+    return testPassed ? 'ship_wait' : 'confirm_wait';
   }
   if (lotSt.some(s => s === 'in_progress' || s === 'done')) return 'dyeing';
   const greige = getGreigeState(color);
@@ -853,21 +917,43 @@ export const getOrderTimeline = (order, stepDefs = ORDER_STEPS) => {
       if (!range) return;
       bars.push({
         id: `lot_${lot.id}`, kind: 'lot', lotId: lot.id, theme: 'dyeing',
-        label: `LOT${lot.no}${lot.machineKg ? ` ${lot.machineKg}kg탕` : ''}`,
+        label: `LOT${lot.no}`,
         status: normalizeStatus(lot.status),
         ...range,
       });
     });
-    (color.confirmRounds || []).forEach((r, ri) => {
-      const range = span(r.sentDate, r.resultDate);
-      if (!range) return;
-      bars.push({
-        id: `confirm_${color.id}_${ri}`, kind: 'confirm', theme: 'confirm',
-        label: `${r.round || ri + 1}차 컨펌${r.result === 'pass' ? ' 합격' : r.result === 'fail' ? ' 불합격' : ''}`,
-        status: r.result === 'pass' ? 'done' : r.result === 'fail' ? 'issue' : 'in_progress',
-        ...range,
+    // 브랜드 컨펌 · 시험성적서 — 차수마다 막대 (시작 ~ 결과, 결과 전이면 오늘까지)
+    const today = todayYmd();
+    const trackBars = (track, kind, theme, name) => {
+      const list = TRACK_STATUSES[track];
+      getTrackRounds(color[track]?.events, track).forEach(r => {
+        const open = !r.result;
+        const end = open && r.start && r.start <= today ? today : r.end;
+        const range = span(r.start, end);
+        if (!range) return;
+        const result = findStatusMeta(list, r.result);
+        const startMeta = findStatusMeta(list, r.startStatus);
+        bars.push({
+          id: `${kind}_${color.id}_${r.no}`, kind, theme, round: r.no,
+          label: `${name} ${r.no > 1 ? `${r.no}차 ` : ''}${result ? result.label : (startMeta?.label || '진행')}${open ? ' (결과 전)' : ''}`,
+          status: result ? (result.phase === 'done' ? 'done' : result.phase === 'issue' ? 'issue' : 'in_progress') : 'in_progress',
+          open,
+          ...range,
+        });
       });
-    });
+    };
+    trackBars('brandConfirm', 'confirm', 'confirm', '브랜드');
+    if (color.testReport?.needed) {
+      trackBars('testReport', 'test', 'test', '성적서');
+      // 발행 예상일 (아직 합격 전이면 점선 하루짜리)
+      if (color.testReport.expectedDate && !isTestReportPassed(color)) {
+        bars.push({
+          id: `testdue_${color.id}`, kind: 'test', theme: 'test', dashed: true,
+          label: '성적서 발행예정', status: 'pending',
+          start: color.testReport.expectedDate, end: color.testReport.expectedDate,
+        });
+      }
+    }
     if (color.shipDate) {
       bars.push({
         id: `ship_${color.id}`, kind: 'ship', theme: 'ship',
@@ -954,7 +1040,8 @@ export const removeColorRow = (order, colorId) => {
 // 컬러에 입력된 데이터가 있는지 (삭제 확인용)
 export const colorHasData = (color) => !!(color && (
   color.name || numOrNull(color.orderKg) !== null || numOrNull(color.workKg) !== null ||
-  (color.greigeOuts || []).length || color.greigeOutDate || (color.lots || []).length || (color.confirmRounds || []).length ||
+  (color.greigeOuts || []).length || color.greigeOutDate || (color.lots || []).length ||
+  color.testReport?.needed || (color.testReport?.events || []).length || (color.brandConfirm?.events || []).length ||
   color.shipDate || color.notes
 ));
 
@@ -994,6 +1081,27 @@ export const applyGreigeOuts = (order, colorId, entries) => ({
     ? withGreigeSummary({ ...c, greigeOuts: normalizeGreigeOuts({ greigeOuts: entries || [] }, c.id) })
     : c)),
 });
+
+// 컬러 상태 기록 칸 바꾸기 — patch: { testReport?: {...}, brandConfirm?: {...} } (주는 칸만 통째로)
+export const applyColorTracks = (order, colorId, patch) => ({
+  ...order,
+  colors: (order.colors || []).map(c => {
+    if (c.id !== colorId) return c;
+    const next = { ...c };
+    if (patch?.testReport) next.testReport = normalizeTestReport({ ...c.testReport, ...patch.testReport }, c.id);
+    if (patch?.brandConfirm) next.brandConfirm = normalizeBrandConfirm({ ...c.brandConfirm, ...patch.brandConfirm }, c, c.id);
+    return next;
+  }),
+});
+
+// 상태 드롭다운을 바꿈 → 그날 날짜로 기록 한 줄 (지금 상태와 같으면 그대로)
+export const addColorTrackEvent = (order, colorId, track, status, date = todayYmd()) => {
+  const color = (order.colors || []).find(c => c.id === colorId);
+  if (!color || !findStatusMeta(TRACK_STATUSES[track], status)) return order;
+  if (getTrackStatus(color, track) === status) return order;
+  const events = [...(color[track]?.events || []), createStatusEvent(status, date)];
+  return applyColorTracks(order, colorId, { [track]: { ...(color[track] || {}), events } });
+};
 
 // 컬러 LOT 목록 통째로 교체 (번호 1..N 재정렬)
 export const applyLots = (order, colorId, lots) => applyColorPatch(order, colorId, {
@@ -1066,7 +1174,20 @@ const greigeText = (list) => (list || [])
   .map(g => `${g.kind === 'partial' ? '부분' : '전체'} ${g.date ? shortDate(g.date) : '날짜?'}${g.done ? '✓' : ''}${g.memo ? `(${g.memo.slice(0, 12)})` : ''}`)
   .join(' · ');
 const LOT_FIELD_LABELS = {
-  machineKg: '탕', qtyKg: '수량', startDate: '투입', endDate: '완료예정', status: '상태', rolls: '롤', notes: '메모',
+  startDate: '투입', endDate: '완료예정', status: '상태', notes: '메모',
+};
+
+// 상태 기록 비교 → '시험성적서 발행중→불합격' / '시험성적서 기록 수정'
+const diffTrack = (oldC, newC, track, name, cName, out) => {
+  const list = TRACK_STATUSES[track];
+  const a = getTrackStatus(oldC, track);
+  const b = getTrackStatus(newC, track);
+  if (a !== b) {
+    out.push(`${cName} ${name} ${findStatusMeta(list, a)?.label || '-'}→${findStatusMeta(list, b)?.label || '-'}`);
+    return;
+  }
+  const key = (c) => JSON.stringify((c?.[track]?.events || []).map(e => [e.status, e.date]));
+  if (key(oldC) !== key(newC)) out.push(`${cName} ${name} 기록 수정`);
 };
 
 const fmtVal = (field, v) => {
@@ -1163,10 +1284,15 @@ export const summarizeOrderChange = (prev, next, stepDefs = ORDER_STEPS) => {
       const ol = oldLots.find(x => x.id === l.id);
       if (ol) diffFields(ol, l, LOT_FIELD_LABELS, `${cName} LOT${l.no} `, out);
     });
-    if (JSON.stringify(old.confirmRounds || []) !== JSON.stringify(c.confirmRounds || [])) {
-      const st = getConfirmState(c);
-      out.push(`${cName} 컨펌 ${st.label || '변경'}`);
+    // 시험성적서 (체크 · 발행 예상일 · 상태) / 브랜드 컨펌 (상태)
+    if (!!old.testReport?.needed !== !!c.testReport?.needed) {
+      out.push(`${cName} 시험성적서 ${c.testReport?.needed ? '체크' : '체크 해제'}`);
     }
+    if (str(old.testReport?.expectedDate) !== str(c.testReport?.expectedDate)) {
+      out.push(`${cName} 성적서 발행예정 ${fmtVal('dueDate', old.testReport?.expectedDate)}→${fmtVal('dueDate', c.testReport?.expectedDate)}`);
+    }
+    diffTrack(old, c, 'testReport', '시험성적서', cName, out);
+    diffTrack(old, c, 'brandConfirm', '브랜드 컨펌', cName, out);
   });
   prevColors.forEach(p => {
     if (!nextColors.some(c => c.id === p.id)) out.push(`컬러 삭제${p.name ? ` (${p.name})` : ''}`);
@@ -1239,6 +1365,13 @@ export const getOpenWork = (order, stepDefs = ORDER_STEPS) => {
     return st !== 'done' && (st !== 'pending' || l.startDate || l.endDate);
   });
   if (openLots.length) out.push(`염가공 LOT ${openLots.length}개`);
+  const testOpen = colors.filter(c => c.testReport?.needed && !isTestReportPassed(c)).length;
+  if (testOpen) out.push(`시험성적서 ${testOpen}건`);
+  const brandOpen = colors.filter(c => {
+    const st = getTrackStatus(c, 'brandConfirm');
+    return st && st !== 'confirmed';
+  }).length;
+  if (brandOpen) out.push(`브랜드 컨펌 ${brandOpen}건`);
   const ships = colors.filter(c => c.shipDate && !c.shipDone).length;
   if (ships) out.push(`출고 ${ships}건`);
   return out;

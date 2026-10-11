@@ -4,6 +4,7 @@ import {
   normalizeOrder, createEmptyOrder,
   applyOrderField, applyFabric, applyColorPatch, addColorRow, removeColorRow, colorHasData,
   applyStepPatch, applyLots, applyDailyNote, applyProvisionalDue, applyGreigeOuts, fillOrderFromSheet,
+  applyColorTracks, addColorTrackEvent,
   summarizeOrderChange, isSameOrderContent, ORDER_SCHEMA_VERSION,
 } from '../../utils/orderModel';
 import { makeChangeLogEntry, appendChangeLog } from '../../utils/auditLog';
@@ -346,6 +347,9 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     return applyGreigeOuts(o, colorId, entries);
   });
   const setDailyNote = (id, note) => updateOrder(id, o => applyDailyNote(o, note));
+  // 컬러 상태 기록 (시험성적서 · 브랜드 컨펌) — 입력 창은 통째로 / 표 칸 드롭다운은 그날 날짜로 한 줄 더함
+  const setColorTracks = (id, colorId, patch) => updateOrder(id, o => applyColorTracks(o, colorId, patch));
+  const addTrackEvent = (id, colorId, track, status) => updateOrder(id, o => addColorTrackEvent(o, colorId, track, status));
   // 가납기 { yarn, knitting, dyeing, visual_inspection } (+ plan: 가납기 일수 { base, days } — 주면 같이 저장)
   const setProvisionalDue = (id, patch, plan = undefined) => updateOrder(id, o => applyProvisionalDue(o, patch, plan));
 
@@ -415,6 +419,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       setOrderField, setFabric,
       setColorField, addColor, removeColor,
       setStep, setLots, setGreigeOuts, setGreigeOutDone, setDailyNote, setProvisionalDue,
+      setColorTracks, addTrackEvent,
       addDraftOrder, discardDraft, deleteOrder,
     },
     // 설계서 ↔ 샘플 오더 (App 이 설계서 훅에 연결)
