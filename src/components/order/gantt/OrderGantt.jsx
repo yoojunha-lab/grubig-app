@@ -1,7 +1,7 @@
 import { useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CalendarDays, Check, Crosshair, Flag, StickyNote } from 'lucide-react';
 import {
-  COLOR_STAGES, ORDER_STEPS, ORDER_TYPES, PROCESS_THEME, PROVISIONAL_STATES, getStatusLabel, getStepMeta,
+  COLOR_STAGES, ORDER_TYPES, PROCESS_THEME, PROVISIONAL_STATES, getStatusLabel, getStepMeta, findStepMeta,
 } from '../../../constants/production';
 import {
   describeProvisionalDue, describeStepCurrent,
@@ -383,7 +383,7 @@ const GanttUnderlay = ({ layout }) => (
 // ============================================================
 // 4. 본체
 // ============================================================
-export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, onOpenLots, sheetLink = null }) => {
+export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpenDetail, onOpenLots, sheetLink = null }) => {
   const today = todayYmd();
   const [hideWeekends, setHideWeekends] = useState(loadHideWeekends);
   const [popover, setPopover] = useState(null); // { kind:'process'|'confirm'|'note', orderId, stepKey?, colorId?, date?, anchorRect }
@@ -393,9 +393,10 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
   const skipCellClickRef = useRef(false);       // 팝오버가 떠 있을 때 빈 칸 클릭 = 닫기만 (새 메모 창 안 엶)
 
   const layout = useMemo(
-    () => buildGanttLayout(orders, { today, hideWeekends }),
-    [orders, today, hideWeekends]
+    () => buildGanttLayout(orders, { today, hideWeekends, stepDefs }),
+    [orders, today, hideWeekends, stepDefs]
   );
+  const stepMetaOf = (key) => findStepMeta(stepDefs, key);
 
   // ---------- 가로 스크롤: 처음엔 오늘 칸이 왼쪽에서 세 번째, 이후엔 보던 날짜 유지 ----------
   useLayoutEffect(() => {
@@ -439,7 +440,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
 
   // ---------- 공정 외주처 제안: 마스터 + 다른 오더들이 쓴 값 (현황표와 같은 방식) ----------
   const vendorOptionsFor = (stepKey, orderId) => {
-    const meta = ORDER_STEPS.find(s => s.key === stepKey);
+    const meta = stepMetaOf(stepKey);
     const fromMaster = meta?.vendorMaster ? toNames(masters?.[meta.vendorMaster]) : [];
     const fromOrders = orders.filter(o => o.id !== orderId).map(o => o.steps?.[stepKey]?.vendor);
     return [...new Set([...fromMaster, ...fromOrders].map(v => String(v || '').trim()).filter(Boolean))];
@@ -532,7 +533,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
   const showTip = (e, order, color, bar) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.type === 'mouseenter' && e.clientX ? Math.max(rect.left, e.clientX - 20) : rect.left;
-    tipRef.current?.show({ x, rect, info: describeBar(order, color, bar) });
+    tipRef.current?.show({ x, rect, info: describeBar(order, color, bar, stepMetaOf) });
   };
   const showFlagTip = (e, order, flag) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -824,6 +825,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
           key={`process_${popOrder.id}_${popover.stepKey}`}
           order={popOrder}
           stepKey={popover.stepKey}
+          meta={stepMetaOf(popover.stepKey)}
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={patch => actions.setStep(popOrder.id, popover.stepKey, patch)}

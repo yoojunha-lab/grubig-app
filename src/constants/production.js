@@ -74,6 +74,88 @@ export const ORDER_STEP_KEYS = ORDER_STEPS.map(s => s.key);
 
 export const getStepMeta = (key) => ORDER_STEPS.find(s => s.key === key) || null;
 
+// ============================================================
+// 2-B. 공정 흐름 순서 + 추가 공정 (대표님 요청 2026-10-11 '공정을 추가할 수 있게')
+// ------------------------------------------------------------
+//  FLOW_ORDER: 현황표 칸 · 간트 · 상세창 공정 순서의 기준. '#'으로 시작하는 건 컬러별 칸 (공정 아님)
+//  추가 공정 = settings/general.productionSteps [{ key: 'cs_…', label, after, vendorLabel }]
+//   · after: 어느 칸 다음에 둘지 — 공정 key, '#dyeing'(염가공 LOT), 다른 추가 공정 key
+//   · 모든 오더에 칸이 생김 (칸을 채운 오더만 "사용하는 공정"). 일정 = 외주처·예상 시작/종료일·상태·메모
+// ============================================================
+export const FLOW_ORDER = [
+  'yarn', 'yarn_processing', 'knitting', 'presetting', '#greige', '#dyeing',
+  'finishing', 'physical_test', 'visual_inspection', '#confirm', '#ship',
+];
+
+// 추가 공정 위치로 고를 수 있는 컬러별 칸 (공정 사이에 끼울 수 있는 것만)
+export const FLOW_ANCHOR_LABELS = { '#dyeing': '염가공' };
+
+export const isCustomStepKey = (key) => /^cs_/.test(String(key || ''));
+
+// 설정 값 → [{ key, label, after, vendorLabel }] (이름이 없거나 key 가 이상한 줄은 버림)
+export const normalizeCustomSteps = (list) => (Array.isArray(list) ? list : [])
+  .filter(s => s && typeof s === 'object' && isCustomStepKey(s.key) && String(s.label || '').trim())
+  .map(s => ({
+    key: s.key,
+    label: String(s.label).trim(),
+    after: String(s.after || ''),
+    vendorLabel: String(s.vendorLabel || '').trim() || '외주처',
+  }));
+
+export const createCustomStepKey = () => `cs_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+
+/**
+ * 흐름 순서 = 기본 칸 + 추가 공정 (각자 'after' 칸 바로 다음)
+ *  - 같은 기본 칸 다음에 여러 개면 목록 순서대로 (먼저 들어간 추가 공정 뒤로)
+ *  - 다른 추가 공정 다음이면 그 공정 바로 다음
+ *  - 위치 칸이 없어졌으면 컬러별 마무리 칸(컨펌) 앞
+ * 반환: ['yarn', …, 'cs_x', …, '#ship']
+ */
+export const buildFlowOrder = (customSteps = []) => {
+  const list = [...FLOW_ORDER];
+  let pending = normalizeCustomSteps(customSteps);
+  // 다른 추가 공정 다음에 두는 공정은 그 공정이 먼저 들어가야 하므로 여러 번 돌림
+  for (let pass = 0; pass < 5 && pending.length; pass += 1) {
+    const rest = [];
+    pending.forEach(cs => {
+      const i = list.indexOf(cs.after);
+      if (i === -1) {
+        rest.push(cs);
+        return;
+      }
+      let j = i + 1;
+      if (!isCustomStepKey(cs.after)) {
+        while (j < list.length && isCustomStepKey(list[j])) j += 1;
+      }
+      list.splice(j, 0, cs.key);
+    });
+    if (rest.length === pending.length) break;
+    pending = rest;
+  }
+  pending.forEach(cs => {
+    if (list.includes(cs.key)) return;
+    list.splice(list.indexOf('#confirm'), 0, cs.key);
+  });
+  return list;
+};
+
+// 추가 공정 메타 (기본 공정과 같은 모양 + custom 표시)
+const customStepMeta = (cs) => ({
+  key: cs.key, label: cs.label, vendorLabel: cs.vendorLabel || '외주처', vendorMaster: null, custom: true, after: cs.after,
+});
+
+// 공정 목록 (흐름 순서, 기본 공정 + 추가 공정) — 현황표 · 간트 · 상세창 · 리포트 · 변경 이력 공용
+export const getStepDefs = (customSteps = []) => {
+  const custom = new Map(normalizeCustomSteps(customSteps).map(cs => [cs.key, cs]));
+  return buildFlowOrder(customSteps)
+    .filter(k => !k.startsWith('#'))
+    .map(k => getStepMeta(k) || (custom.has(k) ? customStepMeta(custom.get(k)) : null))
+    .filter(Boolean);
+};
+
+// 공정 key → 메타 (목록에 없으면 기본 공정에서, 그래도 없으면 null)
+export const findStepMeta = (stepDefs, key) => (stepDefs || []).find(s => s.key === key) || getStepMeta(key);
+
 // 염가공(컬러별 LOT) 메타 — 표시 라벨/색상 통일용
 export const DYEING_STEP = { key: 'dyeing', label: '염가공', vendorLabel: '염색소', vendorMaster: 'dyeingFactories' };
 

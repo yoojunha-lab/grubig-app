@@ -1,10 +1,11 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  Plus, Trash2, Search, Link2, RotateCcw, MoreHorizontal, Eye, EyeOff, ChevronDown, FileSpreadsheet,
+  Plus, Trash2, Search, Link2, RotateCcw, MoreHorizontal, Eye, EyeOff, ChevronDown, FileSpreadsheet, ListPlus,
 } from 'lucide-react';
 import {
-  ORDER_STEPS, PROCESS_THEME, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, getStepMeta, COLOR_STAGES,
+  PROCESS_THEME, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, COLOR_STAGES,
   CONFIRM_RESULTS, DEFAULT_LOSS_RATE, PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES,
+  buildFlowOrder, findStepMeta, getStepDefs, isCustomStepKey,
 } from '../../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, isStepUsed, getKnittingEstimatedEnd, getEndShift, colorHasData,
@@ -19,6 +20,7 @@ import { ConfirmPopover } from './ColorPopovers';
 import { ProvisionalDuePopover } from './ProvisionalDuePopover';
 import { SheetLinkChips } from '../common/SheetLinkChips';
 import { StatusSelect } from '../common/StatusSelect';
+import { StepManagerPopover } from './StepManagerPopover';
 import { PartnerPickerModal } from '../../common/PartnerPickerModal';
 
 // ============================================================
@@ -53,22 +55,29 @@ const QTY_COLS = [
 ];
 
 // 공정/컬러 칸 (보이기/숨기기 가능). step = 오더 단위 공정 칸(rowSpan)
-const FLOW_COLS = [
-  { key: 'yarn',              label: '원사',       width: 140, step: true },
-  { key: 'yarn_processing',   label: '사가공',     width: 140, step: true },
-  { key: 'knitting',          label: '편직',       width: 140, step: true },
-  { key: 'presetting',        label: '프리세팅',   width: 140, step: true },
-  { key: 'greige',            label: '생지출고',   width: 116 },
-  { key: 'dyeing',            label: '염가공 LOT', width: 150 },
-  { key: 'finishing',         label: '후가공',     width: 140, step: true },
-  { key: 'physical_test',     label: '이화학',     width: 140, step: true },
-  { key: 'visual_inspection', label: '외관',       width: 140, step: true },
-  { key: 'confirm',           label: '컨펌',       width: 104 },
-  { key: 'ship',              label: '출고',       width: 116 },
-  { key: 'stage',             label: '상태',       width: 84 },
-  { key: 'memo',              label: '메모',       width: 180 },
+//  순서는 constants FLOW_ORDER + 대표님이 추가한 공정 (buildFlowOrder). '#' 칸 = 컬러별 칸
+const STEP_COL_WIDTH = 140;
+const STEP_SHORT_LABELS = { physical_test: '이화학', visual_inspection: '외관' }; // 좁은 머리글용
+const COLOR_COLS = {
+  '#greige':  { key: 'greige',  label: '생지출고',   width: 116 },
+  '#dyeing':  { key: 'dyeing',  label: '염가공 LOT', width: 150 },
+  '#confirm': { key: 'confirm', label: '컨펌',       width: 104 },
+  '#ship':    { key: 'ship',    label: '출고',       width: 116 },
+};
+const TAIL_COLS = [
+  { key: 'stage', label: '상태', width: 84 },
+  { key: 'memo',  label: '메모', width: 180 },
 ];
-const FLOW_KEYS = FLOW_COLS.map(c => c.key);
+
+const buildFlowCols = (customSteps, stepDefs) => [
+  ...buildFlowOrder(customSteps).map(tok => {
+    if (tok.startsWith('#')) return COLOR_COLS[tok] || null;
+    const meta = findStepMeta(stepDefs, tok);
+    if (!meta) return null;
+    return { key: tok, label: STEP_SHORT_LABELS[tok] || meta.label, width: STEP_COL_WIDTH, step: true, custom: isCustomStepKey(tok) };
+  }).filter(Boolean),
+  ...TAIL_COLS,
+];
 
 // 고정 칸 left 위치 (누적 폭)
 const LEFT_OFFSET = LEFT_COLS.reduce((acc, c, i) => {
@@ -81,12 +90,13 @@ const LEFT_TOTAL = LEFT_COLS.reduce((s, c) => s + c.width, 0);
 const LS_HIDDEN_COLS = 'grubig.production.sheet.hiddenCols.v8';
 const DEFAULT_HIDDEN = ['yarn', 'yarn_processing', 'finishing', 'physical_test', 'visual_inspection'];
 
+// 추가 공정 칸 key 도 들어 있을 수 있어서 지금 칸 목록으로 거르지 않음 (설정이 늦게 와도 숨김이 풀리지 않게)
 const loadHiddenCols = () => {
   try {
     const raw = localStorage.getItem(LS_HIDDEN_COLS);
     if (raw === null) return DEFAULT_HIDDEN;
     const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr.filter(k => FLOW_KEYS.includes(k)) : DEFAULT_HIDDEN;
+    return Array.isArray(arr) ? arr.filter(k => typeof k === 'string') : DEFAULT_HIDDEN;
   } catch {
     return DEFAULT_HIDDEN;
   }
@@ -786,8 +796,14 @@ export const ProductionSheet = ({
   onPendingFocusDone,
   allOrders,          // 필터 전 전체 오더 (외주처 제안용). 없으면 orders 사용
   sheetLink = null,   // 설계서 샘플 오더 { infoOf(order), open, itemize, drop, restore } (OrderListPage)
+  stepDefs: stepDefsProp,   // 공정 목록 (기본 + 추가 공정) — 없으면 기본 공정만
+  customSteps = [],         // 추가 공정 설정 [{ key, label, after, vendorLabel }]
+  onSaveCustomSteps,        // 추가 공정 저장 (list) => Promise<boolean> — 없으면 [공정 추가] 버튼 숨김
 }) => {
   const scrollRef = useRef(null);
+  const stepDefs = useMemo(() => stepDefsProp || getStepDefs(customSteps), [stepDefsProp, customSteps]);
+  const flowCols = useMemo(() => buildFlowCols(customSteps, stepDefs), [customSteps, stepDefs]);
+  const [stepManagerRect, setStepManagerRect] = useState(null); // [공정 추가] 창 (버튼 위치)
   const [hiddenCols, setHiddenCols] = useState(loadHiddenCols);
   const [showColPanel, setShowColPanel] = useState(false);
   const [popover, setPopover] = useState(null);           // { kind: 'menu'|'process'|'confirm', orderId, stepKey?, colorId?, anchorRect }
@@ -808,7 +824,7 @@ export const ProductionSheet = ({
     const count = {};
     const bump = (k) => { count[k] = (count[k] || 0) + 1; };
     orders.forEach(o => {
-      ORDER_STEPS.forEach(s => { if (isStepUsed(o.steps?.[s.key])) bump(s.key); });
+      stepDefs.forEach(s => { if (isStepUsed(o.steps?.[s.key])) bump(s.key); });
       const cs = o.colors || [];
       if (cs.some(c => c.greigeOutDate || c.greigeOutDone)) bump('greige');
       if (cs.some(c => (c.lots || []).length)) bump('dyeing');
@@ -817,9 +833,10 @@ export const ProductionSheet = ({
       if (o.notes) bump('memo');
     });
     return count;
-  }, [orders]);
+  }, [orders, stepDefs]);
 
-  const visibleFlow = FLOW_COLS.filter(c => !hiddenCols.includes(c.key));
+  const visibleFlow = flowCols.filter(c => !hiddenCols.includes(c.key));
+  const hiddenCount = flowCols.filter(c => hiddenCols.includes(c.key)).length;
   const columns = [...LEFT_COLS, ...QTY_COLS, ...visibleFlow];
   const tableWidth = columns.reduce((s, c) => s + c.width, 0);
 
@@ -881,7 +898,7 @@ export const ProductionSheet = ({
   // ---------- 공정 외주처 제안: 마스터 + 다른 오더들이 쓴 값 ----------
   // (검색·탭 필터와 상관없이 전체 오더 기준 — allOrders 가 있을 때)
   const vendorOptionsFor = (stepKey, orderId) => {
-    const meta = ORDER_STEPS.find(s => s.key === stepKey);
+    const meta = findStepMeta(stepDefs, stepKey);
     const fromMaster = meta?.vendorMaster ? toNames(masters?.[meta.vendorMaster]) : [];
     const source = Array.isArray(allOrders) ? allOrders : orders;
     const fromOrders = source.filter(o => o.id !== orderId).map(o => o.steps?.[stepKey]?.vendor);
@@ -925,7 +942,7 @@ export const ProductionSheet = ({
 
   const ctx = {
     actions,
-    stepMetaOf: (key) => getStepMeta(key),
+    stepMetaOf: (key) => findStepMeta(stepDefs, key),
     focusOrderId,
     onOrderFocusDone: handleOrderFocusDone,
     focusColorId,
@@ -979,10 +996,21 @@ export const ProductionSheet = ({
           onClick={() => setShowColPanel(v => !v)}
           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-slate-300 bg-white text-[11px] font-bold text-slate-600 hover:bg-slate-100"
         >
-          {hiddenCols.length > 0 ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-          칸 보이기/숨기기{hiddenCols.length > 0 ? ` (${hiddenCols.length}개 숨김)` : ''}
+          {hiddenCount > 0 ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+          칸 보이기/숨기기{hiddenCount > 0 ? ` (${hiddenCount}개 숨김)` : ''}
           <ChevronDown className={`w-3 h-3 transition-transform ${showColPanel ? 'rotate-180' : ''}`} />
         </button>
+        {onSaveCustomSteps && (
+          <button
+            type="button"
+            onClick={e => setStepManagerRect(e.currentTarget.getBoundingClientRect())}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-indigo-200 bg-white text-[11px] font-bold text-indigo-700 hover:bg-indigo-50"
+            title="편직·프리세팅처럼 공정 칸을 더 만들어요 — 모든 오더에 칸이 생겨요"
+          >
+            <ListPlus className="w-3.5 h-3.5" />
+            공정 추가{customSteps.length > 0 ? ` (${customSteps.length})` : ''}
+          </button>
+        )}
         <span className="text-[11px] text-slate-500">
           오더 {orders.length}건{draftRows.length > 0 ? ` · 저장 전 새 줄 ${draftRows.length}개` : ''}
         </span>
@@ -992,10 +1020,10 @@ export const ProductionSheet = ({
 
         {showColPanel && (
           <div className="w-full flex items-center gap-1.5 flex-wrap pt-1">
-            {FLOW_COLS.map(col => {
+            {flowCols.map(col => {
               const off = hiddenCols.includes(col.key);
               const n = usage[col.key] || 0;
-              const theme = PROCESS_THEME[col.key];
+              const theme = PROCESS_THEME[col.key] || (col.custom ? PROCESS_THEME.custom : null);
               return (
                 <button
                   key={col.key}
@@ -1023,7 +1051,7 @@ export const ProductionSheet = ({
             >
               기본값
             </button>
-            {hiddenCols.length > 0 && (
+            {hiddenCount > 0 && (
               <button
                 type="button"
                 onClick={() => saveHiddenCols([])}
@@ -1066,7 +1094,7 @@ export const ProductionSheet = ({
                 </th>
               ))}
               {visibleFlow.map(c => {
-                const theme = PROCESS_THEME[c.key];
+                const theme = PROCESS_THEME[c.key] || (c.custom ? PROCESS_THEME.custom : null);
                 return (
                   <th key={c.key} className={`${TH} border-r border-r-slate-200`}>
                     <span className="inline-flex items-center gap-1">
@@ -1127,6 +1155,7 @@ export const ProductionSheet = ({
           key={`process_${popOrder.id}_${popover.stepKey}`}
           order={popOrder}
           stepKey={popover.stepKey}
+          meta={findStepMeta(stepDefs, popover.stepKey)}
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={patch => actions.setStep(popOrder.id, popover.stepKey, patch)}
@@ -1150,6 +1179,16 @@ export const ProductionSheet = ({
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={patch => actions.setProvisionalDue(popOrder.id, patch)}
+        />
+      )}
+      {stepManagerRect && onSaveCustomSteps && (
+        <StepManagerPopover
+          anchorRect={stepManagerRect}
+          customSteps={customSteps}
+          stepDefs={stepDefs}
+          orders={Array.isArray(allOrders) ? allOrders : orders}
+          onSave={onSaveCustomSteps}
+          onClose={() => setStepManagerRect(null)}
         />
       )}
       {buyerOrderId && canPickBuyer && (

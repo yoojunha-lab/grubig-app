@@ -11,6 +11,7 @@ import { saveDocument, deleteDocument, saveBatchDocuments, updateYarnCategoryBat
 
 // ⚙️ 공통 상수 & 유틸리티 연동
 import { ALLOWED_DOMAIN, DEFAULT_YARN_CATEGORIES } from '../constants/common';
+import { getStepDefs, normalizeCustomSteps } from '../constants/production';
 import { DEV_SAMPLE_FABRICS, DEV_SAMPLE_YARNS, DEV_SAMPLE_DEV_REQUESTS, DEV_SAMPLE_DESIGN_SHEETS, DEV_SAMPLE_ORDERS } from '../constants/devSamples';
 import { useXLSX } from '../hooks/useExternalScripts';
 
@@ -144,6 +145,9 @@ const App = () => {
   const [machineTypes, setMachineTypes] = useState([]);
   const [structures, setStructures] = useState([]);
   const [yarnSuppliers, setYarnSuppliers] = useState([]); // 원사 업체(공급처) 마스터 — 견적 거래처(partners)와 완전 분리
+  // 생산 현황 추가 공정 (settings/general.productionSteps — 대표님이 [공정 추가]로 만든 공정, 2026-10-11)
+  const [productionSteps, setProductionSteps] = useState([]);
+  const productionStepDefs = useMemo(() => getStepDefs(productionSteps), [productionSteps]);
   const [settingsLoaded, setSettingsLoaded] = useState(false); // settings/general 최초 도착 여부 (원사 업체 seed 경쟁조건 방지)
   const [yarnsLoaded, setYarnsLoaded] = useState(false);       // yarns 스냅샷 최초 도착 여부
   const yarnSuppliersSeededRef = useRef(false);                // 원사 업체 마스터 1회 백필 가드
@@ -227,6 +231,11 @@ const App = () => {
         setStructures(Array.isArray(d.structures) ? d.structures : []);
         setYarnSuppliers(Array.isArray(d.yarnSuppliers) ? d.yarnSuppliers : []);
         setPiSettings(d.piSettings || null);                     // PI 은행/약관 설정
+        // 생산 현황 추가 공정 — 내용이 같으면 그대로 둠 (다른 설정 칸이 바뀔 때마다 현황표·간트를 다시 계산하지 않게)
+        setProductionSteps(prev => {
+          const next = normalizeCustomSteps(d.productionSteps);
+          return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+        });
         // 원가 설정 — 내용이 같으면 그대로 둠 (바이어 추가 등 다른 칸이 바뀔 때마다 새 객체가 되어
         //  원단·원사 목록 전체가 원가를 다시 계산하던 것 방지)
         setCostSettingsRaw(prev => {
@@ -477,7 +486,7 @@ const App = () => {
     drafts: productionDrafts,
     orderActions,
     sheetOrderLink,
-  } = useOrder(orders, saveDocToCloud, deleteDocFromCloud, showToast, user);
+  } = useOrder(orders, saveDocToCloud, deleteDocFromCloud, showToast, user, productionStepDefs);
 
   // 설계서 ↔ 생산 현황 샘플 오더 (대표님 요청 2026-10-10 — '설계서 진행 = 샘플 → 생산 현황에서 메인·샘플 모두 관리')
   //  EZ-TEX O/D NO. 등록 → 샘플 오더 만들기·연결 / 아이템화 → article# 연결 + 완료 / Drop → 완료 / 복원 → 진행중 / 삭제 → 연결만 풂
@@ -498,7 +507,7 @@ const App = () => {
     // 단계 이동·아이템화 확인 창용 — 오더 상태와 아직 끝나지 않은 공정
     getOrderInfo: (sheetId) => {
       const o = sheetOrderOf(sheetId);
-      return o ? { orderNumber: o.orderNumber, status: o.status, openWork: getOpenWork(o) } : null;
+      return o ? { orderNumber: o.orderNumber, status: o.status, openWork: getOpenWork(o, productionStepDefs) } : null;
     },
   };
 
@@ -678,6 +687,26 @@ const App = () => {
     } catch (e) {
       setSyncStatus('error');
       showToast(`PI 설정 저장 실패: ${e?.message || '네트워크 오류'}`, 'error');
+    }
+  };
+
+  // 생산 현황 추가 공정 저장 — settings/general.productionSteps 통째로 교체 (DEV 우회 시 로컬만, 대표님 요청 2026-10-11)
+  //  반환: 성공 true / 실패 false (실패하면 화면도 이전 목록으로 되돌림)
+  const saveProductionSteps = async (next) => {
+    const clean = normalizeCustomSteps(next);
+    const prev = productionSteps;
+    setProductionSteps(clean); // 낙관적 반영
+    if (DEV_BYPASS) { setSyncStatus('saved'); return true; }
+    setSyncStatus('syncing');
+    try {
+      await setDoc(doc(db, 'settings', 'general'), { productionSteps: clean }, { merge: true });
+      setSyncStatus('saved');
+      return true;
+    } catch (e) {
+      setProductionSteps(prev);
+      setSyncStatus('error');
+      showToast(`공정 저장 실패: ${e?.message || '네트워크 오류'}`, 'error');
+      return false;
     }
   };
 
@@ -1381,6 +1410,9 @@ const App = () => {
             drafts={productionDrafts}
             actions={orderActions}
             masters={{ knittingFactories, dyeingFactories, yarnSuppliers }}
+            stepDefs={productionStepDefs}
+            customSteps={productionSteps}
+            onSaveCustomSteps={saveProductionSteps}
             savedFabrics={savedFabrics}
             {...partnerBag}
             // 설계서 샘플 오더 (대표님 요청 2026-10-10) — 설계서 열기 · 아이템화(개발/설계 현황과 같은 함수) · Drop · 복원
@@ -1402,7 +1434,7 @@ const App = () => {
 
         {/* TAB: 리포트 */}
         {activeTab === 'orderReport' && (
-          <ReportPage orders={productionOrders} />
+          <ReportPage orders={productionOrders} stepDefs={productionStepDefs} />
         )}
 
         {/* TAB: 계산기 (생산 — 선염: 스트라이프 원사 배분 · 멜란지 수량 비율, 2026-10-07) */}

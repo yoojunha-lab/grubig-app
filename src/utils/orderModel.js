@@ -32,7 +32,7 @@
 import {
   ORDER_STEPS, ORDER_STEP_KEYS, DEFAULT_LOSS_RATE,
   normalizeStatus, getStatusLabel, getStepMeta, ORDER_TYPES, ORDER_STATUSES,
-  PROVISIONAL_DUE_STEPS, PROVISIONAL_DUE_KEYS,
+  PROVISIONAL_DUE_STEPS, PROVISIONAL_DUE_KEYS, PROCESS_THEME, isCustomStepKey,
 } from '../constants/production';
 import { addDaysYmd, diffDaysYmd, todayYmd, round1, calcKgFromYd, shortDate } from './orderCalculations';
 
@@ -231,6 +231,10 @@ const normalizeProvisionalDue = (raw) => {
 const normalizeV8 = (raw) => {
   const id = raw.id;
   const steps = Object.fromEntries(ORDER_STEP_KEYS.map(k => [k, normalizeStep(k, raw.steps?.[k], `${id}_${k}`)]));
+  // 추가 공정(cs_…) 값도 그대로 정리해서 남김 (설정에서 지운 공정도 문서의 값은 지우지 않음)
+  Object.keys(raw.steps || {}).filter(isCustomStepKey).forEach(k => {
+    steps[k] = normalizeStep(k, raw.steps[k], `${id}_${k}`);
+  });
   let colors = (Array.isArray(raw.colors) ? raw.colors : []).map((c, i) => normalizeColor(c, `${id}_c${i}`));
   if (colors.length === 0) colors = [normalizeColor({}, `${id}_c0`)];
   const lossRate = numOrNull(raw.lossRate);
@@ -700,9 +704,9 @@ const span = (a, b) => {
   return s <= e ? { start: s, end: e } : { start: e, end: s };
 };
 
-export const getOrderTimeline = (order) => {
+export const getOrderTimeline = (order, stepDefs = ORDER_STEPS) => {
   const orderBars = [];
-  ORDER_STEPS.forEach(meta => {
+  stepDefs.forEach(meta => {
     const step = order?.steps?.[meta.key];
     if (!step) return;
     const range = span(step.startDate, getStepEnd(order, meta.key));
@@ -713,7 +717,7 @@ export const getOrderTimeline = (order) => {
       id: `step_${meta.key}`,
       kind: 'step',
       stepKey: meta.key,
-      theme: meta.key,
+      theme: PROCESS_THEME[meta.key] ? meta.key : 'custom',
       label: `${meta.label}${step.vendor ? ` ${step.vendor}` : ''}`,
       status: normalizeStatus(step.status),
       estimated: meta.key === 'knitting' && !step.endDate,
@@ -955,7 +959,7 @@ const diffFields = (prev, next, labels, prefix, out) => {
   });
 };
 
-export const summarizeOrderChange = (prev, next) => {
+export const summarizeOrderChange = (prev, next, stepDefs = ORDER_STEPS) => {
   if (!prev || !next) return null;
   const out = [];
   diffFields(prev, next, ORDER_FIELD_LABELS, '', out);
@@ -977,8 +981,17 @@ export const summarizeOrderChange = (prev, next) => {
     out.push(next.dropInfo ? '샘플 Drop으로 닫음' : 'Drop 표시 해제');
   }
 
-  ORDER_STEP_KEYS.forEach(k => {
-    diffStep(prev.steps?.[k], next.steps?.[k], getStepMeta(k)?.label || k, out);
+  // 공정 (기본 + 추가 공정 — 목록에 없는 추가 공정은 이름 대신 '추가 공정')
+  const stepKeys = [...new Set([
+    ...stepDefs.map(m => m.key),
+    ...ORDER_STEP_KEYS,
+    ...Object.keys(prev.steps || {}).filter(isCustomStepKey),
+    ...Object.keys(next.steps || {}).filter(isCustomStepKey),
+  ])];
+  stepKeys.forEach(k => {
+    const label = stepDefs.find(m => m.key === k)?.label || getStepMeta(k)?.label || '추가 공정';
+    // 처음 입력하는 공정(문서에 아직 없음)은 빈 공정과 비교 — '상태 -→대기' 같은 줄이 남지 않게
+    diffStep(prev.steps?.[k] || createStep(k), next.steps?.[k] || createStep(k), label, out);
   });
 
   // 가납기 (예: '가납기 편직 10/25→10/28')
@@ -1070,10 +1083,10 @@ export const isDropClosed = (order) => !!order && order.status === 'completed' &
 // 아직 끝나지 않은 공정 — 아이템화·샘플 끝내기 확인 창에 알려 줌 (예: ['편직 진행중', '염가공 LOT 2개', '출고 1건'])
 //  공정: 진행중·문제 + 일정만 잡힌 것(예정) / 염가공 LOT: 완료 전 LOT 중 일정·상태가 있는 것 / 출고: 출고일만 있고 완료 전
 //  완료된 오더는 빈 목록
-export const getOpenWork = (order) => {
+export const getOpenWork = (order, stepDefs = ORDER_STEPS) => {
   if (!order || order.status === 'completed') return [];
   const out = [];
-  ORDER_STEPS.forEach(meta => {
+  stepDefs.forEach(meta => {
     const step = order.steps?.[meta.key];
     if (!step) return;
     const st = normalizeStatus(step.status);

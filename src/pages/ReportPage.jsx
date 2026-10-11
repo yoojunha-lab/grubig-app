@@ -76,7 +76,8 @@ const avg = (arr) => (arr.length === 0 ? null : round1(arr.reduce((a, b) => a + 
 // ============================================================
 // 리포트 페이지 (Tailwind 자체 막대 차트)
 // ============================================================
-export const ReportPage = ({ orders = [] }) => {
+// stepDefs: 공정 목록 (기본 + 대표님이 추가한 공정, 흐름 순서) — 없으면 기본 공정만
+export const ReportPage = ({ orders = [], stepDefs = ORDER_STEPS }) => {
   const [typeFilter, setTypeFilter] = useState(loadReportType);
   const changeType = (k) => {
     setTypeFilter(k);
@@ -213,16 +214,18 @@ export const ReportPage = ({ orders = [] }) => {
 
   const monthMax = Math.max(1, ...monthlyStats.months.map(m => Math.max(m.registered, m.completed)));
 
-  // 5. 공정별 평균 소요일 — 계획: 시작일~종료일, 실제: 시작일~완료일(완료된 공정)
+  // 5. 공정별 평균 소요일 — 예상: 예상 시작일~예상 종료일, 실제: 예상 시작일~완료일(완료된 공정)
   //    염가공은 컬러별 LOT 단위 (LOT엔 완료일이 없어 계획만)
   const processStats = useMemo(() => {
-    const rows = ORDER_STEPS.map(m => ({ key: m.key, label: m.label, planned: [], actual: [], planOnly: false }));
+    const rows = stepDefs.map(m => ({ key: m.key, label: m.label, planned: [], actual: [], planOnly: false }));
     const dyeRow = { key: DYEING_STEP.key, label: `${DYEING_STEP.label} (LOT당)`, planned: [], actual: [], planOnly: true };
-    rows.splice(rows.findIndex(r => r.key === 'knitting') + 1, 0, dyeRow);
+    // 염가공 줄은 흐름 순서대로 — 후가공(또는 염가공 다음에 둔 추가 공정) 바로 앞, 없으면 맨 뒤
+    const dyeAt = stepDefs.findIndex(m => m.key === 'finishing' || m.after === '#dyeing');
+    rows.splice(dyeAt === -1 ? rows.length : dyeAt, 0, dyeRow);
     const byKey = new Map(rows.map(r => [r.key, r]));
 
     list.forEach(o => {
-      ORDER_STEPS.forEach(meta => {
+      stepDefs.forEach(meta => {
         const step = o.steps?.[meta.key];
         if (!step) return;
         const row = byKey.get(meta.key);
@@ -250,7 +253,7 @@ export const ReportPage = ({ orders = [] }) => {
         actualCount: r.actual.length,
       }))
       .filter(r => r.plannedCount > 0 || r.actualCount > 0);
-  }, [list]);
+  }, [list, stepDefs]);
 
   return (
     <div className="max-w-7xl mx-auto pb-12">
@@ -445,7 +448,7 @@ export const ReportPage = ({ orders = [] }) => {
       </div>
 
       {/* 3행: 공정별 평균 소요일 */}
-      <SectionCard icon={AlertCircle} title="공정별 평균 소요일" subtitle="계획(시작~종료) vs 실제(시작~완료일)">
+      <SectionCard icon={AlertCircle} title="공정별 평균 소요일" subtitle="예상(예상 시작~예상 종료) vs 실제(예상 시작~완료일)">
         {processStats.length === 0 ? (
           <div className="text-center py-6 text-sm text-slate-400">공정 일정 데이터 없음</div>
         ) : (
@@ -454,7 +457,7 @@ export const ReportPage = ({ orders = [] }) => {
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-2 py-1.5 text-left text-[10px] font-extrabold text-slate-500 uppercase">공정</th>
-                  <th className="px-2 py-1.5 text-right text-[10px] font-extrabold text-slate-500 uppercase">계획 평균(일)</th>
+                  <th className="px-2 py-1.5 text-right text-[10px] font-extrabold text-slate-500 uppercase">예상 평균(일)</th>
                   <th className="px-2 py-1.5 text-right text-[10px] font-extrabold text-slate-500 uppercase">실제 평균(일)</th>
                   <th className="px-2 py-1.5 text-right text-[10px] font-extrabold text-slate-500 uppercase">차이</th>
                   <th className="px-2 py-1.5 text-right text-[10px] font-extrabold text-slate-500 uppercase">표본</th>
@@ -474,7 +477,7 @@ export const ReportPage = ({ orders = [] }) => {
                         {diff === null ? '-' : (diff > 0 ? `+${diff}` : diff)}
                       </td>
                       <td className="px-2 py-1.5 text-right text-slate-400 whitespace-nowrap">
-                        {p.planOnly ? `LOT ${p.plannedCount}개` : `계획 ${p.plannedCount} / 실제 ${p.actualCount}`}
+                        {p.planOnly ? `LOT ${p.plannedCount}개` : `예상 ${p.plannedCount} / 실제 ${p.actualCount}`}
                       </td>
                     </tr>
                   );

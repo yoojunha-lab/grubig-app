@@ -97,6 +97,9 @@ export const OrderListPage = ({
   drafts = [],          // order# 입력 전 새 줄
   actions,              // useOrder().orderActions
   masters = {},         // { knittingFactories, dyeingFactories, yarnSuppliers }
+  stepDefs,             // 공정 목록 (기본 + 추가 공정, 흐름 순서) — App 의 getStepDefs(productionSteps)
+  customSteps = [],     // 추가 공정 설정 [{ key, label, after, vendorLabel }]
+  onSaveCustomSteps,    // 추가 공정 저장 (list) => Promise<boolean>
   savedFabrics = [],
   partners = [], savePartner, deletePartner, makeEmptyPartner,
   designSheets,         // 설계서 (샘플 오더의 '설계서' 표시·아이템화)
@@ -171,7 +174,7 @@ export const OrderListPage = ({
     }
     if (!skipConfirm) {
       const order = orders.find(o => String(o.linkedSheetId || '') === String(sheetId));
-      const openWork = getOpenWork(order);
+      const openWork = getOpenWork(order, stepDefs);
       const ok = window.confirm(
         `설계서 '${sheetLabelOf(sheet)}'를 아이템화할까요?\n\n`
         + `· 원단 관리에 Article ${sheet.articleNo}(으)로 등록되고 설계서와 연결돼요.\n`
@@ -471,6 +474,7 @@ export const OrderListPage = ({
             orders={visibleOrders}
             actions={pageActions}
             masters={masters}
+            stepDefs={stepDefs}
             onOpenDetail={setDetailOrderId}
             onOpenLots={openLots}
             sheetLink={sheetLink}
@@ -482,6 +486,9 @@ export const OrderListPage = ({
             drafts={drafts}
             actions={tableActions}
             masters={masters}
+            stepDefs={stepDefs}
+            customSteps={customSteps}
+            onSaveCustomSteps={onSaveCustomSteps}
             savedFabrics={savedFabrics}
             {...partnerProps}
             onOpenDetail={setDetailOrderId}
@@ -515,6 +522,7 @@ export const OrderListPage = ({
           onClose={() => setDetailOrderId(null)}
           actions={pageActions}
           masters={masters}
+          stepDefs={stepDefs}
           savedFabrics={savedFabrics}
           {...partnerProps}
           onOpenLots={openLots}
@@ -540,6 +548,7 @@ export const OrderListPage = ({
       {closeOrder && closeSheet && (
         <SampleCloseDialog
           order={closeOrder}
+          stepDefs={stepDefs}
           sheetLabel={sheetLabelOf(closeSheet)}
           onClose={() => setCloseTarget(null)}
           onItemize={() => { setCloseTarget(null); itemizeSheet(closeSheet.id, { skipConfirm: true }); }}

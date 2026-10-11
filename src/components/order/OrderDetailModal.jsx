@@ -800,7 +800,7 @@ const SheetSection = ({ order, sheetLink }) => {
 // 5. 상세창 본문 (order.id 가 바뀌면 key 로 새로 마운트 → 접힘/팝업 상태 초기화)
 // ============================================================
 const OrderDetailBody = ({
-  order, isDraft, onClose, actions, masters,
+  order, isDraft, onClose, actions, masters, stepDefs: stepDefsProp,
   partners, savePartner, deletePartner, makeEmptyPartner,
   savedFabrics, onOpenLots, sheetLink = null,
 }) => {
@@ -844,8 +844,9 @@ const OrderDetailBody = ({
   const totals = getOrderTotals(order);
   const colors = order.colors || [];
   const confirmColor = confirmColorId ? colors.find(c => c.id === confirmColorId) || null : null;
-  const processMeta = processKey ? ORDER_STEPS.find(m => m.key === processKey) || null : null;
-  const usedStepCount = ORDER_STEPS.filter(m => isStepUsed(order.steps?.[m.key])).length;
+  const stepDefs = stepDefsProp || ORDER_STEPS; // 기본 공정 + 대표님이 추가한 공정 (흐름 순서)
+  const processMeta = processKey ? stepDefs.find(m => m.key === processKey) || null : null;
+  const usedStepCount = (stepDefsProp || ORDER_STEPS).filter(m => isStepUsed(order.steps?.[m.key])).length;
   const canPickPartner = !!(savePartner && deletePartner && makeEmptyPartner);
   const typeLabel = ORDER_TYPES.find(t => t.key === order.type)?.label || '메인';
   const dropClosed = isDropClosed(order); // 설계서 Drop 으로 닫힌 샘플 → 머리에 'Drop'
@@ -1064,10 +1065,10 @@ const OrderDetailBody = ({
           <Section
             icon={Factory}
             title="공정 일정"
-            right={<span className="text-[11px] text-slate-400">사용 {usedStepCount} / {ORDER_STEPS.length}</span>}
+            right={<span className="text-[11px] text-slate-400">사용 {usedStepCount} / {stepDefs.length}</span>}
           >
             <div className="space-y-1.5">
-              {ORDER_STEPS.map(meta => (
+              {stepDefs.map(meta => (
                 <StepRow
                   key={meta.key}
                   meta={meta}

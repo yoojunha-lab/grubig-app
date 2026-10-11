@@ -15,8 +15,8 @@ import { getOpenWork } from '../../../utils/orderModel';
 // props: order(완료로 바꾸려는 샘플 오더 — 아직 끝나지 않은 공정을 같이 보여 줌), sheetLabel, onItemize, onDrop, onCompleteOnly, onClose
 // ============================================================
 
-export const SampleCloseDialog = ({ order, sheetLabel, onItemize, onDrop, onCompleteOnly, onClose }) => {
-  const openWork = getOpenWork(order);
+export const SampleCloseDialog = ({ order, stepDefs, sheetLabel, onItemize, onDrop, onCompleteOnly, onClose }) => {
+  const openWork = getOpenWork(order, stepDefs);
   return (
     <ModalBackdrop className="fixed inset-0 z-[210] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClose={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()} role="dialog" aria-label="샘플 끝내기">

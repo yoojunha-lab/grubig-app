@@ -39,7 +39,8 @@ const isOverrideAhead = (entry, base) => {
   return true;
 };
 
-export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToast, user) => {
+// stepDefs: 공정 목록 (기본 + 대표님이 추가한 공정 — 변경 이력에 추가 공정 이름을 쓰려고)
+export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToast, user, stepDefs = undefined) => {
   // Firestore 원본 → v8 구조 (레거시 오더 자동 변환 포함)
   const baseOrders = useMemo(
     () => (rawOrders || []).map(normalizeOrder).filter(o => o && o.id),
@@ -90,7 +91,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
   const persist = async (prev, next, action = 'order_update', note = '') => {
     let summary = action === 'order_create'
       ? `오더 등록 (${next.orderNumber})`
-      : summarizeOrderChange(prev, next);
+      : summarizeOrderChange(prev, next, stepDefs);
     // 요약에 안 잡히는 변경도 조용히 버리지 않고 저장 (이력은 '수정'으로)
     if (!summary && !isSameOrderContent(prev, next)) summary = '수정';
     if (!summary) return true; // 바뀐 게 없으면 저장 생략

@@ -274,11 +274,12 @@ const barsHeight = (laneCount) => BAR_PAD * 2 + Math.max(1, laneCount) * LANE_H;
 //      rows:[{ key, kind:'order'|'color', color, bars, notes, flags, laneCount, barsH, minH }] }] }
 //  flags: 가납기 깃발 (오더 줄에만, 그룹에도 같은 값 — 오더 묶음 전체를 지나는 세로 점선용)
 // ============================================================
-export const buildGanttLayout = (orders = [], { today, hideWeekends = true } = {}) => {
+export const buildGanttLayout = (orders = [], { today, hideWeekends = true, stepDefs = undefined } = {}) => {
   // 오더마다 타임라인·가납기 먼저 (기간 계산 + 배치에 재사용)
+  //  stepDefs: 공정 목록 (기본 + 추가 공정) — 없으면 기본 공정만
   const timelines = orders.map(order => ({
     order,
-    tl: getOrderTimeline(order),
+    tl: getOrderTimeline(order, stepDefs),
     marks: getProvisionalDueMarks(order, today),
   }));
 
