@@ -1,7 +1,7 @@
 import { useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CalendarDays, Check, Crosshair, Flag, StickyNote } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Check, Crosshair, Flag, Plus, StickyNote } from 'lucide-react';
 import {
-  COLOR_STAGES, ORDER_TYPES, PROCESS_THEME, PROVISIONAL_STATES, getStatusLabel, getStepMeta, findStepMeta,
+  COLOR_STAGES, ORDER_TYPES, PROCESS_THEME, PROVISIONAL_STATES, getStatusLabel, getStepMeta, findStepMeta, getStepDefs,
 } from '../../../constants/production';
 import {
   describeProvisionalDue, describeStepCurrent,
@@ -13,6 +13,8 @@ import { ConfirmPopover } from '../sheet/ColorPopovers';
 import { ProvisionalDuePopover } from '../sheet/ProvisionalDuePopover';
 import { GreigeOutPopover } from '../sheet/GreigeOutPopover';
 import { InspectionPopover } from '../sheet/InspectionPopover';
+import { ShipPopover } from '../sheet/ShipPopover';
+import { GanttAddMenu } from './GanttAddMenu';
 import { SheetLinkChips } from '../common/SheetLinkChips';
 import { DayNotePopover } from './DayNotePopover';
 import {
@@ -118,7 +120,7 @@ const OrderLabel = ({ order, sheetInfo = null, onOpenDetail }) => {
     <button
       type="button"
       onClick={() => onOpenDetail?.(order.id)}
-      className="w-full h-full text-left px-2.5 py-1 flex flex-col justify-center hover:bg-teal-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-400"
+      className="w-full h-full text-left pl-2.5 pr-8 py-1 flex flex-col justify-center hover:bg-teal-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-400"
       title="누르면 오더 상세 보기"
     >
       <span className={`flex items-center gap-1 w-full min-w-0 ${dim ? 'opacity-70' : ''}`}>
@@ -141,7 +143,7 @@ const ColorLabel = ({ order, color }) => {
   const workKg = getWorkKg(color, getLossRate(order));
   const stage = COLOR_STAGES[getColorStage(order, color)] || COLOR_STAGES.waiting;
   return (
-    <div className={`h-full flex items-center gap-1.5 pl-6 pr-2.5 min-w-0 ${order.status === 'on_hold' ? 'opacity-70' : ''}`}>
+    <div className={`h-full flex items-center gap-1.5 pl-6 pr-8 min-w-0 ${order.status === 'on_hold' ? 'opacity-70' : ''}`}>
       <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
       <span className={`text-[11px] font-bold truncate ${color.name ? 'text-slate-700' : 'text-slate-400'}`}>{color.name || '컬러'}</span>
       {workKg !== null && (
@@ -319,7 +321,7 @@ const describeBar = (order, color, bar, metaOf = getStepMeta) => {
     status: bar.status === 'done' ? '출고 완료' : '출고 예정',
     vendorLabel: 'buyer',
     vendor: order.customer,
-    hint: '누르면 오더 상세 보기',
+    hint: '누르면 출고 수정',
   };
 };
 
@@ -496,6 +498,8 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
       setPopover({ kind: 'greige', orderId: order.id, colorId: color.id, anchorRect });
     } else if (bar.kind === 'inspection' && color) {
       setPopover({ kind: 'inspection', orderId: order.id, colorId: color.id, anchorRect });
+    } else if (bar.kind === 'ship' && color) {
+      setPopover({ kind: 'ship', orderId: order.id, colorId: color.id, anchorRect });
     } else {
       onOpenDetail?.(order.id);
     }
@@ -538,6 +542,33 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
   const handleNoteClick = (e, order, color, note) => {
     e.stopPropagation();
     openNote(e, order, color, note.col, e.currentTarget.getBoundingClientRect().left);
+  };
+
+  // 줄 이름 옆 [+] → 일정 입력 메뉴 (고르면 같은 자리에 그 입력 창)
+  const openAddMenu = (e, order, color) => {
+    e.stopPropagation();
+    skipCellClickRef.current = false;
+    tipRef.current?.hide();
+    const r = e.currentTarget.getBoundingClientRect();
+    setPopover({
+      kind: 'add',
+      orderId: order.id,
+      colorId: color ? color.id : '',
+      anchorRect: { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height },
+    });
+  };
+  const handleAddPick = (kind, extra = {}) => {
+    const cur = popover;
+    if (!cur) return;
+    const base = { orderId: cur.orderId, anchorRect: cur.anchorRect };
+    if (kind === 'lots') {
+      setPopover(null);
+      if (onOpenLots && cur.colorId) onOpenLots(cur.orderId, cur.colorId, cur.anchorRect);
+      return;
+    }
+    if (kind === 'process') setPopover({ ...base, kind: 'process', stepKey: extra.stepKey });
+    else if (kind === 'provisional') setPopover({ ...base, kind: 'provisional' });
+    else setPopover({ ...base, kind, colorId: cur.colorId });
   };
 
   // 가납기 깃발 클릭 → 가납기 입력 창
@@ -691,6 +722,16 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
           {isOrder
             ? <OrderLabel order={order} sheetInfo={sheetLink?.infoOf?.(order) || null} onOpenDetail={onOpenDetail} />
             : <ColorLabel order={order} color={row.color} />}
+          {/* [+] 일정 입력 메뉴 — 아직 막대가 없는 일정도 간트에서 바로 시작 */}
+          <button
+            type="button"
+            onClick={e => openAddMenu(e, order, row.color)}
+            className="absolute right-1 top-1/2 -translate-y-1/2 z-[1] p-1 rounded-md text-slate-300 hover:text-teal-700 hover:bg-teal-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
+            title={isOrder ? '공정 일정 · 가납기 입력' : '생지 출고 · LOT · 컨펌 · 외관검사 · 출고 입력'}
+            aria-label={isOrder ? `${order.orderNumber} 공정 일정 입력` : `${row.color?.name || '컬러'} 일정 입력`}
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
         </div>
         <div
           className={`relative shrink-0 cursor-pointer ${isOrder ? 'bg-slate-400/[0.06]' : ''} ${dim ? 'opacity-70' : ''}`}
@@ -874,6 +915,28 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={entries => actions.setGreigeOuts(popOrder.id, popColor.id, entries)}
+        />
+      )}
+      {popover?.kind === 'add' && popOrder && (!popover.colorId || popColor) && (
+        <GanttAddMenu
+          key={`add_${popOrder.id}_${popover.colorId}`}
+          order={popOrder}
+          color={popColor}
+          stepDefs={stepDefs || getStepDefs([])}
+          anchorRect={popover.anchorRect}
+          onPick={handleAddPick}
+          onClose={closePopover}
+          canOpenLots={!!onOpenLots}
+        />
+      )}
+      {popover?.kind === 'ship' && popOrder && popColor && (
+        <ShipPopover
+          key={`ship_${popOrder.id}_${popColor.id}`}
+          order={popOrder}
+          color={popColor}
+          anchorRect={popover.anchorRect}
+          onClose={closePopover}
+          onSave={patch => actions.setColorField(popOrder.id, popColor.id, patch)}
         />
       )}
       {popover?.kind === 'inspection' && popOrder && popColor && (
