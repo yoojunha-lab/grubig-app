@@ -10,8 +10,10 @@
 //     linkedFabricId, linkedFabricArticle, dyeVendor(염색소),
 //     linkedSheetId(설계서 id — 설계서 EZ-TEX O/D NO. 등록으로 만든 샘플 오더. 연결은 오더 쪽에만 저장),
 //     dropInfo(설계서 Drop으로 닫힌 샘플 { prevStatus: Drop 전 오더상태, at } — 없으면 null. status 는 'completed'),
-//     steps: { yarn, yarn_processing, knitting, finishing, physical_test, visual_inspection }
-//            각 { vendor, startDate, endDate, status, doneDate, notes } (+ knitting.dailyKg)
+//     steps: { yarn, yarn_processing, knitting, presetting, finishing, physical_test, visual_inspection }
+//            각 { vendor, startDate(예상 시작일), endDate(예상 종료일), status, doneDate, notes,
+//                 endHistory: [{ date: 예전 예상 종료일, at: 바꾼 날 }] (오래된 것이 앞 — [0] = 최초 예상 종료일) }
+//            + knitting.machines: [{ id, name('1호기'), dailyKg }] (기계별 일일 생산량), knitting.dailyKg = 기계 합계
 //     colors: [{ id, name, orderKg, workKg(null=자동), greigeOutDate, greigeOutDone,
 //                lots: [{ id, no, machineKg, qtyKg, startDate, endDate, status, rolls, notes }],
 //                confirmRounds: [{ round, sentDate, resultDate, result }],
@@ -43,9 +45,15 @@ const uid = (prefix) => `${prefix}_${Date.now().toString(36)}${Math.random().toS
 
 const STEP_DEFAULTS = { vendor: '', startDate: '', endDate: '', status: 'pending', doneDate: '', notes: '' };
 
+// 배열 칸은 공정마다 새로 만듦 (같은 배열을 여러 공정이 나눠 쓰지 않게)
 export const createStep = (key) => (
-  key === 'knitting' ? { ...STEP_DEFAULTS, dailyKg: null } : { ...STEP_DEFAULTS }
+  key === 'knitting'
+    ? { ...STEP_DEFAULTS, endHistory: [], dailyKg: null, machines: [] }
+    : { ...STEP_DEFAULTS, endHistory: [] }
 );
+
+// 편직 기계 한 대 (일일 생산량 kg)
+export const createMachine = (name = '', dailyKg = null) => ({ id: uid('mc'), name, dailyKg });
 
 export const createSteps = () => Object.fromEntries(ORDER_STEP_KEYS.map(k => [k, createStep(k)]));
 
@@ -124,7 +132,28 @@ const normalizeDropInfo = (raw, status) => {
   return { prevStatus: normalizeOrderStatus(raw.prevStatus), at: str(raw.at) };
 };
 
-const normalizeStep = (key, raw) => {
+// 예전 예상 종료일 기록 [{ date, at }] — 날짜가 없는 줄은 버림
+const normalizeEndHistory = (list) => (Array.isArray(list) ? list : [])
+  .filter(h => h && typeof h === 'object' && str(h.date))
+  .map(h => ({ date: str(h.date), at: str(h.at) }));
+
+// 편직 기계 목록 [{ id, name, dailyKg }] — 이름도 생산량도 없는 줄은 버림, 생산량은 0보다 큰 숫자만
+const cleanMachines = (list, idBase = 'mc') => (Array.isArray(list) ? list : [])
+  .filter(m => m && typeof m === 'object')
+  .map((m, i) => {
+    const kg = numOrNull(m.dailyKg);
+    return { id: m.id || `${idBase}_m${i}`, name: str(m.name).trim(), dailyKg: kg !== null && kg > 0 ? kg : null };
+  })
+  .filter(m => m.name || m.dailyKg !== null);
+
+// 기계 일일 생산량 합계 (넣은 기계가 없으면 null)
+export const sumMachinesKg = (machines) => {
+  const list = (machines || []).map(m => numOrNull(m?.dailyKg)).filter(v => v !== null && v > 0);
+  return list.length ? round1(list.reduce((s, v) => s + v, 0)) : null;
+};
+
+// idBase: 기계 id 를 만들 기준 (같은 문서는 항상 같은 id → 화면 key 가 흔들리지 않게)
+const normalizeStep = (key, raw, idBase = key) => {
   const base = createStep(key);
   const s = raw && typeof raw === 'object' ? raw : {};
   const out = {
@@ -136,8 +165,18 @@ const normalizeStep = (key, raw) => {
     status: normalizeStatus(s.status),
     doneDate: str(s.doneDate),
     notes: str(s.notes),
+    endHistory: normalizeEndHistory(s.endHistory),
   };
-  if (key === 'knitting') out.dailyKg = numOrNull(s.dailyKg);
+  if (key === 'knitting') {
+    // 예전 오더(기계 목록 없이 일일 생산량 하나) → '1호기' 한 대로
+    let machines = cleanMachines(s.machines, idBase);
+    if (!Array.isArray(s.machines)) {
+      const legacy = numOrNull(s.dailyKg);
+      machines = legacy !== null && legacy > 0 ? [{ id: `${idBase}_m0`, name: '1호기', dailyKg: legacy }] : [];
+    }
+    out.machines = machines;
+    out.dailyKg = sumMachinesKg(machines);
+  }
   return out;
 };
 
@@ -191,7 +230,7 @@ const normalizeProvisionalDue = (raw) => {
 
 const normalizeV8 = (raw) => {
   const id = raw.id;
-  const steps = Object.fromEntries(ORDER_STEP_KEYS.map(k => [k, normalizeStep(k, raw.steps?.[k])]));
+  const steps = Object.fromEntries(ORDER_STEP_KEYS.map(k => [k, normalizeStep(k, raw.steps?.[k], `${id}_${k}`)]));
   let colors = (Array.isArray(raw.colors) ? raw.colors : []).map((c, i) => normalizeColor(c, `${id}_c${i}`));
   if (colors.length === 0) colors = [normalizeColor({}, `${id}_c0`)];
   const lossRate = numOrNull(raw.lossRate);
@@ -432,17 +471,37 @@ export const getOrderTotals = (order) => {
 // 공정 칸에 뭐라도 입력돼 있으면 "사용하는 공정"
 export const isStepUsed = (step) => !!(step && (
   step.vendor || step.startDate || step.endDate || step.notes || step.dailyKg ||
+  (step.machines || []).some(m => m?.name || m?.dailyKg) ||
   normalizeStatus(step.status) !== 'pending'
 ));
 
-// 편직 예상 종료일: 시작일 + 총 작지kg ÷ 일일 생산량 (종료일 직접 입력이 없을 때 참고용)
-export const getKnittingEstimatedEnd = (order) => {
-  const k = order?.steps?.knitting;
-  const daily = numOrNull(k?.dailyKg);
-  if (!k?.startDate || !daily || daily <= 0) return '';
+// 편직 하루 생산량 (기계별 합계, 예전 오더는 일일 생산량 하나)
+export const getKnittingDailyKg = (step) => sumMachinesKg(step?.machines) ?? numOrNull(step?.dailyKg);
+
+/**
+ * 편직 소요일 계산 (기계별 일일 생산량 — 대표님 요청 2026-10-11)
+ *  daily = 기계 합계 kg/일, total = 총 작지kg, days = 올림(total ÷ daily)
+ *  end = 예상 시작일 + days - 1 (시작일이 없으면 '')
+ *  반환 { daily, total, days, end } — 계산할 수 없으면 days 0
+ */
+export const getKnittingPlan = (order, step = order?.steps?.knitting) => {
+  const daily = getKnittingDailyKg(step);
   const total = getOrderTotals(order).workKg;
-  if (!total) return '';
-  return addDaysYmd(k.startDate, Math.max(1, Math.ceil(total / daily)) - 1);
+  if (!daily || daily <= 0 || !total) return { daily: daily || null, total, days: 0, end: '' };
+  const days = Math.max(1, Math.ceil(total / daily));
+  return { daily, total, days, end: step?.startDate ? addDaysYmd(step.startDate, days - 1) : '' };
+};
+
+// 편직 계산 종료일: 예상 시작일 + 총 작지kg ÷ 하루 생산량 (예상 종료일을 직접 넣지 않았을 때 참고용)
+export const getKnittingEstimatedEnd = (order) => getKnittingPlan(order).end;
+
+// 최초 예상 종료일 비교 — 예상 종료일을 바꾼 적이 있으면 { first: 최초 날짜, current, diff(+ = 늦어짐), count: 바꾼 횟수 }
+export const getEndShift = (step) => {
+  const hist = step?.endHistory || [];
+  if (!hist.length) return null;
+  const first = hist[0].date;
+  const current = str(step?.endDate);
+  return { first, current, diff: current ? diffDaysYmd(first, current) : null, count: hist.length };
 };
 
 // 공정 종료일 (직접 입력 우선, 편직은 예상 종료일로 보조)
@@ -534,8 +593,9 @@ export const getColorStage = (order, color) => {
   if (lotSt.some(s => s === 'in_progress' || s === 'done')) return 'dyeing';
   if (color.greigeOutDone) return 'dye_wait';
 
-  if (['yarn', 'yarn_processing', 'knitting'].some(k => st(k) === 'issue')) return 'issue';
+  if (['yarn', 'yarn_processing', 'knitting', 'presetting'].some(k => st(k) === 'issue')) return 'issue';
   if (st('knitting') === 'in_progress') return 'knitting';
+  if (st('presetting') === 'in_progress') return 'presetting';
   if (st('knitting') === 'done') return 'greige_wait';
   if (isStepUsed(steps.knitting)) return 'knit_wait';
   if (lots.length) return 'dye_wait';
@@ -612,13 +672,13 @@ export const describeProvisionalDue = (info) => {
   }
 };
 
-// 가납기와 비교한 "현재" 설명 (예: '종료 10/28 (예상)', 'LOT 완료예정 11/5', '완료 10/20', '일정 없음')
+// 가납기와 비교한 "현재" 설명 (예: '예상 종료 10/28', '예상 종료 10/28 (생산량 계산)', 'LOT 완료예정 11/5', '완료 10/20', '일정 없음')
 export const describeStepCurrent = (info) => {
   if (!info?.current) return info?.done ? '완료' : '일정 없음';
   const d = shortDate(info.current);
   if (info.done) return `완료 ${d}`;
   if (info.key === 'dyeing') return `LOT 완료예정 ${d}`;
-  return `종료 ${d}${info.estimated ? ' (예상)' : ''}`;
+  return `예상 종료 ${d}${info.estimated ? ' (생산량 계산)' : ''}`;
 };
 
 // 간트 가납기 깃발 — 가납기가 있는 공정만 [{ key, label, short, date, info }]
@@ -647,6 +707,8 @@ export const getOrderTimeline = (order) => {
     if (!step) return;
     const range = span(step.startDate, getStepEnd(order, meta.key));
     if (!range) return;
+    // 최초 예상 종료일 (예상 종료일을 바꾼 적이 있을 때) — 간트에 회색 점선 테두리로 같이 그림
+    const firstEnd = step.endHistory?.[0]?.date || '';
     orderBars.push({
       id: `step_${meta.key}`,
       kind: 'step',
@@ -655,6 +717,7 @@ export const getOrderTimeline = (order) => {
       label: `${meta.label}${step.vendor ? ` ${step.vendor}` : ''}`,
       status: normalizeStatus(step.status),
       estimated: meta.key === 'knitting' && !step.endDate,
+      baseEnd: firstEnd && firstEnd !== range.end ? firstEnd : '',
       ...range,
     });
   });
@@ -780,6 +843,9 @@ export const colorHasData = (color) => !!(color && (
 ));
 
 // 공정 patch — 상태 '완료'로 바뀌면 완료일 오늘 자동, 완료가 풀리면 완료일 비움
+//  예상 종료일이 바뀌면 예전 날짜를 endHistory 에 남김 (대표님 요청 2026-10-11 — '1차에 예상했던 종료일')
+//   · patch 에 endHistory 가 있으면 그 목록 그대로 (입력 창에서 기록을 지웠거나 [비우기] — 부른 쪽이 계산)
+//  machines(편직 기계) 가 바뀌면 dailyKg = 기계 합계
 export const applyStepPatch = (order, key, patch) => {
   const prev = order.steps?.[key] || createStep(key);
   const next = { ...prev, ...patch };
@@ -788,7 +854,20 @@ export const applyStepPatch = (order, key, patch) => {
     if (next.status === 'done' && !next.doneDate) next.doneDate = todayYmd();
     if (next.status !== 'done' && !('doneDate' in patch)) next.doneDate = '';
   }
-  if ('dailyKg' in patch) next.dailyKg = numOrNull(patch.dailyKg);
+  if ('endHistory' in patch) {
+    next.endHistory = normalizeEndHistory(patch.endHistory);
+  } else if ('endDate' in patch) {
+    const before = str(prev.endDate);
+    if (before && before !== str(patch.endDate)) {
+      next.endHistory = [...normalizeEndHistory(prev.endHistory), { date: before, at: todayYmd() }];
+    }
+  }
+  if ('machines' in patch) {
+    next.machines = cleanMachines(patch.machines, `${key}_${Date.now().toString(36)}`);
+    next.dailyKg = sumMachinesKg(next.machines);
+  } else if ('dailyKg' in patch) {
+    next.dailyKg = numOrNull(patch.dailyKg);
+  }
   return { ...order, steps: { ...(order.steps || createSteps()), [key]: next } };
 };
 
@@ -826,7 +905,29 @@ const ORDER_FIELD_LABELS = {
   type: '구분', finalDueDate: '납기', lossRate: '로스율', status: '오더상태', notes: '메모', dyeVendor: '염색소',
 };
 const STEP_FIELD_LABELS = {
-  vendor: '외주처', startDate: '시작', endDate: '종료', status: '상태', doneDate: '완료일', notes: '메모', dailyKg: '일생산kg',
+  vendor: '외주처', startDate: '예상 시작', endDate: '예상 종료', status: '상태', doneDate: '완료일', notes: '메모', dailyKg: '일생산kg',
+};
+
+// 편직 기계 목록 → 한 줄 ('1호기 300 · 2호기 250kg/일')
+const machinesText = (list) => {
+  const t = (list || [])
+    .filter(m => m && (m.name || m.dailyKg))
+    .map(m => `${m.name || '기계'} ${m.dailyKg ?? '-'}`)
+    .join(' · ');
+  return t ? `${t}kg/일` : '';
+};
+
+// 공정 한 칸 비교 (외주처·일정·상태·메모 + 편직 기계 + 예전 예상 종료일 기록 삭제)
+const diffStep = (a, b, label, out) => {
+  const before = out.length;
+  const mA = machinesText(a?.machines);
+  const mB = machinesText(b?.machines);
+  const labels = mA !== mB ? { ...STEP_FIELD_LABELS, dailyKg: undefined } : STEP_FIELD_LABELS; // 기계가 바뀌면 합계는 따로 안 적음
+  diffFields(a, b, Object.fromEntries(Object.entries(labels).filter(([, v]) => v)), `${label} `, out);
+  if (mA !== mB) out.push(`${label} 기계 ${mB || '없음'}`);
+  const hA = (a?.endHistory || []).length;
+  const hB = (b?.endHistory || []).length;
+  if (hB < hA && out.length === before) out.push(`${label} 예전 예상 종료일 기록 삭제`);
 };
 const COLOR_FIELD_LABELS = {
   name: '컬러명', orderKg: '오더kg', workKg: '작지kg', greigeOutDate: '생지출고일', greigeOutDone: '생지출고',
@@ -877,7 +978,7 @@ export const summarizeOrderChange = (prev, next) => {
   }
 
   ORDER_STEP_KEYS.forEach(k => {
-    diffFields(prev.steps?.[k], next.steps?.[k], STEP_FIELD_LABELS, `${getStepMeta(k)?.label || k} `, out);
+    diffStep(prev.steps?.[k], next.steps?.[k], getStepMeta(k)?.label || k, out);
   });
 
   // 가납기 (예: '가납기 편직 10/25→10/28')
@@ -1030,7 +1131,7 @@ export const fillOrderFromSheet = (order, sheet, { buyerName = '', onlyEmpty = f
 // 오더 진행을 한 단계로 (개발/설계 현황의 '샘플 진행' 칸) — 가장 덜 진행된 컬러 기준, 문제가 있으면 '문제'
 // 반환: COLOR_STAGES 키 (오더가 없으면 null)
 const STAGE_FLOW = [
-  'waiting', 'yarn', 'knit_wait', 'knitting', 'greige_wait', 'dye_wait', 'dyeing',
+  'waiting', 'yarn', 'knit_wait', 'knitting', 'presetting', 'greige_wait', 'dye_wait', 'dyeing',
   'finish_wait', 'finishing', 'inspection', 'confirm_wait', 'confirm', 'ship_wait', 'shipped',
 ];
 export const getOrderProgressStage = (order) => {

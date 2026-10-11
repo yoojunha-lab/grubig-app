@@ -5,7 +5,7 @@ import {
 } from '../../../constants/production';
 import {
   describeProvisionalDue, describeStepCurrent,
-  findDailyNote, getColorStage, getDday, getKnittingEstimatedEnd, getLossRate, getStepEnd, getWorkKg, isDropClosed,
+  findDailyNote, getColorStage, getDday, getEndShift, getKnittingEstimatedEnd, getLossRate, getStepEnd, getWorkKg, isDropClosed,
 } from '../../../utils/orderModel';
 import { addDaysYmd, diffDaysYmd, fmtKg, shortDate, toDate, todayYmd } from '../../../utils/orderCalculations';
 import { ProcessPopover } from '../sheet/ProcessPopover';
@@ -66,6 +66,7 @@ const TYPE_CHIP = {
 // 범례 (공정 색)
 const LEGEND = [
   { key: 'knitting', label: '편직' },
+  { key: 'presetting', label: '프리세팅' },
   { key: 'greige', label: '생지출고' },
   { key: 'dyeing', label: '염가공 LOT' },
   { key: 'confirm', label: '컨펌' },
@@ -209,7 +210,7 @@ const BarTooltip = ({ apiRef }) => {
             )}
           </>
         )}
-        {info.extra && <div className="text-slate-300">{info.extra}</div>}
+        {info.extra && <div className="text-slate-300 whitespace-pre-line">{info.extra}</div>}
       </div>
       {info.hint && <div className="mt-1 text-[10px] text-teal-300">{info.hint}</div>}
     </div>
@@ -223,7 +224,7 @@ const isEstimatedBar = (order, bar) => bar.kind === 'step' && !!bar.estimated &&
 // 막대의 원래 시작/끝 날짜 (한쪽만 입력된 경우 툴팁에 "미입력" 표시용)
 const rawBarDates = (order, color, bar) => {
   if (bar.kind === 'step') {
-    return { s: order.steps?.[bar.stepKey]?.startDate || '', e: getStepEnd(order, bar.stepKey), sName: '시작일', eName: '종료일' };
+    return { s: order.steps?.[bar.stepKey]?.startDate || '', e: getStepEnd(order, bar.stepKey), sName: '예상 시작일', eName: '예상 종료일' };
   }
   if (bar.kind === 'lot') {
     const lot = (color?.lots || []).find(l => l.id === bar.lotId) || {};
@@ -249,24 +250,30 @@ const describeRange = (order, color, bar) => {
 };
 
 // 막대 → 툴팁 내용
-const describeBar = (order, color, bar) => {
+const describeBar = (order, color, bar, metaOf = getStepMeta) => {
   const owner = `${order.orderNumber || '새 오더'}${color ? ` · ${color.name || '컬러'}` : ' · 오더 전체'}`;
   const estimated = isEstimatedBar(order, bar);
-  const base = { owner, title: `${bar.label}${estimated ? ' (예상)' : ''}`, ...describeRange(order, color, bar) };
+  const base = { owner, title: `${bar.label}${estimated ? ' (생산량 계산)' : ''}`, ...describeRange(order, color, bar) };
 
   if (bar.kind === 'step') {
-    const meta = getStepMeta(bar.stepKey);
+    const meta = metaOf(bar.stepKey);
     const step = order.steps?.[bar.stepKey] || {};
-    let extra = step.notes || '';
-    if (estimated) extra = `종료일 미입력 → 일일 ${fmtKg(step.dailyKg)}kg 기준 예상 종료`;
-    else if (bar.stepKey === 'knitting' && step.startDate && !step.endDate) extra = '일일 생산량을 넣으면 예상 종료일이 계산돼요';
+    const shift = getEndShift(step);
+    const lines = [];
+    if (shift) {
+      const d = shift.diff;
+      lines.push(`최초 예상 종료 ${shortDate(shift.first)}${shift.current ? ` → 지금 ${shortDate(shift.current)}` : ''}${d ? ` (${d > 0 ? `${d}일 늦어짐` : `${-d}일 당겨짐`})` : ''}`);
+    }
+    if (estimated) lines.push(`예상 종료일 미입력 → 하루 ${fmtKg(step.dailyKg)}kg 기준으로 계산한 종료`);
+    else if (bar.stepKey === 'knitting' && step.startDate && !step.endDate) lines.push('기계별 일일 생산량을 넣으면 종료일이 계산돼요');
+    if (step.notes) lines.push(step.notes);
     return {
       ...base,
       status: getStatusLabel(bar.status),
       vendorLabel: meta?.vendorLabel || '외주처',
       vendor: step.vendor,
-      extra,
-      hint: '누르면 공정 일정 수정',
+      extra: lines.join('\n'),
+      hint: '누르면 공정 일정 · 상태 수정',
     };
   }
   if (bar.kind === 'lot') {
@@ -534,13 +541,29 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
   const hideTip = () => tipRef.current?.hide();
 
   // ---------- 막대 ----------
+  // 최초 예상 종료일 테두리 (공정 — 예상 종료일을 바꾼 적이 있으면 회색 점선: 막대가 더 길면 늦어진 것)
+  //  막대 위에 테두리만 그림 (늦어졌을 때도 최초 끝이 막대 안에 보이게, 누르기는 막대가 받음)
+  const renderBaseline = (bar) => (
+    <div
+      key={`${bar.id}_base`}
+      className="absolute z-[3] rounded-md border-2 border-dashed border-slate-500/80 pointer-events-none"
+      style={{
+        left: bar.startCol * DAY_W + (bar.clipL ? 0 : 1),
+        width: (bar.baseEndCol - bar.startCol + 1) * DAY_W - (bar.clipL ? 1 : 2),
+        top: BAR_PAD + bar.lane * LANE_H - 1,
+        height: BAR_H + 2,
+      }}
+      aria-hidden="true"
+    />
+  );
+
   const renderBar = (order, color, bar) => {
-    const theme = PROCESS_THEME[bar.theme] || PROCESS_THEME.yarn;
+    const theme = PROCESS_THEME[bar.theme] || PROCESS_THEME.custom;
     const done = bar.status === 'done';
     const issue = bar.status === 'issue';
     const estimated = isEstimatedBar(order, bar);
     const rounded = `${bar.clipL ? 'rounded-l-none border-l-0' : 'rounded-l-md'} ${bar.clipR ? 'rounded-r-none border-r-0' : 'rounded-r-md'}`;
-    return (
+    const button = (
       <button
         key={bar.id}
         type="button"
@@ -563,10 +586,12 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
         <span className="sticky inline-flex items-center gap-0.5 max-w-full min-w-0 overflow-hidden" style={{ left: LABEL_W + 4 }}>
           {done && <Check className="w-3 h-3 shrink-0" strokeWidth={3} />}
           {issue && <AlertTriangle className="w-3 h-3 shrink-0 text-red-600" />}
-          <span className="truncate">{bar.label}{estimated ? ' (예상)' : ''}</span>
+          <span className="truncate">{bar.label}{estimated ? ' (계산)' : ''}</span>
         </span>
       </button>
     );
+    if (bar.baseEndCol === null || bar.baseEndCol === undefined) return button;
+    return [renderBaseline(bar), button];
   };
 
   // ---------- 메모 (막대 아래, 엑셀 날짜 칸처럼 색 + 글자 전부) ----------
@@ -784,7 +809,8 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, onOpenDetail, o
         </span>
         <span className="inline-flex items-center gap-1"><Check className="w-3 h-3" strokeWidth={3} />완료(흐리게)</span>
         <span className="inline-flex items-center gap-1"><span className="w-3 h-2.5 rounded-sm ring-2 ring-red-500 bg-white" />문제</span>
-        <span className="inline-flex items-center gap-1"><span className="w-3 h-2.5 rounded-sm border border-dashed border-yellow-500 bg-yellow-100" />예상</span>
+        <span className="inline-flex items-center gap-1"><span className="w-3 h-2.5 rounded-sm border border-dashed border-yellow-500 bg-yellow-100" />생산량 계산</span>
+        <span className="inline-flex items-center gap-1" title="예상 종료일을 바꾼 공정 — 회색 점선이 최초 예상 종료일까지"><span className="w-3 h-2.5 rounded-sm border-2 border-dashed border-slate-400 bg-slate-300/20" />최초 예상</span>
         <span className="ml-auto inline-flex items-center gap-1 font-bold text-teal-700">
           <StickyNote className="w-3.5 h-3.5" /> 빈 칸을 누르면 그날 메모 — 막대 아래에 글자 전부 보여요
         </span>

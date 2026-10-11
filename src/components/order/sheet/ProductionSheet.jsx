@@ -3,11 +3,11 @@ import {
   Plus, Trash2, Search, Link2, RotateCcw, MoreHorizontal, Eye, EyeOff, ChevronDown, FileSpreadsheet,
 } from 'lucide-react';
 import {
-  ORDER_STEPS, PROCESS_THEME, PROGRESS_STATUS_COLORS, getStatusLabel, COLOR_STAGES,
+  ORDER_STEPS, PROCESS_THEME, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, getStepMeta, COLOR_STAGES,
   CONFIRM_RESULTS, DEFAULT_LOSS_RATE, PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES,
 } from '../../../constants/production';
 import {
-  getWorkKg, isWorkKgManual, getLossRate, isStepUsed, getKnittingEstimatedEnd, colorHasData,
+  getWorkKg, isWorkKgManual, getLossRate, isStepUsed, getKnittingEstimatedEnd, getEndShift, colorHasData,
   getLotSummary, getLotsTotalKg, getLotsStatus, getConfirmState, getColorStage, getDday,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed,
 } from '../../../utils/orderModel';
@@ -18,6 +18,7 @@ import { ProcessPopover } from './ProcessPopover';
 import { ConfirmPopover } from './ColorPopovers';
 import { ProvisionalDuePopover } from './ProvisionalDuePopover';
 import { SheetLinkChips } from '../common/SheetLinkChips';
+import { StatusSelect } from '../common/StatusSelect';
 import { PartnerPickerModal } from '../../common/PartnerPickerModal';
 
 // ============================================================
@@ -56,6 +57,7 @@ const FLOW_COLS = [
   { key: 'yarn',              label: '원사',       width: 140, step: true },
   { key: 'yarn_processing',   label: '사가공',     width: 140, step: true },
   { key: 'knitting',          label: '편직',       width: 140, step: true },
+  { key: 'presetting',        label: '프리세팅',   width: 140, step: true },
   { key: 'greige',            label: '생지출고',   width: 116 },
   { key: 'dyeing',            label: '염가공 LOT', width: 150 },
   { key: 'finishing',         label: '후가공',     width: 140, step: true },
@@ -177,32 +179,60 @@ const DdayBadge = ({ due }) => {
   return <span className={`${BADGE} font-extrabold ${cls}`}>{label}</span>;
 };
 
-// 공정 칸 내용: 외주처 / 일정 / 상태 / 메모
-const StepSummary = ({ order, stepKey, step }) => {
+// 최초 예상 종료일 대비 지금 예상 종료일 (예상 종료일을 바꾼 적이 있을 때만) — '최초 10/28 +8일'
+const EndShiftBadge = ({ step }) => {
+  const shift = getEndShift(step);
+  if (!shift) return null;
+  const d = shift.diff;
+  const cls = d > 0 ? 'text-red-600' : d < 0 ? 'text-emerald-700' : 'text-slate-500';
+  const tail = d > 0 ? ` +${d}일` : d < 0 ? ` ${d}일` : '';
+  return (
+    <div
+      className={`font-mono text-[9px] font-bold ${cls}`}
+      title={`예상 종료일을 ${shift.count}번 바꿨어요 — 최초 예상 ${shift.first}${shift.current ? ` → 지금 ${shift.current}` : ''}`}
+    >
+      최초 {shortDate(shift.first)}{tail}
+    </div>
+  );
+};
+
+// 공정 칸 내용: 외주처 / 예상 일정 (+ 최초 예상 대비) / 상태 드롭다운 / (편직) 하루 생산량 / 메모
+const StepSummary = ({ order, stepKey, step, onStatus }) => {
   const status = step.status || 'pending';
-  const sc = PROGRESS_STATUS_COLORS[status] || PROGRESS_STATUS_COLORS.pending;
   const estimated = stepKey === 'knitting' && !step.endDate ? getKnittingEstimatedEnd(order) : '';
   const end = step.endDate || estimated;
   const range = fmtRange(step.startDate, end);
   // 완료(또는 Drop)로 닫힌 오더는 '지연' 빨간색 안 씀 — 끝난 오더에 남은 공정 일정은 늦은 게 아님
   const overdue = !!end && status !== 'done' && order.status !== 'completed' && end < todayYmd();
+  const machines = stepKey === 'knitting' ? (step.machines || []).filter(m => m.dailyKg) : [];
   return (
     <div className="space-y-0.5">
       {step.vendor && <div className="font-bold break-words [overflow-wrap:anywhere]">{step.vendor}</div>}
       {range && (
         <div
           className={`font-mono text-[10px] ${overdue ? 'text-red-600 font-bold' : ''}`}
-          title={overdue ? '종료일이 지났는데 완료되지 않았어요' : undefined}
+          title={overdue ? '예상 종료일이 지났는데 완료되지 않았어요' : `예상 ${range}${estimated ? ' (종료일은 생산량 계산)' : ''}`}
         >
-          {range}{estimated ? ' 예상' : ''}
+          {range}{estimated ? ' 계산' : ''}
         </div>
       )}
+      <EndShiftBadge step={step} />
       <div className="flex items-center gap-1 flex-wrap">
-        <span className={`${BADGE} ${sc.bg} ${sc.text} ${sc.border}`}>
-          {getStatusLabel(status)}{status === 'done' && step.doneDate ? ` ${shortDate(step.doneDate)}` : ''}
-        </span>
+        <StatusSelect
+          value={status}
+          options={PROGRESS_STATUS_OPTIONS}
+          onChange={onStatus}
+          tabIndex={-1}
+          title="상태 바꾸기 (바로 저장)"
+        />
+        {status === 'done' && step.doneDate && <span className="font-mono text-[9px] opacity-70">{shortDate(step.doneDate)}</span>}
         {stepKey === 'knitting' && step.dailyKg ? (
-          <span className="text-[9px] opacity-70">{fmtKg(step.dailyKg)}kg/일</span>
+          <span
+            className="text-[9px] opacity-70"
+            title={machines.map(m => `${m.name || '기계'} ${fmtKg(m.dailyKg)}kg/일`).join('\n') || undefined}
+          >
+            {fmtKg(step.dailyKg)}kg/일{machines.length > 1 ? ` · ${machines.length}대` : ''}
+          </span>
         ) : null}
       </div>
       {step.notes && (
@@ -212,21 +242,23 @@ const StepSummary = ({ order, stepKey, step }) => {
   );
 };
 
-// 공정 칸 (오더 단위, rowSpan) — 클릭하면 ProcessPopover
+// 공정 칸 (오더 단위, rowSpan) — 클릭하면 ProcessPopover, 상태는 칸 안 드롭다운으로 바로
 const StepCell = ({ order, stepKey, span, bg, ctx }) => {
   const step = order.steps?.[stepKey];
   const used = isStepUsed(step);
-  const label = ORDER_STEPS.find(s => s.key === stepKey)?.label || '';
+  const meta = ctx.stepMetaOf(stepKey);
+  const label = meta?.label || '';
+  const theme = PROCESS_THEME[stepKey] || PROCESS_THEME.custom;
   const open = (el) => ctx.openProcess(order.id, stepKey, el);
   return (
     <td
       rowSpan={span}
       onClick={e => open(e.currentTarget)}
-      className={cellCls({ thick: true, extra: `${CLICKABLE} ${used ? PROCESS_THEME[stepKey].cell : bg}` })}
+      className={cellCls({ thick: true, extra: `${CLICKABLE} ${used ? theme.cell : bg}` })}
     >
       <CellAction navKey={`step_${stepKey}`} onActivate={open} title={`${label} 일정 입력 (클릭 또는 Enter)`}>
         {used
-          ? <StepSummary order={order} stepKey={stepKey} step={step} />
+          ? <StepSummary order={order} stepKey={stepKey} step={step} onStatus={s => ctx.actions.setStep(order.id, stepKey, { status: s })} />
           : <span className="text-slate-300">+ 입력</span>}
       </CellAction>
     </td>
@@ -893,6 +925,7 @@ export const ProductionSheet = ({
 
   const ctx = {
     actions,
+    stepMetaOf: (key) => getStepMeta(key),
     focusOrderId,
     onOrderFocusDone: handleOrderFocusDone,
     focusColorId,

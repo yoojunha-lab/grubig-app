@@ -138,6 +138,14 @@ const buildMonths = (days) => {
 // ============================================================
 // 4. 막대 → 칸 범위 + 레인 배정
 // ============================================================
+// 최초 예상 종료일 칸 (공정 막대 — 예상 종료일을 바꾼 적이 있을 때). 시작 칸보다 앞이거나 기간 밖이면 null
+const placeBaseEnd = (bar, startCol, range, colBwd, lastCol) => {
+  if (!bar.baseEnd || bar.baseEnd < range.start || bar.baseEnd < bar.start) return null;
+  const col = bar.baseEnd > range.end ? lastCol : colBwd(bar.baseEnd);
+  if (col === null) return null;
+  return Math.max(col, startCol);
+};
+
 const placeBars = (bars, range, colFwd, colBwd, lastCol) => {
   const placed = [];
   bars.forEach((bar, idx) => {
@@ -149,18 +157,21 @@ const placeBars = (bars, range, colFwd, colBwd, lastCol) => {
     let endCol = clipR ? lastCol : colBwd(bar.end);
     if (startCol === null || endCol === null) return;
     if (endCol < startCol) endCol = startCol; // 주말에만 걸친 막대 → 다음 월요일 칸 하나
-    placed.push({ ...bar, startCol, endCol, clipL, clipR, _idx: idx });
+    const baseEndCol = placeBaseEnd(bar, startCol, range, colBwd, lastCol);
+    placed.push({ ...bar, startCol, endCol, baseEndCol: baseEndCol === endCol ? null : baseEndCol, clipL, clipR, _idx: idx });
   });
 
   placed.sort((a, b) => a.startCol - b.startCol || a._idx - b._idx);
   const laneEnds = [];
   placed.forEach(bar => {
+    // 최초 예상 종료일 테두리가 막대보다 길면 그 끝까지 자리를 차지 (다른 막대와 겹치지 않게)
+    const occupied = Math.max(bar.endCol, bar.baseEndCol ?? -1);
     let lane = laneEnds.findIndex(end => end < bar.startCol);
     if (lane === -1) {
       lane = laneEnds.length;
-      laneEnds.push(bar.endCol);
+      laneEnds.push(occupied);
     } else {
-      laneEnds[lane] = bar.endCol;
+      laneEnds[lane] = occupied;
     }
     bar.lane = lane;
   });
@@ -273,7 +284,7 @@ export const buildGanttLayout = (orders = [], { today, hideWeekends = true } = {
 
   const dates = [];
   timelines.forEach(({ order, tl, marks }) => {
-    tl.orderBars.forEach(b => dates.push(b.start, b.end));
+    tl.orderBars.forEach(b => dates.push(b.start, b.end, b.baseEnd));
     tl.colorRows.forEach(r => r.bars.forEach(b => dates.push(b.start, b.end)));
     (order.dailyNotes || []).forEach(n => { if (n.date && n.text) dates.push(n.date); });
     if (order.finalDueDate) dates.push(order.finalDueDate);

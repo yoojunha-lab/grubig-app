@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  X, Package, Trash2, Plus, Search, Link2, RotateCcw, ChevronDown, ChevronRight,
-  ClipboardList, Factory, Palette, History, FilePlus2, Pencil, AlertTriangle, Eraser, Flag,
+  X, Package, Trash2, Plus, Search, Link2, RotateCcw,
+  ClipboardList, Factory, Palette, History, FilePlus2, Pencil, Flag,
   FileText, Award, XCircle,
 } from 'lucide-react';
 import {
-  ORDER_STEPS, PROGRESS_STATUSES, PROGRESS_STATUS_COLORS, getStatusLabel, PROCESS_THEME,
+  ORDER_STEPS, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, PROCESS_THEME,
   COLOR_STAGES, ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_TYPES,
   PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES,
 } from '../../constants/production';
 import {
-  getWorkKg, isWorkKgManual, getLossRate, getOrderTotals, isStepUsed, getKnittingEstimatedEnd,
+  getWorkKg, isWorkKgManual, getLossRate, getOrderTotals, isStepUsed, getKnittingEstimatedEnd, getEndShift,
   getLotSummary, getLotsTotalKg, getLotsStatus, getConfirmState, getColorStage, getDday, colorHasData,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed,
 } from '../../utils/orderModel';
@@ -19,6 +19,8 @@ import { CHANGE_ACTIONS } from '../../utils/auditLog';
 import { PartnerPickerModal } from '../common/PartnerPickerModal';
 import { ModalBackdrop } from '../common/ModalBackdrop';
 import { ConfirmPopover } from './sheet/ColorPopovers';
+import { ProcessPopover } from './sheet/ProcessPopover';
+import { StatusSelect } from './common/StatusSelect';
 
 // GRUBIG ERP - 생산 오더 상세창 (v8: 엑셀형 현황표)
 // ------------------------------------------------------------
@@ -46,11 +48,6 @@ const CONFIRM_STATE_CLS = {
   fail:  'bg-red-100 text-red-700 border-red-300',
   sent:  'bg-sky-100 text-sky-700 border-sky-300',
   ready: 'bg-slate-100 text-slate-600 border-slate-300',
-};
-
-const statusCls = (key) => {
-  const c = PROGRESS_STATUS_COLORS[key] || PROGRESS_STATUS_COLORS.pending;
-  return `${c.bg} ${c.text} ${c.border}`;
 };
 
 const orderStatusCls = (key) => {
@@ -426,132 +423,65 @@ const ArticleInput = ({ value, linked, savedFabrics, onCommitText, onPickFabric 
 };
 
 // ============================================================
-// 2. 공정 카드 (원사 ~ 외관검사, 오더 단위 일정 한 세트)
-//    사용 중인 공정은 기본 펼침, 비어 있는 공정은 접힘
+// 2. 공정 줄 (원사 ~ 이화학검사 + 추가 공정, 오더 단위 일정 한 세트)
+//    줄을 누르면 현황표·간트와 같은 공정 입력 창 (예상 시작/종료일 · 기록 · 상태 · 기계별 생산량)
+//    상태는 줄 안 드롭다운으로 바로 바꿈
 // ============================================================
-const StepCard = ({ meta, step, order, open, onToggle, vendorOptions, onPatch }) => {
-  const theme = PROCESS_THEME[meta.key] || PROCESS_THEME.yarn;
+const StepRow = ({ meta, step, order, onOpen, onStatus }) => {
+  const theme = PROCESS_THEME[meta.key] || PROCESS_THEME.custom;
   const used = isStepUsed(step);
   const status = step.status || 'pending';
-  const isKnit = meta.key === 'knitting';
-  const est = isKnit ? getKnittingEstimatedEnd(order) : '';
-  const totalWork = isKnit ? getOrderTotals(order).workKg : 0;
-  const daily = toNumberOrNull(step.dailyKg);
-  const rangeBad = !!(step.startDate && step.endDate && step.startDate > step.endDate);
-  const listId = `od-vendors-${order.id}-${meta.key}`;
+  const est = meta.key === 'knitting' && !step.endDate ? getKnittingEstimatedEnd(order) : '';
+  const shift = getEndShift(step);
 
-  // 접힌 머리줄 요약: 'M/D~M/D' (편직은 종료일 없으면 예상 종료)
-  const endText = step.endDate ? shortDate(step.endDate) : est ? `${shortDate(est)} 예상` : '';
+  // 'M/D~M/D' (편직은 예상 종료일이 없으면 생산량 계산 종료일)
+  const endText = step.endDate ? shortDate(step.endDate) : est ? `${shortDate(est)} 계산` : '';
   const rangeText = step.startDate || endText ? `${shortDate(step.startDate)}~${endText}` : '';
 
-  const commitText = (field) => (v) => {
-    const t = v.trim();
-    if (t !== (step[field] || '')) onPatch({ [field]: t });
-  };
-
-  const clearStep = () => {
-    if (!window.confirm(`${meta.label} 공정에 입력한 내용을 모두 비울까요?`)) return;
-    const patch = { vendor: '', startDate: '', endDate: '', status: 'pending', doneDate: '', notes: '' };
-    if (isKnit) patch.dailyKg = null;
-    onPatch(patch);
-  };
-
   return (
-    <div className={`rounded-xl border overflow-hidden ${used ? 'border-slate-200' : 'border-dashed border-slate-200'}`}>
-      <button
-        type="button"
-        onClick={onToggle}
-        className={`w-full flex items-center gap-2 px-3 py-2 text-left ${used ? theme.cell : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-      >
-        {open ? <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-60" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-60" />}
-        <span className="text-xs font-extrabold shrink-0">{meta.label}</span>
-        {used ? (
-          <span className="min-w-0 flex-1 flex items-center gap-1.5 text-[11px]">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={e => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl border text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${
+        used ? `${theme.cell} border-slate-200` : 'bg-white text-slate-600 border-dashed border-slate-200 hover:bg-slate-50'
+      }`}
+    >
+      <span className="text-xs font-extrabold shrink-0 w-14 truncate">{meta.label}</span>
+      {used ? (
+        <span className="min-w-0 flex-1 flex flex-col text-[11px] leading-snug">
+          <span className="flex items-center gap-1.5 min-w-0">
             {step.vendor && <span className="font-bold truncate">{step.vendor}</span>}
             {rangeText && <span className="font-mono opacity-80 shrink-0">{rangeText}</span>}
           </span>
-        ) : (
-          <span className="flex-1 text-[11px] text-slate-300">미입력</span>
-        )}
-        {used && (
-          <span className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-bold ${statusCls(status)}`}>
-            {getStatusLabel(status)}
-          </span>
-        )}
-      </button>
-
-      {open && (
-        <div className="p-3 bg-white border-t border-slate-100 grid grid-cols-2 gap-2.5">
-          <Field label={meta.vendorLabel} className="col-span-2">
-            <TextInput
-              value={step.vendor}
-              list={vendorOptions.length ? listId : undefined}
-              placeholder={`${meta.vendorLabel} 입력`}
-              onCommit={commitText('vendor')}
-            />
-            {vendorOptions.length > 0 && (
-              <datalist id={listId}>
-                {vendorOptions.map(v => <option key={v} value={v} />)}
-              </datalist>
-            )}
-          </Field>
-
-          <Field label="시작일">
-            <DateInput value={step.startDate} onCommit={v => onPatch({ startDate: v })} />
-          </Field>
-          <Field label="종료일">
-            <DateInput value={step.endDate} onCommit={v => onPatch({ endDate: v })} />
-          </Field>
-          {rangeBad && (
-            <div className="col-span-2 flex items-center gap-1 text-[11px] font-bold text-red-600">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> 시작일이 종료일보다 늦어요. 날짜를 확인해 주세요.
-            </div>
+          {shift && (
+            <span className={`font-mono text-[10px] font-bold ${shift.diff > 0 ? 'text-red-600' : shift.diff < 0 ? 'text-emerald-700' : 'opacity-70'}`}>
+              최초 예상 {shortDate(shift.first)}{shift.diff ? ` (${shift.diff > 0 ? '+' : ''}${shift.diff}일)` : ''}
+            </span>
           )}
-
-          {isKnit && (
-            <Field label="일일 생산량" className="col-span-2">
-              <NumberInput value={step.dailyKg} suffix="kg/일" placeholder="예: 300" onCommit={n => onPatch({ dailyKg: n })} />
-              {est ? (
-                <div className="mt-1 flex items-center justify-between gap-2 flex-wrap text-[11px] text-yellow-800 bg-yellow-50 border border-yellow-200 rounded-md px-2 py-1">
-                  <span>
-                    예상 종료 <b className="font-mono">{shortDate(est)}</b>
-                    <span className="text-yellow-700/80"> (총 작지 {fmtKg(totalWork)}kg ÷ {fmtKg(daily)}kg/일)</span>
-                  </span>
-                  {step.endDate !== est && (
-                    <button type="button" onClick={() => onPatch({ endDate: est })} className={BTN_SUB}>
-                      종료일에 넣기
-                    </button>
-                  )}
-                </div>
-              ) : daily ? (
-                <div className="mt-1 text-[10px] text-slate-400">
-                  {step.startDate ? '작지 kg이 없어 예상 종료일을 계산할 수 없어요.' : '시작일을 넣으면 예상 종료일을 계산해요.'}
-                </div>
-              ) : null}
-            </Field>
-          )}
-
-          <Field label="상태" className="col-span-2">
-            <Segment options={PROGRESS_STATUSES} value={status} colorOf={statusCls} onChange={k => onPatch({ status: k })} />
-          </Field>
-          {status === 'done' && (
-            <Field label="완료일">
-              <DateInput value={step.doneDate} onCommit={v => onPatch({ doneDate: v })} />
-            </Field>
-          )}
-
-          <Field label="메모" className="col-span-2">
-            <TextInput multiline value={step.notes} placeholder="특이사항" onCommit={commitText('notes')} />
-          </Field>
-
-          {used && (
-            <div className="col-span-2 flex justify-end">
-              <button type="button" onClick={clearStep} className={`${BTN_SUB} hover:text-red-600`}>
-                <Eraser className="w-3 h-3" /> 공정 비우기
-              </button>
-            </div>
-          )}
-        </div>
+          {meta.key === 'knitting' && step.dailyKg ? (
+            <span className="text-[10px] opacity-75">하루 {fmtKg(step.dailyKg)}kg{(step.machines || []).filter(m => m.dailyKg).length > 1 ? ` · ${(step.machines || []).filter(m => m.dailyKg).length}대` : ''}</span>
+          ) : null}
+        </span>
+      ) : (
+        <span className="flex-1 text-[11px] text-slate-300">눌러서 입력</span>
+      )}
+      {used && (
+        <StatusSelect
+          value={status}
+          options={PROGRESS_STATUS_OPTIONS}
+          onChange={onStatus}
+          size="md"
+          className="shrink-0"
+          ariaLabel={`${meta.label} 상태`}
+        />
       )}
     </div>
   );
@@ -877,7 +807,7 @@ const OrderDetailBody = ({
   const panelRef = useRef(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmColorId, setConfirmColorId] = useState(null);
-  const [stepOpen, setStepOpen] = useState({});      // { [stepKey]: true/false } — 없으면 "사용 중이면 펼침"
+  const [processKey, setProcessKey] = useState(null); // 공정 입력 창을 연 공정
   const [newColorId, setNewColorId] = useState(null); // 방금 추가한 컬러 → 컬러명 칸 자동 포커스
   const [deleting, setDeleting] = useState(false);
 
@@ -914,6 +844,7 @@ const OrderDetailBody = ({
   const totals = getOrderTotals(order);
   const colors = order.colors || [];
   const confirmColor = confirmColorId ? colors.find(c => c.id === confirmColorId) || null : null;
+  const processMeta = processKey ? ORDER_STEPS.find(m => m.key === processKey) || null : null;
   const usedStepCount = ORDER_STEPS.filter(m => isStepUsed(order.steps?.[m.key])).length;
   const canPickPartner = !!(savePartner && deletePartner && makeEmptyPartner);
   const typeLabel = ORDER_TYPES.find(t => t.key === order.type)?.label || '메인';
@@ -1135,28 +1066,21 @@ const OrderDetailBody = ({
             title="공정 일정"
             right={<span className="text-[11px] text-slate-400">사용 {usedStepCount} / {ORDER_STEPS.length}</span>}
           >
-            <div className="space-y-2">
-              {ORDER_STEPS.map(meta => {
-                const step = order.steps?.[meta.key] || {};
-                const open = stepOpen[meta.key] ?? isStepUsed(step);
-                const vendorOptions = [...new Set(
-                  (masters?.[meta.vendorMaster] || []).map(v => String(v || '').trim()).filter(Boolean)
-                )];
-                return (
-                  <StepCard
-                    key={meta.key}
-                    meta={meta}
-                    step={step}
-                    order={order}
-                    open={open}
-                    onToggle={() => setStepOpen(s => ({ ...s, [meta.key]: !open }))}
-                    vendorOptions={vendorOptions}
-                    onPatch={patch => actions.setStep(order.id, meta.key, patch)}
-                  />
-                );
-              })}
+            <div className="space-y-1.5">
+              {ORDER_STEPS.map(meta => (
+                <StepRow
+                  key={meta.key}
+                  meta={meta}
+                  step={order.steps?.[meta.key] || {}}
+                  order={order}
+                  onOpen={() => setProcessKey(meta.key)}
+                  onStatus={s => actions.setStep(order.id, meta.key, { status: s })}
+                />
+              ))}
             </div>
-            <p className="text-[10px] text-slate-400 mt-1.5">칸을 채운 공정이 "사용하는 공정"이에요. 입력하면 바로 저장돼요.</p>
+            <p className="text-[10px] text-slate-400 mt-1.5">
+              칸을 채운 공정이 "사용하는 공정"이에요. 줄을 누르면 예상 시작·종료일·상태를 입력해요 (상태는 줄에서 바로).
+            </p>
           </Section>
 
           {/* ④ 컬러 */}
@@ -1231,6 +1155,18 @@ const OrderDetailBody = ({
           anchorRect={null}
           onClose={() => setConfirmColorId(null)}
           onSave={rounds => actions.setColorField(order.id, confirmColor.id, { confirmRounds: rounds })}
+        />
+      )}
+      {processMeta && (
+        <ProcessPopover
+          key={`process_${processMeta.key}`}
+          order={order}
+          stepKey={processMeta.key}
+          meta={processMeta}
+          anchorRect={null}
+          onClose={() => setProcessKey(null)}
+          onSave={patch => actions.setStep(order.id, processMeta.key, patch)}
+          vendorOptions={[...new Set((masters?.[processMeta.vendorMaster] || []).map(v => String(v || '').trim()).filter(Boolean))]}
         />
       )}
     </ModalBackdrop>

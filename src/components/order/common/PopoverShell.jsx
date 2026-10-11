@@ -1,18 +1,22 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { UnsavedChangesDialog } from '../../common/UnsavedChangesDialog';
 
 // ============================================================
 // 생산 현황 공용 팝오버 틀
 // ------------------------------------------------------------
 // - anchorRect(DOMRect)가 있으면 그 칸 바로 아래(공간 없으면 위)에 붙어서 뜸
 // - anchorRect가 null이면 화면 가운데 모달처럼 뜸 (반투명 배경)
-// - 바깥 클릭 / ESC → onClose (여러 개가 겹쳐 뜨면 맨 위 창만 닫힘)
+// - 바깥 클릭 / ESC / X → 닫기 (여러 개가 겹쳐 뜨면 맨 위 창만 닫힘)
+//   dirty(저장 안 한 변경)가 있으면 바로 닫지 않고 '변경사항이 있습니다' 창
+//   (저장하고 나가기 = onSaveDirty / 저장 안 함 = onClose / 계속 편집) — 팝업 창 규약 (terminology §4)
 // - ESC 는 여기서 처리하고 끝냄 → 아래 깔린 상세창 등이 같이 닫히지 않음
 // - 열리면 포커스를 창 안으로 옮김 (data-autofocus 가 붙은 요소, 없으면 창 자체)
 //   Tab 은 창 안에서만 돌고, 닫히면 열 때 포커스가 있던 곳(표 칸 등)으로 되돌림
 // - document.body 로 포털 렌더 → 표의 sticky/overflow 에 잘리지 않음
-// props: anchorRect, width(px), title, subtitle, onClose, children, footer
+// props: anchorRect, width(px), title, subtitle, onClose, children, footer,
+//        dirty(저장 안 한 변경이 있는지), onSaveDirty(저장하고 나가기 — 저장에 성공하면 그 창이 닫음), dirtyMessage
 // ============================================================
 const MARGIN = 8;
 
@@ -25,9 +29,31 @@ const FOCUSABLE = [
   'select:not([disabled])', 'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
-export const PopoverShell = ({ anchorRect = null, width = 320, title, subtitle, onClose, children, footer }) => {
+export const PopoverShell = ({
+  anchorRect = null, width = 320, title, subtitle, onClose, children, footer,
+  dirty = false, onSaveDirty, dirtyMessage,
+}) => {
   const panelRef = useRef(null);
   const onCloseRef = useRef(onClose);
+  const dirtyRef = useRef(dirty);
+  const saveDirtyRef = useRef(onSaveDirty);
+  // '변경사항이 있습니다' 창이 떠 있는지 (바깥 클릭·ESC 리스너는 처음 한 번만 등록하므로 ref 로 봄)
+  const [asking, setAsking] = useState(false);
+  const askingRef = useRef(false);
+  const setAsk = useCallback((v) => {
+    askingRef.current = v;
+    setAsking(v);
+  }, []);
+
+  // 닫기 요청 (바깥 클릭·ESC·X): 저장 안 한 변경이 있으면 먼저 묻기
+  const requestClose = useCallback(() => {
+    if (askingRef.current) return;
+    if (dirtyRef.current) {
+      setAsk(true);
+      return;
+    }
+    onCloseRef.current?.();
+  }, [setAsk]);
   // 열 때 포커스가 있던 곳 (닫힌 뒤 되돌릴 곳) — 키보드로 연 경우(:focus-visible)만
   // (마우스로 연 경우는 예전처럼 그대로 둠 → 간트 막대 툴팁 등이 괜히 다시 뜨지 않게)
   const [returnFocusEl] = useState(() => {
@@ -43,7 +69,9 @@ export const PopoverShell = ({ anchorRect = null, width = 320, title, subtitle, 
 
   useEffect(() => {
     onCloseRef.current = onClose;
-  }, [onClose]);
+    dirtyRef.current = dirty;
+    saveDirtyRef.current = onSaveDirty;
+  }, [onClose, dirty, onSaveDirty]);
 
   // 위치 계산: 실제 높이를 잰 뒤 화면 안으로 보정 (setState 없이 DOM 스타일 직접 지정)
   useLayoutEffect(() => {
@@ -101,16 +129,18 @@ export const PopoverShell = ({ anchorRect = null, width = 320, title, subtitle, 
 
     const onDown = (e) => {
       if (!panelRef.current || panelRef.current.contains(e.target)) return;
+      if (askingRef.current) return; // '변경사항이 있습니다' 창을 누른 것
       // 나중에 뜬 다른 팝오버 안을 누른 거면 이 창은 그대로 둠
       const newer = openShells.slice(openShells.indexOf(entry) + 1);
       if (newer.some(en => rootOf(en)?.contains(e.target))) return;
-      onCloseRef.current?.();
+      requestClose();
     };
     // 캡처 단계에서 먼저 받아 처리한 뒤 전파를 끊음 → 아래 상세창의 ESC 리스너까지 가지 않음
     const onKey = (e) => {
       if (openShells[openShells.length - 1] !== entry) return; // 맨 위 창만 처리
       // 창 안에서 누른 버튼이 사라져 포커스를 잃었으면(body) Tab 이 창 안에서 이어지게 되돌림
       if (e.key === 'Tab') {
+        if (askingRef.current) return;
         const active = document.activeElement;
         const panel = panelRef.current;
         if (panel && (!active || active === document.body)) {
@@ -121,7 +151,11 @@ export const PopoverShell = ({ anchorRect = null, width = 320, title, subtitle, 
       if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return;
       e.preventDefault();
       e.stopPropagation();
-      onCloseRef.current?.();
+      if (askingRef.current) {
+        setAsk(false); // '변경사항이 있습니다' 창에서 ESC = 계속 편집
+        return;
+      }
+      requestClose();
     };
     const t = setTimeout(() => {
       document.addEventListener('mousedown', onDown);
@@ -134,7 +168,7 @@ export const PopoverShell = ({ anchorRect = null, width = 320, title, subtitle, 
       const idx = openShells.indexOf(entry);
       if (idx >= 0) openShells.splice(idx, 1);
     };
-  }, []);
+  }, [requestClose, setAsk]); // 둘 다 바뀌지 않는 함수 → 처음 한 번만 등록
 
   // Tab / Shift+Tab 이 창 밖(뒤의 표 칸)으로 새지 않게 처음 ↔ 끝을 이어 돌림
   const onPanelKeyDown = (e) => {
@@ -164,10 +198,28 @@ export const PopoverShell = ({ anchorRect = null, width = 320, title, subtitle, 
         {title && <div className="text-xs font-extrabold truncate">{title}</div>}
         {subtitle && <div className="text-[10px] text-teal-100 truncate">{subtitle}</div>}
       </div>
-      <button type="button" onClick={() => onCloseRef.current?.()} className="text-white/80 hover:text-white shrink-0" title="닫기 (ESC)">
+      <button type="button" onClick={requestClose} className="text-white/80 hover:text-white shrink-0" title="닫기 (ESC)">
         <X className="w-4 h-4" />
       </button>
     </div>
+  );
+
+  // '변경사항이 있습니다' 창 (상세창·다른 팝오버보다 위 — UnsavedChangesDialog z-[10010])
+  const askDialog = asking && createPortal(
+    <UnsavedChangesDialog
+      open
+      message={dirtyMessage}
+      onSave={() => {
+        setAsk(false);
+        saveDirtyRef.current?.();
+      }}
+      onDiscard={() => {
+        setAsk(false);
+        onCloseRef.current?.();
+      }}
+      onKeepEditing={() => setAsk(false)}
+    />,
+    document.body
   );
 
   const panel = (
@@ -190,12 +242,24 @@ export const PopoverShell = ({ anchorRect = null, width = 320, title, subtitle, 
     </div>
   );
 
-  if (anchorRect) return createPortal(panel, document.body);
+  if (anchorRect) {
+    return (
+      <>
+        {createPortal(panel, document.body)}
+        {askDialog}
+      </>
+    );
+  }
 
-  return createPortal(
-    <div data-popover-shell="" className="fixed inset-0 z-[200] bg-black/40 flex items-center justify-center p-4">
-      {panel}
-    </div>,
-    document.body
+  return (
+    <>
+      {createPortal(
+        <div data-popover-shell="" className="fixed inset-0 z-[200] bg-black/40 flex items-center justify-center p-4">
+          {panel}
+        </div>,
+        document.body
+      )}
+      {askDialog}
+    </>
   );
 };

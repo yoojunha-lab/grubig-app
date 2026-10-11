@@ -26,6 +26,12 @@ export const PROGRESS_STATUS_COLORS = {
 
 export const getStatusLabel = (key) => PROGRESS_STATUSES.find(s => s.key === key)?.label || '대기';
 
+// 상태 드롭다운 선택지 (공정·LOT 공통 — StatusSelect 에 그대로 넘김)
+export const PROGRESS_STATUS_OPTIONS = PROGRESS_STATUSES.map(s => {
+  const c = PROGRESS_STATUS_COLORS[s.key];
+  return { key: s.key, label: s.label, cls: `${c.bg} ${c.text} ${c.border}` };
+});
+
 // 레거시(v7 이전) 한글 상태값 → 4단계 키 (기존 오더 자동 변환용)
 const LEGACY_STATUS_MAP = {
   '대기중': 'pending', '가공중': 'in_progress', '완료': 'done', '보류': 'issue',
@@ -51,11 +57,14 @@ export const normalizeStatus = (status) => {
 // ------------------------------------------------------------
 //  vendorMaster: 외주처 자동완성 목록으로 쓸 settings/general 마스터 키 (없으면 자유입력만)
 //  염가공은 오더 단위가 아니라 컬러별 LOT로 관리하므로 여기 없음 (DYEING_STEP 참고)
+//  일정 = 예상 시작일·예상 종료일 (예상 종료일을 바꾸면 예전 날짜가 endHistory 에 남음 — 대표님 요청 2026-10-11)
+//  프리세팅: 편직 바로 다음 (대표님 요청 2026-10-11)
 // ============================================================
 export const ORDER_STEPS = [
   { key: 'yarn',              label: '원사',       vendorLabel: '원사처',   vendorMaster: 'yarnSuppliers' },
   { key: 'yarn_processing',   label: '사가공',     vendorLabel: '가공처',   vendorMaster: null },
   { key: 'knitting',          label: '편직',       vendorLabel: '편직처',   vendorMaster: 'knittingFactories' },
+  { key: 'presetting',        label: '프리세팅',   vendorLabel: '가공처',   vendorMaster: 'dyeingFactories' },
   { key: 'finishing',         label: '후가공',     vendorLabel: '가공처',   vendorMaster: 'dyeingFactories' },
   { key: 'physical_test',     label: '이화학검사', vendorLabel: '시험기관', vendorMaster: null },
   { key: 'visual_inspection', label: '외관검사',   vendorLabel: '검사처',   vendorMaster: null },
@@ -78,6 +87,7 @@ export const PROCESS_THEME = {
   yarn:              { label: '원사',       cell: 'bg-stone-100 text-stone-700',     bar: 'bg-stone-200 border-stone-400 text-stone-800',     dot: 'bg-stone-400'   },
   yarn_processing:   { label: '사가공',     cell: 'bg-stone-100 text-stone-700',     bar: 'bg-stone-200 border-stone-400 text-stone-800',     dot: 'bg-stone-400'   },
   knitting:          { label: '편직',       cell: 'bg-yellow-100 text-yellow-800',   bar: 'bg-yellow-200 border-yellow-400 text-yellow-900',  dot: 'bg-yellow-400'  },
+  presetting:        { label: '프리세팅',   cell: 'bg-cyan-100 text-cyan-800',       bar: 'bg-cyan-200 border-cyan-400 text-cyan-900',        dot: 'bg-cyan-400'    },
   greige:            { label: '생지출고',   cell: 'bg-lime-100 text-lime-800',       bar: 'bg-lime-200 border-lime-500 text-lime-900',        dot: 'bg-lime-500'    },
   dyeing:            { label: '염가공',     cell: 'bg-orange-100 text-orange-800',   bar: 'bg-orange-200 border-orange-400 text-orange-900',  dot: 'bg-orange-400'  },
   finishing:         { label: '후가공',     cell: 'bg-amber-100 text-amber-800',     bar: 'bg-amber-200 border-amber-400 text-amber-900',     dot: 'bg-amber-400'   },
@@ -85,6 +95,7 @@ export const PROCESS_THEME = {
   visual_inspection: { label: '외관검사',   cell: 'bg-violet-100 text-violet-800',   bar: 'bg-violet-200 border-violet-400 text-violet-900',  dot: 'bg-violet-400'  },
   confirm:           { label: '컨펌',       cell: 'bg-sky-100 text-sky-800',         bar: 'bg-sky-200 border-sky-400 text-sky-900',           dot: 'bg-sky-400'     },
   ship:              { label: '출고',       cell: 'bg-blue-100 text-blue-800',       bar: 'bg-blue-200 border-blue-400 text-blue-900',        dot: 'bg-blue-500'    },
+  custom:            { label: '추가 공정',  cell: 'bg-indigo-100 text-indigo-800',   bar: 'bg-indigo-200 border-indigo-400 text-indigo-900',  dot: 'bg-indigo-400'  },
 };
 
 // ============================================================
@@ -95,6 +106,7 @@ export const COLOR_STAGES = {
   yarn:        { label: '원사진행',   cls: 'bg-stone-100 text-stone-700 border-stone-300' },
   knit_wait:   { label: '편직대기',   cls: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
   knitting:    { label: '편직중',     cls: 'bg-yellow-200 text-yellow-900 border-yellow-400' },
+  presetting:  { label: '프리세팅중', cls: 'bg-cyan-100 text-cyan-800 border-cyan-300' },
   greige_wait: { label: '생지출고대기', cls: 'bg-lime-100 text-lime-800 border-lime-300' },
   dye_wait:    { label: '염색대기',   cls: 'bg-lime-100 text-lime-800 border-lime-400' },
   dyeing:      { label: '염색중',     cls: 'bg-orange-100 text-orange-800 border-orange-300' },
