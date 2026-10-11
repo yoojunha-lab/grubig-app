@@ -7,12 +7,12 @@ import {
 import {
   ORDER_STEPS, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, PROCESS_THEME,
   COLOR_STAGES, ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_TYPES,
-  PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES,
+  PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS,
 } from '../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, getOrderTotals, isStepUsed, getKnittingEstimatedEnd, getEndShift,
   getLotSummary, getLotsTotalKg, getLotsStatus, getConfirmState, getColorStage, getDday, colorHasData,
-  getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed,
+  getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState,
 } from '../../utils/orderModel';
 import { shortDate, isYmd, round1, toNumberOrNull, fmtKg, todayYmd } from '../../utils/orderCalculations';
 import { CHANGE_ACTIONS } from '../../utils/auditLog';
@@ -21,6 +21,7 @@ import { ModalBackdrop } from '../common/ModalBackdrop';
 import { ConfirmPopover } from './sheet/ColorPopovers';
 import { ProcessPopover } from './sheet/ProcessPopover';
 import { ProvisionalDuePopover } from './sheet/ProvisionalDuePopover';
+import { GreigeOutPopover } from './sheet/GreigeOutPopover';
 import { StatusSelect } from './common/StatusSelect';
 
 // GRUBIG ERP - 생산 오더 상세창 (v8: 엑셀형 현황표)
@@ -493,9 +494,10 @@ const StepRow = ({ meta, step, order, onOpen, onStatus }) => {
 // ============================================================
 const ColorCard = ({
   order, color, index, lossRate, single, autoFocusName,
-  onPatch, onRemove, onOpenLots, onOpenConfirm,
+  onPatch, onRemove, onOpenLots, onOpenConfirm, onOpenGreige, onGreigeDone,
 }) => {
   const stageMeta = COLOR_STAGES[getColorStage(order, color)] || COLOR_STAGES.waiting;
+  const greige = getGreigeState(color);
   const manual = isWorkKgManual(color);
   const workKg = getWorkKg(color, lossRate);
   const autoWork = getWorkKg({ ...color, workKg: null }, lossRate);
@@ -583,15 +585,42 @@ const ColorCard = ({
           </div>
         </Field>
 
-        {/* 생지 출고 */}
-        <Field label="생지 출고" className="col-span-2">
-          <div className={`flex items-center gap-2 rounded-lg ${color.greigeOutDone ? `${PROCESS_THEME.greige.cell} p-1` : ''}`}>
-            <div className="flex-1 min-w-0">
-              <DateInput value={color.greigeOutDate} onCommit={v => onPatch({ greigeOutDate: v })} />
+        {/* 생지 출고 (출고마다 한 줄 — 전체/부분, 체크 = 바로 저장) */}
+        <div className={`col-span-2 rounded-lg border px-2.5 py-2 ${greige.fullDone ? `${PROCESS_THEME.greige.cell} border-lime-300` : greige.entries.length ? 'bg-lime-50/50 border-lime-200' : 'border-dashed border-slate-200'}`}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] font-bold text-slate-500">
+              생지 출고
+              <span className="font-normal">
+                {greige.fullDone ? ' · 전체 출고 끝' : greige.partialDone ? ` · 부분 출고 ${greige.doneCount}건` : ''}
+              </span>
             </div>
-            <CheckInput checked={color.greigeOutDone} label="출고" onChange={c => onPatch(doneWithDate(color, 'greigeOutDone', 'greigeOutDate', c))} />
+            <button type="button" onClick={onOpenGreige} className={BTN_SUB}>
+              {greige.entries.length ? '출고 기록 편집' : <><Plus className="w-3 h-3" /> 출고 기록</>}
+            </button>
           </div>
-        </Field>
+          {greige.entries.length ? (
+            <div className="mt-1 space-y-1">
+              {greige.entries.map(g => {
+                const kind = GREIGE_OUT_KINDS.find(k => k.key === g.kind) || GREIGE_OUT_KINDS[0];
+                return (
+                  <label key={g.id} className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={!!g.done}
+                      onChange={e => onGreigeDone(g.id, e.target.checked)}
+                      className="w-4 h-4 accent-lime-600"
+                    />
+                    <span className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-bold ${kind.cls}`}>{kind.short}</span>
+                    <span className="shrink-0 font-mono">{g.date ? shortDate(g.date) : '날짜?'}</span>
+                    {g.memo && <span className="min-w-0 truncate text-[11px] text-slate-500">{g.memo}</span>}
+                  </label>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mt-1 text-[11px] text-slate-400">생지 출고 기록이 없어요. (전체 / 부분 출고)</div>
+          )}
+        </div>
 
         {/* 염가공 LOT 요약 */}
         <div className={`col-span-2 rounded-lg border px-2.5 py-2 ${lots.length ? `${PROCESS_THEME.dyeing.cell} border-orange-200` : 'border-dashed border-slate-200'}`}>
@@ -810,6 +839,7 @@ const OrderDetailBody = ({
   const [confirmColorId, setConfirmColorId] = useState(null);
   const [processKey, setProcessKey] = useState(null); // 공정 입력 창을 연 공정
   const [provisionalOpen, setProvisionalOpen] = useState(false); // 가납기 입력 창
+  const [greigeColorId, setGreigeColorId] = useState(null);     // 생지 출고 입력 창을 연 컬러
   const [newColorId, setNewColorId] = useState(null); // 방금 추가한 컬러 → 컬러명 칸 자동 포커스
   const [deleting, setDeleting] = useState(false);
 
@@ -846,6 +876,7 @@ const OrderDetailBody = ({
   const totals = getOrderTotals(order);
   const colors = order.colors || [];
   const confirmColor = confirmColorId ? colors.find(c => c.id === confirmColorId) || null : null;
+  const greigeColor = greigeColorId ? colors.find(c => c.id === greigeColorId) || null : null;
   const stepDefs = stepDefsProp || ORDER_STEPS; // 기본 공정 + 대표님이 추가한 공정 (흐름 순서)
   const processMeta = processKey ? stepDefs.find(m => m.key === processKey) || null : null;
   const usedStepCount = (stepDefsProp || ORDER_STEPS).filter(m => isStepUsed(order.steps?.[m.key])).length;
@@ -1127,6 +1158,8 @@ const OrderDetailBody = ({
                   onRemove={() => actions.removeColor(order.id, c.id)}
                   onOpenLots={onOpenLots ? () => onOpenLots(order.id, c.id, null) : null}
                   onOpenConfirm={() => setConfirmColorId(c.id)}
+                  onOpenGreige={() => setGreigeColorId(c.id)}
+                  onGreigeDone={(entryId, done) => actions.setGreigeOutDone(order.id, c.id, entryId, done)}
                 />
               ))}
             </div>
@@ -1175,6 +1208,16 @@ const OrderDetailBody = ({
           anchorRect={null}
           onClose={() => setConfirmColorId(null)}
           onSave={rounds => actions.setColorField(order.id, confirmColor.id, { confirmRounds: rounds })}
+        />
+      )}
+      {greigeColor && (
+        <GreigeOutPopover
+          key={`greige_${greigeColor.id}`}
+          order={order}
+          color={greigeColor}
+          anchorRect={null}
+          onClose={() => setGreigeColorId(null)}
+          onSave={entries => actions.setGreigeOuts(order.id, greigeColor.id, entries)}
         />
       )}
       {provisionalOpen && (

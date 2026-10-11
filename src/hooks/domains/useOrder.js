@@ -3,10 +3,11 @@ import { detectOrderType } from '../../constants/production';
 import {
   normalizeOrder, createEmptyOrder,
   applyOrderField, applyFabric, applyColorPatch, addColorRow, removeColorRow, colorHasData,
-  applyStepPatch, applyLots, applyDailyNote, applyProvisionalDue, fillOrderFromSheet,
+  applyStepPatch, applyLots, applyDailyNote, applyProvisionalDue, applyGreigeOuts, fillOrderFromSheet,
   summarizeOrderChange, isSameOrderContent, ORDER_SCHEMA_VERSION,
 } from '../../utils/orderModel';
 import { makeChangeLogEntry, appendChangeLog } from '../../utils/auditLog';
+import { todayYmd } from '../../utils/orderCalculations';
 
 // GRUBIG ERP - 생산 오더 훅 (v8: 엑셀형 현황표)
 // 컬렉션: orders
@@ -334,6 +335,16 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
   const setColorField = (id, colorId, patch) => updateOrder(id, o => applyColorPatch(o, colorId, patch));
   const setStep = (id, stepKey, patch) => updateOrder(id, o => applyStepPatch(o, stepKey, patch));
   const setLots = (id, colorId, lots) => updateOrder(id, o => applyLots(o, colorId, lots));
+  // 생지 출고 기록 통째로 (입력 창) / 한 줄만 출고 체크 (현황표·상세창 칸 — 날짜가 비었으면 오늘)
+  const setGreigeOuts = (id, colorId, entries) => updateOrder(id, o => applyGreigeOuts(o, colorId, entries));
+  const setGreigeOutDone = (id, colorId, entryId, done) => updateOrder(id, o => {
+    const color = (o.colors || []).find(c => c.id === colorId);
+    if (!color) return o;
+    const entries = (color.greigeOuts || []).map(g => (
+      g.id === entryId ? { ...g, done, date: done && !g.date ? todayYmd() : g.date } : g
+    ));
+    return applyGreigeOuts(o, colorId, entries);
+  });
   const setDailyNote = (id, note) => updateOrder(id, o => applyDailyNote(o, note));
   // 가납기 { yarn, knitting, dyeing, visual_inspection } (+ plan: 가납기 일수 { base, days } — 주면 같이 저장)
   const setProvisionalDue = (id, patch, plan = undefined) => updateOrder(id, o => applyProvisionalDue(o, patch, plan));
@@ -403,7 +414,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       updateOrder,
       setOrderField, setFabric,
       setColorField, addColor, removeColor,
-      setStep, setLots, setDailyNote, setProvisionalDue,
+      setStep, setLots, setGreigeOuts, setGreigeOutDone, setDailyNote, setProvisionalDue,
       addDraftOrder, discardDraft, deleteOrder,
     },
     // 설계서 ↔ 샘플 오더 (App 이 설계서 훅에 연결)

@@ -190,6 +190,7 @@ export const COLOR_STAGES = {
   knitting:    { label: '편직중',     cls: 'bg-yellow-200 text-yellow-900 border-yellow-400' },
   presetting:  { label: '프리세팅중', cls: 'bg-cyan-100 text-cyan-800 border-cyan-300' },
   greige_wait: { label: '생지출고대기', cls: 'bg-lime-100 text-lime-800 border-lime-300' },
+  greige_partial: { label: '생지 부분출고', cls: 'bg-lime-50 text-lime-800 border-lime-300 border-dashed' },
   dye_wait:    { label: '염색대기',   cls: 'bg-lime-100 text-lime-800 border-lime-400' },
   dyeing:      { label: '염색중',     cls: 'bg-orange-100 text-orange-800 border-orange-300' },
   finish_wait: { label: '후가공대기', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
@@ -242,6 +243,13 @@ export const DEFAULT_LOSS_RATE = 10;
 
 // 염색탕 용량 프리셋 (kg). 목록에 없으면 LOT 편집에서 직접 입력
 export const DYE_MACHINE_PRESETS = [300, 500];
+
+// 생지 출고 종류 (컬러별 출고 기록 한 줄마다 — 대표님 요청 2026-10-11)
+//  전체 = 남은 생지 전부 (체크하면 그 컬러 생지 출고 끝) / 부분 = 일부만 (메모에 어떤 분인지)
+export const GREIGE_OUT_KINDS = [
+  { key: 'full',    label: '전체 출고', short: '전체', cls: 'bg-lime-100 text-lime-800 border-lime-300' },
+  { key: 'partial', label: '부분 출고', short: '부분', cls: 'bg-amber-50 text-amber-800 border-amber-300' },
+];
 
 // 브랜드 컨펌 결과
 export const CONFIRM_RESULTS = [

@@ -11,6 +11,7 @@ import { addDaysYmd, diffDaysYmd, fmtKg, shortDate, toDate, todayYmd } from '../
 import { ProcessPopover } from '../sheet/ProcessPopover';
 import { ConfirmPopover } from '../sheet/ColorPopovers';
 import { ProvisionalDuePopover } from '../sheet/ProvisionalDuePopover';
+import { GreigeOutPopover } from '../sheet/GreigeOutPopover';
 import { SheetLinkChips } from '../common/SheetLinkChips';
 import { DayNotePopover } from './DayNotePopover';
 import {
@@ -291,8 +292,16 @@ const describeBar = (order, color, bar, metaOf = getStepMeta) => {
     return { ...base, status, vendorLabel: 'buyer', vendor: order.customer, hint: '누르면 컨펌 기록 수정' };
   }
   if (bar.kind === 'greige') {
+    const g = (color?.greigeOuts || []).find(x => x.id === bar.greigeId) || {};
     const route = `${order.steps?.knitting?.vendor || '편직처'} → ${order.dyeVendor || '염색소'}`;
-    return { ...base, status: bar.status === 'done' ? '출고 완료' : '출고 예정', vendorLabel: '경로', vendor: route, hint: '누르면 오더 상세 보기' };
+    return {
+      ...base,
+      status: `${g.kind === 'partial' ? '부분' : '전체'} ${bar.status === 'done' ? '출고 완료' : '출고 예정'}`,
+      vendorLabel: '경로',
+      vendor: route,
+      extra: g.memo ? `메모: ${g.memo}` : '',
+      hint: '누르면 생지 출고 수정',
+    };
   }
   // ship
   return {
@@ -473,6 +482,8 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
       else onOpenDetail?.(order.id);
     } else if (bar.kind === 'confirm' && color) {
       setPopover({ kind: 'confirm', orderId: order.id, colorId: color.id, anchorRect });
+    } else if (bar.kind === 'greige' && color) {
+      setPopover({ kind: 'greige', orderId: order.id, colorId: color.id, anchorRect });
     } else {
       onOpenDetail?.(order.id);
     }
@@ -840,6 +851,16 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={rounds => actions.setColorField(popOrder.id, popColor.id, { confirmRounds: rounds })}
+        />
+      )}
+      {popover?.kind === 'greige' && popOrder && popColor && (
+        <GreigeOutPopover
+          key={`greige_${popOrder.id}_${popColor.id}`}
+          order={popOrder}
+          color={popColor}
+          anchorRect={popover.anchorRect}
+          onClose={closePopover}
+          onSave={entries => actions.setGreigeOuts(popOrder.id, popColor.id, entries)}
         />
       )}
       {popover?.kind === 'note' && popOrder && (!popover.colorId || popColor) && (

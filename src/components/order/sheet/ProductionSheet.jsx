@@ -4,13 +4,13 @@ import {
 } from 'lucide-react';
 import {
   PROCESS_THEME, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, COLOR_STAGES,
-  CONFIRM_RESULTS, DEFAULT_LOSS_RATE, PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES,
+  CONFIRM_RESULTS, DEFAULT_LOSS_RATE, PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS,
   buildFlowOrder, findStepMeta, getStepDefs, isCustomStepKey,
 } from '../../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, isStepUsed, getKnittingEstimatedEnd, getEndShift, colorHasData,
   getLotSummary, getLotsTotalKg, getLotsStatus, getConfirmState, getColorStage, getDday,
-  getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed,
+  getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState,
 } from '../../../utils/orderModel';
 import { shortDate, fmtKg, todayYmd } from '../../../utils/orderCalculations';
 import { CellText, CellNumber, CellDate, CellCheck, CellAction } from './SheetCells';
@@ -18,6 +18,7 @@ import { OrderMenuPopover } from './OrderMenuPopover';
 import { ProcessPopover } from './ProcessPopover';
 import { ConfirmPopover } from './ColorPopovers';
 import { ProvisionalDuePopover } from './ProvisionalDuePopover';
+import { GreigeOutPopover } from './GreigeOutPopover';
 import { SheetLinkChips } from '../common/SheetLinkChips';
 import { StatusSelect } from '../common/StatusSelect';
 import { StepManagerPopover } from './StepManagerPopover';
@@ -317,6 +318,48 @@ const ProvisionalCell = ({ order, span, bg, ctx }) => {
   );
 };
 
+// 생지 출고 칸 (컬러 단위) — 출고마다 한 줄 (전체/부분 · 날짜 · 메모), 체크 = 바로 저장 / 칸을 누르면 생지 출고 창
+const GreigeCell = ({ order, color, last, bg, ctx }) => {
+  const st = getGreigeState(color);
+  const entries = st.entries;
+  const shown = entries.slice(0, 3);
+  const open = (el) => ctx.openGreige(order.id, color.id, el);
+  const tone = st.fullDone ? PROCESS_THEME.greige.cell : st.partialDone ? 'bg-lime-50 text-lime-900' : bg;
+  return (
+    <td onClick={e => open(e.currentTarget)} className={cellCls({ thick: last, extra: `${CLICKABLE} ${tone}` })}>
+      <CellAction navKey="greige" onActivate={open} title="생지 출고 — 전체/부분 (클릭 또는 Enter)">
+        {entries.length === 0 ? (
+          <span className="text-slate-300">+ 생지 출고</span>
+        ) : (
+          <div className="space-y-0.5">
+            {shown.map(g => {
+              const kind = GREIGE_OUT_KINDS.find(k => k.key === g.kind) || GREIGE_OUT_KINDS[0];
+              return (
+                <div key={g.id} className="flex items-center gap-1 min-w-0" title={`${kind.label} ${g.date || '날짜 미입력'}${g.memo ? ` — ${g.memo}` : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={!!g.done}
+                    tabIndex={-1}
+                    onClick={e => e.stopPropagation()}
+                    onChange={e => ctx.actions.setGreigeOutDone(order.id, color.id, g.id, e.target.checked)}
+                    className="w-3 h-3 shrink-0 accent-lime-600 cursor-pointer"
+                    title="출고 체크 (바로 저장 — 날짜가 비었으면 오늘)"
+                    aria-label={`${kind.label} 출고 체크`}
+                  />
+                  <span className={`shrink-0 px-1 rounded border text-[9px] font-bold ${kind.cls}`}>{kind.short}</span>
+                  <span className="shrink-0 font-mono text-[10px]">{g.date ? shortDate(g.date) : '날짜?'}</span>
+                  {g.memo && <span className="min-w-0 truncate text-[9px] opacity-70">{g.memo}</span>}
+                </div>
+              );
+            })}
+            {entries.length > shown.length && <div className="text-[9px] opacity-70">+{entries.length - shown.length}건 더</div>}
+          </div>
+        )}
+      </CellAction>
+    </td>
+  );
+};
+
 // 염가공 LOT 칸 (컬러 단위) — onOpenLots 가 있을 때만 클릭 가능
 const LotCell = ({ order, color, lossRate, last, bg, ctx }) => {
   const lots = color.lots || [];
@@ -421,29 +464,7 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
     }
     switch (col.key) {
       case 'greige':
-        return (
-          <td
-            key="greige"
-            onClick={focusInside}
-            className={cellCls({ thick: last, extra: color.greigeOutDone ? PROCESS_THEME.greige.cell : plainBg })}
-          >
-            <CellDate
-              value={color.greigeOutDate}
-              navKey="greigeDate"
-              placeholder="출고일"
-              title="생지 출고일 (편직처 → 염색소)"
-              onCommit={v => setColor(color.id, { greigeOutDate: v })}
-            />
-            <CellCheck
-              checked={color.greigeOutDone}
-              label="출고"
-              navKey="greigeDone"
-              className="mt-0.5 ml-1"
-              title="생지 출고 완료"
-              onCommit={done => setColor(color.id, doneWithDate(color, 'greigeOutDone', 'greigeOutDate', done))}
-            />
-          </td>
-        );
+        return <GreigeCell key="greige" order={order} color={color} last={last} bg={plainBg} ctx={ctx} />;
       case 'dyeing':
         return <LotCell key="dyeing" order={order} color={color} lossRate={lossRate} last={last} bg={plainBg} ctx={ctx} />;
       case 'confirm':
@@ -831,7 +852,7 @@ export const ProductionSheet = ({
     orders.forEach(o => {
       stepDefs.forEach(s => { if (isStepUsed(o.steps?.[s.key])) bump(s.key); });
       const cs = o.colors || [];
-      if (cs.some(c => c.greigeOutDate || c.greigeOutDone)) bump('greige');
+      if (cs.some(c => (c.greigeOuts || []).length)) bump('greige');
       if (cs.some(c => (c.lots || []).length)) bump('dyeing');
       if (cs.some(c => (c.confirmRounds || []).length)) bump('confirm');
       if (cs.some(c => c.shipDate || c.shipDone)) bump('ship');
@@ -925,7 +946,7 @@ export const ProductionSheet = ({
     }, 0);
   };
   const popOrder = popover ? rows.find(o => o.id === popover.orderId) || null : null;
-  const popColor = popover?.kind === 'confirm' ? popOrder?.colors?.find(c => c.id === popover.colorId) || null : null;
+  const popColor = popover?.colorId ? popOrder?.colors?.find(c => c.id === popover.colorId) || null : null;
 
   // ---------- Tab/Enter 로 이동한 칸이 고정 칸·머리글 뒤에 가려지지 않게 스크롤 보정 ----------
   const keepFocusVisible = (e) => {
@@ -965,6 +986,9 @@ export const ProductionSheet = ({
     ),
     openProvisional: (orderId, cell) => openPopover(
       'provisional', orderId, cell.getBoundingClientRect(), { returnFocus: cellFocusTarget(cell) }
+    ),
+    openGreige: (orderId, colorId, cell) => openPopover(
+      'greige', orderId, cell.getBoundingClientRect(), { colorId, returnFocus: cellFocusTarget(cell) }
     ),
     openLots: onOpenLots || null,
     addColorAfter,
@@ -1175,6 +1199,16 @@ export const ProductionSheet = ({
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={rounds => actions.setColorField(popOrder.id, popColor.id, { confirmRounds: rounds })}
+        />
+      )}
+      {popover?.kind === 'greige' && popOrder && popColor && (
+        <GreigeOutPopover
+          key={`greige_${popOrder.id}_${popColor.id}`}
+          order={popOrder}
+          color={popColor}
+          anchorRect={popover.anchorRect}
+          onClose={closePopover}
+          onSave={entries => actions.setGreigeOuts(popOrder.id, popColor.id, entries)}
         />
       )}
       {popover?.kind === 'provisional' && popOrder && (

@@ -14,7 +14,9 @@
 //            각 { vendor, startDate(예상 시작일), endDate(예상 종료일), status, doneDate, notes,
 //                 endHistory: [{ date: 예전 예상 종료일, at: 바꾼 날 }] (오래된 것이 앞 — [0] = 최초 예상 종료일) }
 //            + knitting.machines: [{ id, name('1호기'), dailyKg }] (기계별 일일 생산량), knitting.dailyKg = 기계 합계
-//     colors: [{ id, name, orderKg, workKg(null=자동), greigeOutDate, greigeOutDone,
+//     colors: [{ id, name, orderKg, workKg(null=자동),
+//                greigeOuts: [{ id, date, kind('full'|'partial'), memo, done }]  (생지 출고 — 여러 번, 전체/부분 — 2026-10-11)
+//                greigeOutDate, greigeOutDone (← greigeOuts 에서 계산해 같이 저장하는 값: 마지막 출고일 · 전체 출고 끝)
 //                lots: [{ id, no, machineKg, qtyKg, startDate, endDate, status, rolls, notes }],
 //                confirmRounds: [{ round, sentDate, resultDate, result }],
 //                shipDate, shipDone, notes, legacyYd? }]
@@ -63,8 +65,9 @@ const COLOR_DEFAULTS = {
   name: '',
   orderKg: null,
   workKg: null,          // null = 자동(오더kg × (1 + 로스율)), 숫자 = 직접 입력값
-  greigeOutDate: '',     // 생지 출고일 (편직처 → 염색소)
-  greigeOutDone: false,
+  greigeOuts: [],        // 생지 출고 기록 (편직처 → 염색소) [{ id, date, kind, memo, done }]
+  greigeOutDate: '',     // ↑ 에서 계산 (마지막 출고일) — 예전 화면·리포트 호환
+  greigeOutDone: false,  // ↑ 에서 계산 (전체 출고 끝)
   lots: [],
   confirmRounds: [],
   shipDate: '',
@@ -72,7 +75,10 @@ const COLOR_DEFAULTS = {
   notes: '',
 };
 
-export const createColor = (name = '') => ({ ...COLOR_DEFAULTS, id: uid('col'), name, lots: [], confirmRounds: [] });
+export const createColor = (name = '') => ({ ...COLOR_DEFAULTS, id: uid('col'), name, greigeOuts: [], lots: [], confirmRounds: [] });
+
+// 생지 출고 한 번 (첫 출고는 '전체', 그 뒤는 '부분'이 보통)
+export const createGreigeOut = (kind = 'full') => ({ id: uid('go'), date: '', kind, memo: '', done: false });
 
 const LOT_DEFAULTS = { no: 1, machineKg: null, qtyKg: null, startDate: '', endDate: '', status: 'pending', rolls: null, notes: '' };
 
@@ -206,9 +212,50 @@ const normalizeLot = (raw, fallbackId, index) => {
   };
 };
 
+// 생지 출고 기록 정리 — 예전 오더(출고일·출고 체크 한 칸)는 '전체 출고' 한 줄로
+const normalizeGreigeOuts = (c, colorId) => {
+  if (Array.isArray(c.greigeOuts)) {
+    return c.greigeOuts
+      .filter(g => g && typeof g === 'object')
+      .map((g, i) => ({
+        id: g.id || `${colorId}_g${i}`,
+        date: str(g.date),
+        kind: g.kind === 'partial' ? 'partial' : 'full',
+        memo: str(g.memo),
+        done: !!g.done,
+      }));
+  }
+  if (str(c.greigeOutDate) || c.greigeOutDone) {
+    return [{ id: `${colorId}_g0`, date: str(c.greigeOutDate), kind: 'full', memo: '', done: !!c.greigeOutDone }];
+  }
+  return [];
+};
+
+// 생지 출고 상태 { entries, fullDone(전체 출고 끝), partialDone(부분만 나감), lastDate(마지막 출고·예정일), doneCount }
+export const getGreigeState = (color) => {
+  const entries = color?.greigeOuts || [];
+  const done = entries.filter(g => g.done);
+  const fullDone = done.some(g => g.kind === 'full');
+  return {
+    entries,
+    fullDone,
+    partialDone: !fullDone && done.length > 0,
+    lastDate: maxYmd(entries.map(g => g.date)),
+    doneCount: done.length,
+  };
+};
+
+// greigeOuts → 예전 칸(greigeOutDate · greigeOutDone) 맞추기
+const withGreigeSummary = (color) => {
+  const st = getGreigeState(color);
+  return { ...color, greigeOutDate: st.lastDate, greigeOutDone: st.fullDone };
+};
+
 const normalizeColor = (raw, fallbackId) => {
   const c = raw && typeof raw === 'object' ? raw : {};
   const id = c.id || fallbackId;
+  const greigeOuts = normalizeGreigeOuts(c, id);
+  const greige = getGreigeState({ greigeOuts });
   return {
     ...COLOR_DEFAULTS,
     ...c,
@@ -216,8 +263,9 @@ const normalizeColor = (raw, fallbackId) => {
     name: str(c.name),
     orderKg: numOrNull(c.orderKg),
     workKg: numOrNull(c.workKg),
-    greigeOutDate: str(c.greigeOutDate),
-    greigeOutDone: !!c.greigeOutDone,
+    greigeOuts,
+    greigeOutDate: greige.lastDate,
+    greigeOutDone: greige.fullDone,
     lots: (Array.isArray(c.lots) ? c.lots : []).map((l, li) => normalizeLot(l, `${id}_l${li}`, li)),
     confirmRounds: (Array.isArray(c.confirmRounds) ? c.confirmRounds : []).map((r, ri) => ({
       round: numOrNull(r?.round) ?? ri + 1,
@@ -618,11 +666,13 @@ export const getColorStage = (order, color) => {
     return confirm.key === 'ready' ? 'confirm_wait' : 'ship_wait';
   }
   if (lotSt.some(s => s === 'in_progress' || s === 'done')) return 'dyeing';
-  if (color.greigeOutDone) return 'dye_wait';
+  const greige = getGreigeState(color);
+  if (greige.fullDone) return 'dye_wait';
 
   if (['yarn', 'yarn_processing', 'knitting', 'presetting'].some(k => st(k) === 'issue')) return 'issue';
   if (st('knitting') === 'in_progress') return 'knitting';
   if (st('presetting') === 'in_progress') return 'presetting';
+  if (greige.partialDone) return 'greige_partial';
   if (st('knitting') === 'done') return 'greige_wait';
   if (isStepUsed(steps.knitting)) return 'knit_wait';
   if (lots.length) return 'dye_wait';
@@ -788,14 +838,16 @@ export const getOrderTimeline = (order, stepDefs = ORDER_STEPS) => {
 
   const colorRows = (order?.colors || []).map(color => {
     const bars = [];
-    if (color.greigeOutDate) {
+    // 생지 출고 — 출고마다 하루짜리 막대 ('생지 부분출고' · '생지 전체출고', 체크 전이면 '예정')
+    (color.greigeOuts || []).forEach(g => {
+      if (!g.date) return;
       bars.push({
-        id: `greige_${color.id}`, kind: 'greige', theme: 'greige',
-        label: color.greigeOutDone ? '생지출고' : '생지출고 예정',
-        status: color.greigeOutDone ? 'done' : 'pending',
-        start: color.greigeOutDate, end: color.greigeOutDate,
+        id: `greige_${g.id}`, kind: 'greige', greigeId: g.id, theme: 'greige',
+        label: `생지 ${g.kind === 'partial' ? '부분' : '전체'}출고${g.done ? '' : ' 예정'}`,
+        status: g.done ? 'done' : 'pending',
+        start: g.date, end: g.date,
       });
-    }
+    });
     (color.lots || []).forEach(lot => {
       const range = span(lot.startDate, lot.endDate);
       if (!range) return;
@@ -902,7 +954,7 @@ export const removeColorRow = (order, colorId) => {
 // 컬러에 입력된 데이터가 있는지 (삭제 확인용)
 export const colorHasData = (color) => !!(color && (
   color.name || numOrNull(color.orderKg) !== null || numOrNull(color.workKg) !== null ||
-  color.greigeOutDate || (color.lots || []).length || (color.confirmRounds || []).length ||
+  (color.greigeOuts || []).length || color.greigeOutDate || (color.lots || []).length || (color.confirmRounds || []).length ||
   color.shipDate || color.notes
 ));
 
@@ -934,6 +986,14 @@ export const applyStepPatch = (order, key, patch) => {
   }
   return { ...order, steps: { ...(order.steps || createSteps()), [key]: next } };
 };
+
+// 컬러 생지 출고 기록 통째로 교체 (+ 마지막 출고일 · 전체 출고 끝 칸도 맞춤)
+export const applyGreigeOuts = (order, colorId, entries) => ({
+  ...order,
+  colors: (order.colors || []).map(c => (c.id === colorId
+    ? withGreigeSummary({ ...c, greigeOuts: normalizeGreigeOuts({ greigeOuts: entries || [] }, c.id) })
+    : c)),
+});
 
 // 컬러 LOT 목록 통째로 교체 (번호 1..N 재정렬)
 export const applyLots = (order, colorId, lots) => applyColorPatch(order, colorId, {
@@ -997,9 +1057,14 @@ const diffStep = (a, b, label, out) => {
   if (hB < hA && out.length === before) out.push(`${label} 예전 예상 종료일 기록 삭제`);
 };
 const COLOR_FIELD_LABELS = {
-  name: '컬러명', orderKg: '오더kg', workKg: '작지kg', greigeOutDate: '생지출고일', greigeOutDone: '생지출고',
+  name: '컬러명', orderKg: '오더kg', workKg: '작지kg',
   shipDate: '출고일', shipDone: '출고', notes: '메모',
 };
+
+// 생지 출고 기록 → 한 줄 ('부분 10/5✓ · 전체 10/9')
+const greigeText = (list) => (list || [])
+  .map(g => `${g.kind === 'partial' ? '부분' : '전체'} ${g.date ? shortDate(g.date) : '날짜?'}${g.done ? '✓' : ''}${g.memo ? `(${g.memo.slice(0, 12)})` : ''}`)
+  .join(' · ');
 const LOT_FIELD_LABELS = {
   machineKg: '탕', qtyKg: '수량', startDate: '투입', endDate: '완료예정', status: '상태', rolls: '롤', notes: '메모',
 };
@@ -1079,6 +1144,9 @@ export const summarizeOrderChange = (prev, next, stepDefs = ORDER_STEPS) => {
     const cName = c.name || old?.name || '컬러';
     if (!old) { out.push(`컬러 추가${c.name ? ` (${c.name})` : ''}`); return; }
     diffFields(old, c, COLOR_FIELD_LABELS, `${cName} `, out);
+    const gA = greigeText(old.greigeOuts);
+    const gB = greigeText(c.greigeOuts);
+    if (gA !== gB) out.push(`${cName} 생지 출고 ${gB || '없음'}`);
     const oldLots = old.lots || [];
     const newLots = c.lots || [];
     // LOT 구성 변경: 개수가 같아도 id 가 바뀌면(자동 나누기 재실행, 삭제 후 새로 추가) 변경으로 기록
@@ -1215,7 +1283,7 @@ export const fillOrderFromSheet = (order, sheet, { buyerName = '', onlyEmpty = f
 // 오더 진행을 한 단계로 (개발/설계 현황의 '샘플 진행' 칸) — 가장 덜 진행된 컬러 기준, 문제가 있으면 '문제'
 // 반환: COLOR_STAGES 키 (오더가 없으면 null)
 const STAGE_FLOW = [
-  'waiting', 'yarn', 'knit_wait', 'knitting', 'presetting', 'greige_wait', 'dye_wait', 'dyeing',
+  'waiting', 'yarn', 'knit_wait', 'knitting', 'presetting', 'greige_wait', 'greige_partial', 'dye_wait', 'dyeing',
   'finish_wait', 'finishing', 'inspection', 'confirm_wait', 'confirm', 'ship_wait', 'shipped',
 ];
 export const getOrderProgressStage = (order) => {
