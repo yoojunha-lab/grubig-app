@@ -147,16 +147,17 @@ export const DEV_SAMPLE_DESIGN_SHEETS = [
   },
 ];
 
-// ── [DEV 검증 전용] 생산 오더 샘플 (생산 현황 v8 현황표·간트 확인용) ─────────────
+// ── [DEV 검증 전용] 생산 오더 샘플 (생산 현황 현황표·간트 확인용) ─────────────
 //   대표님 엑셀 생산 현황표의 실제 행을 본뜸. 기준일(테스트 가정) ≈ 2026-09-28.
-//   - F-26M020 : 컬러 5개, 편직 진행 + 컬러별 LOT(300/500kg 탕) + 날짜 메모
+//   - F-26M020 : (v9 — 2026-10-11 기능 확인용) 편직 기계 2대 + 최초 예상 종료 기록 + 프리세팅 · 생지 부분출고 ·
+//                시험성적서 · 브랜드 컨펌 기록 · 외관검사(불량컨펌중) · 가납기 일수 + 컬러별 LOT + 날짜 메모
 //   - F-26M016 : 컨펌 합격 → 출고 완료/대기
 //   - F-26S055 : 샘플, 생지출고 완료 + LOT 1개 진행 — 설계서 ds_dev_6(F-26D006)과 연결된 샘플 오더
 //   - O-LEGACY-01 : v7(차수 구조) 옛 형식 → 화면에서 v8로 자동 변환되는지 확인용
 const devStep = (patch = {}) => ({ vendor: '', startDate: '', endDate: '', status: 'pending', doneDate: '', notes: '', ...patch });
 const devSteps = (patch = {}) => ({
   yarn: devStep(), yarn_processing: devStep(), knitting: { ...devStep(), dailyKg: null },
-  finishing: devStep(), physical_test: devStep(), visual_inspection: devStep(), ...patch,
+  presetting: devStep(), finishing: devStep(), physical_test: devStep(), ...patch,
 });
 const devLot = (id, no, machineKg, qtyKg, startDate, endDate, status, rolls = null) =>
   ({ id, no, machineKg, qtyKg, startDate, endDate, status, rolls, notes: '' });
@@ -167,37 +168,61 @@ const devColor = (id, name, orderKg, patch = {}) => ({
 
 export const DEV_SAMPLE_ORDERS = [
   {
-    id: 'ord_dev_m020', schemaVersion: 8, orderNumber: 'F-26M020', articleNo: 'PW1024A', detail: 'SW/PES=37/63 GRID',
+    id: 'ord_dev_m020', schemaVersion: 9, orderNumber: 'F-26M020', articleNo: 'PW1024A', detail: 'SW/PES=37/63 GRID',
     customer: '네셔널 지오그래픽', type: 'main', finalDueDate: '2026-10-16', lossRate: 10, status: 'active',
     notes: 'BLACK 기계 대수 재확인 필요', linkedFabricId: null, linkedFabricArticle: '', dyeVendor: '킹텍스',
+    inspectVendor: '세화검사',
     steps: devSteps({
-      knitting: { ...devStep({ vendor: '한성섬유', startDate: '2026-08-27', status: 'in_progress', notes: '75kg/일' }), dailyKg: 75 },
+      // 기계 2대(하루 75kg) · 예상 종료일을 9/30 → 10/8 로 바꾼 기록
+      knitting: {
+        ...devStep({
+          vendor: '한성섬유', startDate: '2026-08-27', endDate: '2026-10-08', status: 'in_progress', notes: '2호기 9/15부터 투입',
+          endHistory: [{ date: '2026-09-30', at: '2026-09-20' }],
+        }),
+        dailyKg: 75,
+        machines: [{ id: 'mc_m020_1', name: '1호기', dailyKg: 45 }, { id: 'mc_m020_2', name: '2호기', dailyKg: 30 }],
+      },
+      presetting: devStep({ vendor: '킹텍스', startDate: '2026-10-09', endDate: '2026-10-10' }),
     }),
     colors: [
       devColor('c_m020_or', 'ORANGE', 38.9, {
-        greigeOutDate: '2026-08-26', greigeOutDone: true,
+        greigeOuts: [{ id: 'g_m020_or1', date: '2026-08-26', kind: 'full', memo: '', done: true }],
         lots: [devLot('l_m020_or1', 1, 300, 42.8, '2026-09-10', '2026-09-15', 'done', 6)],
-        confirmRounds: [{ round: 1, sentDate: '2026-09-22', resultDate: '', result: '' }],
+        testReport: { needed: true, expectedDate: '2026-10-15', events: [{ id: 'ev_m020_or_t1', status: 'issuing', date: '2026-10-02' }] },
+        brandConfirm: { events: [{ id: 'ev_m020_or_b1', status: 'sent', date: '2026-09-22' }] },
       }),
       devColor('c_m020_wh', 'WHITE', 484.5, {
-        greigeOutDate: '2026-09-03', greigeOutDone: true,
+        greigeOuts: [
+          { id: 'g_m020_wh1', date: '2026-09-03', kind: 'partial', memo: 'LOT1분 270kg', done: true },
+          { id: 'g_m020_wh2', date: '2026-09-20', kind: 'full', memo: '나머지', done: true },
+        ],
         lots: [
           devLot('l_m020_wh1', 1, 300, 266.5, '2026-09-15', '2026-09-18', 'done', 3),
           devLot('l_m020_wh2', 2, 300, 266.5, '2026-09-24', '2026-09-30', 'in_progress'),
         ],
       }),
       devColor('c_m020_dg', 'DARK GREY', 270.2, {
-        greigeOutDate: '2026-09-09', greigeOutDone: true,
+        greigeOuts: [{ id: 'g_m020_dg1', date: '2026-09-09', kind: 'full', memo: '', done: true }],
         lots: [devLot('l_m020_dg1', 1, 300, 297.2, '2026-10-01', '2026-10-06', 'pending')],
       }),
-      devColor('c_m020_kh', 'KHAKI', 508.3, { greigeOutDate: '2026-09-30' }),
+      devColor('c_m020_kh', 'KHAKI', 508.3, {
+        greigeOuts: [
+          { id: 'g_m020_kh1', date: '2026-09-30', kind: 'partial', memo: '1차 250kg (롤 10개)', done: true },
+          { id: 'g_m020_kh2', date: '2026-10-14', kind: 'full', memo: '나머지', done: false },
+        ],
+      }),
       devColor('c_m020_bk', 'BLACK', 1119.3, {
-        greigeOutDate: '2026-09-12', greigeOutDone: true,
+        greigeOuts: [{ id: 'g_m020_bk1', date: '2026-09-12', kind: 'full', memo: '', done: true }],
         lots: [
           devLot('l_m020_bk1', 1, 500, 410.4, '2026-09-15', '2026-09-19', 'done', 3),
-          devLot('l_m020_bk2', 2, 500, 410.4, '2026-09-25', '2026-09-30', 'in_progress'),
-          devLot('l_m020_bk3', 3, 500, 410.4, '2026-10-02', '2026-10-07', 'pending'),
+          devLot('l_m020_bk2', 2, 500, 410.4, '2026-09-25', '2026-09-30', 'done'),
+          devLot('l_m020_bk3', 3, 500, 410.4, '2026-10-02', '2026-10-07', 'done'),
         ],
+        brandConfirm: { events: [{ id: 'ev_m020_bk_b1', status: 'sent', date: '2026-10-01' }, { id: 'ev_m020_bk_b2', status: 'confirmed', date: '2026-10-05' }] },
+        inspection: {
+          startDate: '2026-10-08', endDate: '2026-10-10', notes: '이염 2롤 확인 중',
+          events: [{ id: 'ev_m020_bk_i1', status: 'inspecting', date: '2026-10-08' }, { id: 'ev_m020_bk_i2', status: 'defect', date: '2026-10-09' }],
+        },
       }),
     ],
     dailyNotes: [
@@ -206,8 +231,9 @@ export const DEV_SAMPLE_ORDERS = [
       { id: 'n_m020_3', date: '2026-09-18', colorId: 'c_m020_or', text: 'orange x 3 roll 추가 배색요청', tone: 'dyeing' },
       { id: 'n_m020_4', date: '2026-09-21', colorId: 'c_m020_kh', text: '편직대기', tone: 'knitting' },
     ],
-    // 가납기: 편직은 예상 종료가 늦음 / 염가공은 가납기가 지났는데 LOT 미완료 / 외관검사는 일정 미입력
+    // 가납기: 기준일 8/20 + 편직 36일 = 9/25 (예상 종료가 늦음) + 염가공 13일 = 10/8 + 외관검사 5일 = 10/13
     provisionalDue: { yarn: '', knitting: '2026-09-25', dyeing: '2026-10-08', visual_inspection: '2026-10-13' },
+    provisionalPlan: { base: '2026-08-20', days: { yarn: null, knitting: 36, dyeing: 13, visual_inspection: 5 } },
     changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-08-20T00:00:00.000Z', updatedAt: '2026-09-25T00:00:00.000Z',
   },
   {
