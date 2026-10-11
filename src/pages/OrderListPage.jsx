@@ -309,6 +309,7 @@ export const OrderListPage = ({
     () => uniq([...(masters.dyeingFactories || []), ...orders.map(o => o.dyeVendor)]),
     [masters.dyeingFactories, orders]
   );
+  const inspectVendorOptions = useMemo(() => uniq(orders.map(o => o.inspectVendor)), [orders]);
 
   // ---------- 오더 추가 ----------
   // 새 줄이 필터에 가려지지 않도록 검색어를 비우고 '진행 중' 탭 · 구분 '전체'로 전환
@@ -523,6 +524,7 @@ export const OrderListPage = ({
           actions={pageActions}
           masters={masters}
           stepDefs={stepDefs}
+          inspectVendorOptions={inspectVendorOptions}
           savedFabrics={savedFabrics}
           {...partnerProps}
           onOpenLots={openLots}

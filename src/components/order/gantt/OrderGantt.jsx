@@ -12,6 +12,7 @@ import { ProcessPopover } from '../sheet/ProcessPopover';
 import { ConfirmPopover } from '../sheet/ColorPopovers';
 import { ProvisionalDuePopover } from '../sheet/ProvisionalDuePopover';
 import { GreigeOutPopover } from '../sheet/GreigeOutPopover';
+import { InspectionPopover } from '../sheet/InspectionPopover';
 import { SheetLinkChips } from '../common/SheetLinkChips';
 import { DayNotePopover } from './DayNotePopover';
 import {
@@ -72,9 +73,10 @@ const LEGEND = [
   { key: 'dyeing', label: '염가공 LOT' },
   { key: 'test', label: '시험성적서' },
   { key: 'confirm', label: '브랜드 컨펌' },
+  { key: 'inspection', label: '외관검사' },
   { key: 'ship', label: '출고' },
 ];
-const OTHER_STEP_DOTS = ['yarn', 'finishing', 'physical_test'];
+const OTHER_STEP_DOTS = ['yarn', 'finishing', 'physical_test', 'custom'];
 
 // 마스터 목록(문자열 또는 {name}) → 이름 배열
 const toNames = (list) => (Array.isArray(list) ? list : [])
@@ -276,6 +278,17 @@ const describeBar = (order, color, bar, metaOf = getStepMeta) => {
   if (bar.kind === 'lot') {
     const lot = (color?.lots || []).find(l => l.id === bar.lotId) || {};
     return { ...base, status: getStatusLabel(bar.status), vendorLabel: '염색소', vendor: order.dyeVendor, extra: lot.notes || '', hint: '누르면 LOT 계획 편집' };
+  }
+  if (bar.kind === 'inspection') {
+    const insp = color?.inspection || {};
+    return {
+      ...base,
+      status: bar.label.replace(/^외관검사\s*/, '') || '예정',
+      vendorLabel: '검사처',
+      vendor: order.inspectVendor,
+      extra: insp.notes || '',
+      hint: '누르면 외관검사 수정',
+    };
   }
   if (bar.kind === 'confirm' || bar.kind === 'test') {
     const isTest = bar.kind === 'test';
@@ -481,6 +494,8 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
       setPopover({ kind: 'confirm', orderId: order.id, colorId: color.id, anchorRect });
     } else if (bar.kind === 'greige' && color) {
       setPopover({ kind: 'greige', orderId: order.id, colorId: color.id, anchorRect });
+    } else if (bar.kind === 'inspection' && color) {
+      setPopover({ kind: 'inspection', orderId: order.id, colorId: color.id, anchorRect });
     } else {
       onOpenDetail?.(order.id);
     }
@@ -807,7 +822,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
           <span className="inline-flex gap-px">
             {OTHER_STEP_DOTS.map(k => <span key={k} className={`w-1.5 h-2.5 rounded-sm ${PROCESS_THEME[k].dot}`} />)}
           </span>
-          기타 공정(원사·후가공·검사)
+          기타 공정(원사·후가공·이화학·추가 공정)
         </span>
         <span className="text-slate-300">|</span>
         <span className="inline-flex items-center gap-1"><span className="w-0.5 h-3 bg-teal-500" />오늘</span>
@@ -859,6 +874,18 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={entries => actions.setGreigeOuts(popOrder.id, popColor.id, entries)}
+        />
+      )}
+      {popover?.kind === 'inspection' && popOrder && popColor && (
+        <InspectionPopover
+          key={`inspection_${popOrder.id}_${popColor.id}`}
+          order={popOrder}
+          color={popColor}
+          anchorRect={popover.anchorRect}
+          onClose={closePopover}
+          onSave={patch => actions.setColorTracks(popOrder.id, popColor.id, patch)}
+          onSaveVendor={v => actions.setOrderField(popOrder.id, 'inspectVendor', v)}
+          vendorOptions={orders.map(o => o.inspectVendor)}
         />
       )}
       {popover?.kind === 'note' && popOrder && (!popover.colorId || popColor) && (

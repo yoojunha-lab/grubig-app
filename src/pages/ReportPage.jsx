@@ -222,6 +222,8 @@ export const ReportPage = ({ orders = [], stepDefs = ORDER_STEPS }) => {
     // 염가공 줄은 흐름 순서대로 — 후가공(또는 염가공 다음에 둔 추가 공정) 바로 앞, 없으면 맨 뒤
     const dyeAt = stepDefs.findIndex(m => m.key === 'finishing' || m.after === '#dyeing');
     rows.splice(dyeAt === -1 ? rows.length : dyeAt, 0, dyeRow);
+    const inspRow = { key: 'inspection', label: '외관검사 (컬러별)', planned: [], actual: [], planOnly: false };
+    rows.push(inspRow);
     const byKey = new Map(rows.map(r => [r.key, r]));
 
     list.forEach(o => {
@@ -239,6 +241,15 @@ export const ReportPage = ({ orders = [], stepDefs = ORDER_STEPS }) => {
           const planned = spanDays(l.startDate, l.endDate);
           if (planned !== null) dyeRow.planned.push(planned);
         });
+        // 외관검사 (컬러별): 예상 = 투입일~종료예정일, 실제 = 투입일~출고준비완료(또는 출고완료)를 고른 날
+        const insp = c.inspection;
+        if (insp) {
+          const planned = spanDays(insp.startDate, insp.endDate);
+          if (planned !== null) inspRow.planned.push(planned);
+          const doneEv = (insp.events || []).find(e => e.status === 'ready' || e.status === 'shipped');
+          const actual = doneEv ? spanDays(insp.startDate, doneEv.date) : null;
+          if (actual !== null) inspRow.actual.push(actual);
+        }
       });
     });
 

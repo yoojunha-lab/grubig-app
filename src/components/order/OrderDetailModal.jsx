@@ -8,10 +8,12 @@ import {
   ORDER_STEPS, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, PROCESS_THEME,
   COLOR_STAGES, ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_TYPES,
   PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS, TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES,
+  INSPECTION_STATUSES,
 } from '../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, getOrderTotals, isStepUsed, getKnittingEstimatedEnd, getEndShift,
-  getLotOverview, getLotsStatus, getTrackEvent, isTestReportPassed, getColorStage, getDday, colorHasData,
+  getLotOverview, getLotsStatus, getTrackEvent, getTrackStatusMeta, isTestReportPassed, isInspectionUsed,
+  getColorStage, getDday, colorHasData,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState,
 } from '../../utils/orderModel';
 import { shortDate, isYmd, toNumberOrNull, fmtKg, todayYmd } from '../../utils/orderCalculations';
@@ -22,6 +24,7 @@ import { ConfirmPopover } from './sheet/ColorPopovers';
 import { ProcessPopover } from './sheet/ProcessPopover';
 import { ProvisionalDuePopover } from './sheet/ProvisionalDuePopover';
 import { GreigeOutPopover } from './sheet/GreigeOutPopover';
+import { InspectionPopover } from './sheet/InspectionPopover';
 import { StatusSelect } from './common/StatusSelect';
 
 // GRUBIG ERP - 생산 오더 상세창 (v8: 엑셀형 현황표)
@@ -484,7 +487,7 @@ const StepRow = ({ meta, step, order, onOpen, onStatus }) => {
 // ============================================================
 const ColorCard = ({
   order, color, index, lossRate, single, autoFocusName,
-  onPatch, onRemove, onOpenLots, onOpenConfirm, onOpenGreige, onGreigeDone, onTracks, onTrackEvent,
+  onPatch, onRemove, onOpenLots, onOpenConfirm, onOpenGreige, onGreigeDone, onTracks, onTrackEvent, onOpenInspection,
 }) => {
   const stageMeta = COLOR_STAGES[getColorStage(order, color)] || COLOR_STAGES.waiting;
   const greige = getGreigeState(color);
@@ -499,6 +502,10 @@ const ColorCard = ({
   const brandEv = getTrackEvent(color, 'brandConfirm');
   const expected = color.testReport?.expectedDate || '';
   const expectedLate = testNeeded && expected && !isTestReportPassed(color) && expected < todayYmd();
+  const insp = color.inspection || {};
+  const inspUsed = isInspectionUsed(color);
+  const inspEv = getTrackEvent(color, 'inspection');
+  const inspMeta = getTrackStatusMeta(color, 'inspection');
 
   // 작지kg: 자동값 그대로면 저장 안 함, 비우면 자동으로 되돌림
   const commitWorkKg = (n) => {
@@ -698,6 +705,34 @@ const ColorCard = ({
           <p className="text-[10px] text-slate-400">상태를 바꾸면 오늘 날짜로 기록돼요. 날짜·발행 예상일은 [기록 편집].</p>
         </div>
 
+        {/* 외관검사 (컬러별) — 상태 드롭다운 = 바로 저장(그날 날짜로 기록, 출고완료면 출고도 완료) */}
+        <div className={`col-span-2 rounded-lg border px-2.5 py-2 space-y-1 ${inspMeta?.phase === 'issue' ? 'bg-rose-50 border-rose-200' : inspUsed ? `${PROCESS_THEME.inspection.cell} border-violet-200` : 'border-dashed border-slate-200'}`}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] font-bold text-slate-500 min-w-0 truncate">
+              외관검사
+              {order.inspectVendor && <span className="font-normal"> · {order.inspectVendor}</span>}
+            </div>
+            <button type="button" onClick={onOpenInspection} className={BTN_SUB}>
+              <Pencil className="w-3 h-3" /> {inspUsed ? '외관검사 편집' : '일정 입력'}
+            </button>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            <StatusSelect
+              value={inspEv?.status || ''}
+              options={INSPECTION_STATUSES}
+              onChange={st => onTrackEvent('inspection', st)}
+              size="md"
+              placeholder="상태"
+              ariaLabel="외관검사 상태"
+            />
+            {inspEv?.date && <span className="font-mono text-[11px] text-slate-500">{shortDate(inspEv.date)}</span>}
+            {(insp.startDate || insp.endDate) && (
+              <span className="font-mono text-[11px]">투입 {shortDate(insp.startDate) || '?'} ~ 종료예정 {shortDate(insp.endDate) || '?'}</span>
+            )}
+          </div>
+          {insp.notes && <div className="text-[11px] text-slate-600 whitespace-pre-wrap">{insp.notes}</div>}
+        </div>
+
         {/* 출고 */}
         <Field label="출고" className="col-span-2">
           <div className={`flex items-center gap-2 rounded-lg ${color.shipDone ? `${PROCESS_THEME.ship.cell} p-1` : ''}`}>
@@ -852,7 +887,7 @@ const SheetSection = ({ order, sheetLink }) => {
 // 5. 상세창 본문 (order.id 가 바뀌면 key 로 새로 마운트 → 접힘/팝업 상태 초기화)
 // ============================================================
 const OrderDetailBody = ({
-  order, isDraft, onClose, actions, masters, stepDefs: stepDefsProp,
+  order, isDraft, onClose, actions, masters, stepDefs: stepDefsProp, inspectVendorOptions = [],
   partners, savePartner, deletePartner, makeEmptyPartner,
   savedFabrics, onOpenLots, sheetLink = null,
 }) => {
@@ -862,6 +897,7 @@ const OrderDetailBody = ({
   const [processKey, setProcessKey] = useState(null); // 공정 입력 창을 연 공정
   const [provisionalOpen, setProvisionalOpen] = useState(false); // 가납기 입력 창
   const [greigeColorId, setGreigeColorId] = useState(null);     // 생지 출고 입력 창을 연 컬러
+  const [inspectionColorId, setInspectionColorId] = useState(null); // 외관검사 입력 창을 연 컬러
   const [newColorId, setNewColorId] = useState(null); // 방금 추가한 컬러 → 컬러명 칸 자동 포커스
   const [deleting, setDeleting] = useState(false);
 
@@ -899,6 +935,7 @@ const OrderDetailBody = ({
   const colors = order.colors || [];
   const confirmColor = confirmColorId ? colors.find(c => c.id === confirmColorId) || null : null;
   const greigeColor = greigeColorId ? colors.find(c => c.id === greigeColorId) || null : null;
+  const inspectionColor = inspectionColorId ? colors.find(c => c.id === inspectionColorId) || null : null;
   const stepDefs = stepDefsProp || ORDER_STEPS; // 기본 공정 + 대표님이 추가한 공정 (흐름 순서)
   const processMeta = processKey ? stepDefs.find(m => m.key === processKey) || null : null;
   const usedStepCount = (stepDefsProp || ORDER_STEPS).filter(m => isStepUsed(order.steps?.[m.key])).length;
@@ -1184,6 +1221,7 @@ const OrderDetailBody = ({
                   onGreigeDone={(entryId, done) => actions.setGreigeOutDone(order.id, c.id, entryId, done)}
                   onTracks={patch => actions.setColorTracks(order.id, c.id, patch)}
                   onTrackEvent={(track, st) => actions.addTrackEvent(order.id, c.id, track, st)}
+                  onOpenInspection={() => setInspectionColorId(c.id)}
                 />
               ))}
             </div>
@@ -1232,6 +1270,18 @@ const OrderDetailBody = ({
           anchorRect={null}
           onClose={() => setConfirmColorId(null)}
           onSave={patch => actions.setColorTracks(order.id, confirmColor.id, patch)}
+        />
+      )}
+      {inspectionColor && (
+        <InspectionPopover
+          key={`inspection_${inspectionColor.id}`}
+          order={order}
+          color={inspectionColor}
+          anchorRect={null}
+          onClose={() => setInspectionColorId(null)}
+          onSave={patch => actions.setColorTracks(order.id, inspectionColor.id, patch)}
+          onSaveVendor={v => actions.setOrderField(order.id, 'inspectVendor', v)}
+          vendorOptions={inspectVendorOptions}
         />
       )}
       {greigeColor && (

@@ -7,7 +7,7 @@
 //     id, schemaVersion: 8,
 //     orderNumber, articleNo, detail, customer(buyer), type('main'|'sample'),
 //     finalDueDate, lossRate(%), status('active'|'on_hold'|'completed'), notes,
-//     linkedFabricId, linkedFabricArticle, dyeVendor(염색소),
+//     linkedFabricId, linkedFabricArticle, dyeVendor(염색소), inspectVendor(외관검사 검사처 — 오더 공통),
 //     linkedSheetId(설계서 id — 설계서 EZ-TEX O/D NO. 등록으로 만든 샘플 오더. 연결은 오더 쪽에만 저장),
 //     dropInfo(설계서 Drop으로 닫힌 샘플 { prevStatus: Drop 전 오더상태, at } — 없으면 null. status 는 'completed'),
 //     steps: { yarn, yarn_processing, knitting, presetting, finishing, physical_test, visual_inspection }
@@ -20,6 +20,7 @@
 //                lots: [{ id, no, startDate(투입), endDate(완료예정), status, notes }]  (탕·수량·롤은 예전 값만 남음 — 2026-10-11)
 //                testReport: { needed(시험성적서 체크), expectedDate(발행 예상일), events: [{ id, status, date }] }
 //                brandConfirm: { events: [{ id, status('sent'|'confirmed'|'rejected'), date }] }
+//                inspection: { startDate(투입일), endDate(종료예정일), events: [{ id, status, date }], notes }  (외관검사 — 컬러별)
 //                  (상태 드롭다운을 바꿀 때마다 그날 날짜로 한 줄 — 마지막 줄 = 지금 상태. 예전 confirmRounds 는 자동 변환)
 //                shipDate, shipDone, notes, legacyYd? }]
 //     dailyNotes: [{ id, date, colorId(''=오더 전체), text, tone }]
@@ -39,11 +40,13 @@ import {
   ORDER_STEPS, ORDER_STEP_KEYS, DEFAULT_LOSS_RATE,
   normalizeStatus, getStatusLabel, getStepMeta, ORDER_TYPES, ORDER_STATUSES,
   PROVISIONAL_DUE_STEPS, PROVISIONAL_DUE_KEYS, PROCESS_THEME, isCustomStepKey,
-  TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES, findStatusMeta,
+  TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES, INSPECTION_STATUSES, findStatusMeta,
 } from '../constants/production';
 import { addDaysYmd, diffDaysYmd, todayYmd, toYmd, round1, calcKgFromYd, shortDate } from './orderCalculations';
 
-export const ORDER_SCHEMA_VERSION = 8;
+// v9 (2026-10-11): 컬러별 외관검사 · 생지 출고 기록(전체/부분) · 시험성적서/브랜드 컨펌 상태 기록 · 편직 기계 · 가납기 일수
+//  v8 문서는 읽을 때 자동으로 맞춤 (예전 오더 단위 외관검사 → 컬러별, 예전 컨펌 라운드 → 상태 기록)
+export const ORDER_SCHEMA_VERSION = 9;
 
 // ============================================================
 // 1. 빈 구조 생성
@@ -81,10 +84,11 @@ const COLOR_DEFAULTS = {
 // 시험성적서 · 브랜드 컨펌 빈 값 (컬러마다 새 객체)
 export const createTestReport = () => ({ needed: false, expectedDate: '', events: [] });
 export const createBrandConfirm = () => ({ events: [] });
+export const createInspection = () => ({ startDate: '', endDate: '', events: [], notes: '' });
 
 export const createColor = (name = '') => ({
   ...COLOR_DEFAULTS, id: uid('col'), name, greigeOuts: [], lots: [], confirmRounds: [],
-  testReport: createTestReport(), brandConfirm: createBrandConfirm(),
+  testReport: createTestReport(), brandConfirm: createBrandConfirm(), inspection: createInspection(),
 });
 
 // 상태 기록 한 줄 (드롭다운을 바꾼 날 — 고칠 수 있음)
@@ -94,6 +98,7 @@ export const createStatusEvent = (status, date = todayYmd()) => ({ id: uid('ev')
 export const TRACK_STATUSES = {
   testReport: TEST_REPORT_STATUSES,
   brandConfirm: BRAND_CONFIRM_STATUSES,
+  inspection: INSPECTION_STATUSES,
 };
 
 // 생지 출고 한 번 (첫 출고는 '전체', 그 뒤는 '부분'이 보통)
@@ -133,6 +138,7 @@ export const createEmptyOrder = (userEmail = '') => {
     linkedSheetId: null,
     dropInfo: null,
     dyeVendor: '',
+    inspectVendor: '',
     steps: createSteps(),
     colors: [createColor('')],
     dailyNotes: [],
@@ -297,6 +303,35 @@ const normalizeBrandConfirm = (raw, c, idBase) => {
   return { events: normalizeEvents(events, 'brandConfirm', `${idBase}_b`) };
 };
 
+// 외관검사 (컬러별) 정리
+const normalizeInspection = (raw, idBase) => {
+  const t = raw && typeof raw === 'object' ? raw : {};
+  return {
+    startDate: str(t.startDate),
+    endDate: str(t.endDate),
+    events: normalizeEvents(t.events, 'inspection', `${idBase}_i`),
+    notes: str(t.notes),
+  };
+};
+
+// 외관검사를 쓰는 컬러인지 (투입일·종료예정일·상태·메모 중 하나라도)
+export const isInspectionUsed = (color) => {
+  const i = color?.inspection;
+  return !!(i && (i.startDate || i.endDate || (i.events || []).length || i.notes));
+};
+
+// 예전 오더 단위 외관검사(공정 칸) → 컬러 외관검사 모양 (v8 이전 오더를 읽을 때 — 입력이 없으면 null)
+const legacyInspectionOf = (step) => {
+  if (!step || typeof step !== 'object') return null;
+  const st = normalizeStatus(step.status);
+  if (!(step.startDate || step.endDate || step.notes || step.vendor || st !== 'pending')) return null;
+  const events = [];
+  if (st === 'in_progress') events.push({ status: 'inspecting', date: str(step.startDate) });
+  if (st === 'issue') events.push({ status: 'defect', date: str(step.endDate || step.startDate) });
+  if (st === 'done') events.push({ status: 'ready', date: str(step.doneDate || step.endDate) });
+  return { startDate: str(step.startDate), endDate: str(step.endDate), events, notes: str(step.notes) };
+};
+
 const normalizeColor = (raw, fallbackId) => {
   const c = raw && typeof raw === 'object' ? raw : {};
   const id = c.id || fallbackId;
@@ -321,6 +356,7 @@ const normalizeColor = (raw, fallbackId) => {
     })),
     testReport: normalizeTestReport(c.testReport, id),
     brandConfirm: normalizeBrandConfirm(c.brandConfirm, c, id),
+    inspection: normalizeInspection(c.inspection, id),
     shipDate: str(c.shipDate),
     shipDone: !!c.shipDone,
     notes: str(c.notes),
@@ -353,7 +389,15 @@ const normalizeV8 = (raw) => {
   Object.keys(raw.steps || {}).filter(isCustomStepKey).forEach(k => {
     steps[k] = normalizeStep(k, raw.steps[k], `${id}_${k}`);
   });
-  let colors = (Array.isArray(raw.colors) ? raw.colors : []).map((c, i) => normalizeColor(c, `${id}_c${i}`));
+  // v8 이전 오더: 오더 단위 외관검사 → 외관검사를 아직 안 쓰는 컬러마다 같은 값으로 (그 뒤 저장하면 v9)
+  const isV9 = Number(raw.schemaVersion) >= 9;
+  const legacyInsp = isV9 ? null : legacyInspectionOf(raw.steps?.visual_inspection);
+  let colors = (Array.isArray(raw.colors) ? raw.colors : []).map((c, i) => {
+    const color = normalizeColor(c, `${id}_c${i}`);
+    return legacyInsp && !isInspectionUsed(color)
+      ? { ...color, inspection: normalizeInspection(legacyInsp, color.id) }
+      : color;
+  });
   if (colors.length === 0) colors = [normalizeColor({}, `${id}_c0`)];
   const lossRate = numOrNull(raw.lossRate);
   const status = normalizeOrderStatus(raw.status);
@@ -374,6 +418,7 @@ const normalizeV8 = (raw) => {
     linkedSheetId: raw.linkedSheetId || null,
     dropInfo: normalizeDropInfo(raw.dropInfo, status),
     dyeVendor: str(raw.dyeVendor),
+    inspectVendor: str(raw.inspectVendor) || (isV9 ? '' : str(raw.steps?.visual_inspection?.vendor)),
     steps,
     colors,
     dailyNotes: (Array.isArray(raw.dailyNotes) ? raw.dailyNotes : [])
@@ -458,6 +503,8 @@ const migrateLegacy = (raw) => {
   const eff = legacyEnrich(processes);
 
   const steps = Object.fromEntries(ORDER_STEP_KEYS.map(k => [k, legacyStep(k, eff[k])]));
+  // 예전 외관검사 공정 → normalizeV8 이 컬러별 외관검사로 옮김
+  if (eff.visual_inspection) steps.visual_inspection = legacyStep('visual_inspection', eff.visual_inspection);
 
   // 컬러 수량 단위
   //  - v2~v7: quantityYd(오더 전체 YD) + colors[].quantity(YD) → gsm·폭이 있을 때만 KG 환산, 원래 YD는 legacyYd로 보존
@@ -538,7 +585,7 @@ const migrateLegacy = (raw) => {
 
   return normalizeV8({
     ...raw,                    // 레거시 필드(processes, quantityYd, startStage 등) 보존
-    schemaVersion: ORDER_SCHEMA_VERSION,
+    schemaVersion: 8,          // v8 모양으로 만든 뒤 normalizeV8 이 v9 로 (외관검사 → 컬러별)
     migratedFromLegacy: true,
     detail: raw.detail || raw.orderName || '',
     lossRate: DEFAULT_LOSS_RATE,
@@ -556,7 +603,7 @@ const migrateLegacy = (raw) => {
  */
 export const normalizeOrder = (raw) => {
   if (!raw || typeof raw !== 'object') return raw;
-  if (Number(raw.schemaVersion) >= ORDER_SCHEMA_VERSION) return normalizeV8(raw);
+  if (Number(raw.schemaVersion) >= 8) return normalizeV8(raw); // v8 · v9 (v8 은 normalizeV8 안에서 v9 로 맞춤)
   return migrateLegacy(raw);
 };
 
@@ -705,7 +752,8 @@ export const getColorStage = (order, color) => {
   if (!order || !color) return 'waiting';
   if (order.status === 'completed') return 'completed';
   if (order.status === 'on_hold') return 'on_hold';
-  if (color.shipDone) return 'shipped';
+  const insp = getTrackStatus(color, 'inspection');
+  if (color.shipDone || insp === 'shipped') return 'shipped';
 
   const steps = order.steps || {};
   const st = (k) => normalizeStatus(steps[k]?.status);
@@ -717,17 +765,24 @@ export const getColorStage = (order, color) => {
   const testPassed = isTestReportPassed(color);
 
   if (lotSt.includes('issue') || brand === 'rejected' || test === 'fail') return 'issue';
-  if (brand === 'confirmed' && testPassed) return 'ship_wait';
+  // 외관검사 (컬러별) — 상태를 고른 컬러는 그 상태가 우선
+  if (insp === 'defect') return 'defect';
+  if (insp === 'ready') return 'ship_wait';
+  if (insp === 'inspecting') return 'inspection';
+  if (brand === 'confirmed' && testPassed) {
+    return isInspectionUsed(color) ? 'inspect_wait' : 'ship_wait'; // 외관검사 일정이 있으면 검사대기
+  }
   if (brand === 'sent' || test === 'issuing' || test === 'resubmit') return 'confirm';
 
   const lotsAllDone = lotSt.length > 0 && lotSt.every(s => s === 'done');
   if (lotsAllDone) {
-    if (['finishing', 'physical_test', 'visual_inspection'].some(k => st(k) === 'issue')) return 'issue';
+    if (['finishing', 'physical_test'].some(k => st(k) === 'issue')) return 'issue';
     if (st('finishing') === 'in_progress') return 'finishing';
-    if (st('physical_test') === 'in_progress' || st('visual_inspection') === 'in_progress') return 'inspection';
+    if (st('physical_test') === 'in_progress') return 'inspection';
     // 후가공 외주처·일정만 입력되고 아직 시작 전 → 후가공대기 / 시험성적서가 아직(체크한 컬러) → 컨펌대기
     if (isStepUsed(steps.finishing) && st('finishing') !== 'done') return 'finish_wait';
-    return testPassed ? 'ship_wait' : 'confirm_wait';
+    if (!testPassed) return 'confirm_wait';
+    return isInspectionUsed(color) ? 'inspect_wait' : 'ship_wait';
   }
   if (lotSt.some(s => s === 'in_progress' || s === 'done')) return 'dyeing';
   const greige = getGreigeState(color);
@@ -755,7 +810,28 @@ export const getDday = (finalDueDate) => (finalDueDate ? diffDaysYmd(todayYmd(),
  *  - 염가공: 모든 컬러 LOT 중 가장 늦은 완료예정일. LOT 가 전부 완료면 완료
  * 반환 { date('' = 일정 없음), done, estimated(편직 예상 종료) }
  */
+// 외관검사가 끝난 컬러인지 (출고준비완료·출고완료, 또는 출고 칸 완료) / 끝난 날 (그 상태를 고른 날 → 출고일 → 종료예정일)
+export const isInspectionDone = (color) => {
+  const s = getTrackStatus(color, 'inspection');
+  return s === 'ready' || s === 'shipped' || !!color?.shipDone;
+};
+const inspectionDoneDate = (color) => {
+  const ev = (color?.inspection?.events || []).find(e => e.status === 'ready' || e.status === 'shipped');
+  return str(ev?.date) || str(color?.shipDate) || str(color?.inspection?.endDate);
+};
+
 export const getStepCurrentEnd = (order, key) => {
+  if (key === 'visual_inspection') {
+    // 외관검사 (컬러별) — 컬러가 모두 끝나야(출고준비완료·출고완료 또는 출고) 완료: 가장 늦게 끝난 날
+    //  아직이면 안 끝난 컬러의 가장 늦은 종료예정일 (그 컬러들에 일정이 없으면 '일정 미입력')
+    const colors = (order?.colors || []).filter(colorHasData);
+    if (!colors.some(isInspectionUsed)) return { date: '', done: false, estimated: false };
+    const done = colors.every(isInspectionDone);
+    const date = done
+      ? maxYmd(colors.map(inspectionDoneDate))
+      : maxYmd(colors.filter(c => !isInspectionDone(c)).map(c => c.inspection?.endDate));
+    return { date, done, estimated: false };
+  }
   if (key === 'dyeing') {
     const lots = (order?.colors || []).flatMap(c => c.lots || []);
     if (!lots.length) return { date: '', done: false, estimated: false };
@@ -819,6 +895,7 @@ export const describeStepCurrent = (info) => {
   const d = shortDate(info.current);
   if (info.done) return `완료 ${d}`;
   if (info.key === 'dyeing') return `LOT 완료예정 ${d}`;
+  if (info.key === 'visual_inspection') return `외관검사 종료예정 ${d}`;
   return `예상 종료 ${d}${info.estimated ? ' (생산량 계산)' : ''}`;
 };
 
@@ -954,6 +1031,22 @@ export const getOrderTimeline = (order, stepDefs = ORDER_STEPS) => {
         });
       }
     }
+    // 외관검사 (투입일 ~ 종료예정일, 끝났으면 끝난 날까지) — 상태 색
+    if (isInspectionUsed(color)) {
+      const insp = color.inspection;
+      const meta = getTrackStatusMeta(color, 'inspection');
+      const firstEv = (insp.events || []).find(e => e.date)?.date || '';
+      const doneDate = isInspectionDone(color) ? inspectionDoneDate(color) : '';
+      const range = span(insp.startDate || firstEv, insp.endDate || doneDate || firstEv);
+      if (range) {
+        bars.push({
+          id: `insp_${color.id}`, kind: 'inspection', theme: 'inspection',
+          label: `외관검사 ${meta ? meta.label : '예정'}`,
+          status: meta ? (meta.phase === 'done' ? 'done' : meta.phase === 'issue' ? 'issue' : 'in_progress') : 'pending',
+          ...range,
+        });
+      }
+    }
     if (color.shipDate) {
       bars.push({
         id: `ship_${color.id}`, kind: 'ship', theme: 'ship',
@@ -1042,7 +1135,7 @@ export const colorHasData = (color) => !!(color && (
   color.name || numOrNull(color.orderKg) !== null || numOrNull(color.workKg) !== null ||
   (color.greigeOuts || []).length || color.greigeOutDate || (color.lots || []).length ||
   color.testReport?.needed || (color.testReport?.events || []).length || (color.brandConfirm?.events || []).length ||
-  color.shipDate || color.notes
+  isInspectionUsed(color) || color.shipDate || color.notes
 ));
 
 // 공정 patch — 상태 '완료'로 바뀌면 완료일 오늘 자동, 완료가 풀리면 완료일 비움
@@ -1082,7 +1175,7 @@ export const applyGreigeOuts = (order, colorId, entries) => ({
     : c)),
 });
 
-// 컬러 상태 기록 칸 바꾸기 — patch: { testReport?: {...}, brandConfirm?: {...} } (주는 칸만 통째로)
+// 컬러 상태 기록 칸 바꾸기 — patch: { testReport?, brandConfirm?, inspection? } (주는 칸만 — 안의 값은 합쳐서)
 export const applyColorTracks = (order, colorId, patch) => ({
   ...order,
   colors: (order.colors || []).map(c => {
@@ -1090,6 +1183,16 @@ export const applyColorTracks = (order, colorId, patch) => ({
     const next = { ...c };
     if (patch?.testReport) next.testReport = normalizeTestReport({ ...c.testReport, ...patch.testReport }, c.id);
     if (patch?.brandConfirm) next.brandConfirm = normalizeBrandConfirm({ ...c.brandConfirm, ...patch.brandConfirm }, c, c.id);
+    if (patch?.inspection) {
+      next.inspection = normalizeInspection({ ...c.inspection, ...patch.inspection }, c.id);
+      // 외관검사 '출고완료'로 바뀌면 그 컬러 출고 칸도 완료 (출고일이 비었으면 그날) — 대표님 결정 2026-10-11
+      const before = getTrackStatus(c, 'inspection');
+      const after = getTrackStatus(next, 'inspection');
+      if (after === 'shipped' && before !== 'shipped' && !c.shipDone) {
+        next.shipDone = true;
+        if (!next.shipDate) next.shipDate = getTrackEvent(next, 'inspection')?.date || todayYmd();
+      }
+    }
     return next;
   }),
 });
@@ -1138,6 +1241,7 @@ export const applyProvisionalDue = (order, patch, plan = undefined) => {
 const ORDER_FIELD_LABELS = {
   orderNumber: 'order#', articleNo: 'article#', detail: '디테일', customer: 'buyer',
   type: '구분', finalDueDate: '납기', lossRate: '로스율', status: '오더상태', notes: '메모', dyeVendor: '염색소',
+  inspectVendor: '검사처',
 };
 const STEP_FIELD_LABELS = {
   vendor: '외주처', startDate: '예상 시작', endDate: '예상 종료', status: '상태', doneDate: '완료일', notes: '메모', dailyKg: '일생산kg',
@@ -1176,6 +1280,7 @@ const greigeText = (list) => (list || [])
 const LOT_FIELD_LABELS = {
   startDate: '투입', endDate: '완료예정', status: '상태', notes: '메모',
 };
+const INSPECTION_FIELD_LABELS = { startDate: '투입', endDate: '종료예정', notes: '메모' };
 
 // 상태 기록 비교 → '시험성적서 발행중→불합격' / '시험성적서 기록 수정'
 const diffTrack = (oldC, newC, track, name, cName, out) => {
@@ -1293,6 +1398,9 @@ export const summarizeOrderChange = (prev, next, stepDefs = ORDER_STEPS) => {
     }
     diffTrack(old, c, 'testReport', '시험성적서', cName, out);
     diffTrack(old, c, 'brandConfirm', '브랜드 컨펌', cName, out);
+    // 외관검사 (투입일 · 종료예정일 · 메모 · 상태)
+    diffFields(old.inspection, c.inspection, INSPECTION_FIELD_LABELS, `${cName} 외관검사 `, out);
+    diffTrack(old, c, 'inspection', '외관검사', cName, out);
   });
   prevColors.forEach(p => {
     if (!nextColors.some(c => c.id === p.id)) out.push(`컬러 삭제${p.name ? ` (${p.name})` : ''}`);
@@ -1372,6 +1480,8 @@ export const getOpenWork = (order, stepDefs = ORDER_STEPS) => {
     return st && st !== 'confirmed';
   }).length;
   if (brandOpen) out.push(`브랜드 컨펌 ${brandOpen}건`);
+  const inspOpen = colors.filter(c => isInspectionUsed(c) && !isInspectionDone(c)).length;
+  if (inspOpen) out.push(`외관검사 ${inspOpen}건`);
   const ships = colors.filter(c => c.shipDate && !c.shipDone).length;
   if (ships) out.push(`출고 ${ships}건`);
   return out;
@@ -1417,7 +1527,7 @@ export const fillOrderFromSheet = (order, sheet, { buyerName = '', onlyEmpty = f
 // 반환: COLOR_STAGES 키 (오더가 없으면 null)
 const STAGE_FLOW = [
   'waiting', 'yarn', 'knit_wait', 'knitting', 'presetting', 'greige_wait', 'greige_partial', 'dye_wait', 'dyeing',
-  'finish_wait', 'finishing', 'inspection', 'confirm_wait', 'confirm', 'ship_wait', 'shipped',
+  'finish_wait', 'finishing', 'confirm_wait', 'confirm', 'inspect_wait', 'inspection', 'defect', 'ship_wait', 'shipped',
 ];
 export const getOrderProgressStage = (order) => {
   if (!order) return null;

@@ -57,6 +57,7 @@ export const normalizeStatus = (status) => {
 // ------------------------------------------------------------
 //  vendorMaster: 외주처 자동완성 목록으로 쓸 settings/general 마스터 키 (없으면 자유입력만)
 //  염가공은 오더 단위가 아니라 컬러별 LOT로 관리하므로 여기 없음 (DYEING_STEP 참고)
+//  외관검사도 컬러별 (color.inspection — 대표님 요청 2026-10-11). 예전 오더 단위 외관검사는 읽을 때 컬러로 옮김
 //  일정 = 예상 시작일·예상 종료일 (예상 종료일을 바꾸면 예전 날짜가 endHistory 에 남음 — 대표님 요청 2026-10-11)
 //  프리세팅: 편직 바로 다음 (대표님 요청 2026-10-11)
 // ============================================================
@@ -67,7 +68,6 @@ export const ORDER_STEPS = [
   { key: 'presetting',        label: '프리세팅',   vendorLabel: '가공처',   vendorMaster: 'dyeingFactories' },
   { key: 'finishing',         label: '후가공',     vendorLabel: '가공처',   vendorMaster: 'dyeingFactories' },
   { key: 'physical_test',     label: '이화학검사', vendorLabel: '시험기관', vendorMaster: null },
-  { key: 'visual_inspection', label: '외관검사',   vendorLabel: '검사처',   vendorMaster: null },
 ];
 
 export const ORDER_STEP_KEYS = ORDER_STEPS.map(s => s.key);
@@ -84,11 +84,11 @@ export const getStepMeta = (key) => ORDER_STEPS.find(s => s.key === key) || null
 // ============================================================
 export const FLOW_ORDER = [
   'yarn', 'yarn_processing', 'knitting', 'presetting', '#greige', '#dyeing',
-  'finishing', 'physical_test', 'visual_inspection', '#confirm', '#ship',
+  'finishing', 'physical_test', '#confirm', '#inspection', '#ship',
 ];
 
 // 추가 공정 위치로 고를 수 있는 컬러별 칸 (공정 사이에 끼울 수 있는 것만)
-export const FLOW_ANCHOR_LABELS = { '#dyeing': '염가공' };
+export const FLOW_ANCHOR_LABELS = { '#dyeing': '염가공', '#inspection': '외관검사' };
 
 export const isCustomStepKey = (key) => /^cs_/.test(String(key || ''));
 
@@ -98,7 +98,8 @@ export const normalizeCustomSteps = (list) => (Array.isArray(list) ? list : [])
   .map(s => ({
     key: s.key,
     label: String(s.label).trim(),
-    after: String(s.after || ''),
+    // 예전 오더 단위 '외관검사' 다음 → 컬러별 외관검사 칸 다음
+    after: s.after === 'visual_inspection' ? '#inspection' : String(s.after || ''),
     vendorLabel: String(s.vendorLabel || '').trim() || '외주처',
   }));
 
@@ -175,6 +176,7 @@ export const PROCESS_THEME = {
   finishing:         { label: '후가공',     cell: 'bg-amber-100 text-amber-800',     bar: 'bg-amber-200 border-amber-400 text-amber-900',     dot: 'bg-amber-400'   },
   physical_test:     { label: '이화학검사', cell: 'bg-violet-100 text-violet-800',   bar: 'bg-violet-200 border-violet-400 text-violet-900',  dot: 'bg-violet-400'  },
   visual_inspection: { label: '외관검사',   cell: 'bg-violet-100 text-violet-800',   bar: 'bg-violet-200 border-violet-400 text-violet-900',  dot: 'bg-violet-400'  },
+  inspection:        { label: '외관검사',   cell: 'bg-violet-100 text-violet-800',   bar: 'bg-violet-200 border-violet-400 text-violet-900',  dot: 'bg-violet-500'  },
   confirm:           { label: '컨펌',       cell: 'bg-sky-100 text-sky-800',         bar: 'bg-sky-200 border-sky-400 text-sky-900',           dot: 'bg-sky-400'     },
   test:              { label: '시험성적서', cell: 'bg-fuchsia-100 text-fuchsia-800', bar: 'bg-fuchsia-200 border-fuchsia-400 text-fuchsia-900', dot: 'bg-fuchsia-400' },
   ship:              { label: '출고',       cell: 'bg-blue-100 text-blue-800',       bar: 'bg-blue-200 border-blue-400 text-blue-900',        dot: 'bg-blue-500'    },
@@ -197,6 +199,8 @@ export const COLOR_STAGES = {
   finish_wait: { label: '후가공대기', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
   finishing:   { label: '후가공중',   cls: 'bg-amber-100 text-amber-800 border-amber-300' },
   inspection:  { label: '검사중',     cls: 'bg-violet-100 text-violet-800 border-violet-300' },
+  inspect_wait: { label: '검사대기',  cls: 'bg-violet-50 text-violet-700 border-violet-200' },
+  defect:      { label: '불량컨펌중', cls: 'bg-rose-100 text-rose-700 border-rose-300' },
   confirm_wait: { label: '컨펌대기',  cls: 'bg-sky-50 text-sky-700 border-sky-200' },
   confirm:     { label: '컨펌중',     cls: 'bg-sky-100 text-sky-800 border-sky-300' },
   ship_wait:   { label: '출고대기',   cls: 'bg-blue-100 text-blue-800 border-blue-300' },
@@ -270,6 +274,15 @@ export const BRAND_CONFIRM_STATUSES = [
   { key: 'sent',      label: '전달', phase: 'active', startsRound: true,  cls: 'bg-sky-100 text-sky-700 border-sky-300' },
   { key: 'confirmed', label: '컨펌', phase: 'done',   startsRound: false, cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
   { key: 'rejected',  label: '리젝', phase: 'issue',  startsRound: false, cls: 'bg-rose-100 text-rose-700 border-rose-300' },
+];
+
+// 외관검사 (컬러별 — 투입일 · 종료예정일 · 상태). '출고완료'를 고르면 그 컬러 출고 칸도 완료로 (orderModel.applyColorTracks)
+//  '검사중'은 투입하고 결과가 나오기 전 (대표님 목록에 없던 상태 — 필요 없으면 빼면 됨)
+export const INSPECTION_STATUSES = [
+  { key: 'inspecting', label: '검사중',       phase: 'active', startsRound: true,  cls: 'bg-violet-100 text-violet-700 border-violet-300' },
+  { key: 'defect',     label: '불량컨펌중',   phase: 'issue',  startsRound: false, cls: 'bg-rose-100 text-rose-700 border-rose-300' },
+  { key: 'ready',      label: '출고준비완료', phase: 'done',   startsRound: false, cls: 'bg-blue-100 text-blue-700 border-blue-300' },
+  { key: 'shipped',    label: '출고완료',     phase: 'done',   startsRound: false, cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
 ];
 
 // 상태 목록에서 한 줄 찾기 (없으면 null)

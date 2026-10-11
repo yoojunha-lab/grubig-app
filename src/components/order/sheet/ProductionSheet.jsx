@@ -5,12 +5,13 @@ import {
 import {
   PROCESS_THEME, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, COLOR_STAGES,
   DEFAULT_LOSS_RATE, PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS,
-  TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES,
+  TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES, INSPECTION_STATUSES,
   buildFlowOrder, findStepMeta, getStepDefs, isCustomStepKey,
 } from '../../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, isStepUsed, getKnittingEstimatedEnd, getEndShift, colorHasData,
-  getLotOverview, getLotsStatus, getColorStage, getDday, getTrackEvent, isTestReportPassed,
+  getLotOverview, getLotsStatus, getColorStage, getDday, getTrackEvent, getTrackStatusMeta, isTestReportPassed,
+  isInspectionUsed, isInspectionDone,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState,
 } from '../../../utils/orderModel';
 import { shortDate, fmtKg, todayYmd } from '../../../utils/orderCalculations';
@@ -20,6 +21,7 @@ import { ProcessPopover } from './ProcessPopover';
 import { ConfirmPopover } from './ColorPopovers';
 import { ProvisionalDuePopover } from './ProvisionalDuePopover';
 import { GreigeOutPopover } from './GreigeOutPopover';
+import { InspectionPopover } from './InspectionPopover';
 import { SheetLinkChips } from '../common/SheetLinkChips';
 import { StatusSelect } from '../common/StatusSelect';
 import { StepManagerPopover } from './StepManagerPopover';
@@ -59,11 +61,12 @@ const QTY_COLS = [
 // 공정/컬러 칸 (보이기/숨기기 가능). step = 오더 단위 공정 칸(rowSpan)
 //  순서는 constants FLOW_ORDER + 대표님이 추가한 공정 (buildFlowOrder). '#' 칸 = 컬러별 칸
 const STEP_COL_WIDTH = 140;
-const STEP_SHORT_LABELS = { physical_test: '이화학', visual_inspection: '외관' }; // 좁은 머리글용
+const STEP_SHORT_LABELS = { physical_test: '이화학' }; // 좁은 머리글용
 const COLOR_COLS = {
   '#greige':  { key: 'greige',  label: '생지출고',   width: 116 },
   '#dyeing':  { key: 'dyeing',  label: '염가공 LOT', width: 150 },
   '#confirm': { key: 'confirm', label: '컨펌 · 성적서', width: 172 },
+  '#inspection': { key: 'inspection', label: '외관검사', width: 150 },
   '#ship':    { key: 'ship',    label: '출고',       width: 116 },
 };
 const TAIL_COLS = [
@@ -90,7 +93,7 @@ const LEFT_TOTAL = LEFT_COLS.reduce((s, c) => s + c.width, 0);
 
 // 컬럼 숨김 저장 (브라우저별). 처음엔 자주 안 쓰는 공정 숨김
 const LS_HIDDEN_COLS = 'grubig.production.sheet.hiddenCols.v8';
-const DEFAULT_HIDDEN = ['yarn', 'yarn_processing', 'finishing', 'physical_test', 'visual_inspection'];
+const DEFAULT_HIDDEN = ['yarn', 'yarn_processing', 'finishing', 'physical_test'];
 
 // 추가 공정 칸 key 도 들어 있을 수 있어서 지금 칸 목록으로 거르지 않음 (설정이 늦게 와도 숨김이 풀리지 않게)
 const loadHiddenCols = () => {
@@ -474,6 +477,49 @@ const ConfirmCell = ({ order, color, last, bg, ctx }) => {
   );
 };
 
+// 외관검사 칸 (컬러 단위) — 상태 드롭다운 = 바로 저장(그날 날짜로 기록, 출고완료면 출고 칸도 완료)
+//  칸을 누르면 InspectionPopover (검사처 · 투입일 · 종료예정일 · 기록 · 메모)
+const InspectionCell = ({ order, color, last, bg, ctx }) => {
+  const insp = color.inspection || {};
+  const used = isInspectionUsed(color);
+  const ev = getTrackEvent(color, 'inspection');
+  const meta = getTrackStatusMeta(color, 'inspection');
+  const open = (el) => ctx.openInspection(order.id, color.id, el);
+  const range = fmtRange(insp.startDate, insp.endDate);
+  const overdue = !!insp.endDate && !isInspectionDone(color) && order.status !== 'completed' && insp.endDate < todayYmd();
+  const tone = meta?.phase === 'issue' ? 'bg-rose-50' : used ? PROCESS_THEME.inspection.cell : bg;
+  return (
+    <td onClick={e => open(e.currentTarget)} className={cellCls({ thick: last, extra: `${CLICKABLE} ${tone}` })}>
+      <CellAction navKey="inspection" onActivate={open} title="외관검사 — 투입일·종료예정일·상태 (클릭 또는 Enter)">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-1 flex-wrap">
+            <StatusSelect
+              value={ev?.status || ''}
+              options={INSPECTION_STATUSES}
+              onChange={st => ctx.actions.addTrackEvent(order.id, color.id, 'inspection', st)}
+              placeholder="상태"
+              tabIndex={-1}
+              title="외관검사 상태 (바꾸면 오늘 날짜로 기록 · 출고완료면 출고 칸도 완료)"
+            />
+            {ev?.date && <span className="font-mono text-[9px] opacity-70">{shortDate(ev.date)}</span>}
+          </div>
+          {range ? (
+            <div
+              className={`font-mono text-[10px] ${overdue ? 'text-red-600 font-bold' : 'opacity-80'}`}
+              title={overdue ? '종료예정일이 지났는데 아직 출고준비 전이에요' : '투입일~종료예정일'}
+            >
+              {range}
+            </div>
+          ) : (
+            !used && <div className="text-[10px] text-slate-300">+ 투입일</div>
+          )}
+          {insp.notes && <div className="text-[10px] opacity-75 line-clamp-2" title={insp.notes}>{insp.notes}</div>}
+        </div>
+      </CellAction>
+    </td>
+  );
+};
+
 // ============================================================
 // 4. 오더 1개 = <tbody> 1개 (컬러 N줄). hover 시 오더 전체 옅은 teal
 // ============================================================
@@ -509,6 +555,8 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
         return <LotCell key="dyeing" order={order} color={color} last={last} bg={plainBg} ctx={ctx} />;
       case 'confirm':
         return <ConfirmCell key="confirm" order={order} color={color} last={last} bg={plainBg} ctx={ctx} />;
+      case 'inspection':
+        return <InspectionCell key="inspection" order={order} color={color} last={last} bg={plainBg} ctx={ctx} />;
       case 'ship':
         return (
           <td
@@ -895,6 +943,7 @@ export const ProductionSheet = ({
       if (cs.some(c => (c.greigeOuts || []).length)) bump('greige');
       if (cs.some(c => (c.lots || []).length)) bump('dyeing');
       if (cs.some(c => c.testReport?.needed || (c.brandConfirm?.events || []).length)) bump('confirm');
+      if (cs.some(isInspectionUsed)) bump('inspection');
       if (cs.some(c => c.shipDate || c.shipDone)) bump('ship');
       if (o.notes) bump('memo');
     });
@@ -1029,6 +1078,9 @@ export const ProductionSheet = ({
     ),
     openGreige: (orderId, colorId, cell) => openPopover(
       'greige', orderId, cell.getBoundingClientRect(), { colorId, returnFocus: cellFocusTarget(cell) }
+    ),
+    openInspection: (orderId, colorId, cell) => openPopover(
+      'inspection', orderId, cell.getBoundingClientRect(), { colorId, returnFocus: cellFocusTarget(cell) }
     ),
     openLots: onOpenLots || null,
     addColorAfter,
@@ -1249,6 +1301,18 @@ export const ProductionSheet = ({
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={entries => actions.setGreigeOuts(popOrder.id, popColor.id, entries)}
+        />
+      )}
+      {popover?.kind === 'inspection' && popOrder && popColor && (
+        <InspectionPopover
+          key={`inspection_${popOrder.id}_${popColor.id}`}
+          order={popOrder}
+          color={popColor}
+          anchorRect={popover.anchorRect}
+          onClose={closePopover}
+          onSave={patch => actions.setColorTracks(popOrder.id, popColor.id, patch)}
+          onSaveVendor={v => actions.setOrderField(popOrder.id, 'inspectVendor', v)}
+          vendorOptions={(Array.isArray(allOrders) ? allOrders : orders).map(o => o.inspectVendor)}
         />
       )}
       {popover?.kind === 'provisional' && popOrder && (
