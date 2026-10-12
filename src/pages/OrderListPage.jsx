@@ -7,7 +7,7 @@ import { OrderDetailModal } from '../components/order/OrderDetailModal';
 import { MobileOrderList } from '../components/order/MobileOrderList';
 import { SampleCloseDialog } from '../components/order/common/SampleCloseDialog';
 import { DevDropModal } from '../components/dashboard/DevDropModal';
-import { getDday, isDropClosed, getOpenWork } from '../utils/orderModel';
+import { getDday, isDropClosed, getOpenWork, collectVendorOptions } from '../utils/orderModel';
 import { todayYmd } from '../utils/orderCalculations';
 import { isYarnRatioComplete, sumYarnRatio } from '../utils/costModel';
 import { getDevQuoteBadge, indexDevQuotes } from '../utils/devQuoteModel';
@@ -68,11 +68,9 @@ const SORTS = [
   { key: 'number',  label: 'order#순' },
 ];
 
-const uniq = (list) => [...new Set(list.map(v => String(v || '').trim()).filter(Boolean))];
-
-// 검색 대상: order#·article#·detail·buyer·메모·컬러명·외주처 (+ 연결된 설계서의 개발번호·원단명)
+// 검색 대상: order#·article#·detail·buyer·메모·컬러명·외주처(공정·염색소·검사처) (+ 연결된 설계서의 개발번호·원단명)
 const searchText = (o, sheetInfo) => [
-  o.orderNumber, o.articleNo, o.detail, o.customer, o.notes, o.dyeVendor,
+  o.orderNumber, o.articleNo, o.detail, o.customer, o.notes, o.dyeVendor, o.inspectVendor,
   ...(o.colors || []).map(c => c.name),
   ...Object.values(o.steps || {}).map(s => s?.vendor),
   sheetInfo?.devOrderNo, sheetInfo?.sheet?.fabricName,
@@ -306,10 +304,10 @@ export const OrderListPage = ({
 
   // ---------- 외주처 자동완성 (마스터 + 다른 오더에서 쓴 값) ----------
   const dyeVendorOptions = useMemo(
-    () => uniq([...(masters.dyeingFactories || []), ...orders.map(o => o.dyeVendor)]),
+    () => collectVendorOptions(masters.dyeingFactories, orders, o => o.dyeVendor),
     [masters.dyeingFactories, orders]
   );
-  const inspectVendorOptions = useMemo(() => uniq(orders.map(o => o.inspectVendor)), [orders]);
+  const inspectVendorOptions = useMemo(() => collectVendorOptions([], orders, o => o.inspectVendor), [orders]);
 
   // ---------- 오더 추가 ----------
   // 새 줄이 필터에 가려지지 않도록 검색어를 비우고 '진행 중' 탭 · 구분 '전체'로 전환

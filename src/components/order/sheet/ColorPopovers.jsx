@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { FileCheck2, BadgeCheck } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
 import { TrackEditor } from '../common/TrackEditor';
+import { usePopoverSave } from '../common/usePopoverSave';
 import { BRAND_CONFIRM_STATUSES, TEST_REPORT_STATUSES } from '../../../constants/production';
 import { shortDate, todayYmd } from '../../../utils/orderCalculations';
 
@@ -12,7 +13,8 @@ import { shortDate, todayYmd } from '../../../utils/orderCalculations';
 // - 시험성적서: [✓ 시험성적서] 체크한 컬러만 → 발행 예상일 + 상태(발행중·합격·불합격·재투입·재합격)
 // - 브랜드 컨펌: 상태(전달·컨펌·리젝)
 // - 상태 드롭다운을 바꿀 때마다 그날 날짜로 기록 한 줄 (날짜·상태 고치기 · 지우기 가능 — TrackEditor)
-// - 로컬 draft 로 편집 → [저장] 시 바뀐 칸만 onSave({ testReport?, brandConfirm? })
+// - 로컬 draft 로 편집 → [저장] 시 바뀐 칸만 onSave({ testReport?: {바뀐 칸}, brandConfirm? })
+//   상태 기록은 열 때 기록(eventsBase)과 같이 보내서 지금 저장된 기록과 합침 (열어 둔 사이 현황표·다른 PC에서 고른 상태가 지워지지 않게)
 // - Enter = 저장, ESC / 바깥 클릭 = 닫기 — 저장 안 한 변경이 있으면 '변경사항이 있습니다' 창 (PopoverShell)
 // props: order, color, anchorRect(null=화면 가운데), onClose, onSave(patch) => Promise<boolean>
 // ============================================================
@@ -44,22 +46,22 @@ export const ConfirmPopover = ({ order, color, anchorRect = null, onClose, onSav
   // 열 때 값과 비교해 바뀐 칸만 저장 (열어둔 사이 다른 칸의 변경을 덮어쓰지 않도록)
   const [initial] = useState(() => toDraft(color));
   const [draft, setDraft] = useState(initial);
-  const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false);
-  // 저장 중에 닫았으면(ESC·바깥 클릭·취소) 저장이 끝난 뒤 onClose 를 또 부르지 않음
-  const closedRef = useRef(false);
-  useEffect(() => {
-    closedRef.current = false;
-    return () => {
-      closedRef.current = true;
-    };
-  }, []);
+  const { saving, close, run } = usePopoverSave(onClose);
 
   if (!order || !color) return null;
 
+  // 바뀐 칸만 (시험성적서는 체크 · 발행 예상일 · 기록 따로)
   const patch = {};
-  if (key(draft.testReport) !== key(initial.testReport)) patch.testReport = draft.testReport;
-  if (key(draft.brandConfirm) !== key(initial.brandConfirm)) patch.brandConfirm = draft.brandConfirm;
+  const t0 = initial.testReport;
+  const t1 = draft.testReport;
+  const testPatch = {};
+  if (t1.needed !== t0.needed) testPatch.needed = t1.needed;
+  if (t1.expectedDate !== t0.expectedDate) testPatch.expectedDate = t1.expectedDate;
+  if (key(t1.events) !== key(t0.events)) Object.assign(testPatch, { events: t1.events, eventsBase: t0.events });
+  if (Object.keys(testPatch).length) patch.testReport = testPatch;
+  if (key(draft.brandConfirm.events) !== key(initial.brandConfirm.events)) {
+    patch.brandConfirm = { events: draft.brandConfirm.events, eventsBase: initial.brandConfirm.events };
+  }
   const isDirty = Object.keys(patch).length > 0;
 
   const t = draft.testReport;
@@ -71,29 +73,13 @@ export const ConfirmPopover = ({ order, color, anchorRect = null, onClose, onSav
   const setBrandEvents = (events) => setDraft(d => ({ ...d, brandConfirm: { ...d.brandConfirm, events } }));
 
   // ---------- 저장 / 닫기 ----------
-  const close = () => {
-    closedRef.current = true;
-    onClose?.();
-  };
-
-  const handleSave = async () => {
-    if (savingRef.current) return;
+  const handleSave = () => {
+    if (saving) return;
     if (!isDirty) {
       close();
       return;
     }
-    savingRef.current = true;
-    setSaving(true);
-    let ok = false;
-    try {
-      ok = (await onSave?.(patch)) !== false;
-    } catch {
-      ok = false;
-    }
-    savingRef.current = false;
-    if (closedRef.current) return;
-    if (ok) close();
-    else setSaving(false);
+    run(() => onSave?.(patch));
   };
 
   const onKeyDown = (e) => {

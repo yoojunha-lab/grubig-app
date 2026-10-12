@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Eraser } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
+import { usePopoverSave } from '../common/usePopoverSave';
 import { PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES } from '../../../constants/production';
 import {
   chainProvisionalDates, describeProvisionalDue, describeStepCurrent, getProvisionalBase, getProvisionalDueInfo,
@@ -17,8 +18,11 @@ import { diffDaysYmd, isYmd, shortDate } from '../../../utils/orderCalculations'
 //   · 날짜를 직접 고치면 그 공정 일수가 맞춰 바뀌고(일수를 넣은 공정만), 뒤 공정도 같이 움직임
 //   · 일수는 달력 기준 (주말 포함)
 // - 날짜를 넣는 동안 바로 현재 일정과 비교해서 보여줌 (맞음 / N일 늦음 / 지남 / 일정 미입력)
-// - [저장] → 바뀐 날짜만 patch + 일수가 바뀌었으면 plan 으로 onSave(patch, plan)
-//   [모두 비우기] → 확인 후 날짜·일수 모두 지우고 바로 저장
+// - [저장] → 바뀐 날짜만 patch + 바뀐 일수·기준일만 plan { base?, days? } 으로 onSave(patch, plan)
+//   (열어 둔 사이 다른 PC가 바꾼 다른 공정 일수를 덮어쓰지 않게) / [모두 비우기] → 확인 후 날짜·일수 모두 지우고 바로 저장
+// - 날짜 칸을 키보드로 고치는 중(연·월·일 한 칸을 지우면 잠깐 빈칸)에는 일수를 건드리지 않음 —
+//   칸을 떠났는데도 비어 있으면 그때 '날짜를 지움'으로 보고 일수도 지움
+// - 일수를 쓰는 공정이 있으면 기준일이 꼭 있어야 함 (비우면 빨간 안내 — 저장 안 됨)
 // - Enter = 저장, ESC / 바깥 클릭 = 닫기 (저장 안 한 변경이 있으면 '변경사항이 있습니다' 창)
 // props: order, anchorRect(null = 화면 가운데), onClose, onSave(patch, plan?) => Promise<boolean>
 // ============================================================
@@ -76,8 +80,7 @@ const isSubmitEnter = (e) => {
 export const ProvisionalDuePopover = ({ order, anchorRect = null, onClose, onSave }) => {
   const [initialForm] = useState(() => toForm(order));
   const [form, setForm] = useState(initialForm);
-  const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false); // 처리 중 잠금 (빠른 두 번 누름 방지)
+  const { saving, close, run } = usePopoverSave(onClose);
 
   // 칸에서 열었을 때만 첫 일수 칸에 커서 (가운데 모달 = 주로 모바일 → 키보드가 튀어나오지 않게)
   const firstRef = useRef(null);
@@ -86,22 +89,17 @@ export const ProvisionalDuePopover = ({ order, anchorRect = null, onClose, onSav
     if (focusOnOpen) firstRef.current?.focus();
   }, [focusOnOpen]);
 
-  // 저장 중에 이미 닫혔으면 저장이 끝난 뒤 onClose 를 또 부르지 않음 (그 사이 새로 연 팝오버가 닫히지 않게)
-  const closedRef = useRef(false);
-  useEffect(() => {
-    closedRef.current = false;
-    return () => {
-      closedRef.current = true;
-    };
-  }, []);
-
   if (!order) return null;
 
   const savedBase = String(order.provisionalPlan?.base || '');
   const defaultBase = getProvisionalBase({ ...order, provisionalPlan: { ...(order.provisionalPlan || {}), base: '' } });
 
   // ---------- 입력값 / 검증 ----------
-  const baseBad = !!form.base && !isFullYmd(form.base);
+  const daysOf = (rows) => Object.fromEntries(PROVISIONAL_DUE_STEPS.map(s => [s.key, parseDays(rows[s.key].days).value]));
+  const formDays = daysOf(form.rows);
+  const initialDays = daysOf(initialForm.rows);
+  const anyDays = PROVISIONAL_DUE_STEPS.some(s => formDays[s.key] !== null);
+  const baseBad = form.base ? !isFullYmd(form.base) : anyDays; // 일수를 쓰면 기준일이 꼭 있어야 함
   const dateBadKeys = PROVISIONAL_DUE_STEPS.filter(s => form.rows[s.key].date && !isFullYmd(form.rows[s.key].date)).map(s => s.key);
   const daysBadKeys = PROVISIONAL_DUE_STEPS.filter(s => parseDays(form.rows[s.key].days).bad).map(s => s.key);
   const hasError = baseBad || dateBadKeys.length > 0 || daysBadKeys.length > 0;
@@ -111,17 +109,16 @@ export const ProvisionalDuePopover = ({ order, anchorRect = null, onClose, onSav
   PROVISIONAL_DUE_STEPS.forEach(s => {
     if (form.rows[s.key].date !== initialForm.rows[s.key].date) patch[s.key] = form.rows[s.key].date;
   });
-  // 일수 · 기준일 (일수를 하나라도 쓰거나 기준일을 바꿨을 때만 기준일 저장 — 아니면 오더 등록일을 계속 따라감)
-  const daysOf = (rows) => Object.fromEntries(PROVISIONAL_DUE_STEPS.map(s => [s.key, parseDays(rows[s.key].days).value]));
-  const formDays = daysOf(form.rows);
-  const daysChanged = PROVISIONAL_DUE_STEPS.some(s => formDays[s.key] !== daysOf(initialForm.rows)[s.key]);
+  // 바뀐 일수만 plan.days / 기준일은 바꿨거나, 저장된 기준일 없이 일수를 쓰기 시작할 때 (아니면 오더 등록일을 계속 따라감)
+  const changedDays = Object.fromEntries(
+    PROVISIONAL_DUE_STEPS.filter(s => formDays[s.key] !== initialDays[s.key]).map(s => [s.key, formDays[s.key]])
+  );
   const baseChanged = form.base !== initialForm.base;
-  const anyDays = PROVISIONAL_DUE_STEPS.some(s => formDays[s.key] !== null);
-  const planChanged = daysChanged || baseChanged;
-  const plan = planChanged
-    ? { base: anyDays || baseChanged || savedBase ? form.base : '', days: formDays }
-    : undefined;
-  const isDirty = Object.keys(patch).length > 0 || planChanged;
+  const planPatch = {};
+  if (Object.keys(changedDays).length) planPatch.days = changedDays;
+  if (baseChanged || (planPatch.days && anyDays && !savedBase)) planPatch.base = form.base;
+  const plan = Object.keys(planPatch).length ? planPatch : undefined;
+  const isDirty = Object.keys(patch).length > 0 || !!plan;
   const hasAny = PROVISIONAL_DUE_STEPS.some(s => initialForm.rows[s.key].date || initialForm.rows[s.key].days);
 
   // 입력 중인 가납기로 미리 비교 (아직 다 못 넣은 날짜는 빈칸으로)
@@ -151,46 +148,31 @@ export const ProvisionalDuePopover = ({ order, anchorRect = null, onClose, onSav
   }));
 
   // 날짜를 직접 고치면: 일수를 쓰는 공정이면 일수를 맞춰 바꾸고, 뒤 공정(일수를 쓰는 것)도 같이 움직임
+  //  빈칸·덜 쓴 날짜(키보드로 고치는 중)는 그 칸 글자만 — 일수·다른 공정은 그대로 (칸을 떠날 때 clearDateIfEmpty)
   const setDate = (key, v) => setForm(f => {
     const row = f.rows[key];
+    if (!isFullYmd(v)) return { ...f, rows: { ...f.rows, [key]: { ...row, date: v } } };
     let days = row.days;
     if (parseDays(row.days).value !== null) {
-      if (!v) {
-        days = '';
-      } else if (isFullYmd(v)) {
-        const anchor = provisionalAnchorOf(f.base, toChainRows(f.rows), key);
-        const diff = anchor ? diffDaysYmd(anchor, v) : null;
-        days = diff !== null && diff >= 0 ? String(diff) : '';
-      }
+      const anchor = provisionalAnchorOf(f.base, toChainRows(f.rows), key);
+      const diff = anchor ? diffDaysYmd(anchor, v) : null;
+      days = diff !== null && diff >= 0 ? String(diff) : '';
     }
-    const next = { ...f, rows: { ...f.rows, [key]: { ...row, date: v, days } } };
-    return isFullYmd(v) || !v ? recompute(next) : next;
+    return recompute({ ...f, rows: { ...f.rows, [key]: { ...row, date: v, days } } });
+  });
+
+  // 날짜 칸을 떠났는데 비어 있으면 = 날짜를 지움 → 그 공정 일수도 지우고 뒤 공정을 다시 계산
+  const clearDateIfEmpty = (key) => setForm(f => {
+    const row = f.rows[key];
+    if (row.date || !row.days) return f;
+    return recompute({ ...f, rows: { ...f.rows, [key]: { ...row, days: '' } } });
   });
 
   // ---------- 저장 / 닫기 ----------
-  const close = () => {
-    closedRef.current = true;
-    onClose?.();
-  };
-
-  const submit = async (nextPatch, nextPlan) => {
-    if (savingRef.current) return;
-    savingRef.current = true;
-    setSaving(true);
-    let ok = false;
-    try {
-      ok = (await onSave?.(nextPatch, nextPlan)) !== false;
-    } catch {
-      ok = false;
-    }
-    savingRef.current = false;
-    if (closedRef.current) return;
-    if (ok) close();
-    else setSaving(false);
-  };
+  const submit = (nextPatch, nextPlan) => run(() => onSave?.(nextPatch, nextPlan));
 
   const handleSave = () => {
-    if (savingRef.current || hasError) return;
+    if (saving || hasError) return;
     if (!isDirty) {
       close();
       return;
@@ -199,7 +181,7 @@ export const ProvisionalDuePopover = ({ order, anchorRect = null, onClose, onSav
   };
 
   const handleClear = () => {
-    if (savingRef.current) return;
+    if (saving) return;
     if (!window.confirm('가납기 4개의 날짜와 일수를 모두 비울까요?')) return;
     submit(
       Object.fromEntries(PROVISIONAL_DUE_STEPS.map(s => [s.key, ''])),
@@ -314,6 +296,7 @@ export const ProvisionalDuePopover = ({ order, anchorRect = null, onClose, onSav
                   type="date"
                   value={row.date}
                   onChange={e => setDate(s.key, e.target.value)}
+                  onBlur={() => clearDateIfEmpty(s.key)}
                   aria-label={`${s.label} 가납기`}
                   className={`${INPUT_CLS} ${dateBad ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
                 />
@@ -328,7 +311,12 @@ export const ProvisionalDuePopover = ({ order, anchorRect = null, onClose, onSav
           );
         })}
 
-        {(baseBad || dateBadKeys.length > 0) && (
+        {baseBad && !form.base && (
+          <p className="flex items-center gap-1 text-[11px] font-bold text-red-600">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> 일수를 쓰려면 기준일이 있어야 해요.
+          </p>
+        )}
+        {((baseBad && !!form.base) || dateBadKeys.length > 0) && (
           <p className="flex items-center gap-1 text-[11px] font-bold text-red-600">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> 날짜를 끝까지 입력해 주세요.
           </p>

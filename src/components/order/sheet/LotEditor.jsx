@@ -276,6 +276,7 @@ export const LotEditor = ({
                         options={PROGRESS_STATUS_OPTIONS}
                         onChange={s => updateRow(row.id, { status: s })}
                         size="md"
+                        instant={false}
                         ariaLabel={`LOT ${no} 상태`}
                       />
                     </td>

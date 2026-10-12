@@ -12,7 +12,7 @@ import {
   getWorkKg, isWorkKgManual, getLossRate, isStepUsed, getKnittingEstimatedEnd, getEndShift, colorHasData,
   getLotOverview, getLotsStatus, getColorStage, getDday, getTrackEvent, getTrackStatusMeta, isTestReportPassed,
   isInspectionUsed, isInspectionDone,
-  getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState,
+  getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState, collectVendorOptions,
 } from '../../../utils/orderModel';
 import { shortDate, fmtKg, todayYmd } from '../../../utils/orderCalculations';
 import { CellText, CellNumber, CellDate, CellCheck, CellAction } from './SheetCells';
@@ -140,11 +140,6 @@ const fmtRange = (start, end) => {
   if (start && end) return `${shortDate(start)}~${shortDate(end)}`;
   return start ? `${shortDate(start)}~` : `~${shortDate(end)}`;
 };
-
-// 마스터 목록(문자열 또는 {name}) → 이름 배열
-const toNames = (list) => (Array.isArray(list) ? list : [])
-  .map(v => (typeof v === 'string' ? v : v?.name))
-  .filter(Boolean);
 
 // 완료 체크 시 날짜가 비어 있으면 오늘 날짜도 함께 채움 (간트에 표시되도록)
 const doneWithDate = (color, doneKey, dateKey, done) => (
@@ -1012,12 +1007,10 @@ export const ProductionSheet = ({
 
   // ---------- 공정 외주처 제안: 마스터 + 다른 오더들이 쓴 값 ----------
   // (검색·탭 필터와 상관없이 전체 오더 기준 — allOrders 가 있을 때)
+  const optionSource = Array.isArray(allOrders) ? allOrders : orders;
   const vendorOptionsFor = (stepKey, orderId) => {
     const meta = findStepMeta(stepDefs, stepKey);
-    const fromMaster = meta?.vendorMaster ? toNames(masters?.[meta.vendorMaster]) : [];
-    const source = Array.isArray(allOrders) ? allOrders : orders;
-    const fromOrders = source.filter(o => o.id !== orderId).map(o => o.steps?.[stepKey]?.vendor);
-    return [...new Set([...fromMaster, ...fromOrders].map(v => String(v || '').trim()).filter(Boolean))];
+    return collectVendorOptions(meta?.vendorMaster ? masters?.[meta.vendorMaster] : [], optionSource, o => o.steps?.[stepKey]?.vendor, orderId);
   };
 
   // ---------- 팝오버 ----------
@@ -1300,7 +1293,7 @@ export const ProductionSheet = ({
           color={popColor}
           anchorRect={popover.anchorRect}
           onClose={closePopover}
-          onSave={entries => actions.setGreigeOuts(popOrder.id, popColor.id, entries)}
+          onSave={(entries, base) => actions.setGreigeOuts(popOrder.id, popColor.id, entries, base)}
         />
       )}
       {popover?.kind === 'inspection' && popOrder && popColor && (
@@ -1312,7 +1305,7 @@ export const ProductionSheet = ({
           onClose={closePopover}
           onSave={patch => actions.setColorTracks(popOrder.id, popColor.id, patch)}
           onSaveVendor={v => actions.setOrderField(popOrder.id, 'inspectVendor', v)}
-          vendorOptions={(Array.isArray(allOrders) ? allOrders : orders).map(o => o.inspectVendor)}
+          vendorOptions={collectVendorOptions([], optionSource, o => o.inspectVendor)}
         />
       )}
       {popover?.kind === 'provisional' && popOrder && (

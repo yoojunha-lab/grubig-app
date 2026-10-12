@@ -11,6 +11,8 @@ import { UnsavedChangesDialog } from '../../common/UnsavedChangesDialog';
 // - 바깥 클릭 / ESC / X → 닫기 (여러 개가 겹쳐 뜨면 맨 위 창만 닫힘)
 //   dirty(저장 안 한 변경)가 있으면 바로 닫지 않고 '변경사항이 있습니다' 창
 //   (저장하고 나가기 = onSaveDirty / 저장 안 함 = onClose / 계속 편집) — 팝업 창 규약 (terminology §4)
+//   · 그 바깥 클릭은 뒤 화면에 닿지 않음 (포커스·다른 칸 입력 창 열기·달력 열기 없음 — 고친 내용이 다른 창에 밀려 사라지지 않게)
+//   · 묻는 창이 떠 있는 동안 키보드는 그 창 안에서만 (Tab 은 버튼 사이로, Enter 는 고른 버튼, ESC 는 계속 편집)
 // - ESC 는 여기서 처리하고 끝냄 → 아래 깔린 상세창 등이 같이 닫히지 않음
 // - 열리면 포커스를 창 안으로 옮김 (data-autofocus 가 붙은 요소, 없으면 창 자체)
 //   Tab 은 창 안에서만 돌고, 닫히면 열 때 포커스가 있던 곳(표 칸 등)으로 되돌림
@@ -45,6 +47,13 @@ export const PopoverShell = ({
     setAsking(v);
   }, []);
 
+  // 묻는 창을 닫고 다시 이 입력 창으로 (계속 편집)
+  const keepEditing = useCallback(() => {
+    setAsk(false);
+    const panel = panelRef.current;
+    if (panel) (panel.querySelector('[data-autofocus]') || panel).focus({ preventScroll: true });
+  }, [setAsk]);
+
   // 닫기 요청 (바깥 클릭·ESC·X): 저장 안 한 변경이 있으면 먼저 묻기
   const requestClose = useCallback(() => {
     if (askingRef.current) return;
@@ -72,6 +81,15 @@ export const PopoverShell = ({
     dirtyRef.current = dirty;
     saveDirtyRef.current = onSaveDirty;
   }, [onClose, dirty, onSaveDirty]);
+
+  // 묻는 창이 뜨면 '저장하고 나가기' 버튼에 포커스 (Enter = 저장하고 나가기)
+  useEffect(() => {
+    if (!asking) return undefined;
+    const t = setTimeout(() => {
+      document.querySelector('[data-unsaved-ask] button')?.focus({ preventScroll: true });
+    }, 0);
+    return () => clearTimeout(t);
+  }, [asking]);
 
   // 위치 계산: 실제 높이를 잰 뒤 화면 안으로 보정 (setState 없이 DOM 스타일 직접 지정)
   useLayoutEffect(() => {
@@ -127,20 +145,72 @@ export const PopoverShell = ({
       return p ? (p.closest('[data-popover-shell]') || p) : null;
     };
 
+    // 저장 안 한 변경이 있을 때 바깥을 누르면, 그 누름에 이어지는 click 은 뒤 화면에 보내지 않음
+    //  (표 칸 click → 다른 입력 창이 이 창을 밀어내 고친 내용이 사라지던 것) — 마우스를 뗀 직후 풀림
+    const blockNextClick = () => {
+      const block = (ev) => {
+        if (ev.target?.closest?.('[data-unsaved-ask]')) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+      };
+      document.addEventListener('click', block, true);
+      const release = () => {
+        document.removeEventListener('mouseup', release, true);
+        setTimeout(() => document.removeEventListener('click', block, true), 0);
+      };
+      document.addEventListener('mouseup', release, true);
+      setTimeout(release, 1500); // 마우스를 창 밖에서 떼는 등 mouseup 이 안 와도 풀리게
+    };
+
     const onDown = (e) => {
       if (!panelRef.current || panelRef.current.contains(e.target)) return;
       if (askingRef.current) return; // '변경사항이 있습니다' 창을 누른 것
       // 나중에 뜬 다른 팝오버 안을 누른 거면 이 창은 그대로 둠
       const newer = openShells.slice(openShells.indexOf(entry) + 1);
       if (newer.some(en => rootOf(en)?.contains(e.target))) return;
+      if (dirtyRef.current) {
+        e.preventDefault(); // 누른 칸으로 포커스가 가거나 달력·목록이 열리지 않게
+        blockNextClick();
+      }
       requestClose();
     };
+
+    // 묻는 창이 떠 있을 때 키보드: ESC = 계속 편집, Tab = 그 창 버튼 사이로만, 그 밖의 키는 그 창 안에서만
+    const onAskKey = (e) => {
+      const ask = document.querySelector('[data-unsaved-ask]');
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        keepEditing();
+        return;
+      }
+      if (e.key === 'Tab') {
+        const buttons = ask ? [...ask.querySelectorAll('button')] : [];
+        if (!buttons.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const i = buttons.indexOf(document.activeElement);
+        const next = e.shiftKey
+          ? (i <= 0 ? buttons.length - 1 : i - 1)
+          : (i === -1 || i === buttons.length - 1 ? 0 : i + 1);
+        buttons[next].focus();
+        return;
+      }
+      if (!ask || !ask.contains(document.activeElement)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
     // 캡처 단계에서 먼저 받아 처리한 뒤 전파를 끊음 → 아래 상세창의 ESC 리스너까지 가지 않음
     const onKey = (e) => {
       if (openShells[openShells.length - 1] !== entry) return; // 맨 위 창만 처리
+      if (askingRef.current) {
+        onAskKey(e);
+        return;
+      }
       // 창 안에서 누른 버튼이 사라져 포커스를 잃었으면(body) Tab 이 창 안에서 이어지게 되돌림
       if (e.key === 'Tab') {
-        if (askingRef.current) return;
         const active = document.activeElement;
         const panel = panelRef.current;
         if (panel && (!active || active === document.body)) {
@@ -151,10 +221,6 @@ export const PopoverShell = ({
       if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return;
       e.preventDefault();
       e.stopPropagation();
-      if (askingRef.current) {
-        setAsk(false); // '변경사항이 있습니다' 창에서 ESC = 계속 편집
-        return;
-      }
       requestClose();
     };
     const t = setTimeout(() => {
@@ -168,7 +234,7 @@ export const PopoverShell = ({
       const idx = openShells.indexOf(entry);
       if (idx >= 0) openShells.splice(idx, 1);
     };
-  }, [requestClose, setAsk]); // 둘 다 바뀌지 않는 함수 → 처음 한 번만 등록
+  }, [requestClose, keepEditing]); // 둘 다 바뀌지 않는 함수 → 처음 한 번만 등록
 
   // Tab / Shift+Tab 이 창 밖(뒤의 표 칸)으로 새지 않게 처음 ↔ 끝을 이어 돌림
   const onPanelKeyDown = (e) => {
@@ -205,20 +271,23 @@ export const PopoverShell = ({
   );
 
   // '변경사항이 있습니다' 창 (상세창·다른 팝오버보다 위 — UnsavedChangesDialog z-[10010])
+  //  data-unsaved-ask: 키보드·바깥 클릭 막기에서 이 창 안인지 알아보는 표시
   const askDialog = asking && createPortal(
-    <UnsavedChangesDialog
-      open
-      message={dirtyMessage}
-      onSave={() => {
-        setAsk(false);
-        saveDirtyRef.current?.();
-      }}
-      onDiscard={() => {
-        setAsk(false);
-        onCloseRef.current?.();
-      }}
-      onKeepEditing={() => setAsk(false)}
-    />,
+    <div data-unsaved-ask="">
+      <UnsavedChangesDialog
+        open
+        message={dirtyMessage}
+        onSave={() => {
+          keepEditing(); // 저장이 막히면(빨간 칸) 이 창으로 돌아와 고칠 수 있게
+          saveDirtyRef.current?.();
+        }}
+        onDiscard={() => {
+          setAsk(false);
+          onCloseRef.current?.();
+        }}
+        onKeepEditing={keepEditing}
+      />
+    </div>,
     document.body
   );
 

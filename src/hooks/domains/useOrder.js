@@ -127,6 +127,11 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     const draft = findDraft(id);
     const prev = draft || findLatest(id);
     if (!prev) return false;
+    // 이 화면보다 새 형식으로 저장된 오더 — 고치면 새 칸이 지워질 수 있어서 막음 (다른 PC가 새 버전으로 저장)
+    if (prev.newerSchema) {
+      showToast('이 오더는 새 버전 화면에서 저장됐어요. 새로고침(F5)한 뒤 다시 고쳐 주세요.', 'error');
+      return false;
+    }
     let next = updater(prev);
     if (!next || next === prev) return true;
 
@@ -336,8 +341,8 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
   const setColorField = (id, colorId, patch) => updateOrder(id, o => applyColorPatch(o, colorId, patch));
   const setStep = (id, stepKey, patch) => updateOrder(id, o => applyStepPatch(o, stepKey, patch));
   const setLots = (id, colorId, lots) => updateOrder(id, o => applyLots(o, colorId, lots));
-  // 생지 출고 기록 통째로 (입력 창) / 한 줄만 출고 체크 (현황표·상세창 칸 — 날짜가 비었으면 오늘)
-  const setGreigeOuts = (id, colorId, entries) => updateOrder(id, o => applyGreigeOuts(o, colorId, entries));
+  // 생지 출고 기록 (입력 창 — base: 열 때 목록, 지금 저장된 목록과 합침) / 한 줄만 출고 체크 (현황표·상세창 칸 — 날짜가 비었으면 오늘)
+  const setGreigeOuts = (id, colorId, entries, base = undefined) => updateOrder(id, o => applyGreigeOuts(o, colorId, entries, base));
   const setGreigeOutDone = (id, colorId, entryId, done) => updateOrder(id, o => {
     const color = (o.colors || []).find(c => c.id === colorId);
     if (!color) return o;
@@ -369,7 +374,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     const c = (o?.colors || []).find(x => x.id === colorId);
     if (!c) return Promise.resolve(false);
     if (colorHasData(c)) {
-      const ok = window.confirm(`컬러 '${c.name || '(이름 없음)'}' 줄을 삭제할까요?\nLOT·컨펌·출고 입력 내용도 함께 지워져요.`);
+      const ok = window.confirm(`컬러 '${c.name || '(이름 없음)'}' 줄을 삭제할까요?\n생지 출고·LOT·컨펌·시험성적서·외관검사·출고 입력 내용도 함께 지워져요.`);
       if (!ok) return Promise.resolve(false);
     }
     return updateOrder(id, ord => removeColorRow(ord, colorId));

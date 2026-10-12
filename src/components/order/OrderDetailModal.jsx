@@ -13,7 +13,7 @@ import {
 import {
   getWorkKg, isWorkKgManual, getLossRate, getOrderTotals, isStepUsed, getKnittingEstimatedEnd, getEndShift,
   getLotOverview, getLotsStatus, getTrackEvent, getTrackStatusMeta, isTestReportPassed, isInspectionUsed,
-  getColorStage, getDday, colorHasData,
+  getColorStage, getDday, colorHasData, collectVendorOptions,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState,
 } from '../../utils/orderModel';
 import { shortDate, isYmd, toNumberOrNull, fmtKg, todayYmd } from '../../utils/orderCalculations';
@@ -1291,7 +1291,7 @@ const OrderDetailBody = ({
           color={greigeColor}
           anchorRect={null}
           onClose={() => setGreigeColorId(null)}
-          onSave={entries => actions.setGreigeOuts(order.id, greigeColor.id, entries)}
+          onSave={(entries, base) => actions.setGreigeOuts(order.id, greigeColor.id, entries, base)}
         />
       )}
       {provisionalOpen && (
@@ -1312,7 +1312,7 @@ const OrderDetailBody = ({
           anchorRect={null}
           onClose={() => setProcessKey(null)}
           onSave={patch => actions.setStep(order.id, processMeta.key, patch)}
-          vendorOptions={[...new Set((masters?.[processMeta.vendorMaster] || []).map(v => String(v || '').trim()).filter(Boolean))]}
+          vendorOptions={collectVendorOptions(processMeta.vendorMaster ? masters?.[processMeta.vendorMaster] : [])}
         />
       )}
     </ModalBackdrop>

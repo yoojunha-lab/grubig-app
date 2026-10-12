@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { TrendingUp, Calendar, Users, Package, CheckCircle, AlertCircle, Truck, Layers } from 'lucide-react';
 import { ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_STEPS, DYEING_STEP } from '../constants/production';
-import { normalizeOrder, getLossRate, getWorkKg, getOrderTotals, isDropClosed } from '../utils/orderModel';
+import { normalizeOrder, getLossRate, getWorkKg, getOrderTotals, isDropClosed, getInspectionDoneDate } from '../utils/orderModel';
 import { diffDaysYmd, todayYmd, isYmd, round1, fmtKg } from '../utils/orderCalculations';
 
 // ============================================================
@@ -246,8 +246,8 @@ export const ReportPage = ({ orders = [], stepDefs = ORDER_STEPS }) => {
         if (insp) {
           const planned = spanDays(insp.startDate, insp.endDate);
           if (planned !== null) inspRow.planned.push(planned);
-          const doneEv = (insp.events || []).find(e => e.status === 'ready' || e.status === 'shipped');
-          const actual = doneEv ? spanDays(insp.startDate, doneEv.date) : null;
+          const last = (insp.events || [])[(insp.events || []).length - 1]?.status;
+          const actual = last === 'ready' || last === 'shipped' ? spanDays(insp.startDate, getInspectionDoneDate(c)) : null;
           if (actual !== null) inspRow.actual.push(actual);
         }
       });

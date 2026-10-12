@@ -208,10 +208,11 @@ const normalizeStep = (key, raw, idBase = key) => {
   };
   if (key === 'knitting') {
     // 예전 오더(기계 목록 없이 일일 생산량 하나) → '1호기' 한 대로
+    //  기계가 하나도 없는데 일일 생산량이 남아 있으면 예전 값 (v9 에서는 기계를 다 빼면 일일 생산량도 null 이 됨)
     let machines = cleanMachines(s.machines, idBase);
-    if (!Array.isArray(s.machines)) {
-      const legacy = numOrNull(s.dailyKg);
-      machines = legacy !== null && legacy > 0 ? [{ id: `${idBase}_m0`, name: '1호기', dailyKg: legacy }] : [];
+    const legacy = numOrNull(s.dailyKg);
+    if (!machines.length && legacy !== null && legacy > 0) {
+      machines = [{ id: `${idBase}_m0`, name: '1호기', dailyKg: legacy }];
     }
     out.machines = machines;
     out.dailyKg = sumMachinesKg(machines);
@@ -359,6 +360,8 @@ const normalizeColor = (raw, fallbackId) => {
     inspection: normalizeInspection(c.inspection, id),
     shipDate: str(c.shipDate),
     shipDone: !!c.shipDone,
+    // 외관검사 '출고완료'가 출고 칸을 자동으로 체크했을 때 { filledDate: 그때 채운 출고일('' = 원래 있던 날짜) } — 되돌릴 때 씀
+    shipAuto: c.shipAuto && typeof c.shipAuto === 'object' ? { filledDate: str(c.shipAuto.filledDate) } : null,
     notes: str(c.notes),
   };
 };
@@ -389,20 +392,30 @@ const normalizeV8 = (raw) => {
   Object.keys(raw.steps || {}).filter(isCustomStepKey).forEach(k => {
     steps[k] = normalizeStep(k, raw.steps[k], `${id}_${k}`);
   });
-  // v8 이전 오더: 오더 단위 외관검사 → 외관검사를 아직 안 쓰는 컬러마다 같은 값으로 (그 뒤 저장하면 v9)
+  let colors = (Array.isArray(raw.colors) ? raw.colors : []).map((c, i) => normalizeColor(c, `${id}_c${i}`));
+  if (colors.length === 0) colors = [normalizeColor({}, `${id}_c0`)];
+  // v8 이전 오더: 오더 단위 외관검사 → 컬러별로 (그 뒤 저장하면 v9)
+  //  · 입력이 있는 컬러에만 (없으면 첫 줄) — 빈 컬러 줄에 일정이 생겨 남은 일·가납기가 늘지 않게
+  //  · 일정·메모는 모두에게, 상태는 이미 출고했거나 LOT 이 모두 끝난 컬러에만 (염색 중인 컬러가 '검사중'으로 보이지 않게)
   const isV9 = Number(raw.schemaVersion) >= 9;
   const legacyInsp = isV9 ? null : legacyInspectionOf(raw.steps?.visual_inspection);
-  let colors = (Array.isArray(raw.colors) ? raw.colors : []).map((c, i) => {
-    const color = normalizeColor(c, `${id}_c${i}`);
-    return legacyInsp && !isInspectionUsed(color)
-      ? { ...color, inspection: normalizeInspection(legacyInsp, color.id) }
-      : color;
-  });
-  if (colors.length === 0) colors = [normalizeColor({}, `${id}_c0`)];
+  if (legacyInsp) {
+    const withData = colors.filter(colorHasData);
+    const targets = new Set((withData.length ? withData : colors.slice(0, 1)).map(c => c.id));
+    colors = colors.map(c => {
+      if (!targets.has(c.id) || isInspectionUsed(c)) return c;
+      const lots = c.lots || [];
+      const finished = c.shipDone || (lots.length > 0 && lots.every(l => normalizeStatus(l.status) === 'done'));
+      return { ...c, inspection: normalizeInspection({ ...legacyInsp, events: finished ? legacyInsp.events : [] }, c.id) };
+    });
+  }
   const lossRate = numOrNull(raw.lossRate);
   const status = normalizeOrderStatus(raw.status);
+  const { newerSchema: _oldFlag, ...rest } = raw;
   return {
-    ...raw,
+    ...rest,
+    // 이 화면보다 새 형식으로 저장된 오더 (다른 PC가 새 버전) — useOrder 가 수정을 막음 (새로고침 안내)
+    ...(Number(raw.schemaVersion) > ORDER_SCHEMA_VERSION ? { newerSchema: true } : {}),
     schemaVersion: ORDER_SCHEMA_VERSION,
     orderNumber: str(raw.orderNumber),
     articleNo: str(raw.articleNo),
@@ -569,6 +582,7 @@ const migrateLegacy = (raw) => {
         const ship = bc.shippingSample || {};
         colors[idx] = {
           ...colors[idx],
+          brandConfirm: null, // 아래에서 붙인 라운드로 normalizeV8 이 다시 만듦 (이미 만든 빈 기록이 남지 않게)
           confirmRounds: [...colors[idx].confirmRounds, ...rounds.map((r, ri) => ({
             round: colors[idx].confirmRounds.length + ri + 1,
             sentDate: str(r.sentDate),
@@ -646,7 +660,10 @@ export const isStepUsed = (step) => !!(step && (
 ));
 
 // 편직 하루 생산량 (기계별 합계, 예전 오더는 일일 생산량 하나)
-export const getKnittingDailyKg = (step) => sumMachinesKg(step?.machines) ?? numOrNull(step?.dailyKg);
+//  기계 목록이 있으면 그 합계만 (기계를 다 뺐으면 null), 기계 목록 자체가 없는 예전 값만 일일 생산량 하나
+export const getKnittingDailyKg = (step) => (
+  Array.isArray(step?.machines) ? sumMachinesKg(step.machines) : numOrNull(step?.dailyKg)
+);
 
 /**
  * 편직 소요일 계산 (기계별 일일 생산량 — 대표님 요청 2026-10-11)
@@ -658,7 +675,8 @@ export const getKnittingPlan = (order, step = order?.steps?.knitting) => {
   const daily = getKnittingDailyKg(step);
   const total = getOrderTotals(order).workKg;
   if (!daily || daily <= 0 || !total) return { daily: daily || null, total, days: 0, end: '' };
-  const days = Math.max(1, Math.ceil(total / daily));
+  // 소수점 오차 보정 (2.1 ÷ 0.3 = 7.000…01 → 8일이 되지 않게)
+  const days = Math.max(1, Math.ceil(total / daily - 1e-9));
   return { daily, total, days, end: step?.startDate ? addDaysYmd(step.startDate, days - 1) : '' };
 };
 
@@ -752,27 +770,36 @@ export const getColorStage = (order, color) => {
   if (!order || !color) return 'waiting';
   if (order.status === 'completed') return 'completed';
   if (order.status === 'on_hold') return 'on_hold';
-  const insp = getTrackStatus(color, 'inspection');
-  if (color.shipDone || insp === 'shipped') return 'shipped';
+  // 출고완료는 출고 칸 기준 (외관검사 '출고완료'를 고르면 출고 칸도 같이 체크됨 — 출고 칸을 손으로 풀면 출고 전으로)
+  if (color.shipDone) return 'shipped';
 
   const steps = order.steps || {};
   const st = (k) => normalizeStatus(steps[k]?.status);
   const lots = color.lots || [];
   const lotSt = lots.map(l => normalizeStatus(l.status));
+  const insp = getTrackStatus(color, 'inspection');
   const brand = getTrackStatus(color, 'brandConfirm');
   const testNeeded = !!color.testReport?.needed;
   const test = testNeeded ? getTrackStatus(color, 'testReport') : '';
   const testPassed = isTestReportPassed(color);
+  const confirmActive = brand === 'sent' || test === 'issuing' || test === 'resubmit'; // 컨펌·성적서 진행 중
 
-  if (lotSt.includes('issue') || brand === 'rejected' || test === 'fail') return 'issue';
+  // 대표님이 추가한 공정(cs_…)이 '문제'면 그 오더 컬러 모두 문제 (언제든)
+  const customIssue = Object.keys(steps).some(k => isCustomStepKey(k) && st(k) === 'issue');
+  if (lotSt.includes('issue') || brand === 'rejected' || test === 'fail' || customIssue) return 'issue';
   // 외관검사 (컬러별) — 상태를 고른 컬러는 그 상태가 우선
   if (insp === 'defect') return 'defect';
-  if (insp === 'ready') return 'ship_wait';
+  if (insp === 'ready' || insp === 'shipped') {
+    // 검사는 끝났어도 컨펌·성적서가 남았으면 출고 못 함 → 컨펌중 / 컨펌대기
+    if (confirmActive) return 'confirm';
+    if (!testPassed) return 'confirm_wait';
+    return 'ship_wait';
+  }
   if (insp === 'inspecting') return 'inspection';
   if (brand === 'confirmed' && testPassed) {
     return isInspectionUsed(color) ? 'inspect_wait' : 'ship_wait'; // 외관검사 일정이 있으면 검사대기
   }
-  if (brand === 'sent' || test === 'issuing' || test === 'resubmit') return 'confirm';
+  if (confirmActive) return 'confirm';
 
   const lotsAllDone = lotSt.length > 0 && lotSt.every(s => s === 'done');
   if (lotsAllDone) {
@@ -799,6 +826,14 @@ export const getColorStage = (order, color) => {
   return 'waiting';
 };
 
+// 외주처 자동완성 목록 — 마스터 목록(문자열 또는 { name }) + 다른 오더들이 쓴 값 (빈값·중복 제거)
+//  pick(order) → 그 오더에서 쓴 값 (예: o => o.steps?.knitting?.vendor), excludeOrderId: 지금 고치는 오더는 빼고
+export const collectVendorOptions = (masterList, orders = [], pick = null, excludeOrderId = null) => {
+  const fromMaster = (Array.isArray(masterList) ? masterList : []).map(v => (typeof v === 'string' ? v : v?.name));
+  const fromOrders = pick ? (orders || []).filter(o => o && o.id !== excludeOrderId).map(pick) : [];
+  return [...new Set([...fromMaster, ...fromOrders].map(v => String(v ?? '').trim()).filter(Boolean))];
+};
+
 // 납기 D-day (양수 = 남은 일수, 0 = 오늘, 음수 = 지남). 납기 없으면 null
 export const getDday = (finalDueDate) => (finalDueDate ? diffDaysYmd(todayYmd(), finalDueDate) : null);
 
@@ -815,9 +850,16 @@ export const isInspectionDone = (color) => {
   const s = getTrackStatus(color, 'inspection');
   return s === 'ready' || s === 'shipped' || !!color?.shipDone;
 };
-const inspectionDoneDate = (color) => {
-  const ev = (color?.inspection?.events || []).find(e => e.status === 'ready' || e.status === 'shipped');
-  return str(ev?.date) || str(color?.shipDate) || str(color?.inspection?.endDate);
+//  (출고준비완료 → 불량컨펌중 → 출고준비완료 이면 마지막 출고준비완료 날 — 마지막 줄부터 거슬러 이어진 '끝' 상태의 첫 날)
+export const getInspectionDoneDate = (color) => {
+  const events = color?.inspection?.events || [];
+  let date = '';
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const st = events[i].status;
+    if (st !== 'ready' && st !== 'shipped') break;
+    if (events[i].date) date = events[i].date;
+  }
+  return str(date) || str(color?.shipDate) || str(color?.inspection?.endDate);
 };
 
 export const getStepCurrentEnd = (order, key) => {
@@ -825,12 +867,15 @@ export const getStepCurrentEnd = (order, key) => {
     // 외관검사 (컬러별) — 컬러가 모두 끝나야(출고준비완료·출고완료 또는 출고) 완료: 가장 늦게 끝난 날
     //  아직이면 안 끝난 컬러의 가장 늦은 종료예정일 (그 컬러들에 일정이 없으면 '일정 미입력')
     const colors = (order?.colors || []).filter(colorHasData);
+    if (colors.length && colors.every(isInspectionDone)) {
+      return { date: maxYmd(colors.map(getInspectionDoneDate)), done: true, estimated: false };
+    }
     if (!colors.some(isInspectionUsed)) return { date: '', done: false, estimated: false };
-    const done = colors.every(isInspectionDone);
-    const date = done
-      ? maxYmd(colors.map(inspectionDoneDate))
-      : maxYmd(colors.filter(c => !isInspectionDone(c)).map(c => c.inspection?.endDate));
-    return { date, done, estimated: false };
+    return {
+      date: maxYmd(colors.filter(c => !isInspectionDone(c)).map(c => c.inspection?.endDate)),
+      done: false,
+      estimated: false,
+    };
   }
   if (key === 'dyeing') {
     const lots = (order?.colors || []).flatMap(c => c.lots || []);
@@ -1036,8 +1081,8 @@ export const getOrderTimeline = (order, stepDefs = ORDER_STEPS) => {
       const insp = color.inspection;
       const meta = getTrackStatusMeta(color, 'inspection');
       const firstEv = (insp.events || []).find(e => e.date)?.date || '';
-      const doneDate = isInspectionDone(color) ? inspectionDoneDate(color) : '';
-      const range = span(insp.startDate || firstEv, insp.endDate || doneDate || firstEv);
+      const doneDate = isInspectionDone(color) ? getInspectionDoneDate(color) : '';
+      const range = span(insp.startDate || firstEv, doneDate || insp.endDate || firstEv);
       if (range) {
         bars.push({
           id: `insp_${color.id}`, kind: 'inspection', theme: 'inspection',
@@ -1109,6 +1154,8 @@ export const applyColorPatch = (order, colorId, patch) => ({
     if (c.id !== colorId) return c;
     const next = { ...c, ...patch };
     if ('name' in patch) next.name = str(patch.name).trim().toUpperCase();
+    // 출고 칸을 손으로 바꾸면 외관검사가 자동으로 체크했던 표시는 지움 (그 뒤엔 외관검사 상태가 되돌리지 않음)
+    if ('shipDone' in patch || 'shipDate' in patch) next.shipAuto = null;
     return next;
   }),
 });
@@ -1167,30 +1214,76 @@ export const applyStepPatch = (order, key, patch) => {
   return { ...order, steps: { ...(order.steps || createSteps()), [key]: next } };
 };
 
-// 컬러 생지 출고 기록 통째로 교체 (+ 마지막 출고일 · 전체 출고 끝 칸도 맞춤)
-export const applyGreigeOuts = (order, colorId, entries) => ({
+/**
+ * 목록 합치기 (id 기준 3방향) — 입력 창을 열어 둔 사이 다른 PC·현황표 칸에서 바뀐 줄을 지우지 않게
+ *  base: 창을 열 때 목록 / mine: 창에서 고친 목록 / theirs: 지금 저장된 목록
+ *  · 내가 안 고친 줄은 지금 저장된 값으로 (다른 곳에서 고쳤으면 그 값, 지웠으면 빠짐)
+ *  · 내가 고치거나 새로 넣은 줄은 내 값, 내가 지운 줄은 빠짐
+ *  · 다른 곳에서 새로 넣은 줄은 뒤에 붙임
+ */
+export const mergeById = (base = [], mine = [], theirs = []) => {
+  const key = (x) => JSON.stringify(x);
+  const baseMap = new Map(base.map(x => [x.id, x]));
+  const theirMap = new Map(theirs.map(x => [x.id, x]));
+  const mineIds = new Set(mine.map(x => x.id));
+  const out = [];
+  mine.forEach(x => {
+    const b = baseMap.get(x.id);
+    if (b && key(b) === key(x)) {
+      if (theirMap.has(x.id)) out.push(theirMap.get(x.id)); // 안 고친 줄 → 지금 값 (다른 곳에서 지웠으면 빠짐)
+      return;
+    }
+    out.push(x);
+  });
+  theirs.forEach(x => {
+    if (!baseMap.has(x.id) && !mineIds.has(x.id)) out.push(x);
+  });
+  return out;
+};
+
+// 컬러 생지 출고 기록 바꾸기 (+ 마지막 출고일 · 전체 출고 끝 칸도 맞춤)
+//  base: 입력 창을 열 때 목록 — 주면 지금 저장된 목록과 합침 (mergeById), 안 주면 통째로 교체
+export const applyGreigeOuts = (order, colorId, entries, base = undefined) => ({
   ...order,
-  colors: (order.colors || []).map(c => (c.id === colorId
-    ? withGreigeSummary({ ...c, greigeOuts: normalizeGreigeOuts({ greigeOuts: entries || [] }, c.id) })
-    : c)),
+  colors: (order.colors || []).map(c => {
+    if (c.id !== colorId) return c;
+    const list = Array.isArray(base) ? mergeById(base, entries || [], c.greigeOuts || []) : (entries || []);
+    return withGreigeSummary({ ...c, greigeOuts: normalizeGreigeOuts({ greigeOuts: list }, c.id) });
+  }),
 });
 
+// 상태 기록 칸 patch 를 지금 값에 얹기 — patch 에 eventsBase(열 때 기록)가 있으면 기록은 합침 (mergeById)
+const mergeTrackPatch = (cur, patch) => {
+  const { eventsBase, ...rest } = patch || {};
+  const next = { ...(cur || {}), ...rest };
+  if ('events' in rest && Array.isArray(eventsBase)) next.events = mergeById(eventsBase, rest.events || [], cur?.events || []);
+  return next;
+};
+
 // 컬러 상태 기록 칸 바꾸기 — patch: { testReport?, brandConfirm?, inspection? } (주는 칸만 — 안의 값은 합쳐서)
+//  외관검사 '출고완료' ↔ 출고 칸 (대표님 결정 2026-10-11)
+//   · '출고완료'가 되면 출고 칸 완료 (출고일이 비었으면 그날) + shipAuto 표시
+//   · 자동으로 체크한 출고는 '출고완료'가 아니게 되면(다른 상태를 고르거나 그 기록을 지우면) 되돌림
 export const applyColorTracks = (order, colorId, patch) => ({
   ...order,
   colors: (order.colors || []).map(c => {
     if (c.id !== colorId) return c;
     const next = { ...c };
-    if (patch?.testReport) next.testReport = normalizeTestReport({ ...c.testReport, ...patch.testReport }, c.id);
-    if (patch?.brandConfirm) next.brandConfirm = normalizeBrandConfirm({ ...c.brandConfirm, ...patch.brandConfirm }, c, c.id);
+    if (patch?.testReport) next.testReport = normalizeTestReport(mergeTrackPatch(c.testReport, patch.testReport), c.id);
+    if (patch?.brandConfirm) next.brandConfirm = normalizeBrandConfirm(mergeTrackPatch(c.brandConfirm, patch.brandConfirm), c, c.id);
     if (patch?.inspection) {
-      next.inspection = normalizeInspection({ ...c.inspection, ...patch.inspection }, c.id);
-      // 외관검사 '출고완료'로 바뀌면 그 컬러 출고 칸도 완료 (출고일이 비었으면 그날) — 대표님 결정 2026-10-11
+      next.inspection = normalizeInspection(mergeTrackPatch(c.inspection, patch.inspection), c.id);
       const before = getTrackStatus(c, 'inspection');
       const after = getTrackStatus(next, 'inspection');
       if (after === 'shipped' && before !== 'shipped' && !c.shipDone) {
+        const filled = c.shipDate ? '' : (getTrackEvent(next, 'inspection')?.date || todayYmd());
         next.shipDone = true;
-        if (!next.shipDate) next.shipDate = getTrackEvent(next, 'inspection')?.date || todayYmd();
+        if (filled) next.shipDate = filled;
+        next.shipAuto = { filledDate: filled };
+      } else if (before === 'shipped' && after !== 'shipped' && c.shipAuto) {
+        next.shipDone = false;
+        if (c.shipAuto.filledDate && c.shipDate === c.shipAuto.filledDate) next.shipDate = '';
+        next.shipAuto = null;
       }
     }
     return next;
@@ -1224,14 +1317,20 @@ export const findDailyNote = (order, date, colorId = '') =>
   (order?.dailyNotes || []).find(n => n.date === date && str(n.colorId) === str(colorId)) || null;
 
 // 가납기 patch ({ knitting: '2026-10-25', dyeing: '' … }) — 정해진 4공정만 바꿈, 빈칸 = 지움
-//  plan: 가납기 일수 { base, days } (주면 통째로 바꿈, 안 주면 그대로)
+//  plan: 가납기 일수 — 바뀐 칸만 { base?, days?: { knitting: 10 … } } (안 준 칸은 그대로, 안 주면 일수 전체 그대로)
 export const applyProvisionalDue = (order, patch, plan = undefined) => {
   const next = normalizeProvisionalDue(order.provisionalDue);
   Object.entries(patch || {}).forEach(([k, v]) => {
     if (PROVISIONAL_DUE_KEYS.includes(k)) next[k] = str(v);
   });
   const out = { ...order, provisionalDue: next };
-  if (plan !== undefined) out.provisionalPlan = normalizeProvisionalPlan(plan);
+  if (plan && typeof plan === 'object') {
+    const cur = normalizeProvisionalPlan(order.provisionalPlan);
+    out.provisionalPlan = normalizeProvisionalPlan({
+      base: 'base' in plan ? plan.base : cur.base,
+      days: { ...cur.days, ...(plan.days || {}) },
+    });
+  }
   return out;
 };
 
@@ -1264,9 +1363,12 @@ const diffStep = (a, b, label, out) => {
   const labels = mA !== mB ? { ...STEP_FIELD_LABELS, dailyKg: undefined } : STEP_FIELD_LABELS; // 기계가 바뀌면 합계는 따로 안 적음
   diffFields(a, b, Object.fromEntries(Object.entries(labels).filter(([, v]) => v)), `${label} `, out);
   if (mA !== mB) out.push(`${label} 기계 ${mB || '없음'}`);
-  const hA = (a?.endHistory || []).length;
-  const hB = (b?.endHistory || []).length;
-  if (hB < hA && out.length === before) out.push(`${label} 예전 예상 종료일 기록 삭제`);
+  // 예전 예상 종료일 기록을 지웠으면 (다른 칸을 같이 바꿨어도) 따로 남김
+  const histKey = (h) => `${h.date}|${h.at}`;
+  const kept = new Set((b?.endHistory || []).map(histKey));
+  const removed = (a?.endHistory || []).filter(h => !kept.has(histKey(h))).length;
+  if (removed > 0) out.push(`${label} 예전 예상 종료일 기록 ${removed}개 삭제`);
+  return out.length > before;
 };
 const COLOR_FIELD_LABELS = {
   name: '컬러명', orderKg: '오더kg', workKg: '작지kg',

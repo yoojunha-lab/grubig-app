@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { AlertCircle, CalendarCheck, Eraser, History, Plus, Trash2 } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
 import { StatusSelect } from '../common/StatusSelect';
+import { usePopoverSave } from '../common/usePopoverSave';
 import { getStepMeta, normalizeStatus, PROGRESS_STATUS_OPTIONS } from '../../../constants/production';
 import { createMachine, createStep, getKnittingPlan, isStepUsed } from '../../../utils/orderModel';
 import { diffDaysYmd, fmtKg, shortDate, todayYmd, toNumberOrNull } from '../../../utils/orderCalculations';
@@ -105,8 +106,7 @@ export const ProcessPopover = ({ order, stepKey, meta: metaProp = null, anchorRe
 
   const [initialForm] = useState(() => toForm(step));
   const [form, setForm] = useState(initialForm);
-  const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false); // 처리 중 잠금 (빠른 두 번 누름 방지)
+  const { saving, close, run } = usePopoverSave(onClose);
 
   // 칸에서 열었을 때만 외주처 칸에 바로 커서 (가운데 모달 = 주로 모바일 → 키보드가 튀어나오지 않게)
   // autoFocus 는 PopoverShell 이 위치를 잡기 전(숨김 상태)이라 먹히지 않아서 effect 로 처리
@@ -115,16 +115,6 @@ export const ProcessPopover = ({ order, stepKey, meta: metaProp = null, anchorRe
   useEffect(() => {
     if (focusOnOpen) vendorRef.current?.focus();
   }, [focusOnOpen]);
-
-  // 이 창이 이미 닫혔는지 — 저장 중에 닫았으면(ESC·바깥 클릭·취소) 저장이 끝난 뒤 onClose 를 또 부르지 않음
-  // (그 사이 새로 연 다른 팝오버가 닫혀 버리는 것 방지)
-  const closedRef = useRef(false);
-  useEffect(() => {
-    closedRef.current = false;
-    return () => {
-      closedRef.current = true;
-    };
-  }, []);
 
   if (!order || !meta) return null;
 
@@ -158,8 +148,9 @@ export const ProcessPopover = ({ order, stepKey, meta: metaProp = null, anchorRe
     .sort((a, b) => a.localeCompare(b, 'ko'));
 
   // ---------- 편직: 기계별 일일 생산량 → 소요일 · 계산 종료일 ----------
+  // (저장된 일일 생산량 합계는 빼고 지금 기계 목록으로만 — 기계를 다 지우면 계산도 없어지게)
   const plan = isKnitting
-    ? getKnittingPlan(order, { ...step, startDate: values.startDate, machines: values.machines })
+    ? getKnittingPlan(order, { ...step, startDate: values.startDate, machines: values.machines, dailyKg: null })
     : null;
   const machineCount = values.machines.filter(m => m.dailyKg).length;
 
@@ -188,29 +179,10 @@ export const ProcessPopover = ({ order, stepKey, meta: metaProp = null, anchorRe
   const removeHistory = (idx) => setForm(f => ({ ...f, endHistory: f.endHistory.filter((_, i) => i !== idx) }));
 
   // ---------- 저장 / 닫기 ----------
-  const close = () => {
-    closedRef.current = true;
-    onClose?.();
-  };
-
-  const submit = async (nextPatch) => {
-    if (savingRef.current) return;
-    savingRef.current = true;
-    setSaving(true);
-    let ok = false;
-    try {
-      ok = (await onSave?.(nextPatch)) !== false;
-    } catch {
-      ok = false;
-    }
-    savingRef.current = false;
-    if (closedRef.current) return; // 저장 중에 이미 닫힘
-    if (ok) close();
-    else setSaving(false);
-  };
+  const submit = (nextPatch) => run(() => onSave?.(nextPatch));
 
   const handleSave = () => {
-    if (savingRef.current || hasError) return;
+    if (saving || hasError) return;
     if (!isDirty) {
       close(); // 바뀐 게 없으면 저장하지 않고 닫기
       return;
@@ -220,7 +192,7 @@ export const ProcessPopover = ({ order, stepKey, meta: metaProp = null, anchorRe
 
   // [비우기] 공정 칸을 처음 상태로 (확인 후 바로 저장 — 예상 종료일 기록도 지움)
   const handleClear = () => {
-    if (savingRef.current) return;
+    if (saving) return;
     const ok = window.confirm(`'${meta.label}' 공정에 입력한 내용을 모두 비울까요?\n외주처·일정·상태·메모·예상 종료일 기록${isKnitting ? '·기계별 생산량' : ''}이 지워져요.`);
     if (!ok) return;
     const clearPatch = { vendor: '', startDate: '', endDate: '', status: 'pending', doneDate: '', notes: '', endHistory: [] };
@@ -467,6 +439,7 @@ export const ProcessPopover = ({ order, stepKey, meta: metaProp = null, anchorRe
               options={PROGRESS_STATUS_OPTIONS}
               onChange={setStatus}
               size="md"
+              instant={false}
               ariaLabel={`${meta.label} 상태`}
               className="w-full [&>select]:w-full"
             />

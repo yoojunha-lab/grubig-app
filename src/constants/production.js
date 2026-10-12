@@ -92,31 +92,56 @@ export const FLOW_ANCHOR_LABELS = { '#dyeing': '염가공', '#inspection': '외�
 
 export const isCustomStepKey = (key) => /^cs_/.test(String(key || ''));
 
-// 설정 값 → [{ key, label, after, vendorLabel }] (이름이 없거나 key 가 이상한 줄은 버림)
-export const normalizeCustomSteps = (list) => (Array.isArray(list) ? list : [])
-  .filter(s => s && typeof s === 'object' && isCustomStepKey(s.key) && String(s.label || '').trim())
-  .map(s => ({
-    key: s.key,
-    label: String(s.label).trim(),
-    // 예전 오더 단위 '외관검사' 다음 → 컬러별 외관검사 칸 다음
-    after: s.after === 'visual_inspection' ? '#inspection' : String(s.after || ''),
-    vendorLabel: String(s.vendorLabel || '').trim() || '외주처',
-  }));
+// 설정 값 → [{ key, label, after, vendorLabel }] (이름이 없거나 key 가 이상한 줄 · 같은 key 가 또 나온 줄은 버림)
+export const normalizeCustomSteps = (list) => {
+  const seen = new Set();
+  return (Array.isArray(list) ? list : [])
+    .filter(s => s && typeof s === 'object' && isCustomStepKey(s.key) && String(s.label || '').trim())
+    .filter(s => (seen.has(s.key) ? false : seen.add(s.key)))
+    .map(s => ({
+      key: s.key,
+      label: String(s.label).trim(),
+      // 예전 오더 단위 '외관검사' 다음 → 컬러별 외관검사 칸 다음
+      after: s.after === 'visual_inspection' ? '#inspection' : String(s.after || ''),
+      vendorLabel: String(s.vendorLabel || '').trim() || '외주처',
+    }));
+};
 
 export const createCustomStepKey = () => `cs_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 
+// 추가 공정 key 가 anchor 의 (바로 또는 다른 추가 공정을 거쳐) 다음에 있는지 — 위치가 돌고 돌면 false
+const isPlacedAfter = (byKey, key, anchor) => {
+  const seen = new Set();
+  let cur = byKey.get(key);
+  while (cur && !seen.has(cur.key)) {
+    if (cur.after === anchor) return true;
+    seen.add(cur.key);
+    cur = byKey.get(cur.after);
+  }
+  return false;
+};
+
+// 이 추가 공정 다음에 놓인 추가 공정들 (공정 추가 창에서 위치를 고를 때 돌고 도는 위치를 막으려고)
+export const getCustomStepDescendants = (customSteps, key) => {
+  const list = normalizeCustomSteps(customSteps);
+  const byKey = new Map(list.map(cs => [cs.key, cs]));
+  return new Set(list.filter(cs => cs.key !== key && isPlacedAfter(byKey, cs.key, key)).map(cs => cs.key));
+};
+
 /**
  * 흐름 순서 = 기본 칸 + 추가 공정 (각자 'after' 칸 바로 다음)
- *  - 같은 기본 칸 다음에 여러 개면 목록 순서대로 (먼저 들어간 추가 공정 뒤로)
- *  - 다른 추가 공정 다음이면 그 공정 바로 다음
- *  - 위치 칸이 없어졌으면 컬러별 마무리 칸(컨펌) 앞
+ *  - 같은 칸 다음에 여러 개면 목록 순서대로 (먼저 들어간 공정과 그 공정 다음에 놓인 공정들 뒤로)
+ *  - 다른 추가 공정 다음이면 그 공정 바로 다음 (목록에서 뒤에 있어도 — 몇 단계든)
+ *  - 위치 칸이 없어졌거나 서로 돌고 도는 위치면 컬러별 마무리 칸(컨펌) 앞
  * 반환: ['yarn', …, 'cs_x', …, '#ship']
  */
 export const buildFlowOrder = (customSteps = []) => {
+  const customs = normalizeCustomSteps(customSteps);
+  const byKey = new Map(customs.map(cs => [cs.key, cs]));
   const list = [...FLOW_ORDER];
-  let pending = normalizeCustomSteps(customSteps);
-  // 다른 추가 공정 다음에 두는 공정은 그 공정이 먼저 들어가야 하므로 여러 번 돌림
-  for (let pass = 0; pass < 5 && pending.length; pass += 1) {
+  let pending = customs;
+  // 다른 추가 공정 다음에 두는 공정은 그 공정이 먼저 들어가야 하므로 여러 번 돌림 (공정 수만큼이면 충분)
+  for (let pass = 0; pass <= customs.length && pending.length; pass += 1) {
     const rest = [];
     pending.forEach(cs => {
       const i = list.indexOf(cs.after);
@@ -125,9 +150,7 @@ export const buildFlowOrder = (customSteps = []) => {
         return;
       }
       let j = i + 1;
-      if (!isCustomStepKey(cs.after)) {
-        while (j < list.length && isCustomStepKey(list[j])) j += 1;
-      }
+      while (j < list.length && isCustomStepKey(list[j]) && isPlacedAfter(byKey, list[j], cs.after)) j += 1;
       list.splice(j, 0, cs.key);
     });
     if (rest.length === pending.length) break;

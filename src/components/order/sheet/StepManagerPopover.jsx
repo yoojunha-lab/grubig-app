@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { AlertCircle, ListPlus, Pencil, Plus, Trash2 } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
 import {
-  FLOW_ANCHOR_LABELS, PROCESS_THEME, buildFlowOrder, createCustomStepKey, findStepMeta,
+  FLOW_ANCHOR_LABELS, PROCESS_THEME, buildFlowOrder, createCustomStepKey, findStepMeta, getCustomStepDescendants,
 } from '../../../constants/production';
 import { isStepUsed } from '../../../utils/orderModel';
 
@@ -34,11 +34,14 @@ export const StepManagerPopover = ({ anchorRect = null, customSteps = [], stepDe
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false); // 처리 중 잠금 (빠른 두 번 누름 방지)
 
-  // 위치 고르기 목록 (흐름 순서) — skipKey: 바꾸는 중인 공정 자신은 빼고
-  const anchorOptions = (skipKey = null) => buildFlowOrder(customSteps)
-    .filter(tok => tok !== skipKey && isAnchorToken(tok))
-    .map(tok => ({ key: tok, label: anchorLabel(stepDefs, tok) }))
-    .filter(o => o.label);
+  // 위치 고르기 목록 (흐름 순서) — skipKey: 바꾸는 중인 공정 자신과 그 공정 뒤에 놓인 공정은 빼고 (돌고 도는 위치 방지)
+  const anchorOptions = (skipKey = null) => {
+    const blocked = skipKey ? getCustomStepDescendants(customSteps, skipKey) : new Set();
+    return buildFlowOrder(customSteps)
+      .filter(tok => tok !== skipKey && !blocked.has(tok) && isAnchorToken(tok))
+      .map(tok => ({ key: tok, label: anchorLabel(stepDefs, tok) }))
+      .filter(o => o.label);
+  };
 
   const usedCount = (key) => orders.filter(o => isStepUsed(o.steps?.[key])).length;
 
@@ -154,12 +157,13 @@ export const StepManagerPopover = ({ anchorRect = null, customSteps = [], stepDe
     if (await run(next)) onClose?.();
   };
 
+  // Enter = 그 칸이 있는 폼 저장 (바꾸는 중인 줄 안이면 그 줄 저장, '새 공정' 칸이면 추가)
   const onFormKeyDown = (e) => {
     if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.target?.tagName !== 'INPUT') return;
     e.preventDefault();
     e.stopPropagation();
-    if (editing) saveEdit();
+    if (e.target.closest('[data-edit-row]')) saveEdit();
     else addStep();
   };
 
@@ -201,7 +205,7 @@ export const StepManagerPopover = ({ anchorRect = null, customSteps = [], stepDe
             const isEditing = editing?.key === cs.key;
             if (isEditing) {
               return (
-                <div key={cs.key} className="rounded-lg border border-indigo-300 bg-indigo-50/60 p-2 space-y-2">
+                <div key={cs.key} data-edit-row="" className="rounded-lg border border-indigo-300 bg-indigo-50/60 p-2 space-y-2">
                   <div className="grid grid-cols-2 gap-2">
                     <label className="block min-w-0">
                       <span className={LABEL_CLS}>공정 이름</span>

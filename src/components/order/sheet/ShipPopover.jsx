@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { PopoverShell } from '../common/PopoverShell';
+import { usePopoverSave } from '../common/usePopoverSave';
 import { todayYmd } from '../../../utils/orderCalculations';
 
 // ============================================================
@@ -15,15 +16,7 @@ const INPUT_CLS = 'w-full min-w-0 px-2 py-1.5 bg-white border border-slate-300 r
 export const ShipPopover = ({ order, color, anchorRect = null, onClose, onSave }) => {
   const [initial] = useState(() => ({ shipDate: color?.shipDate || '', shipDone: !!color?.shipDone }));
   const [form, setForm] = useState(initial);
-  const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false);
-  const closedRef = useRef(false);
-  useEffect(() => {
-    closedRef.current = false;
-    return () => {
-      closedRef.current = true;
-    };
-  }, []);
+  const { saving, close, run } = usePopoverSave(onClose);
 
   if (!order || !color) return null;
 
@@ -32,29 +25,13 @@ export const ShipPopover = ({ order, color, anchorRect = null, onClose, onSave }
   if (form.shipDone !== initial.shipDone) patch.shipDone = form.shipDone;
   const isDirty = Object.keys(patch).length > 0;
 
-  const close = () => {
-    closedRef.current = true;
-    onClose?.();
-  };
-
-  const handleSave = async () => {
-    if (savingRef.current) return;
+  const handleSave = () => {
+    if (saving) return;
     if (!isDirty) {
       close();
       return;
     }
-    savingRef.current = true;
-    setSaving(true);
-    let ok = false;
-    try {
-      ok = (await onSave?.(patch)) !== false;
-    } catch {
-      ok = false;
-    }
-    savingRef.current = false;
-    if (closedRef.current) return;
-    if (ok) close();
-    else setSaving(false);
+    run(() => onSave?.(patch));
   };
 
   const footer = (

@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { Info, Plus, Trash2 } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
+import { usePopoverSave } from '../common/usePopoverSave';
 import { GREIGE_OUT_KINDS } from '../../../constants/production';
 import { createGreigeOut, getGreigeState } from '../../../utils/orderModel';
 import { shortDate, todayYmd } from '../../../utils/orderCalculations';
@@ -12,8 +13,9 @@ import { shortDate, todayYmd } from '../../../utils/orderCalculations';
 //   · 전체 출고 = 남은 생지 전부 → 체크하면 그 컬러 생지 출고 끝 (염색대기)
 //   · 부분 출고 = 일부만 → 컬러 단계 '생지 부분출고'
 // - 출고 체크했는데 날짜가 비었으면 오늘로 채움 (간트에 보이게)
-// - 로컬 draft 로 편집 → [저장] 한 번에 onSave(entries). Enter = 저장, 닫을 때 저장 안 한 변경이 있으면 묻기
-// props: order, color, anchorRect(null = 화면 가운데), onClose, onSave(entries) => Promise<boolean>
+// - 로컬 draft 로 편집 → [저장] 한 번에 onSave(entries, base). Enter = 저장, 닫을 때 저장 안 한 변경이 있으면 묻기
+//   base = 열 때 목록 → 저장할 때 지금 저장된 목록과 합침 (열어 둔 사이 현황표에서 체크한 출고가 지워지지 않게 — orderModel.mergeById)
+// props: order, color, anchorRect(null = 화면 가운데), onClose, onSave(entries, base) => Promise<boolean>
 // ============================================================
 
 const INPUT_CLS = 'w-full min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-400/60 focus:border-teal-400';
@@ -32,16 +34,7 @@ const isSubmitEnter = (e) => {
 export const GreigeOutPopover = ({ order, color, anchorRect = null, onClose, onSave }) => {
   const [initial] = useState(() => toRows(color));
   const [rows, setRows] = useState(initial);
-  const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false);
-
-  const closedRef = useRef(false);
-  useEffect(() => {
-    closedRef.current = false;
-    return () => {
-      closedRef.current = true;
-    };
-  }, []);
+  const { saving, close, run } = usePopoverSave(onClose);
 
   if (!order || !color) return null;
 
@@ -60,29 +53,13 @@ export const GreigeOutPopover = ({ order, color, anchorRect = null, onClose, onS
   const add = () => setRows(list => [...list, createGreigeOut(list.length ? 'partial' : 'full')]);
 
   // ---------- 저장 / 닫기 ----------
-  const close = () => {
-    closedRef.current = true;
-    onClose?.();
-  };
-
-  const handleSave = async () => {
-    if (savingRef.current) return;
+  const handleSave = () => {
+    if (saving) return;
     if (!isDirty) {
       close();
       return;
     }
-    savingRef.current = true;
-    setSaving(true);
-    let ok = false;
-    try {
-      ok = (await onSave?.(clean(rows))) !== false;
-    } catch {
-      ok = false;
-    }
-    savingRef.current = false;
-    if (closedRef.current) return;
-    if (ok) close();
-    else setSaving(false);
+    run(() => onSave?.(clean(rows), clean(initial)));
   };
 
   const onKeyDown = (e) => {

@@ -1,7 +1,8 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useId, useState } from 'react';
 import { AlertCircle, Info } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
 import { TrackEditor } from '../common/TrackEditor';
+import { usePopoverSave } from '../common/usePopoverSave';
 import { INSPECTION_STATUSES } from '../../../constants/production';
 
 // ============================================================
@@ -11,7 +12,8 @@ import { INSPECTION_STATUSES } from '../../../constants/production';
 // - 상태 드롭다운을 바꿀 때마다 그날 날짜로 기록 (날짜·상태 고치기 · 지우기 — TrackEditor)
 // - '출고완료'를 고르면 그 컬러 출고 칸도 완료로 체크 (출고일이 비었으면 그날) — orderModel.applyColorTracks
 // - 검사처는 오더 전체 공통 값(order.inspectVendor) — 바뀌었을 때만 따로 저장 (염색소와 같은 방식)
-// - 로컬 draft 로 편집 → [저장]. Enter = 저장, 닫을 때 저장 안 한 변경이 있으면 '변경사항이 있습니다'
+// - 로컬 draft 로 편집 → [저장] 시 바뀐 칸만 onSave({ inspection: {바뀐 칸} }) — 상태 기록은 열 때 기록(eventsBase)과
+//   같이 보내서 지금 저장된 기록과 합침 (열어 둔 사이 현황표에서 고른 상태가 지워지지 않게). Enter = 저장, 닫을 때 저장 안 한 변경이 있으면 묻기
 // props: order, color, anchorRect(null = 화면 가운데), onClose,
 //        onSave({ inspection }) => Promise<boolean>, onSaveVendor(vendor) => Promise<boolean>, vendorOptions
 // ============================================================
@@ -43,64 +45,56 @@ export const InspectionPopover = ({
   const [draft, setDraft] = useState(initial);
   const [initialVendor] = useState(() => order?.inspectVendor || '');
   const [vendor, setVendor] = useState(initialVendor);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const savingRef = useRef(false);
-
-  const closedRef = useRef(false);
-  useEffect(() => {
-    closedRef.current = false;
-    return () => {
-      closedRef.current = true;
-    };
-  }, []);
+  const { saving, close, run } = usePopoverSave(onClose);
 
   if (!order || !color) return null;
 
-  const inspectionChanged = JSON.stringify(clean(draft)) !== JSON.stringify(clean(initial));
+  // 바뀐 칸만 (투입일 · 종료예정일 · 메모 · 상태 기록)
+  const d1 = clean(draft);
+  const d0 = clean(initial);
+  const inspPatch = {};
+  ['startDate', 'endDate', 'notes'].forEach(k => {
+    if (d1[k] !== d0[k]) inspPatch[k] = d1[k];
+  });
+  if (JSON.stringify(d1.events) !== JSON.stringify(d0.events)) Object.assign(inspPatch, { events: d1.events, eventsBase: d0.events });
+  const inspectionChanged = Object.keys(inspPatch).length > 0;
   const vendorChanged = !!onSaveVendor && vendor.trim() !== initialVendor.trim();
   const isDirty = inspectionChanged || vendorChanged;
   const dateBad = !!(draft.startDate && draft.endDate && draft.startDate > draft.endDate);
   const current = draft.events[draft.events.length - 1]?.status || '';
-  const willShip = current === 'shipped' && (initial.events[initial.events.length - 1]?.status || '') !== 'shipped' && !color.shipDone;
+  const initialStatus = initial.events[initial.events.length - 1]?.status || '';
+  const willShip = current === 'shipped' && initialStatus !== 'shipped' && !color.shipDone;
+  // 외관검사 '출고완료'가 자동으로 체크했던 출고 → 다른 상태로 바꾸면 풀림 (orderModel.applyColorTracks)
+  const willUnship = initialStatus === 'shipped' && current !== 'shipped' && !!color.shipAuto;
 
   const options = [...new Set((vendorOptions || []).map(v => String(v ?? '').trim()).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'ko'));
 
   // ---------- 저장 / 닫기 ----------
-  const close = () => {
-    closedRef.current = true;
-    onClose?.();
-  };
-
-  const handleSave = async () => {
-    if (savingRef.current || dateBad) return;
+  const handleSave = () => {
+    if (saving || dateBad) return;
     if (!isDirty) {
       close();
       return;
     }
-    savingRef.current = true;
-    setSaving(true);
     setError('');
-    try {
-      // 검사처 → 외관검사 순서로 연달아 시작 (useOrder 가 앞 저장 위에 이어서 적용 — LOT 편집과 같은 방식)
-      const vendorTask = vendorChanged ? Promise.resolve(onSaveVendor(vendor.trim())) : Promise.resolve(true);
-      const inspTask = inspectionChanged ? Promise.resolve(onSave?.({ inspection: clean(draft) })) : Promise.resolve(true);
-      const [vOk, iOk] = await Promise.all([vendorTask, inspTask]);
-      savingRef.current = false;
-      if (closedRef.current) return;
-      if (vOk === false || iOk === false) {
-        setError(`${[vOk === false && '검사처', iOk === false && '외관검사'].filter(Boolean).join('·')} 저장에 실패했어요. 다시 시도해 주세요.`);
-        setSaving(false);
-        return;
+    run(async () => {
+      try {
+        // 검사처 → 외관검사 순서로 연달아 시작 (useOrder 가 앞 저장 위에 이어서 적용 — LOT 편집과 같은 방식)
+        const vendorTask = vendorChanged ? Promise.resolve(onSaveVendor(vendor.trim())) : Promise.resolve(true);
+        const inspTask = inspectionChanged ? Promise.resolve(onSave?.({ inspection: inspPatch })) : Promise.resolve(true);
+        const [vOk, iOk] = await Promise.all([vendorTask, inspTask]);
+        if (vOk === false || iOk === false) {
+          setError(`${[vOk === false && '검사처', iOk === false && '외관검사'].filter(Boolean).join('·')} 저장에 실패했어요. 다시 시도해 주세요.`);
+          return false;
+        }
+        return true;
+      } catch {
+        setError('저장 중 문제가 생겼어요. 다시 시도해 주세요.');
+        return false;
       }
-      close();
-    } catch {
-      savingRef.current = false;
-      if (closedRef.current) return;
-      setError('저장 중 문제가 생겼어요. 다시 시도해 주세요.');
-      setSaving(false);
-    }
+    });
   };
 
   const onKeyDown = (e) => {
@@ -115,6 +109,7 @@ export const InspectionPopover = ({
       <div className="min-w-0 flex-1 text-[10px] leading-snug">
         {error ? <span className="font-bold text-red-600">{error}</span>
           : willShip ? <span className="font-bold text-emerald-700">저장하면 이 컬러 출고 칸도 '완료'로 체크돼요.</span>
+            : willUnship ? <span className="font-bold text-amber-700">저장하면 '출고완료'로 자동 체크했던 출고가 풀려요.</span>
             : null}
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
@@ -219,7 +214,7 @@ export const InspectionPopover = ({
 
         <p className="flex items-start gap-1 text-[10px] text-slate-500 leading-snug">
           <Info className="w-3 h-3 mt-px shrink-0" />
-          <span>'출고완료'를 고르면 이 컬러 출고 칸도 완료로 체크돼요 (출고일이 비었으면 그날).</span>
+          <span>'출고완료'를 고르면 이 컬러 출고 칸도 완료로 체크돼요 (출고일이 비었으면 그날). 다시 다른 상태로 바꾸면 자동 체크는 풀려요 — 출고 칸을 손으로 체크했으면 그대로.</span>
         </p>
       </div>
     </PopoverShell>

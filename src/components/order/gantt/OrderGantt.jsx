@@ -6,6 +6,7 @@ import {
 import {
   describeProvisionalDue, describeStepCurrent,
   findDailyNote, getColorStage, getDday, getEndShift, getKnittingEstimatedEnd, getLossRate, getStepEnd, getWorkKg, isDropClosed,
+  collectVendorOptions,
 } from '../../../utils/orderModel';
 import { addDaysYmd, diffDaysYmd, fmtKg, shortDate, toDate, todayYmd } from '../../../utils/orderCalculations';
 import { ProcessPopover } from '../sheet/ProcessPopover';
@@ -79,11 +80,6 @@ const LEGEND = [
   { key: 'ship', label: '출고' },
 ];
 const OTHER_STEP_DOTS = ['yarn', 'finishing', 'physical_test', 'custom'];
-
-// 마스터 목록(문자열 또는 {name}) → 이름 배열
-const toNames = (list) => (Array.isArray(list) ? list : [])
-  .map(v => (typeof v === 'string' ? v : v?.name))
-  .filter(Boolean);
 
 // ============================================================
 // 1. 작은 표시 컴포넌트
@@ -462,9 +458,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
   // ---------- 공정 외주처 제안: 마스터 + 다른 오더들이 쓴 값 (현황표와 같은 방식) ----------
   const vendorOptionsFor = (stepKey, orderId) => {
     const meta = stepMetaOf(stepKey);
-    const fromMaster = meta?.vendorMaster ? toNames(masters?.[meta.vendorMaster]) : [];
-    const fromOrders = orders.filter(o => o.id !== orderId).map(o => o.steps?.[stepKey]?.vendor);
-    return [...new Set([...fromMaster, ...fromOrders].map(v => String(v || '').trim()).filter(Boolean))];
+    return collectVendorOptions(meta?.vendorMaster ? masters?.[meta.vendorMaster] : [], orders, o => o.steps?.[stepKey]?.vendor, orderId);
   };
 
   // ---------- 팝오버 ----------
@@ -914,7 +908,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
           color={popColor}
           anchorRect={popover.anchorRect}
           onClose={closePopover}
-          onSave={entries => actions.setGreigeOuts(popOrder.id, popColor.id, entries)}
+          onSave={(entries, base) => actions.setGreigeOuts(popOrder.id, popColor.id, entries, base)}
         />
       )}
       {popover?.kind === 'add' && popOrder && (!popover.colorId || popColor) && (
@@ -948,7 +942,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
           onClose={closePopover}
           onSave={patch => actions.setColorTracks(popOrder.id, popColor.id, patch)}
           onSaveVendor={v => actions.setOrderField(popOrder.id, 'inspectVendor', v)}
-          vendorOptions={orders.map(o => o.inspectVendor)}
+          vendorOptions={collectVendorOptions([], orders, o => o.inspectVendor)}
         />
       )}
       {popover?.kind === 'note' && popOrder && (!popover.colorId || popColor) && (
