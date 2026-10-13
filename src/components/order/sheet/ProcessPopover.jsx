@@ -17,8 +17,10 @@ import { diffDaysYmd, fmtKg, shortDate, todayYmd, toNumberOrNull } from '../../.
 // - 로컬 draft 로 편집 → [저장] 누르면 "바뀐 필드만" patch 로 onSave(patch)
 // - Enter = 저장 (메모 칸 제외), ESC / 바깥 클릭 = 닫기 — 저장 안 한 변경이 있으면 '변경사항이 있습니다' 창 (PopoverShell)
 // - anchorRect 가 있으면 클릭한 칸 옆에, null 이면 화면 가운데 모달로 뜸
+// - simple: 외주처 칸 없이 (프리세팅 — 염가공 LOT 창에서 관리하는 오더 공통 공정, 간트 막대를 누를 때)
+// - prefill: 간트에서 날짜를 눌러 연 경우 { startDate } 또는 { endDate } — 그 값을 넣은 채로 열림 ([저장]해야 반영)
 // props: order, stepKey, meta?(추가 공정처럼 기본 목록에 없는 공정 — { label, vendorLabel }),
-//        anchorRect, onClose, onSave(patch) => Promise<boolean>, vendorOptions: string[]
+//        anchorRect, onClose, onSave(patch) => Promise<boolean>, vendorOptions: string[], simple, prefill
 // ============================================================
 
 const INPUT_CLS = 'min-w-0 px-2 py-1.5 bg-white border rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-400/60 focus:border-teal-400';
@@ -98,20 +100,30 @@ const shiftText = (diff) => {
   return '최초와 같음';
 };
 
-export const ProcessPopover = ({ order, stepKey, meta: metaProp = null, anchorRect = null, onClose, onSave, vendorOptions = [] }) => {
+export const ProcessPopover = ({
+  order, stepKey, meta: metaProp = null, anchorRect = null, onClose, onSave, vendorOptions = [], simple = false, prefill = null,
+}) => {
   const meta = metaProp || getStepMeta(stepKey);
   const step = { ...createStep(stepKey), ...(order?.steps?.[stepKey] || {}) };
   const isKnitting = stepKey === 'knitting';
   const listId = useId();
 
   const [initialForm] = useState(() => toForm(step));
-  const [form, setForm] = useState(initialForm);
+  // 간트에서 고른 날짜 (예상 시작일 또는 종료일) — 넣은 채로 시작 (저장 전까지는 바뀐 값)
+  const [form, setForm] = useState(() => {
+    if (!prefill) return initialForm;
+    const p = {};
+    if (prefill.startDate) p.startDate = prefill.startDate;
+    if (prefill.endDate) p.endDate = prefill.endDate;
+    return { ...initialForm, ...p };
+  });
   const { saving, close, run } = usePopoverSave(onClose);
 
   // 칸에서 열었을 때만 외주처 칸에 바로 커서 (가운데 모달 = 주로 모바일 → 키보드가 튀어나오지 않게)
   // autoFocus 는 PopoverShell 이 위치를 잡기 전(숨김 상태)이라 먹히지 않아서 effect 로 처리
+  //  외주처 칸이 없는 창(프리세팅)·간트 날짜로 연 창은 본문에 포커스 (Enter = 저장)
   const vendorRef = useRef(null);
-  const [focusOnOpen] = useState(() => !!anchorRect);
+  const [focusOnOpen] = useState(() => !!anchorRect && !simple && !prefill);
   useEffect(() => {
     if (focusOnOpen) vendorRef.current?.focus();
   }, [focusOnOpen]);
@@ -255,22 +267,34 @@ export const ProcessPopover = ({ order, stepKey, meta: metaProp = null, anchorRe
     >
       {/* 가운데 모달(외주처 칸에 커서를 두지 않을 때)은 이 영역에 포커스(data-autofocus) → Enter 로 저장 */}
       <div className="p-3 space-y-3 outline-none" tabIndex={-1} data-autofocus onKeyDown={onKeyDown}>
-        {/* 외주처 */}
-        <label className="block">
-          <span className={LABEL_CLS}>{meta.vendorLabel || '외주처'}</span>
-          <input
-            type="text"
-            list={listId}
-            value={form.vendor}
-            ref={vendorRef}
-            onChange={setField('vendor')}
-            placeholder={options.length ? '목록에서 고르거나 직접 입력' : '직접 입력'}
-            className={`${INPUT_CLS} ${INPUT_OK} font-bold`}
-          />
-          <datalist id={listId}>
-            {options.map(v => <option key={v} value={v} />)}
-          </datalist>
-        </label>
+        {prefill && (
+          <p className="px-2 py-1.5 rounded-lg border border-teal-200 bg-teal-50 text-[11px] font-bold text-teal-800 leading-snug">
+            간트에서 고른 날짜({shortDate(prefill.startDate || prefill.endDate)})를 {prefill.startDate ? '예상 시작일' : '예상 종료일'}로 넣었어요 —
+            [저장]하면 현황표에도 반영돼요.
+          </p>
+        )}
+        {simple ? (
+          <p className="text-[10px] text-slate-500 leading-snug">
+            {meta.label}은 염가공 LOT 창에서 관리해요 (염색 전 · 오더 전체 공통). 여기서 고쳐도 같은 값이에요.
+          </p>
+        ) : (
+          /* 외주처 */
+          <label className="block">
+            <span className={LABEL_CLS}>{meta.vendorLabel || '외주처'}</span>
+            <input
+              type="text"
+              list={listId}
+              value={form.vendor}
+              ref={vendorRef}
+              onChange={setField('vendor')}
+              placeholder={options.length ? '목록에서 고르거나 직접 입력' : '직접 입력'}
+              className={`${INPUT_CLS} ${INPUT_OK} font-bold`}
+            />
+            <datalist id={listId}>
+              {options.map(v => <option key={v} value={v} />)}
+            </datalist>
+          </label>
+        )}
 
         {/* 예상 시작일 / 예상 종료일 */}
         <div className="space-y-1">

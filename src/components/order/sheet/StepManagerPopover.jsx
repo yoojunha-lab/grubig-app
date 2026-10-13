@@ -13,7 +13,7 @@ import { isStepUsed } from '../../../utils/orderModel';
 //   (칸을 채운 오더만 "사용하는 공정" — 외주처 · 예상 시작/종료일 · 상태 · 메모)
 // - 추가 / 이름·위치 바꾸기 / 삭제는 누르는 즉시 저장 (settings/general.productionSteps — 모든 PC 공통)
 // - 삭제: 그 공정에 입력한 오더가 있으면 알려 줌 (입력한 값은 오더 문서에 남고 화면에서만 안 보임)
-// - 프리세팅처럼 기본으로 있는 공정은 여기서 지우지 않음 (칸 보이기/숨기기로 숨김)
+// - 기본으로 있는 공정(원사·편직·후가공…)은 여기서 지우지 않음 (칸 보이기/숨기기로 숨김). 프리세팅은 염가공 LOT 창에서 (2026-10-14)
 // props: anchorRect, customSteps, stepDefs, orders(입력된 오더 수 세기), onSave(list) => Promise<boolean>, onClose
 // ============================================================
 
@@ -198,7 +198,7 @@ export const StepManagerPopover = ({ anchorRect = null, customSteps = [], stepDe
           <div className="text-[11px] font-bold text-slate-500">추가한 공정 ({customSteps.length})</div>
           {customSteps.length === 0 ? (
             <p className="text-[11px] text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-lg px-2.5 py-2">
-              아직 추가한 공정이 없어요. 아래에서 이름과 위치를 정해 추가해 주세요. (프리세팅은 기본으로 있어요)
+              아직 추가한 공정이 없어요. 아래에서 이름과 위치를 정해 추가해 주세요. (프리세팅은 염가공 LOT 창에서 관리해요)
             </p>
           ) : customSteps.map(cs => {
             const n = usedCount(cs.key);

@@ -2,20 +2,22 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, Package, Trash2, Plus, Search, Link2, RotateCcw,
   ClipboardList, Factory, Palette, History, FilePlus2, Pencil, Flag,
-  FileText, Award, XCircle,
+  FileText, Award, XCircle, ClipboardCheck,
 } from 'lucide-react';
 import {
   ORDER_STEPS, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, PROCESS_THEME,
   COLOR_STAGES, ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_TYPES,
   PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS, TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES,
-  INSPECTION_STATUSES,
+  INSPECTION_STATUSES, DYE_METHODS, CLOSING_ITEMS, getStepDefs,
 } from '../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, getOrderTotals, isStepUsed, getKnittingEstimatedEnd, getEndShift,
-  getLotOverview, getLotsStatus, getTrackEvent, getTrackStatusMeta, isTestReportPassed, isInspectionUsed,
+  getLotOverview, getLotsStatus, getTrackEvent, isTestReportPassed,
   getColorStage, getDday, colorHasData, collectVendorOptions,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState,
+  getColorInspection, getRoundStatusDate, getDyeYield, isPieceDyed, getClosingState, isClosingPending,
 } from '../../utils/orderModel';
+import { PresettingChip } from './common/PresettingChip';
 import { shortDate, isYmd, toNumberOrNull, fmtKg, todayYmd } from '../../utils/orderCalculations';
 import { CHANGE_ACTIONS } from '../../utils/auditLog';
 import { PartnerPickerModal } from '../common/PartnerPickerModal';
@@ -32,7 +34,8 @@ import { StatusSelect } from './common/StatusSelect';
 // - 모바일에서는 이 창이 유일한 편집 화면 → 한 열 폼, 칸마다 바로 저장
 // - 입력 규칙은 현황표와 같음: 글자/숫자 = blur·Enter 확정, Esc 취소 / 날짜 = 고르는 즉시 / 체크 = 즉시
 // - 모든 저장은 actions(useOrder 의 orderActions)로만 한다 (Firestore 직접 호출 금지)
-// - 섹션: (설계서 샘플 오더면 맨 위에 설계서) ① 기본정보 ② 가납기 ③ 공정 일정 ④ 컬러 ⑤ 변경 이력 ⑥ 등록/수정 시각
+// - 섹션: (설계서 샘플 오더면 맨 위에 설계서) ① 기본정보(+ 선염/후염) ② 가납기 ③ 공정 일정 ④ 컬러(후염이면 맨 위에 오더 생지 출고)
+//         ④-2 마무리(원사재고정리 · EZTEX 재고정리 · EZTEX 종결) ⑤ 변경 이력 ⑥ 등록/수정 시각
 
 // ============================================================
 // 0. 공통 스타일 / 작은 부품
@@ -486,10 +489,12 @@ const StepRow = ({ meta, step, order, onOpen, onStatus }) => {
 // 3. 컬러 카드 (컬러명 · kg · 생지출고 · LOT · 컨펌 · 출고 · 현재 단계)
 // ============================================================
 const ColorCard = ({
-  order, color, index, lossRate, single, autoFocusName,
+  order, color, index, lossRate, single, autoFocusName, yieldSpec = null,
   onPatch, onRemove, onOpenLots, onOpenConfirm, onOpenGreige, onGreigeDone, onTracks, onTrackEvent, onOpenInspection,
+  onLotInspection,
 }) => {
   const stageMeta = COLOR_STAGES[getColorStage(order, color)] || COLOR_STAGES.waiting;
+  const piece = isPieceDyed(order); // 후염 — 생지 출고는 오더 전체 (컬러 카드 위 '생지 출고 (오더 전체)')
   const greige = getGreigeState(color);
   const manual = isWorkKgManual(color);
   const workKg = getWorkKg(color, lossRate);
@@ -497,15 +502,13 @@ const ColorCard = ({
   const lots = color.lots || [];
   const lotOv = getLotOverview(lots);
   const lotStatus = getLotsStatus(lots);
+  const lotYield = lotOv.dyeKg ? getDyeYield(lotOv.dyeKg, lossRate, yieldSpec) : null;
   const testNeeded = !!color.testReport?.needed;
   const testEv = getTrackEvent(color, 'testReport');
   const brandEv = getTrackEvent(color, 'brandConfirm');
   const expected = color.testReport?.expectedDate || '';
   const expectedLate = testNeeded && expected && !isTestReportPassed(color) && expected < todayYmd();
-  const insp = color.inspection || {};
-  const inspUsed = isInspectionUsed(color);
-  const inspEv = getTrackEvent(color, 'inspection');
-  const inspMeta = getTrackStatusMeta(color, 'inspection');
+  const insp = getColorInspection(color);
 
   // 작지kg: 자동값 그대로면 저장 안 함, 비우면 자동으로 되돌림
   const commitWorkKg = (n) => {
@@ -583,7 +586,12 @@ const ColorCard = ({
           </div>
         </Field>
 
-        {/* 생지 출고 (출고마다 한 줄 — 전체/부분, 체크 = 바로 저장) */}
+        {/* 생지 출고 (출고마다 한 줄 — 전체/부분, 체크 = 바로 저장) — 후염은 오더 전체 (컬러 카드 위) */}
+        {piece ? (
+          <div className="col-span-2 rounded-lg border border-dashed border-sky-200 bg-sky-50/40 px-2.5 py-1.5 text-[11px] text-sky-800">
+            후염 — 생지 출고는 위 <b>'생지 출고 (오더 전체)'</b>에서 한 번에 기록해요.
+          </div>
+        ) : (
         <div className={`col-span-2 rounded-lg border px-2.5 py-2 ${greige.fullDone ? `${PROCESS_THEME.greige.cell} border-lime-300` : greige.entries.length ? 'bg-lime-50/50 border-lime-200' : 'border-dashed border-slate-200'}`}>
           <div className="flex items-center justify-between gap-2">
             <div className="text-[11px] font-bold text-slate-500">
@@ -610,6 +618,7 @@ const ColorCard = ({
                     />
                     <span className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-bold ${kind.cls}`}>{kind.short}</span>
                     <span className="shrink-0 font-mono">{g.date ? shortDate(g.date) : '날짜?'}</span>
+                    {g.kg ? <span className="shrink-0 font-mono text-[11px] text-slate-500">{fmtKg(g.kg)}kg</span> : null}
                     {g.memo && <span className="min-w-0 truncate text-[11px] text-slate-500">{g.memo}</span>}
                   </label>
                 );
@@ -619,8 +628,9 @@ const ColorCard = ({
             <div className="mt-1 text-[11px] text-slate-400">생지 출고 기록이 없어요. (전체 / 부분 출고)</div>
           )}
         </div>
+        )}
 
-        {/* 염가공 LOT 요약 */}
+        {/* 염가공 LOT 요약 (+ 배색량 → 예상 YD · 프리세팅) */}
         <div className={`col-span-2 rounded-lg border px-2.5 py-2 ${lots.length ? `${PROCESS_THEME.dyeing.cell} border-orange-200` : 'border-dashed border-slate-200'}`}>
           <div className="flex items-center justify-between gap-2">
             <div className="text-[11px] font-bold text-slate-500 min-w-0 truncate">
@@ -633,6 +643,7 @@ const ColorCard = ({
               </button>
             )}
           </div>
+          <PresettingChip order={order} className="mt-1" />
           {lots.length ? (
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
               <span className="px-1.5 py-0.5 rounded bg-white/70 border border-orange-200 font-bold">
@@ -645,6 +656,11 @@ const ColorCard = ({
                 <span className="inline-flex items-center gap-1 text-[11px]">
                   <span className={`w-2 h-2 rounded-full ${(PROGRESS_STATUS_COLORS[lotStatus] || PROGRESS_STATUS_COLORS.pending).dot}`} />
                   {getStatusLabel(lotStatus)}
+                </span>
+              )}
+              {lotYield && (
+                <span className="w-full font-mono text-[11px] text-orange-900">
+                  배색 {fmtKg(lotOv.dyeKg)}kg → 예상 {fmtKg(lotYield.finishedKg)}kg{lotYield.yd !== null ? ` · ${lotYield.yd.toLocaleString()}YD` : ''}
                 </span>
               )}
             </div>
@@ -705,32 +721,46 @@ const ColorCard = ({
           <p className="text-[10px] text-slate-400">상태를 바꾸면 오늘 날짜로 기록돼요. 날짜·발행 예상일은 [기록 편집].</p>
         </div>
 
-        {/* 외관검사 (컬러별) — 상태 드롭다운 = 바로 저장(그날 날짜로 기록, 출고완료면 출고도 완료) */}
-        <div className={`col-span-2 rounded-lg border px-2.5 py-2 space-y-1 ${inspMeta?.phase === 'issue' ? 'bg-rose-50 border-rose-200' : inspUsed ? `${PROCESS_THEME.inspection.cell} border-violet-200` : 'border-dashed border-slate-200'}`}>
+        {/* 외관검사 (LOT별 · 1차·2차) — 상태 드롭다운 = 바로 저장(지금 차수에 그날 날짜로 기록, 재가공이면 다음 차수, 모두 출고완료면 출고도 완료) */}
+        <div className={`col-span-2 rounded-lg border px-2.5 py-2 space-y-1 ${insp.anyDefect ? 'bg-rose-50 border-rose-200' : insp.anyRedye ? 'bg-orange-50 border-orange-200' : insp.used ? `${PROCESS_THEME.inspection.cell} border-violet-200` : 'border-dashed border-slate-200'}`}>
           <div className="flex items-center justify-between gap-2">
             <div className="text-[11px] font-bold text-slate-500 min-w-0 truncate">
-              외관검사
+              외관검사 (LOT별)
               {order.inspectVendor && <span className="font-normal"> · {order.inspectVendor}</span>}
             </div>
             <button type="button" onClick={onOpenInspection} className={BTN_SUB}>
-              <Pencil className="w-3 h-3" /> {inspUsed ? '외관검사 편집' : '일정 입력'}
+              <Pencil className="w-3 h-3" /> {insp.used ? '외관검사 편집' : '일정 입력'}
             </button>
           </div>
-          <div className="flex items-center gap-2 flex-wrap text-xs">
-            <StatusSelect
-              value={inspEv?.status || ''}
-              options={INSPECTION_STATUSES}
-              onChange={st => onTrackEvent('inspection', st)}
-              size="md"
-              placeholder="상태"
-              ariaLabel="외관검사 상태"
-            />
-            {inspEv?.date && <span className="font-mono text-[11px] text-slate-500">{shortDate(inspEv.date)}</span>}
-            {(insp.startDate || insp.endDate) && (
-              <span className="font-mono text-[11px]">투입 {shortDate(insp.startDate) || '?'} ~ 종료예정 {shortDate(insp.endDate) || '?'}</span>
-            )}
-          </div>
-          {insp.notes && <div className="text-[11px] text-slate-600 whitespace-pre-wrap">{insp.notes}</div>}
+          {lots.length === 0 ? (
+            <div className="text-[11px] text-slate-400">외관검사는 염가공 LOT마다 해요 — LOT를 먼저 만들어 주세요.</div>
+          ) : (
+            <div className="space-y-1">
+              {insp.rows.map(r => {
+                const statusDate = getRoundStatusDate(r.round);
+                const planned = r.round && (r.round.startDate || r.round.endDate)
+                  ? `${shortDate(r.round.startDate) || '?'}~${shortDate(r.round.endDate) || '?'}`
+                  : '';
+                return (
+                  <div key={r.lot.id} className="flex items-center gap-2 flex-wrap text-xs">
+                    <span className="w-10 shrink-0 font-extrabold text-orange-700">LOT{r.lot.no}</span>
+                    {r.roundNo > 1 && <span className="text-[11px] font-bold text-violet-700">{r.roundNo}차</span>}
+                    <StatusSelect
+                      value={r.status || 'waiting'}
+                      options={INSPECTION_STATUSES}
+                      onChange={st => onLotInspection(r.lot.id, st)}
+                      size="md"
+                      ariaLabel={`LOT${r.lot.no} 외관검사 상태`}
+                    />
+                    {statusDate && r.status !== 'waiting'
+                      ? <span className="font-mono text-[11px] text-slate-500">{shortDate(statusDate)}</span>
+                      : planned && <span className="font-mono text-[11px] text-slate-400">예상 {planned}</span>}
+                    {r.redyeing && r.status !== 'redye' && <span className="text-[11px] font-bold text-orange-700">재가공중</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* 출고 */}
@@ -744,6 +774,94 @@ const ColorCard = ({
         </Field>
       </div>
     </div>
+  );
+};
+
+// ============================================================
+// 3-2. 후염 생지 출고 (오더 전체 한 번 — 대표님 요청 2026-10-14). 체크 = 바로 저장, [출고 기록 편집] = 생지 출고 창
+// ============================================================
+const OrderGreigeCard = ({ order, onOpen, onDone }) => {
+  const st = getGreigeState(order);
+  return (
+    <div className={`mb-3 rounded-xl border px-3 py-2 ${st.fullDone ? `${PROCESS_THEME.greige.cell} border-lime-300` : st.entries.length ? 'bg-lime-50/50 border-lime-200' : 'border-dashed border-slate-200 bg-white'}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] font-bold text-slate-600">
+          생지 출고 <span className="font-normal text-sky-700">(후염 · 오더 전체)</span>
+          <span className="font-normal">
+            {st.fullDone ? ' · 전체 출고 끝' : st.partialDone ? ` · 부분 출고 ${st.doneCount}건` : ''}
+            {st.doneKg ? ` · ${fmtKg(st.doneKg)}kg` : ''}
+          </span>
+        </div>
+        <button type="button" onClick={onOpen} className={BTN_SUB}>
+          {st.entries.length ? '출고 기록 편집' : <><Plus className="w-3 h-3" /> 출고 기록</>}
+        </button>
+      </div>
+      {st.entries.length ? (
+        <div className="mt-1 space-y-1">
+          {st.entries.map(g => {
+            const kind = GREIGE_OUT_KINDS.find(k => k.key === g.kind) || GREIGE_OUT_KINDS[0];
+            return (
+              <label key={g.id} className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                <input type="checkbox" checked={!!g.done} onChange={e => onDone(g.id, e.target.checked)} className="w-4 h-4 accent-lime-600" />
+                <span className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-bold ${kind.cls}`}>{kind.short}</span>
+                <span className="shrink-0 font-mono">{g.date ? shortDate(g.date) : '날짜?'}</span>
+                {g.kg ? <span className="shrink-0 font-mono text-[11px] text-slate-500">{fmtKg(g.kg)}kg</span> : null}
+                {g.memo && <span className="min-w-0 truncate text-[11px] text-slate-500">{g.memo}</span>}
+              </label>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mt-1 text-[11px] text-slate-400">생지를 오더 전체 한 번에 출고해요 — 모든 컬러에 같이 적용돼요.</div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================
+// 3-3. 마무리 (원사재고정리 · EZTEX 재고정리 · EZTEX 종결 — 대표님 요청 2026-10-14)
+//      체크 = 바로 저장 (3개 모두 → 오더 자동 '완료', 자동 완료를 체크 해제 → 다시 진행중), 메모는 칸을 떠날 때 저장
+// ============================================================
+const ClosingSection = ({ order, onSet }) => {
+  const cs = getClosingState(order);
+  const pending = isClosingPending(order);
+  return (
+    <Section
+      icon={ClipboardCheck}
+      title={`마무리 (${cs.done}/${cs.total})`}
+      right={pending
+        ? <span className="px-1.5 py-0.5 rounded border border-amber-300 bg-amber-50 text-[10px] font-extrabold text-amber-800">마무리 대기</span>
+        : cs.complete ? <span className="text-[11px] font-bold text-emerald-700">마무리 끝</span> : null}
+    >
+      <div className={`rounded-xl border divide-y ${cs.complete ? 'border-emerald-200 divide-emerald-100' : 'border-slate-200 divide-slate-100'}`}>
+        {CLOSING_ITEMS.map(it => {
+          const item = cs.items[it.key];
+          return (
+            <div key={it.key} className={`px-3 py-2 space-y-1.5 ${item.done ? 'bg-emerald-50/50' : ''}`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <CheckInput checked={item.done} label={it.label} onChange={c => onSet({ [it.key]: { done: c } })} />
+                {item.done && (
+                  <div className="w-40">
+                    <DateInput value={item.date} onCommit={v => onSet({ [it.key]: { date: v } })} />
+                  </div>
+                )}
+              </div>
+              <TextInput
+                value={item.memo}
+                placeholder={`${it.label} 메모`}
+                onCommit={v => {
+                  const t = v.trim();
+                  if (t !== item.memo) onSet({ [it.key]: { memo: t } });
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[10px] text-slate-400 mt-1.5">
+        3개를 모두 체크하면 오더가 자동으로 '완료'돼요. 잘못 눌렀으면 체크를 풀면 다시 진행중으로 돌아가요.
+      </p>
+    </Section>
   );
 };
 
@@ -886,17 +1004,19 @@ const SheetSection = ({ order, sheetLink }) => {
 // ============================================================
 // 5. 상세창 본문 (order.id 가 바뀌면 key 로 새로 마운트 → 접힘/팝업 상태 초기화)
 // ============================================================
+const ORDER_GREIGE = '__order'; // 후염 — 오더 전체 생지 출고 창
+
 const OrderDetailBody = ({
   order, isDraft, onClose, actions, masters, stepDefs: stepDefsProp, inspectVendorOptions = [],
   partners, savePartner, deletePartner, makeEmptyPartner,
-  savedFabrics, onOpenLots, sheetLink = null,
+  savedFabrics, onOpenLots, sheetLink = null, yieldSpecOf = null,
 }) => {
   const panelRef = useRef(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmColorId, setConfirmColorId] = useState(null);
   const [processKey, setProcessKey] = useState(null); // 공정 입력 창을 연 공정
   const [provisionalOpen, setProvisionalOpen] = useState(false); // 가납기 입력 창
-  const [greigeColorId, setGreigeColorId] = useState(null);     // 생지 출고 입력 창을 연 컬러
+  const [greigeColorId, setGreigeColorId] = useState(null);     // 생지 출고 입력 창을 연 컬러 (ORDER_GREIGE = 후염 오더 전체)
   const [inspectionColorId, setInspectionColorId] = useState(null); // 외관검사 입력 창을 연 컬러
   const [newColorId, setNewColorId] = useState(null); // 방금 추가한 컬러 → 컬러명 칸 자동 포커스
   const [deleting, setDeleting] = useState(false);
@@ -934,11 +1054,14 @@ const OrderDetailBody = ({
   const totals = getOrderTotals(order);
   const colors = order.colors || [];
   const confirmColor = confirmColorId ? colors.find(c => c.id === confirmColorId) || null : null;
-  const greigeColor = greigeColorId ? colors.find(c => c.id === greigeColorId) || null : null;
+  const greigeColor = greigeColorId && greigeColorId !== ORDER_GREIGE ? colors.find(c => c.id === greigeColorId) || null : null;
+  const greigeOpen = greigeColorId === ORDER_GREIGE || !!greigeColor;
   const inspectionColor = inspectionColorId ? colors.find(c => c.id === inspectionColorId) || null : null;
-  const stepDefs = stepDefsProp || ORDER_STEPS; // 기본 공정 + 대표님이 추가한 공정 (흐름 순서)
+  const stepDefs = stepDefsProp || getStepDefs([]); // 기본 공정 + 대표님이 추가한 공정 (흐름 순서 — 프리세팅은 LOT 창)
   const processMeta = processKey ? stepDefs.find(m => m.key === processKey) || null : null;
-  const usedStepCount = (stepDefsProp || ORDER_STEPS).filter(m => isStepUsed(order.steps?.[m.key])).length;
+  const usedStepCount = stepDefs.filter(m => isStepUsed(order.steps?.[m.key])).length;
+  const piece = isPieceDyed(order);
+  const yieldSpec = yieldSpecOf ? yieldSpecOf(order) : null;
   const canPickPartner = !!(savePartner && deletePartner && makeEmptyPartner);
   const typeLabel = ORDER_TYPES.find(t => t.key === order.type)?.label || '메인';
   const dropClosed = isDropClosed(order); // 설계서 Drop 으로 닫힌 샘플 → 머리에 'Drop'
@@ -1061,6 +1184,18 @@ const OrderDetailBody = ({
                   value={order.type}
                   colorOf={k => TYPE_CLS[k] || TYPE_CLS.main}
                   onChange={k => setField('type', k)}
+                />
+              </Field>
+              <Field
+                label="염색 방식"
+                className="sm:col-span-2"
+                hint={piece ? '후염 — 생지 출고를 오더 전체 한 번에' : order.dyeMethod === 'yarn' ? '선염 — 생지 출고를 컬러마다' : '아직 안 골랐어요 — 지금은 컬러마다 출고'}
+              >
+                <Segment
+                  options={DYE_METHODS}
+                  value={order.dyeMethod || ''}
+                  colorOf={k => DYE_METHODS.find(m => m.key === k)?.cls || ''}
+                  onChange={k => actions.setDyeMethod(order.id, k)}
                 />
               </Field>
 
@@ -1203,6 +1338,13 @@ const OrderDetailBody = ({
               </span>
             )}
           >
+            {piece && (
+              <OrderGreigeCard
+                order={order}
+                onOpen={() => setGreigeColorId(ORDER_GREIGE)}
+                onDone={(entryId, done) => actions.setOrderGreigeOutDone(order.id, entryId, done)}
+              />
+            )}
             <div className="space-y-3">
               {colors.map((c, i) => (
                 <ColorCard
@@ -1213,6 +1355,7 @@ const OrderDetailBody = ({
                   lossRate={lossRate}
                   single={colors.length === 1}
                   autoFocusName={c.id === newColorId}
+                  yieldSpec={yieldSpec}
                   onPatch={patch => actions.setColorField(order.id, c.id, patch)}
                   onRemove={() => actions.removeColor(order.id, c.id)}
                   onOpenLots={onOpenLots ? () => onOpenLots(order.id, c.id, null) : null}
@@ -1222,6 +1365,7 @@ const OrderDetailBody = ({
                   onTracks={patch => actions.setColorTracks(order.id, c.id, patch)}
                   onTrackEvent={(track, st) => actions.addTrackEvent(order.id, c.id, track, st)}
                   onOpenInspection={() => setInspectionColorId(c.id)}
+                  onLotInspection={(lotId, st) => actions.addLotInspection(order.id, c.id, lotId, st)}
                 />
               ))}
             </div>
@@ -1233,6 +1377,9 @@ const OrderDetailBody = ({
               <Plus className="w-3.5 h-3.5" /> 컬러 추가
             </button>
           </Section>
+
+          {/* ④-2 마무리 (원사재고정리 · EZTEX 재고정리 · EZTEX 종결) */}
+          {!isDraft && <ClosingSection order={order} onSet={patch => actions.setClosing(order.id, patch)} />}
 
           {/* ⑤ 변경 이력 */}
           <ChangeLogSection changeLog={order.changeLog} />
@@ -1279,19 +1426,23 @@ const OrderDetailBody = ({
           color={inspectionColor}
           anchorRect={null}
           onClose={() => setInspectionColorId(null)}
-          onSave={patch => actions.setColorTracks(order.id, inspectionColor.id, patch)}
+          onSave={patchByLot => actions.setLotInspections(order.id, inspectionColor.id, patchByLot)}
           onSaveVendor={v => actions.setOrderField(order.id, 'inspectVendor', v)}
           vendorOptions={inspectVendorOptions}
+          onOpenLots={onOpenLots ? () => onOpenLots(order.id, inspectionColor.id, null) : undefined}
         />
       )}
-      {greigeColor && (
+      {greigeOpen && (
         <GreigeOutPopover
-          key={`greige_${greigeColor.id}`}
+          key={`greige_${greigeColorId}`}
           order={order}
           color={greigeColor}
           anchorRect={null}
           onClose={() => setGreigeColorId(null)}
-          onSave={(entries, base) => actions.setGreigeOuts(order.id, greigeColor.id, entries, base)}
+          onSave={(entries, base, scope) => (scope === 'order'
+            ? actions.setOrderGreigeOuts(order.id, entries, base)
+            : actions.setGreigeOuts(order.id, greigeColor?.id, entries, base))}
+          onSetDyeMethod={m => actions.setDyeMethod(order.id, m)}
         />
       )}
       {provisionalOpen && (

@@ -8,14 +8,15 @@ import { todayYmd } from '../../../utils/orderCalculations';
 // ------------------------------------------------------------
 // - 완료를 체크했는데 출고일이 비었으면 오늘로 채움 (현황표·상세창과 같은 규칙)
 // - [저장] → 바뀐 칸만 onSave({ shipDate?, shipDone? }). Enter = 저장, 닫을 때 저장 안 한 변경이 있으면 묻기
-// props: order, color, anchorRect(null = 화면 가운데), onClose, onSave(patch) => Promise<boolean>
+// - prefillDate: 간트에서 날짜를 눌러 연 경우 그 날을 출고일로 넣은 채로 열림 ([저장]해야 반영)
+// props: order, color, anchorRect(null = 화면 가운데), onClose, onSave(patch) => Promise<boolean>, prefillDate
 // ============================================================
 
 const INPUT_CLS = 'w-full min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-400/60 focus:border-teal-400';
 
-export const ShipPopover = ({ order, color, anchorRect = null, onClose, onSave }) => {
+export const ShipPopover = ({ order, color, anchorRect = null, onClose, onSave, prefillDate = '' }) => {
   const [initial] = useState(() => ({ shipDate: color?.shipDate || '', shipDone: !!color?.shipDone }));
-  const [form, setForm] = useState(initial);
+  const [form, setForm] = useState(() => (prefillDate ? { ...initial, shipDate: prefillDate } : initial));
   const { saving, close, run } = usePopoverSave(onClose);
 
   if (!order || !color) return null;
@@ -76,6 +77,11 @@ export const ShipPopover = ({ order, color, anchorRect = null, onClose, onSave }
           handleSave();
         }}
       >
+        {prefillDate && isDirty && (
+          <p className="px-2 py-1.5 rounded-lg border border-teal-200 bg-teal-50 text-[11px] font-bold text-teal-800 leading-snug">
+            간트에서 고른 날짜를 출고일로 넣었어요 — [저장]하면 현황표에도 반영돼요.
+          </p>
+        )}
         <label className="block">
           <span className="block mb-1 text-[11px] font-bold text-slate-500">출고일</span>
           <input

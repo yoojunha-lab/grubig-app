@@ -1,12 +1,13 @@
 import { useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CalendarDays, Check, Crosshair, Flag, Plus, StickyNote } from 'lucide-react';
+import { AlertTriangle, CalendarDays, CalendarPlus, Check, Crosshair, Flag, Plus } from 'lucide-react';
 import {
-  COLOR_STAGES, ORDER_TYPES, PROCESS_THEME, PROVISIONAL_STATES, getStatusLabel, getStepMeta, findStepMeta, getStepDefs,
+  COLOR_STAGES, ORDER_TYPES, PROCESS_THEME, PROVISIONAL_STATES, INSPECTION_STATUSES, PRESETTING_KEY,
+  getStatusLabel, getStepMeta, findStepMeta, getStepDefs, findStatusMeta,
 } from '../../../constants/production';
 import {
   describeProvisionalDue, describeStepCurrent,
   findDailyNote, getColorStage, getDday, getEndShift, getKnittingEstimatedEnd, getLossRate, getStepEnd, getWorkKg, isDropClosed,
-  collectVendorOptions,
+  collectVendorOptions, isPieceDyed, getRoundStatus, isClosingPending,
 } from '../../../utils/orderModel';
 import { addDaysYmd, diffDaysYmd, fmtKg, shortDate, toDate, todayYmd } from '../../../utils/orderCalculations';
 import { ProcessPopover } from '../sheet/ProcessPopover';
@@ -15,7 +16,9 @@ import { ProvisionalDuePopover } from '../sheet/ProvisionalDuePopover';
 import { GreigeOutPopover } from '../sheet/GreigeOutPopover';
 import { InspectionPopover } from '../sheet/InspectionPopover';
 import { ShipPopover } from '../sheet/ShipPopover';
+import { ClosingPopover } from '../sheet/ClosingPopover';
 import { GanttAddMenu } from './GanttAddMenu';
+import { GanttDateMenu } from './GanttDateMenu';
 import { SheetLinkChips } from '../common/SheetLinkChips';
 import { DayNotePopover } from './DayNotePopover';
 import {
@@ -28,11 +31,14 @@ import {
 // - 가로 = 날짜 칸(하루 1칸), 세로 = 오더 줄 + 그 아래 컬러 줄
 // - 줄마다 위쪽은 공정 막대 레인, 그 아래는 날짜 메모 (그날 현황 + 칸 색, 글자 전부 — 길면 줄바꿈)
 // - 오더 줄 맨 위 = 가납기 깃발 (늦으면 빨강) + 그 날짜에 오더 묶음 전체를 지나는 세로 점선 → 막대와 비교
-// - 막대 클릭: 공정 → ProcessPopover / LOT → onOpenLots / 컨펌 → ConfirmPopover / 생지출고·출고 → 상세창
+// - 막대 클릭: 공정·프리세팅 → ProcessPopover / LOT → onOpenLots / 컨펌 → ConfirmPopover / 생지출고 · 외관검사(LOT 차수·재가공) · 출고 → 그 입력 창
 // - 깃발 클릭 → 가납기 입력(ProvisionalDuePopover) → actions.setProvisionalDue
-// - 빈 곳·메모 클릭 → 그날 메모(DayNotePopover) → actions.setDailyNote
+// - 빈 날짜 칸 클릭 → 그 날에 넣기 메뉴(GanttDateMenu — 대표님 요청 2026-10-14 '메모 대신 공정을 넣을 수 있게')
+//   공정 · 프리세팅 · 생지 출고 · 새 LOT · 외관검사 · 컨펌 · 출고 → 그 날짜가 들어간 입력 창 ([저장] = 현황표와 같은 저장)
+//   맨 아래 '이 날 메모' / 써 둔 메모 글자를 누르면 그 메모 창 (DayNotePopover)
 // - 주말 숨기기(기본 켬, 엑셀처럼 평일만) — 브라우저에 기억
-// props: orders(저장된 오더, 현황표와 같은 순서), actions, masters, onOpenDetail(orderId), onOpenLots(orderId, colorId, anchorRect)
+// props: orders(저장된 오더, 현황표와 같은 순서), actions, masters, onOpenDetail(orderId),
+//        onOpenLots(orderId, colorId, anchorRect, { newLotDate }), inspectVendorOptions
 // ============================================================
 
 const LS_HIDE_WEEKENDS = 'grubig.production.gantt.hideWeekends';
@@ -104,7 +110,7 @@ const DdayBadge = ({ due }) => {
   return <span className={`${BADGE} font-extrabold ${cls}`} title={due ? `납기 ${due}` : undefined}>{label}</span>;
 };
 
-// 오더 줄 라벨: order# · 구분 · (설계서) · D-day / buyer · article# · detail
+// 오더 줄 라벨: order# · 구분 · (후염) · (설계서) · D-day / buyer · article# · detail
 // (button 안에는 div 대신 span 만 — 올바른 HTML 구조. 설계서 표시도 글자만 — 설계서 열기는 상세창·현황표에서)
 const OrderLabel = ({ order, sheetInfo = null, onOpenDetail }) => {
   const typeLabel = ORDER_TYPES.find(t => t.key === order.type)?.label || '메인';
@@ -122,7 +128,13 @@ const OrderLabel = ({ order, sheetInfo = null, onOpenDetail }) => {
       <span className={`flex items-center gap-1 w-full min-w-0 ${dim ? 'opacity-70' : ''}`}>
         <span className="font-mono font-extrabold text-xs text-teal-700 truncate">{order.orderNumber || '(order# 없음)'}</span>
         <span className={`${BADGE} text-[9px] px-1 ${TYPE_CHIP[order.type] || TYPE_CHIP.main}`}>{typeLabel}</span>
+        {order.dyeMethod && (
+          <span className={`${BADGE} text-[9px] px-1 ${order.dyeMethod === 'piece' ? 'bg-sky-50 text-sky-700 border-sky-300' : 'bg-pink-50 text-pink-700 border-pink-300'}`}>
+            {order.dyeMethod === 'piece' ? '후염' : '선염'}
+          </span>
+        )}
         <SheetLinkChips info={sheetInfo} />
+        {isClosingPending(order) && <span className={`${BADGE} text-[9px] px-1 bg-amber-50 text-amber-800 border-amber-300`}>마무리 대기</span>}
         {dim && <span className={`${BADGE} text-[9px] px-1 bg-slate-200 text-slate-600 border-slate-300`}>보류</span>}
         {completed && !dropClosed && <span className={`${BADGE} text-[9px] px-1 bg-emerald-100 text-emerald-700 border-emerald-300`}>완료</span>}
         {dropClosed && !sheetInfo?.dropped && <span className={`${BADGE} text-[9px] px-1 bg-rose-50 text-rose-600 border-rose-200`}>Drop</span>}
@@ -225,7 +237,7 @@ const isEstimatedBar = (order, bar) => bar.kind === 'step' && !!bar.estimated &&
 
 // 막대의 원래 시작/끝 날짜 (한쪽만 입력된 경우 툴팁에 "미입력" 표시용)
 const rawBarDates = (order, color, bar) => {
-  if (bar.kind === 'step') {
+  if (bar.kind === 'step' || bar.kind === 'presetting') {
     return { s: order.steps?.[bar.stepKey]?.startDate || '', e: getStepEnd(order, bar.stepKey), sName: '예상 시작일', eName: '예상 종료일' };
   }
   if (bar.kind === 'lot') {
@@ -252,11 +264,13 @@ const describeBar = (order, color, bar, metaOf = getStepMeta) => {
   const estimated = isEstimatedBar(order, bar);
   const base = { owner, title: `${bar.label}${estimated ? ' (생산량 계산)' : ''}`, ...describeRange(order, color, bar) };
 
-  if (bar.kind === 'step') {
+  if (bar.kind === 'step' || bar.kind === 'presetting') {
+    const preset = bar.kind === 'presetting';
     const meta = metaOf(bar.stepKey);
     const step = order.steps?.[bar.stepKey] || {};
     const shift = getEndShift(step);
     const lines = [];
+    if (preset) lines.push('염색 전 · 오더 전체 공통 (염가공 LOT 창에서도 고쳐요)');
     if (shift) {
       const d = shift.diff;
       lines.push(`최초 예상 종료 ${shortDate(shift.first)}${shift.current ? ` → 지금 ${shortDate(shift.current)}` : ''}${d ? ` (${d > 0 ? `${d}일 늦어짐` : `${-d}일 당겨짐`})` : ''}`);
@@ -267,24 +281,43 @@ const describeBar = (order, color, bar, metaOf = getStepMeta) => {
     return {
       ...base,
       status: getStatusLabel(bar.status),
-      vendorLabel: meta?.vendorLabel || '외주처',
-      vendor: step.vendor,
+      vendorLabel: preset ? '염색소' : (meta?.vendorLabel || '외주처'),
+      vendor: preset ? order.dyeVendor : step.vendor,
       extra: lines.join('\n'),
-      hint: '누르면 공정 일정 · 상태 수정',
+      hint: preset ? '누르면 프리세팅 일정 · 상태 수정' : '누르면 공정 일정 · 상태 수정',
     };
   }
   if (bar.kind === 'lot') {
     const lot = (color?.lots || []).find(l => l.id === bar.lotId) || {};
-    return { ...base, status: getStatusLabel(bar.status), vendorLabel: '염색소', vendor: order.dyeVendor, extra: lot.notes || '', hint: '누르면 LOT 계획 편집' };
+    const lines = [lot.dyeKg ? `배색량 ${fmtKg(lot.dyeKg)}kg` : '', lot.notes || ''].filter(Boolean);
+    return { ...base, status: getStatusLabel(bar.status), vendorLabel: '염색소', vendor: order.dyeVendor, extra: lines.join('\n'), hint: '누르면 LOT 계획 편집' };
   }
-  if (bar.kind === 'inspection') {
-    const insp = color?.inspection || {};
+  if (bar.kind === 'inspection' || bar.kind === 'redye') {
+    const lot = (color?.lots || []).find(l => l.id === bar.lotId) || {};
+    const rounds = lot.inspections || [];
+    const idx = rounds.findIndex(r => r.id === bar.roundId);
+    const round = rounds[idx] || {};
+    if (bar.kind === 'redye') {
+      return {
+        ...base,
+        status: `${idx + 1}차 불량 → 염가공소 재가공 (다음 ${idx + 2}차 검사)`,
+        vendorLabel: '염색소',
+        vendor: order.dyeVendor,
+        extra: round.notes || '',
+        hint: '누르면 외관검사 수정',
+      };
+    }
+    const st = findStatusMeta(INSPECTION_STATUSES, getRoundStatus(round));
+    const lines = [];
+    if (round.startDate || round.endDate) lines.push(`예상 ${shortDate(round.startDate) || '?'}~${shortDate(round.endDate) || '?'}`);
+    (round.events || []).forEach(e => lines.push(`${shortDate(e.date) || '날짜?'} ${findStatusMeta(INSPECTION_STATUSES, e.status)?.label || e.status}`));
+    if (round.notes) lines.push(round.notes);
     return {
       ...base,
-      status: bar.label.replace(/^외관검사\s*/, '') || '예정',
+      status: `LOT${lot.no || '?'} ${idx + 1}차 · ${st && st.key !== 'waiting' ? st.label : '투입 전 (계획)'}`,
       vendorLabel: '검사처',
       vendor: order.inspectVendor,
-      extra: insp.notes || '',
+      extra: lines.join('\n'),
       hint: '누르면 외관검사 수정',
     };
   }
@@ -300,11 +333,12 @@ const describeBar = (order, color, bar, metaOf = getStepMeta) => {
     };
   }
   if (bar.kind === 'greige') {
-    const g = (color?.greigeOuts || []).find(x => x.id === bar.greigeId) || {};
+    const list = bar.scope === 'order' ? order.greigeOuts : color?.greigeOuts;
+    const g = (list || []).find(x => x.id === bar.greigeId) || {};
     const route = `${order.steps?.knitting?.vendor || '편직처'} → ${order.dyeVendor || '염색소'}`;
     return {
       ...base,
-      status: `${g.kind === 'partial' ? '부분' : '전체'} ${bar.status === 'done' ? '출고 완료' : '출고 예정'}`,
+      status: `${g.kind === 'partial' ? '부분' : '전체'} ${bar.status === 'done' ? '출고 완료' : '출고 예정'}${g.kg ? ` · ${fmtKg(g.kg)}kg` : ''}${bar.scope === 'order' ? ' (후염 · 오더 전체)' : ''}`,
       vendorLabel: '경로',
       vendor: route,
       extra: g.memo ? `메모: ${g.memo}` : '',
@@ -400,10 +434,14 @@ const GanttUnderlay = ({ layout }) => (
 // ============================================================
 // 4. 본체
 // ============================================================
-export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpenDetail, onOpenLots, sheetLink = null }) => {
+export const OrderGantt = ({
+  orders = [], actions, masters = {}, stepDefs, onOpenDetail, onOpenLots, sheetLink = null, inspectVendorOptions = null,
+}) => {
   const today = todayYmd();
   const [hideWeekends, setHideWeekends] = useState(loadHideWeekends);
-  const [popover, setPopover] = useState(null); // { kind:'process'|'confirm'|'note', orderId, stepKey?, colorId?, date?, anchorRect }
+  // { kind:'process'|'confirm'|'greige'|'inspection'|'ship'|'closing'|'add'|'date'|'note'|'provisional',
+  //   orderId, stepKey?, colorId?, date?, anchorRect, prefill? }
+  const [popover, setPopover] = useState(null);
   const scrollRef = useRef(null);
   const tipRef = useRef(null);
   const viewRef = useRef(null);                 // 화면 왼쪽 첫 날짜 { ymd, offset } — 주말 토글·기간 변경 때 같은 날짜 유지
@@ -481,16 +519,17 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
     // 긴 막대는 누른 위치 근처에 팝오버 (키보드 Enter 면 막대 왼쪽)
     const x = e.detail > 0 && e.clientX ? Math.max(r.left, e.clientX - 24) : r.left;
     const anchorRect = { left: x, right: x + 1, top: r.top, bottom: r.bottom, width: 1, height: r.height };
-    if (bar.kind === 'step') {
+    if (bar.kind === 'step' || bar.kind === 'presetting') {
       setPopover({ kind: 'process', orderId: order.id, stepKey: bar.stepKey, anchorRect });
     } else if (bar.kind === 'lot' && color) {
       if (onOpenLots) onOpenLots(order.id, color.id, anchorRect);
       else onOpenDetail?.(order.id);
     } else if ((bar.kind === 'confirm' || bar.kind === 'test') && color) {
       setPopover({ kind: 'confirm', orderId: order.id, colorId: color.id, anchorRect });
-    } else if (bar.kind === 'greige' && color) {
-      setPopover({ kind: 'greige', orderId: order.id, colorId: color.id, anchorRect });
-    } else if (bar.kind === 'inspection' && color) {
+    } else if (bar.kind === 'greige') {
+      // 후염 출고 막대(오더 줄) = 오더 전체 / 선염 = 그 컬러
+      setPopover({ kind: 'greige', orderId: order.id, colorId: bar.scope === 'order' ? null : color?.id || null, anchorRect });
+    } else if ((bar.kind === 'inspection' || bar.kind === 'redye') && color) {
       setPopover({ kind: 'inspection', orderId: order.id, colorId: color.id, anchorRect });
     } else if (bar.kind === 'ship' && color) {
       setPopover({ kind: 'ship', orderId: order.id, colorId: color.id, anchorRect });
@@ -506,8 +545,8 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
     skipCellClickRef.current = !!document.querySelector('[role="dialog"]');
   };
 
-  // 그 날짜 칸 메모 창 — 누른 높이 바로 아래에 뜸 (줄이 메모로 길어져도 누른 곳 근처)
-  const openNote = (e, order, color, col, left) => {
+  // 그 날짜 칸 창 (kind: 'date' = 그 날에 넣기 메뉴 / 'note' = 그 날 메모) — 누른 높이 바로 아래에 뜸
+  const openDayPopover = (kind, e, order, color, col, left) => {
     if (skipCellClickRef.current) {
       skipCellClickRef.current = false;
       return;
@@ -517,7 +556,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
     tipRef.current?.hide();
     const y = e.clientY || 0;
     setPopover({
-      kind: 'note',
+      kind,
       orderId: order.id,
       colorId: color ? color.id : '',
       date: day.ymd,
@@ -525,17 +564,44 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
     });
   };
 
-  // 빈 곳 클릭 → 그날 메모 (클릭 위치 ÷ 칸 폭 = 날짜)
+  // 빈 곳 클릭 → 그 날에 넣기 메뉴 (클릭 위치 ÷ 칸 폭 = 날짜) — 대표님 요청 2026-10-14 (메모는 메뉴 맨 아래)
   const handleCellClick = (e, order, color) => {
     const r = e.currentTarget.getBoundingClientRect();
     const col = Math.floor((e.clientX - r.left) / DAY_W);
-    openNote(e, order, color, col, r.left + col * DAY_W);
+    openDayPopover('date', e, order, color, col, r.left + col * DAY_W);
   };
 
-  // 메모 글자 클릭 → 그 메모 날짜 (글자가 옆 칸까지 넓게 써져 있어도 그 메모의 날짜로)
+  // 메모 글자 클릭 → 그 메모 날짜의 메모 창 (글자가 옆 칸까지 넓게 써져 있어도 그 메모의 날짜로)
   const handleNoteClick = (e, order, color, note) => {
     e.stopPropagation();
-    openNote(e, order, color, note.col, e.currentTarget.getBoundingClientRect().left);
+    openDayPopover('note', e, order, color, note.col, e.currentTarget.getBoundingClientRect().left);
+  };
+
+  // 날짜 메뉴에서 고름 → 그 날짜가 들어간 입력 창 (같은 자리 — [저장]해야 반영)
+  const handleDatePick = (kind, extra = {}) => {
+    const cur = popover;
+    if (!cur || cur.kind !== 'date') return;
+    const { orderId, colorId, date, anchorRect } = cur;
+    const order = orders.find(o => o.id === orderId);
+    if (kind === 'process') {
+      setPopover({ kind: 'process', orderId, stepKey: extra.stepKey, anchorRect, prefill: { [extra.field === 'endDate' ? 'endDate' : 'startDate']: date } });
+    } else if (kind === 'greige') {
+      setPopover({ kind: 'greige', orderId, colorId: isPieceDyed(order) ? null : colorId, anchorRect, prefillDate: date });
+    } else if (kind === 'lots') {
+      setPopover(null);
+      if (onOpenLots && colorId) onOpenLots(orderId, colorId, anchorRect, { newLotDate: date });
+    } else if (kind === 'inspection') {
+      setPopover({ kind: 'inspection', orderId, colorId, anchorRect, prefill: { lotId: extra.lotId, field: extra.field, date } });
+    } else if (kind === 'confirm') {
+      setPopover({
+        kind: 'confirm', orderId, colorId, anchorRect,
+        prefill: extra.brandSent ? { brandSent: date } : { testExpected: date },
+      });
+    } else if (kind === 'ship') {
+      setPopover({ kind: 'ship', orderId, colorId, anchorRect, prefillDate: date });
+    } else if (kind === 'note') {
+      setPopover({ ...cur, kind: 'note' });
+    }
   };
 
   // 줄 이름 옆 [+] → 일정 입력 메뉴 (고르면 같은 자리에 그 입력 창)
@@ -561,7 +627,8 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
       return;
     }
     if (kind === 'process') setPopover({ ...base, kind: 'process', stepKey: extra.stepKey });
-    else if (kind === 'provisional') setPopover({ ...base, kind: 'provisional' });
+    else if (kind === 'provisional' || kind === 'closing') setPopover({ ...base, kind });
+    else if (kind === 'greige') setPopover({ ...base, kind, colorId: extra.order ? null : cur.colorId });
     else setPopover({ ...base, kind, colorId: cur.colorId });
   };
 
@@ -721,7 +788,7 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
             type="button"
             onClick={e => openAddMenu(e, order, row.color)}
             className="absolute right-1 top-1/2 -translate-y-1/2 z-[1] p-1 rounded-md text-slate-300 hover:text-teal-700 hover:bg-teal-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
-            title={isOrder ? '공정 일정 · 가납기 입력' : '생지 출고 · LOT · 컨펌 · 외관검사 · 출고 입력'}
+            title={isOrder ? '공정 일정 · 프리세팅 · 가납기 · 마무리 입력' : '생지 출고 · LOT · 컨펌 · 외관검사 · 출고 입력'}
             aria-label={isOrder ? `${order.orderNumber} 공정 일정 입력` : `${row.color?.name || '컬러'} 일정 입력`}
           >
             <Plus className="w-3.5 h-3.5" />
@@ -871,17 +938,32 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
         <span className="inline-flex items-center gap-1"><span className="w-3 h-2.5 rounded-sm ring-2 ring-red-500 bg-white" />문제</span>
         <span className="inline-flex items-center gap-1"><span className="w-3 h-2.5 rounded-sm border border-dashed border-yellow-500 bg-yellow-100" />생산량 계산</span>
         <span className="inline-flex items-center gap-1" title="예상 종료일을 바꾼 공정 — 회색 점선이 최초 예상 종료일까지"><span className="w-3 h-2.5 rounded-sm border-2 border-dashed border-slate-400 bg-slate-300/20" />최초 예상</span>
+        <span className="inline-flex items-center gap-1" title="외관검사 1차 불량 → 염가공소 재가공 → 다음 차수 검사"><span className={`w-3 h-2.5 rounded-sm border border-dashed ${PROCESS_THEME.redye.bar}`} />재가공</span>
         <span className="ml-auto inline-flex items-center gap-1 font-bold text-teal-700">
-          <StickyNote className="w-3.5 h-3.5" /> 빈 칸을 누르면 그날 메모 — 막대 아래에 글자 전부 보여요
+          <CalendarPlus className="w-3.5 h-3.5" /> 빈 날짜 칸을 누르면 그 날에 공정 넣기 (메모는 메뉴 맨 아래) — 저장하면 현황표에도 반영
         </span>
       </div>
 
       <BarTooltip apiRef={tipRef} />
 
       {/* ---------- 팝오버 ---------- */}
+      {popover?.kind === 'date' && popOrder && (!popover.colorId || popColor) && (
+        <GanttDateMenu
+          key={`date_${popOrder.id}_${popover.colorId}_${popover.date}`}
+          order={popOrder}
+          color={popColor}
+          date={popover.date}
+          stepDefs={stepDefs || getStepDefs([])}
+          anchorRect={popover.anchorRect}
+          onPick={handleDatePick}
+          onClose={closePopover}
+          canOpenLots={!!onOpenLots}
+          hasNote={!!findDailyNote(popOrder, popover.date, popover.colorId || '')}
+        />
+      )}
       {popover?.kind === 'process' && popOrder && (
         <ProcessPopover
-          key={`process_${popOrder.id}_${popover.stepKey}`}
+          key={`process_${popOrder.id}_${popover.stepKey}_${popover.prefill ? JSON.stringify(popover.prefill) : ''}`}
           order={popOrder}
           stepKey={popover.stepKey}
           meta={stepMetaOf(popover.stepKey)}
@@ -889,26 +971,33 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
           onClose={closePopover}
           onSave={patch => actions.setStep(popOrder.id, popover.stepKey, patch)}
           vendorOptions={vendorOptionsFor(popover.stepKey, popOrder.id)}
+          simple={popover.stepKey === PRESETTING_KEY}
+          prefill={popover.prefill || null}
         />
       )}
       {popover?.kind === 'confirm' && popOrder && popColor && (
         <ConfirmPopover
-          key={`confirm_${popOrder.id}_${popColor.id}`}
+          key={`confirm_${popOrder.id}_${popColor.id}_${popover.prefill ? JSON.stringify(popover.prefill) : ''}`}
           order={popOrder}
           color={popColor}
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={patch => actions.setColorTracks(popOrder.id, popColor.id, patch)}
+          prefill={popover.prefill || null}
         />
       )}
-      {popover?.kind === 'greige' && popOrder && popColor && (
+      {popover?.kind === 'greige' && popOrder && (popColor || !popover.colorId) && (
         <GreigeOutPopover
-          key={`greige_${popOrder.id}_${popColor.id}`}
+          key={`greige_${popOrder.id}_${popover.colorId || 'order'}_${popover.prefillDate || ''}`}
           order={popOrder}
           color={popColor}
           anchorRect={popover.anchorRect}
           onClose={closePopover}
-          onSave={(entries, base) => actions.setGreigeOuts(popOrder.id, popColor.id, entries, base)}
+          onSave={(entries, base, scope) => (scope === 'order'
+            ? actions.setOrderGreigeOuts(popOrder.id, entries, base)
+            : actions.setGreigeOuts(popOrder.id, popColor.id, entries, base))}
+          onSetDyeMethod={m => actions.setDyeMethod(popOrder.id, m)}
+          prefillDate={popover.prefillDate || ''}
         />
       )}
       {popover?.kind === 'add' && popOrder && (!popover.colorId || popColor) && (
@@ -925,24 +1014,36 @@ export const OrderGantt = ({ orders = [], actions, masters = {}, stepDefs, onOpe
       )}
       {popover?.kind === 'ship' && popOrder && popColor && (
         <ShipPopover
-          key={`ship_${popOrder.id}_${popColor.id}`}
+          key={`ship_${popOrder.id}_${popColor.id}_${popover.prefillDate || ''}`}
           order={popOrder}
           color={popColor}
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={patch => actions.setColorField(popOrder.id, popColor.id, patch)}
+          prefillDate={popover.prefillDate || ''}
         />
       )}
       {popover?.kind === 'inspection' && popOrder && popColor && (
         <InspectionPopover
-          key={`inspection_${popOrder.id}_${popColor.id}`}
+          key={`inspection_${popOrder.id}_${popColor.id}_${popover.prefill ? JSON.stringify(popover.prefill) : ''}`}
           order={popOrder}
           color={popColor}
           anchorRect={popover.anchorRect}
           onClose={closePopover}
-          onSave={patch => actions.setColorTracks(popOrder.id, popColor.id, patch)}
+          onSave={patchByLot => actions.setLotInspections(popOrder.id, popColor.id, patchByLot)}
           onSaveVendor={v => actions.setOrderField(popOrder.id, 'inspectVendor', v)}
-          vendorOptions={collectVendorOptions([], orders, o => o.inspectVendor)}
+          vendorOptions={inspectVendorOptions || collectVendorOptions([], orders, o => o.inspectVendor)}
+          onOpenLots={onOpenLots ? () => onOpenLots(popOrder.id, popColor.id, popover.anchorRect) : undefined}
+          prefill={popover.prefill || null}
+        />
+      )}
+      {popover?.kind === 'closing' && popOrder && (
+        <ClosingPopover
+          key={`closing_${popOrder.id}`}
+          order={popOrder}
+          anchorRect={popover.anchorRect}
+          onClose={closePopover}
+          onSave={patch => actions.setClosing(popOrder.id, patch)}
         />
       )}
       {popover?.kind === 'note' && popOrder && (!popover.colorId || popColor) && (

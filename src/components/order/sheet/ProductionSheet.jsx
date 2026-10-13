@@ -5,14 +5,15 @@ import {
 import {
   PROCESS_THEME, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, COLOR_STAGES,
   DEFAULT_LOSS_RATE, PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS,
-  TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES, INSPECTION_STATUSES,
+  TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES, INSPECTION_STATUSES, DYE_METHODS, CLOSING_ITEMS, PRESETTING_KEY,
   buildFlowOrder, findStepMeta, getStepDefs, isCustomStepKey,
 } from '../../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, isStepUsed, getKnittingEstimatedEnd, getEndShift, colorHasData,
-  getLotOverview, getLotsStatus, getColorStage, getDday, getTrackEvent, getTrackStatusMeta, isTestReportPassed,
-  isInspectionUsed, isInspectionDone,
+  getLotOverview, getLotsStatus, getColorStage, getDday, getTrackEvent, isTestReportPassed,
+  isInspectionUsed, getColorInspection, getRoundStatusDate, getDyeYield,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState, collectVendorOptions,
+  isPieceDyed, getClosingState, isClosingPending,
 } from '../../../utils/orderModel';
 import { shortDate, fmtKg, todayYmd } from '../../../utils/orderCalculations';
 import { CellText, CellNumber, CellDate, CellCheck, CellAction } from './SheetCells';
@@ -22,6 +23,8 @@ import { ConfirmPopover } from './ColorPopovers';
 import { ProvisionalDuePopover } from './ProvisionalDuePopover';
 import { GreigeOutPopover } from './GreigeOutPopover';
 import { InspectionPopover } from './InspectionPopover';
+import { ClosingPopover } from './ClosingPopover';
+import { PresettingChip } from '../common/PresettingChip';
 import { SheetLinkChips } from '../common/SheetLinkChips';
 import { StatusSelect } from '../common/StatusSelect';
 import { StepManagerPopover } from './StepManagerPopover';
@@ -62,12 +65,14 @@ const QTY_COLS = [
 //  순서는 constants FLOW_ORDER + 대표님이 추가한 공정 (buildFlowOrder). '#' 칸 = 컬러별 칸
 const STEP_COL_WIDTH = 140;
 const STEP_SHORT_LABELS = { physical_test: '이화학' }; // 좁은 머리글용
+//  '#closing' 마무리는 오더 단위 칸(rowSpan) — 원사재고정리 · EZTEX 재고정리 · EZTEX 종결 (2026-10-14)
 const COLOR_COLS = {
-  '#greige':  { key: 'greige',  label: '생지출고',   width: 116 },
-  '#dyeing':  { key: 'dyeing',  label: '염가공 LOT', width: 150 },
+  '#greige':  { key: 'greige',  label: '생지출고',   width: 132 },
+  '#dyeing':  { key: 'dyeing',  label: '염가공 LOT', width: 170 },
   '#confirm': { key: 'confirm', label: '컨펌 · 성적서', width: 172 },
-  '#inspection': { key: 'inspection', label: '외관검사', width: 150 },
+  '#inspection': { key: 'inspection', label: '외관검사 (LOT)', width: 196 },
   '#ship':    { key: 'ship',    label: '출고',       width: 116 },
+  '#closing': { key: 'closing', label: '마무리',     width: 150 },
 };
 const TAIL_COLS = [
   { key: 'stage', label: '상태', width: 84 },
@@ -310,49 +315,67 @@ const ProvisionalCell = ({ order, span, bg, ctx }) => {
   );
 };
 
-// 생지 출고 칸 (컬러 단위) — 출고마다 한 줄 (전체/부분 · 날짜 · 메모), 체크 = 바로 저장 / 칸을 누르면 생지 출고 창
-const GreigeCell = ({ order, color, last, bg, ctx }) => {
-  const st = getGreigeState(color);
-  const entries = st.entries;
-  const shown = entries.slice(0, 3);
-  const open = (el) => ctx.openGreige(order.id, color.id, el);
-  const tone = st.fullDone ? PROCESS_THEME.greige.cell : st.partialDone ? 'bg-lime-50 text-lime-900' : bg;
+// 생지 출고 줄 목록 (현황표 칸 공용) — 출고마다 한 줄 (체크 · 전체/부분 · 날짜 · kg · 메모)
+const GreigeLines = ({ entries, onDone, max = 3 }) => {
+  const shown = entries.slice(0, max);
   return (
-    <td onClick={e => open(e.currentTarget)} className={cellCls({ thick: last, extra: `${CLICKABLE} ${tone}` })}>
-      <CellAction navKey="greige" onActivate={open} title="생지 출고 — 전체/부분 (클릭 또는 Enter)">
-        {entries.length === 0 ? (
-          <span className="text-slate-300">+ 생지 출고</span>
-        ) : (
-          <div className="space-y-0.5">
-            {shown.map(g => {
-              const kind = GREIGE_OUT_KINDS.find(k => k.key === g.kind) || GREIGE_OUT_KINDS[0];
-              return (
-                <div key={g.id} className="flex items-center gap-1 min-w-0" title={`${kind.label} ${g.date || '날짜 미입력'}${g.memo ? ` — ${g.memo}` : ''}`}>
-                  <input
-                    type="checkbox"
-                    checked={!!g.done}
-                    tabIndex={-1}
-                    onClick={e => e.stopPropagation()}
-                    onChange={e => ctx.actions.setGreigeOutDone(order.id, color.id, g.id, e.target.checked)}
-                    className="w-3 h-3 shrink-0 accent-lime-600 cursor-pointer"
-                    title="출고 체크 (바로 저장 — 날짜가 비었으면 오늘)"
-                    aria-label={`${kind.label} 출고 체크`}
-                  />
-                  <span className={`shrink-0 px-1 rounded border text-[9px] font-bold ${kind.cls}`}>{kind.short}</span>
-                  <span className="shrink-0 font-mono text-[10px]">{g.date ? shortDate(g.date) : '날짜?'}</span>
-                  {g.memo && <span className="min-w-0 truncate text-[9px] opacity-70">{g.memo}</span>}
-                </div>
-              );
-            })}
-            {entries.length > shown.length && <div className="text-[9px] opacity-70">+{entries.length - shown.length}건 더</div>}
+    <div className="space-y-0.5">
+      {shown.map(g => {
+        const kind = GREIGE_OUT_KINDS.find(k => k.key === g.kind) || GREIGE_OUT_KINDS[0];
+        return (
+          <div key={g.id} className="flex items-center gap-1 min-w-0" title={`${kind.label} ${g.date || '날짜 미입력'}${g.kg ? ` ${fmtKg(g.kg)}kg` : ''}${g.memo ? ` — ${g.memo}` : ''}`}>
+            <input
+              type="checkbox"
+              checked={!!g.done}
+              tabIndex={-1}
+              onClick={e => e.stopPropagation()}
+              onChange={e => onDone(g.id, e.target.checked)}
+              className="w-3 h-3 shrink-0 accent-lime-600 cursor-pointer"
+              title="출고 체크 (바로 저장 — 날짜가 비었으면 오늘)"
+              aria-label={`${kind.label} 출고 체크`}
+            />
+            <span className={`shrink-0 px-1 rounded border text-[9px] font-bold ${kind.cls}`}>{kind.short}</span>
+            <span className="shrink-0 font-mono text-[10px]">{g.date ? shortDate(g.date) : '날짜?'}</span>
+            {g.kg ? <span className="shrink-0 font-mono text-[9px] opacity-80">{fmtKg(g.kg)}kg</span> : null}
+            {g.memo && <span className="min-w-0 truncate text-[9px] opacity-70">{g.memo}</span>}
           </div>
-        )}
+        );
+      })}
+      {entries.length > shown.length && <div className="text-[9px] opacity-70">+{entries.length - shown.length}건 더</div>}
+    </div>
+  );
+};
+
+// 생지 출고 칸 — 선염(·안 고름)은 컬러마다, 후염은 오더에 한 번 (rowSpan — 대표님 요청 2026-10-14)
+//  체크 = 바로 저장 / 칸을 누르면 생지 출고 창 (선염·후염 고르기 포함)
+const GreigeCell = ({ order, color, last, bg, ctx, span = 1 }) => {
+  const piece = isPieceDyed(order);
+  const st = getGreigeState(piece ? order : color);
+  const entries = st.entries;
+  const open = (el) => ctx.openGreige(order.id, piece ? null : color.id, el);
+  const tone = st.fullDone ? PROCESS_THEME.greige.cell : st.partialDone ? 'bg-lime-50 text-lime-900' : bg;
+  const onDone = (entryId, done) => (piece
+    ? ctx.actions.setOrderGreigeOutDone(order.id, entryId, done)
+    : ctx.actions.setGreigeOutDone(order.id, color.id, entryId, done));
+  return (
+    <td
+      rowSpan={piece ? span : undefined}
+      onClick={e => open(e.currentTarget)}
+      className={cellCls({ thick: piece || last, extra: `${CLICKABLE} ${tone}` })}
+    >
+      <CellAction navKey="greige" onActivate={open} title={`생지 출고 — ${piece ? '후염: 오더 전체 한 번에' : '컬러마다'} · 전체/부분 (클릭 또는 Enter)`}>
+        {piece && <div className="mb-0.5 text-[9px] font-extrabold text-sky-700">후염 · 오더 전체</div>}
+        {entries.length === 0
+          ? <span className="text-slate-300">+ 생지 출고</span>
+          : <GreigeLines entries={entries} onDone={onDone} max={piece ? 5 : 3} />}
+        {st.doneKg ? <div className="text-[9px] font-mono opacity-70">출고 {fmtKg(st.doneKg)}kg</div> : null}
       </CellAction>
     </td>
   );
 };
 
-// 염가공 LOT 칸 (컬러 단위) — onOpenLots 가 있을 때만 클릭 가능 (LOT 개수 · 완료 · 투입~완료예정)
+// 염가공 LOT 칸 (컬러 단위) — onOpenLots 가 있을 때만 클릭 가능
+//  LOT 개수 · 완료 · 투입~완료예정 · 배색량 합계 → 예상 YD (LOSS 뺀) · 프리세팅(오더 공통)
 const LotCell = ({ order, color, last, bg, ctx }) => {
   const lots = color.lots || [];
   const has = lots.length > 0;
@@ -362,8 +385,9 @@ const LotCell = ({ order, color, last, bg, ctx }) => {
   const ov = getLotOverview(lots);
   const status = getLotsStatus(lots);
   const range = fmtRange(ov.start, ov.end);
+  const y = ov.dyeKg ? getDyeYield(ov.dyeKg, getLossRate(order), ctx.yieldSpecOf?.(order) || null) : null;
   const tooltip = has
-    ? lots.map(l => `LOT${l.no} · ${getStatusLabel(l.status)}${l.startDate || l.endDate ? ` · ${fmtRange(l.startDate, l.endDate)}` : ''}${l.notes ? ` · ${l.notes}` : ''}`).join('\n')
+    ? lots.map(l => `LOT${l.no} · ${getStatusLabel(l.status)}${l.startDate || l.endDate ? ` · ${fmtRange(l.startDate, l.endDate)}` : ''}${l.dyeKg ? ` · 배색 ${fmtKg(l.dyeKg)}kg` : ''}${l.notes ? ` · ${l.notes}` : ''}`).join('\n')
     : (canOpen ? '염가공 LOT 계획 입력' : undefined);
 
   return (
@@ -372,6 +396,7 @@ const LotCell = ({ order, color, last, bg, ctx }) => {
       className={cellCls({ thick: last, extra: `${has ? PROCESS_THEME.dyeing.cell : bg} ${canOpen ? CLICKABLE : ''}` })}
     >
       <CellAction navKey="lots" onActivate={canOpen ? open : undefined} disabled={!canOpen} title={tooltip}>
+        <PresettingChip order={order} className="mb-0.5" />
         {has ? (
           <div className="space-y-0.5">
             <div className="flex items-center gap-1 min-w-0">
@@ -391,6 +416,11 @@ const LotCell = ({ order, color, last, bg, ctx }) => {
               </div>
             )}
             {range && <div className="font-mono text-[10px] opacity-70">{range}</div>}
+            {y && (
+              <div className="font-mono text-[9px] leading-tight" title={`배색량 합계 ${fmtKg(ov.dyeKg)}kg → LOSS ${fmtKg(getLossRate(order))}% 뺀 예상 가공지 ${fmtKg(y.finishedKg)}kg${y.yd !== null ? ` · ${y.yd.toLocaleString()}YD` : ' (원단 스펙이 없어 YD 계산 전)'}`}>
+                배색 {fmtKg(ov.dyeKg)}kg → {y.yd !== null ? `${y.yd.toLocaleString()}YD` : `${fmtKg(y.finishedKg)}kg`}
+              </div>
+            )}
           </div>
         ) : (
           <span className="text-slate-300">{canOpen ? '+ LOT 계획' : '-'}</span>
@@ -472,43 +502,103 @@ const ConfirmCell = ({ order, color, last, bg, ctx }) => {
   );
 };
 
-// 외관검사 칸 (컬러 단위) — 상태 드롭다운 = 바로 저장(그날 날짜로 기록, 출고완료면 출고 칸도 완료)
-//  칸을 누르면 InspectionPopover (검사처 · 투입일 · 종료예정일 · 기록 · 메모)
+// 외관검사 칸 (컬러 단위 · LOT 마다 한 줄 — 대표님 요청 2026-10-14)
+//  'LOT1 2차 [검사중 ▾] 10/12' — 드롭다운 = 바로 저장 (지금 차수에 오늘 날짜로 기록, '투입 전'으로 되돌리기,
+//  '재가공'이면 다음 차수 줄 자동, LOT 가 모두 출고완료면 출고 칸도 완료)
+//  칸을 누르면 InspectionPopover (검사처 · 차수마다 예상 시작/종료일 · 상태 · 메모 · 기록)
+const INSPECTION_MAX_LINES = 4;
 const InspectionCell = ({ order, color, last, bg, ctx }) => {
-  const insp = color.inspection || {};
-  const used = isInspectionUsed(color);
-  const ev = getTrackEvent(color, 'inspection');
-  const meta = getTrackStatusMeta(color, 'inspection');
+  const insp = getColorInspection(color);
+  const lots = color.lots || [];
   const open = (el) => ctx.openInspection(order.id, color.id, el);
-  const range = fmtRange(insp.startDate, insp.endDate);
-  const overdue = !!insp.endDate && !isInspectionDone(color) && order.status !== 'completed' && insp.endDate < todayYmd();
-  const tone = meta?.phase === 'issue' ? 'bg-rose-50' : used ? PROCESS_THEME.inspection.cell : bg;
+  const tone = insp.anyDefect ? 'bg-rose-50' : insp.anyRedye ? 'bg-orange-50' : insp.used ? PROCESS_THEME.inspection.cell : bg;
+  const shown = insp.rows.slice(0, INSPECTION_MAX_LINES);
+  const today = todayYmd();
   return (
     <td onClick={e => open(e.currentTarget)} className={cellCls({ thick: last, extra: `${CLICKABLE} ${tone}` })}>
-      <CellAction navKey="inspection" onActivate={open} title="외관검사 — 투입일·종료예정일·상태 (클릭 또는 Enter)">
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-1 flex-wrap">
-            <StatusSelect
-              value={ev?.status || ''}
-              options={INSPECTION_STATUSES}
-              onChange={st => ctx.actions.addTrackEvent(order.id, color.id, 'inspection', st)}
-              placeholder="상태"
-              tabIndex={-1}
-              title="외관검사 상태 (바꾸면 오늘 날짜로 기록 · 출고완료면 출고 칸도 완료)"
-            />
-            {ev?.date && <span className="font-mono text-[9px] opacity-70">{shortDate(ev.date)}</span>}
+      <CellAction navKey="inspection" onActivate={open} title="외관검사 — LOT마다 1차·2차 (클릭 또는 Enter · 드롭다운은 바로 저장)">
+        {lots.length === 0 ? (
+          <span className="text-[10px] text-slate-300" title="외관검사는 염가공 LOT마다 해요 — LOT를 먼저 만들어 주세요">LOT 먼저</span>
+        ) : (
+          <div className="space-y-0.5">
+            {shown.map(r => {
+              const round = r.round;
+              const statusDate = getRoundStatusDate(round);
+              const planned = round ? fmtRange(round.startDate, round.endDate) : '';
+              const overdue = !!round?.endDate && !r.done && order.status !== 'completed' && round.endDate < today;
+              return (
+                <div key={r.lot.id} className="flex items-center gap-1 min-w-0">
+                  <span className="shrink-0 w-7 text-[9px] font-extrabold text-orange-700">LOT{r.lot.no}</span>
+                  {r.roundNo > 1 && <span className="shrink-0 text-[9px] font-bold text-violet-700">{r.roundNo}차</span>}
+                  <StatusSelect
+                    value={r.status || 'waiting'}
+                    options={INSPECTION_STATUSES}
+                    onChange={st => ctx.actions.addLotInspection(order.id, color.id, r.lot.id, st)}
+                    tabIndex={-1}
+                    title={`LOT${r.lot.no} ${r.roundNo || 1}차 외관검사 상태 (바꾸면 오늘 날짜로 기록 · 재가공이면 다음 차수 · 모두 출고완료면 출고 칸도 완료)`}
+                  />
+                  {statusDate && r.status !== 'waiting' ? (
+                    <span className="shrink-0 font-mono text-[9px] opacity-70">{shortDate(statusDate)}</span>
+                  ) : planned ? (
+                    <span
+                      className={`shrink-0 font-mono text-[9px] ${overdue ? 'text-red-600 font-bold' : 'opacity-60'}`}
+                      title={overdue ? '예상 종료일이 지났는데 아직 출고준비 전이에요' : '예상 시작~종료'}
+                    >
+                      {planned}
+                    </span>
+                  ) : null}
+                  {r.redyeing && r.status !== 'redye' && (
+                    <span className="shrink-0 text-[9px] font-bold text-orange-700" title="앞 차수에서 재가공 — 염가공소에 다시 들어감">재가공</span>
+                  )}
+                </div>
+              );
+            })}
+            {insp.rows.length > shown.length && <div className="text-[9px] opacity-70">+LOT {insp.rows.length - shown.length}개 더</div>}
           </div>
-          {range ? (
-            <div
-              className={`font-mono text-[10px] ${overdue ? 'text-red-600 font-bold' : 'opacity-80'}`}
-              title={overdue ? '종료예정일이 지났는데 아직 출고준비 전이에요' : '투입일~종료예정일'}
-            >
-              {range}
-            </div>
-          ) : (
-            !used && <div className="text-[10px] text-slate-300">+ 투입일</div>
+        )}
+      </CellAction>
+    </td>
+  );
+};
+
+// 마무리 칸 (오더 단위, rowSpan — 대표님 요청 2026-10-14) — 원사재고정리 · EZTEX 재고정리 · EZTEX 종결
+//  체크 = 바로 저장 (3개 모두 → 오더 자동 '완료', 자동 완료를 체크 해제 → 다시 진행중) / 칸을 누르면 메모·날짜 창
+//  출고는 다 끝났는데 체크가 남으면 '마무리 대기'
+const ClosingCell = ({ order, span, bg, ctx }) => {
+  const cs = getClosingState(order);
+  const pending = isClosingPending(order);
+  const open = (el) => ctx.openClosing(order.id, el);
+  const tone = cs.complete ? PROCESS_THEME.closing.cell : pending ? 'bg-amber-50' : bg;
+  return (
+    <td rowSpan={span} onClick={e => open(e.currentTarget)} className={cellCls({ thick: true, extra: `${CLICKABLE} ${tone}` })}>
+      <CellAction navKey="closing" onActivate={open} title="오더 마무리 — 원사재고정리 · EZTEX 재고정리 · EZTEX 종결 (체크는 바로 저장 · 칸을 누르면 메모)">
+        <div className="space-y-0.5">
+          {pending && (
+            <div className="text-[9px] font-extrabold text-amber-700" title="출고는 다 끝났는데 마무리 체크가 남았어요">마무리 대기</div>
           )}
-          {insp.notes && <div className="text-[10px] opacity-75 line-clamp-2" title={insp.notes}>{insp.notes}</div>}
+          {CLOSING_ITEMS.map(it => {
+            const item = cs.items[it.key];
+            return (
+              <label
+                key={it.key}
+                onClick={e => e.stopPropagation()}
+                className="flex items-center gap-1 min-w-0 cursor-pointer select-none"
+                title={`${it.label}${item.done ? ` ✓ ${item.date || ''}` : ''}${item.memo ? `\n메모: ${item.memo}` : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={item.done}
+                  tabIndex={-1}
+                  onChange={e => ctx.actions.setClosing(order.id, { [it.key]: { done: e.target.checked } })}
+                  className="w-3 h-3 shrink-0 accent-emerald-600 cursor-pointer"
+                  aria-label={`${it.label} 체크`}
+                />
+                <span className={`truncate text-[10px] ${item.done ? 'font-bold text-emerald-800' : 'text-slate-600'}`}>{it.short}</span>
+                {item.done && item.date && <span className="shrink-0 font-mono text-[9px] opacity-60">{shortDate(item.date)}</span>}
+                {item.memo && <span className="shrink-0 text-[9px] text-slate-400">메모</span>}
+              </label>
+            );
+          })}
         </div>
       </CellAction>
     </td>
@@ -545,7 +635,13 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
     }
     switch (col.key) {
       case 'greige':
+        // 후염: 오더에 한 번 (첫 줄에 rowSpan) / 선염·안 고름: 컬러마다
+        if (isPieceDyed(order)) {
+          return first ? <GreigeCell key="greige" order={order} color={color} last={last} span={span} bg={plainBg} ctx={ctx} /> : null;
+        }
         return <GreigeCell key="greige" order={order} color={color} last={last} bg={plainBg} ctx={ctx} />;
+      case 'closing':
+        return first ? <ClosingCell key="closing" order={order} span={span} bg={plainBg} ctx={ctx} /> : null;
       case 'dyeing':
         return <LotCell key="dyeing" order={order} color={color} last={last} bg={plainBg} ctx={ctx} />;
       case 'confirm':
@@ -650,7 +746,26 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
                     >
                       {order.type === 'sample' ? '샘플' : '메인'}
                     </button>
+                    {/* 선염 / 후염 (후염 = 생지 출고 오더에 한 번 — 고르면 바로 저장) */}
+                    <StatusSelect
+                      value={order.dyeMethod || ''}
+                      options={DYE_METHODS}
+                      onChange={m => actions.setDyeMethod(order.id, m)}
+                      placeholder="선염/후염"
+                      tabIndex={-1}
+                      title={order.dyeMethod
+                        ? `${DYE_METHODS.find(m => m.key === order.dyeMethod)?.label} — ${DYE_METHODS.find(m => m.key === order.dyeMethod)?.desc} (바꾸면 바로 저장)`
+                        : '염색 방식을 골라 주세요 — 후염이면 생지 출고를 오더에 한 번 (지금은 컬러마다)'}
+                    />
                     <SheetLinkChips info={sheetInfo} onOpen={ctx.openSheet} />
+                    {isClosingPending(order) && (
+                      <span
+                        className="px-1 py-px rounded border bg-amber-50 text-amber-800 border-amber-300 text-[9px] font-extrabold"
+                        title="출고는 다 끝났어요 — 마무리(원사재고정리 · EZTEX 재고정리 · EZTEX 종결)를 체크하면 오더가 완료돼요"
+                      >
+                        마무리 대기
+                      </span>
+                    )}
                     {completed && !dropClosed && (
                       <span className="px-1 py-px rounded border bg-emerald-100 text-emerald-700 border-emerald-300 text-[9px] font-extrabold">
                         완료
@@ -908,6 +1023,7 @@ export const ProductionSheet = ({
   stepDefs: stepDefsProp,   // 공정 목록 (기본 + 추가 공정) — 없으면 기본 공정만
   customSteps = [],         // 추가 공정 설정 [{ key, label, after, vendorLabel }]
   onSaveCustomSteps,        // 추가 공정 저장 (list) => Promise<boolean> — 없으면 [공정 추가] 버튼 숨김
+  yieldSpecOf,              // (order) => 예상 YD 환산 원단 스펙 { gsm, widthFull, source } | null (OrderListPage)
 }) => {
   const scrollRef = useRef(null);
   const stepDefs = useMemo(() => stepDefsProp || getStepDefs(customSteps), [stepDefsProp, customSteps]);
@@ -935,11 +1051,12 @@ export const ProductionSheet = ({
     orders.forEach(o => {
       stepDefs.forEach(s => { if (isStepUsed(o.steps?.[s.key])) bump(s.key); });
       const cs = o.colors || [];
-      if (cs.some(c => (c.greigeOuts || []).length)) bump('greige');
-      if (cs.some(c => (c.lots || []).length)) bump('dyeing');
+      if ((o.greigeOuts || []).length || cs.some(c => (c.greigeOuts || []).length)) bump('greige');
+      if (cs.some(c => (c.lots || []).length) || isStepUsed(o.steps?.[PRESETTING_KEY])) bump('dyeing');
       if (cs.some(c => c.testReport?.needed || (c.brandConfirm?.events || []).length)) bump('confirm');
       if (cs.some(isInspectionUsed)) bump('inspection');
       if (cs.some(c => c.shipDate || c.shipDone)) bump('ship');
+      if (getClosingState(o).done > 0) bump('closing');
       if (o.notes) bump('memo');
     });
     return count;
@@ -1069,12 +1186,17 @@ export const ProductionSheet = ({
     openProvisional: (orderId, cell) => openPopover(
       'provisional', orderId, cell.getBoundingClientRect(), { returnFocus: cellFocusTarget(cell) }
     ),
+    // colorId 가 null 이면 후염 오더 전체 생지 출고
     openGreige: (orderId, colorId, cell) => openPopover(
       'greige', orderId, cell.getBoundingClientRect(), { colorId, returnFocus: cellFocusTarget(cell) }
     ),
     openInspection: (orderId, colorId, cell) => openPopover(
       'inspection', orderId, cell.getBoundingClientRect(), { colorId, returnFocus: cellFocusTarget(cell) }
     ),
+    openClosing: (orderId, cell) => openPopover(
+      'closing', orderId, cell.getBoundingClientRect(), { returnFocus: cellFocusTarget(cell) }
+    ),
+    yieldSpecOf: yieldSpecOf || null,
     openLots: onOpenLots || null,
     addColorAfter,
     sheetInfoOf: (order) => sheetLink?.infoOf?.(order) || null,
@@ -1119,7 +1241,7 @@ export const ProductionSheet = ({
             type="button"
             onClick={e => setStepManagerRect(e.currentTarget.getBoundingClientRect())}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-indigo-200 bg-white text-[11px] font-bold text-indigo-700 hover:bg-indigo-50"
-            title="편직·프리세팅처럼 공정 칸을 더 만들어요 — 모든 오더에 칸이 생겨요"
+            title="편직·후가공처럼 공정 칸을 더 만들어요 — 모든 오더에 칸이 생겨요"
           >
             <ListPlus className="w-3.5 h-3.5" />
             공정 추가{customSteps.length > 0 ? ` (${customSteps.length})` : ''}
@@ -1286,14 +1408,17 @@ export const ProductionSheet = ({
           onSave={patch => actions.setColorTracks(popOrder.id, popColor.id, patch)}
         />
       )}
-      {popover?.kind === 'greige' && popOrder && popColor && (
+      {popover?.kind === 'greige' && popOrder && (popColor || !popover.colorId) && (
         <GreigeOutPopover
-          key={`greige_${popOrder.id}_${popColor.id}`}
+          key={`greige_${popOrder.id}_${popover.colorId || 'order'}`}
           order={popOrder}
           color={popColor}
           anchorRect={popover.anchorRect}
           onClose={closePopover}
-          onSave={(entries, base) => actions.setGreigeOuts(popOrder.id, popColor.id, entries, base)}
+          onSave={(entries, base, scope) => (scope === 'order'
+            ? actions.setOrderGreigeOuts(popOrder.id, entries, base)
+            : actions.setGreigeOuts(popOrder.id, popColor.id, entries, base))}
+          onSetDyeMethod={m => actions.setDyeMethod(popOrder.id, m)}
         />
       )}
       {popover?.kind === 'inspection' && popOrder && popColor && (
@@ -1303,9 +1428,19 @@ export const ProductionSheet = ({
           color={popColor}
           anchorRect={popover.anchorRect}
           onClose={closePopover}
-          onSave={patch => actions.setColorTracks(popOrder.id, popColor.id, patch)}
+          onSave={patchByLot => actions.setLotInspections(popOrder.id, popColor.id, patchByLot)}
           onSaveVendor={v => actions.setOrderField(popOrder.id, 'inspectVendor', v)}
           vendorOptions={collectVendorOptions([], optionSource, o => o.inspectVendor)}
+          onOpenLots={onOpenLots ? () => onOpenLots(popOrder.id, popColor.id, popover.anchorRect) : undefined}
+        />
+      )}
+      {popover?.kind === 'closing' && popOrder && (
+        <ClosingPopover
+          key={`closing_${popOrder.id}`}
+          order={popOrder}
+          anchorRect={popover.anchorRect}
+          onClose={closePopover}
+          onSave={patch => actions.setClosing(popOrder.id, patch)}
         />
       )}
       {popover?.kind === 'provisional' && popOrder && (

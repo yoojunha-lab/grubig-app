@@ -6,8 +6,12 @@ import { OrderGantt } from '../components/order/gantt/OrderGantt';
 import { OrderDetailModal } from '../components/order/OrderDetailModal';
 import { MobileOrderList } from '../components/order/MobileOrderList';
 import { SampleCloseDialog } from '../components/order/common/SampleCloseDialog';
+import { ClosingPopover } from '../components/order/sheet/ClosingPopover';
 import { DevDropModal } from '../components/dashboard/DevDropModal';
-import { getDday, isDropClosed, getOpenWork, collectVendorOptions } from '../utils/orderModel';
+import {
+  getDday, isDropClosed, getOpenWork, collectVendorOptions, resolveYieldSpec, getClosingState, isClosingPending,
+} from '../utils/orderModel';
+import { PRESETTING_KEY } from '../constants/production';
 import { todayYmd } from '../utils/orderCalculations';
 import { isYarnRatioComplete, sumYarnRatio } from '../utils/costModel';
 import { getDevQuoteBadge, indexDevQuotes } from '../utils/devQuoteModel';
@@ -27,6 +31,10 @@ import { DESIGN_STAGES } from '../constants/common';
 //   · 오더만 완료하고 설계서가 아직 아이템화·Drop 전이면 '아이템화 대기' — '진행 중' 목록에 남음
 //   · Drop 으로 닫힌 오더를 '진행중'·'보류'로 바꾸려 하면 설계서 복원으로 (설계서·의뢰도 같이 돌아오게)
 // - focusRequest: 개발/설계 현황 [생산 현황]에서 넘어오면 그 오더 번호로 찾아서 보여 줌 (전체 탭)
+// - 오더 마무리 (대표님 요청 2026-10-14): 원사재고정리 · EZTEX 재고정리 · EZTEX 종결을 끝내야 최종 마무리
+//   · 체크가 남았는데 '완료'로 바꾸면 마무리 창 (체크하고 저장하면 자동 완료 / [체크 없이 완료])
+//   · 출고는 다 끝났는데 체크가 남은 오더 = '마무리 대기' (위 요약 · order# 칸)
+// - LOT 창: 원단 스펙(예상 YD 환산) = 원단 보관함 → 오더 값 → 같은 Article 원단 → 설계서 최종 스펙 (yieldSpecOf)
 // ============================================================
 
 // 메인 / 샘플 (order# 의 S/M 으로 자동, 칸에서 바꿀 수 있음) — 마지막 선택을 기억
@@ -150,6 +158,27 @@ export const OrderListPage = ({
   const isAwaiting = useCallback((o) => !!sheetInfoOf(o)?.awaiting, [sheetInfoOf]);
   const sheetLabelOf = (sheet) => [sheet?.devOrderNo || '자체개발', sheet?.fabricName].filter(Boolean).join(' · ');
 
+  // ---------- 배색량 → 예상 YD 환산 원단 스펙 (gsm · 전폭) ----------
+  //  ① 연결된 원단 → ② 오더에 저장된 값 → ③ 같은 Article 원단(대소문자·띄어쓰기 무시) → ④ 설계서 최종 스펙(샘플 오더)
+  const fabricById = useMemo(() => new Map((savedFabrics || []).filter(f => f?.id).map(f => [f.id, f])), [savedFabrics]);
+  const fabricByArticle = useMemo(() => {
+    const map = new Map();
+    (savedFabrics || []).forEach(f => {
+      const k = String(f?.article || '').replace(/\s+/g, '').toLowerCase();
+      if (k && !map.has(k)) map.set(k, f);
+    });
+    return map;
+  }, [savedFabrics]);
+  const yieldSpecOf = useCallback((order) => {
+    if (!order) return null;
+    const artKey = String(order.articleNo || '').replace(/\s+/g, '').toLowerCase();
+    return resolveYieldSpec(order, {
+      linkedFabric: order.linkedFabricId ? fabricById.get(order.linkedFabricId) || null : null,
+      articleFabric: artKey ? fabricByArticle.get(artKey) || null : null,
+      sheet: order.linkedSheetId ? sheetById.get(order.linkedSheetId) || null : null,
+    });
+  }, [fabricById, fabricByArticle, sheetById]);
+
   // 아이템화 — 설계서에 Article·최종 스펙·혼용률 100% 가 없으면 막히므로 먼저 확인하고 설계서를 열어 줌
   //  확인 창 한 번 (원단이 새로 등록되고 오더가 닫힘 — 아직 끝나지 않은 공정이 있으면 같이 알려 줌)
   //  확인 뒤는 개발/설계 현황과 같은 함수 (setStage → 원단 등록 → 이 오더 article# 연결·완료)
@@ -226,23 +255,41 @@ export const OrderListPage = ({
     restore: sheetActions?.restore,
   };
 
+  // ---------- 오더 '완료' (마무리 체크 → 샘플 끝내기 → 완료) ----------
+  //  1) 마무리 체크(원사재고정리 · EZTEX 재고정리 · EZTEX 종결)가 남았으면 마무리 창 (체크하고 저장 = 자동 완료 / [체크 없이 완료] → 2)
+  //  2) 설계서가 아직 아이템화·Drop 전인 샘플이면 샘플 끝내기 창
+  //  3) 그 밖은 바로 완료
+  const [closingTarget, setClosingTarget] = useState(null); // { orderId } — '완료'로 바꾸려는데 마무리 체크가 남은 오더
+  const completeOrder = async (id, { skipClosing = false } = {}) => {
+    const order = orders.find(o => o.id === id);
+    if (!order) return actions.setOrderField(id, 'status', 'completed');
+    if (!skipClosing && !getClosingState(order).complete) {
+      setClosingTarget({ orderId: id });
+      return true;
+    }
+    const info = sheetInfoOf(order);
+    if (info && !info.dropped && !info.articled) {
+      setCloseTarget({ orderId: id, sheetId: info.sheet.id });
+      return true;
+    }
+    return actions.setOrderField(id, 'status', 'completed');
+  };
+  const closingOrder = closingTarget ? orders.find(o => o.id === closingTarget.orderId) || null : null;
+
   // ---------- 오더 수정 (설계서 샘플 오더 규칙을 얹은 actions — 표·간트·상세창·모바일 공용) ----------
-  //  오더상태: Drop 으로 닫힌 샘플을 다시 열려면 설계서 복원 / 아직 안 끝난 샘플을 '완료'로 → 샘플 끝내기 창
+  //  오더상태: Drop 으로 닫힌 샘플을 다시 열려면 설계서 복원 / '완료'로 → completeOrder (마무리 체크 · 샘플 끝내기)
   //  order#: 설계서 샘플 오더면 설계서 EZ-TEX O/D NO.도 같이 바꿈 (번호가 어긋나지 않게 — 설계서 변경 이력에 남음)
   const setOrderField = async (id, field, value) => {
     const order = orders.find(o => o.id === id);
     const info = sheetInfoOf(order);
-    if (field === 'status' && order && info && value !== order.status) {
-      if (info.dropped && value !== 'completed') {
+    if (field === 'status' && order && value !== order.status) {
+      if (info?.dropped && value !== 'completed') {
         if (!sheetActions?.restore) return false;
         return sheetActions.restore(info.sheet.id, {
           lead: `Drop된 샘플은 설계서를 복원해야 다시 진행할 수 있어요 (오더 ${order.orderNumber}).\n\n`,
         });
       }
-      if (value === 'completed' && !info.dropped && !info.articled) {
-        setCloseTarget({ orderId: id, sheetId: info.sheet.id });
-        return true;
-      }
+      if (value === 'completed') return completeOrder(id);
     }
     const ok = await actions.setOrderField(id, field, value);
     if (field === 'orderNumber' && ok && info && sheetActions?.syncEztex) {
@@ -285,21 +332,23 @@ export const OrderListPage = ({
   }, [orders, statusTabMeta, typeTab, search, sortKey, sheetInfoOf, isAwaiting]);
 
   // 상단 요약: 진행/보류/납기 임박/지남 (완료 제외, 고른 구분 안에서) + 아이템화 대기 (완료한 샘플 중 설계서가 아직 안 끝난 것)
+  //  + 마무리 대기 (출고는 다 끝났는데 원사재고정리 · EZTEX 체크가 남은 진행 중 오더 — 2026-10-14)
   const stats = useMemo(() => {
-    let active = 0, onHold = 0, dueSoon = 0, overdue = 0, awaiting = 0;
+    let active = 0, onHold = 0, dueSoon = 0, overdue = 0, awaiting = 0, closing = 0;
     orders.forEach(o => {
       if (!typeTab.match(o)) return;
       if (o.status === 'completed') {
         if (isAwaiting(o)) awaiting += 1;
         return;
       }
+      if (isClosingPending(o)) closing += 1;
       if (o.status === 'on_hold') onHold += 1; else active += 1;
       const d = getDday(o.finalDueDate);
       if (d === null) return;
       if (d < 0) overdue += 1;
       else if (d <= 7) dueSoon += 1;
     });
-    return { active, onHold, dueSoon, overdue, awaiting };
+    return { active, onHold, dueSoon, overdue, awaiting, closing };
   }, [orders, typeTab, isAwaiting]);
 
   // ---------- 외주처 자동완성 (마스터 + 다른 오더에서 쓴 값) ----------
@@ -353,7 +402,10 @@ export const OrderListPage = ({
   const lotOrder = lotTarget ? findAny(lotTarget.orderId) : null;
   const lotColor = lotOrder ? (lotOrder.colors || []).find(c => c.id === lotTarget.colorId) : null;
 
-  const openLots = (orderId, colorId, rect = null) => setLotTarget({ orderId, colorId, rect });
+  // opts.newLotDate: 간트에서 날짜를 눌러 '새 염가공 LOT' — 그 날 투입하는 LOT 를 미리 넣은 채로 열기
+  const openLots = (orderId, colorId, rect = null, opts = {}) => setLotTarget({
+    orderId, colorId, rect, newLotDate: opts.newLotDate || '', nonce: Date.now(),
+  });
 
   const partnerProps = { partners, savePartner, deletePartner, makeEmptyPartner };
 
@@ -383,6 +435,14 @@ export const OrderListPage = ({
               value={stats.awaiting}
               cls="bg-amber-50 text-amber-800 border-amber-300"
               title="오더는 완료했지만 설계서가 아직 아이템화·Drop 전인 샘플 — ⋯ 메뉴에서 아이템화 또는 Drop"
+            />
+          )}
+          {stats.closing > 0 && (
+            <StatChip
+              label="마무리 대기"
+              value={stats.closing}
+              cls="bg-emerald-50 text-emerald-800 border-emerald-300"
+              title="출고는 다 끝났는데 원사재고정리 · EZTEX 재고정리 · EZTEX 종결 체크가 남은 오더 — 현황표 '마무리' 칸에서 체크"
             />
           )}
         </div>
@@ -477,6 +537,7 @@ export const OrderListPage = ({
             onOpenDetail={setDetailOrderId}
             onOpenLots={openLots}
             sheetLink={sheetLink}
+            inspectVendorOptions={inspectVendorOptions}
           />
         ) : (
           <ProductionSheet
@@ -495,6 +556,7 @@ export const OrderListPage = ({
             pendingFocusOrderId={pendingFocusOrderId}
             onPendingFocusDone={() => setPendingFocusOrderId(null)}
             sheetLink={sheetLink}
+            yieldSpecOf={yieldSpecOf}
           />
         )}
         {search && visibleOrders.length === 0 && orders.length > 0 && (
@@ -527,13 +589,14 @@ export const OrderListPage = ({
           {...partnerProps}
           onOpenLots={openLots}
           sheetLink={sheetLink}
+          yieldSpecOf={yieldSpecOf}
         />
       )}
 
-      {/* 염가공 LOT 편집 */}
+      {/* 염가공 LOT 편집 (배색량 → 예상 YD · 프리세팅 · 원단 스펙) */}
       {lotOrder && lotColor && (
         <LotEditor
-          key={`${lotOrder.id}_${lotColor.id}`}
+          key={`${lotOrder.id}_${lotColor.id}_${lotTarget.nonce || 0}`}
           order={lotOrder}
           color={lotColor}
           anchorRect={lotTarget.rect}
@@ -541,6 +604,23 @@ export const OrderListPage = ({
           onSaveLots={(lots) => actions.setLots(lotOrder.id, lotColor.id, lots)}
           onSaveDyeVendor={(vendor) => actions.setOrderField(lotOrder.id, 'dyeVendor', vendor)}
           dyeVendorOptions={dyeVendorOptions}
+          onSavePresetting={(patch) => actions.setStep(lotOrder.id, PRESETTING_KEY, patch)}
+          spec={yieldSpecOf(lotOrder)}
+          onSaveSpec={(spec) => actions.setOrderSpec(lotOrder.id, spec)}
+          prefillNewLotDate={lotTarget.newLotDate || ''}
+        />
+      )}
+
+      {/* 오더 마무리 — '완료'로 바꾸려는데 마무리 체크가 남았을 때 (체크하고 저장 = 자동 완료 / 체크 없이 완료) */}
+      {closingOrder && (
+        <ClosingPopover
+          key={`closing_complete_${closingOrder.id}`}
+          order={closingOrder}
+          anchorRect={null}
+          mode="complete"
+          onClose={() => setClosingTarget(null)}
+          onSave={(patch) => actions.setClosing(closingOrder.id, patch)}
+          onForceComplete={() => completeOrder(closingOrder.id, { skipClosing: true })}
         />
       )}
 

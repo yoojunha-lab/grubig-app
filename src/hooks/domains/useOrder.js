@@ -5,6 +5,7 @@ import {
   applyOrderField, applyFabric, applyColorPatch, addColorRow, removeColorRow, colorHasData,
   applyStepPatch, applyLots, applyDailyNote, applyProvisionalDue, applyGreigeOuts, fillOrderFromSheet,
   applyColorTracks, addColorTrackEvent,
+  applyDyeMethod, applyOrderGreigeOuts, applyOrderSpec, applyLotInspections, addLotInspectionEvent, applyClosing,
   summarizeOrderChange, isSameOrderContent, ORDER_SCHEMA_VERSION,
 } from '../../utils/orderModel';
 import { makeChangeLogEntry, appendChangeLog } from '../../utils/auditLog';
@@ -358,6 +359,37 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
   // 가납기 { yarn, knitting, dyeing, visual_inspection } (+ plan: 가납기 일수 { base, days } — 주면 같이 저장)
   const setProvisionalDue = (id, patch, plan = undefined) => updateOrder(id, o => applyProvisionalDue(o, patch, plan));
 
+  // ---------- v10 (대표님 요청 2026-10-14) ----------
+  // 염색 방식 (선염 / 후염) — 후염으로 바꾸면 컬러별 출고 기록을 같은 날짜끼리 합쳐 오더 출고로
+  const setDyeMethod = (id, method) => updateOrder(id, o => applyDyeMethod(o, method));
+  // 후염 오더 생지 출고 (오더 전체) — 입력 창은 base 와 합침 / 표 칸 체크는 한 줄만 (날짜가 비었으면 오늘)
+  const setOrderGreigeOuts = (id, entries, base = undefined) => updateOrder(id, o => applyOrderGreigeOuts(o, entries, base));
+  const setOrderGreigeOutDone = (id, entryId, done) => updateOrder(id, o => applyOrderGreigeOuts(o, (o.greigeOuts || []).map(g => (
+    g.id === entryId ? { ...g, done, date: done && !g.date ? todayYmd() : g.date } : g
+  ))));
+  // 원단 스펙 직접 넣기 (LOT 창 — 예상 YD 환산용) { gsm?, widthFull? }
+  const setOrderSpec = (id, spec) => updateOrder(id, o => applyOrderSpec(o, spec));
+  // LOT 외관검사 — 입력 창 { [lotId]: { rounds, base } } / 표 칸 드롭다운은 지금 차수에 그날 날짜로 한 줄 ('재가공'이면 다음 차수)
+  const setLotInspections = (id, colorId, patchByLot) => updateOrder(id, o => applyLotInspections(o, colorId, patchByLot));
+  const addLotInspection = (id, colorId, lotId, status) => updateOrder(id, o => addLotInspectionEvent(o, colorId, lotId, status));
+  // 오더 마무리 체크 { yarnStock: { done?, date?, memo? }, … } — 3개가 다 되면 자동 '완료', 자동 완료를 체크 해제하면 다시 진행
+  const setClosing = async (id, patchByKey) => {
+    const before = findLatest(id);
+    let after = null;
+    const ok = await updateOrder(id, o => {
+      after = applyClosing(o, patchByKey);
+      return after;
+    });
+    if (ok && before && after && before.status !== after.status) {
+      if (after.status === 'completed') {
+        showToast(`마무리 체크 3개 끝 — '${before.orderNumber}' 오더를 완료로 바꿨어요. (체크를 풀면 다시 진행중)`, 'success');
+      } else {
+        showToast(`마무리 체크를 풀어서 '${before.orderNumber}' 오더를 다시 ${after.status === 'on_hold' ? '보류' : '진행중'}으로 돌렸어요.`, 'info');
+      }
+    }
+    return ok;
+  };
+
   // 컬러 줄 추가 → 새 컬러 id 반환 (저장은 뒤에서 진행)
   const addColor = (id, afterColorId = null) => {
     let newColorId = null;
@@ -425,6 +457,8 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       setColorField, addColor, removeColor,
       setStep, setLots, setGreigeOuts, setGreigeOutDone, setDailyNote, setProvisionalDue,
       setColorTracks, addTrackEvent,
+      setDyeMethod, setOrderGreigeOuts, setOrderGreigeOutDone, setOrderSpec,
+      setLotInspections, addLotInspection, setClosing,
       addDraftOrder, discardDraft, deleteOrder,
     },
     // 설계서 ↔ 샘플 오더 (App 이 설계서 훅에 연결)

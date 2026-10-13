@@ -1,6 +1,6 @@
 import { Plus, ChevronRight, Package } from 'lucide-react';
 import { COLOR_STAGES, ORDER_TYPES, ORDER_STATUSES, ORDER_STATUS_COLORS } from '../../constants/production';
-import { getWorkKg, getLossRate, getColorStage } from '../../utils/orderModel';
+import { getWorkKg, getLossRate, getColorStage, isClosingPending } from '../../utils/orderModel';
 import { fmtKg } from '../../utils/orderCalculations';
 import { DdayBadge } from './OrderDetailModal';
 import { SheetLinkChips } from './common/SheetLinkChips';
@@ -66,7 +66,17 @@ const OrderCard = ({ order, isDraft = false, onOpen, sheetLink = null }) => {
         <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${TYPE_CLS[order.type] || TYPE_CLS.main}`}>
           {typeLabel}
         </span>
+        {order.dyeMethod && (
+          <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${order.dyeMethod === 'piece' ? 'bg-sky-50 text-sky-700' : 'bg-pink-50 text-pink-700'}`}>
+            {order.dyeMethod === 'piece' ? '후염' : '선염'}
+          </span>
+        )}
         <SheetLinkChips info={sheetLink?.infoOf?.(order) || null} onOpen={sheetLink?.open} size="md" />
+        {!isDraft && isClosingPending(order) && (
+          <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800" title="출고 끝 — 원사재고정리 · EZTEX 체크가 남았어요">
+            마무리 대기
+          </span>
+        )}
         {order.status !== 'active' && statusLabel && (
           <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${statusMeta.bg} ${statusMeta.text}`}>
             {statusLabel}

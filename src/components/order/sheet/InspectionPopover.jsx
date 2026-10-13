@@ -1,34 +1,57 @@
 import React, { useId, useState } from 'react';
-import { AlertCircle, Info } from 'lucide-react';
+import { AlertCircle, ChevronDown, Droplets, History, Info, Plus, Trash2 } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
+import { StatusSelect } from '../common/StatusSelect';
 import { TrackEditor } from '../common/TrackEditor';
 import { usePopoverSave } from '../common/usePopoverSave';
-import { INSPECTION_STATUSES } from '../../../constants/production';
+import { INSPECTION_STATUSES, PROGRESS_STATUS_COLORS, getStatusLabel, normalizeStatus } from '../../../constants/production';
+import {
+  createInspectionRound, createStatusEvent, getColorInspection, getRoundStatus, roundHasData,
+} from '../../../utils/orderModel';
+import { fmtKg, shortDate } from '../../../utils/orderCalculations';
 
 // ============================================================
-// 외관검사 입력 창 (컬러 1개 — 현황표 외관검사 칸 · 상세창 · 간트 공용) — 대표님 요청 2026-10-11
+// 외관검사 입력 창 (컬러 1개 — 현황표 외관검사 칸 · 상세창 · 간트 공용) — 대표님 요청 2026-10-14 'LOT마다 1차 2차'
 // ------------------------------------------------------------
-// - 투입일 · 종료예정일 · 상태(검사중·불량컨펌중·출고준비완료·출고완료) · 메모
-// - 상태 드롭다운을 바꿀 때마다 그날 날짜로 기록 (날짜·상태 고치기 · 지우기 — TrackEditor)
-// - '출고완료'를 고르면 그 컬러 출고 칸도 완료로 체크 (출고일이 비었으면 그날) — orderModel.applyColorTracks
-// - 검사처는 오더 전체 공통 값(order.inspectVendor) — 바뀌었을 때만 따로 저장 (염색소와 같은 방식)
-// - 로컬 draft 로 편집 → [저장] 시 바뀐 칸만 onSave({ inspection: {바뀐 칸} }) — 상태 기록은 열 때 기록(eventsBase)과
-//   같이 보내서 지금 저장된 기록과 합침 (열어 둔 사이 현황표에서 고른 상태가 지워지지 않게). Enter = 저장, 닫을 때 저장 안 한 변경이 있으면 묻기
-// props: order, color, anchorRect(null = 화면 가운데), onClose,
-//        onSave({ inspection }) => Promise<boolean>, onSaveVendor(vendor) => Promise<boolean>, vendorOptions
+// - LOT 마다 검사 차수(1차 · 2차 …): 예상 시작일 · 예상 종료일 · 상태 · 메모
+//   · 상태: 투입 전(되돌리기) · 검사중 · 불량컨펌중 · 재가공 · 출고준비완료 · 출고완료
+//   · 상태를 바꾸면 오늘 날짜로 기록 한 줄 (날짜는 옆 칸에서 고침, [기록]에서 줄마다 고치기·지우기)
+//   · '재가공'(불량 → 염가공소 재투입)을 고르면 다음 차수 검사 줄이 자동으로 생김
+// - 그 컬러 LOT 가 모두 '출고완료'면 컬러 출고 칸도 완료로 체크 (orderModel.applyLotInspections)
+// - 검사처는 오더 전체 공통 값(order.inspectVendor) — 바뀌었을 때만 따로 저장
+// - LOT 가 없는 컬러는 [LOT 만들기] (onOpenLots)
+// - 로컬 draft 로 편집 → [저장] 시 바뀐 LOT 만 onSave({ [lotId]: { rounds, base } }) — base(열 때 차수)와 같이 보내서
+//   지금 저장된 값과 합침 (열어 둔 사이 현황표에서 고른 상태가 지워지지 않게). Enter = 저장, 닫을 때 저장 안 한 변경이 있으면 묻기
+// props: order, color, anchorRect(null = 화면 가운데), onClose, onSave(patchByLot) => Promise<boolean>,
+//        onSaveVendor(vendor) => Promise<boolean>, vendorOptions, onOpenLots(), prefill({ lotId, field, date } — 간트에서 고른 날)
 // ============================================================
 
-const INPUT_CLS = 'w-full min-w-0 px-2 py-1.5 bg-white border rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-400/60 focus:border-teal-400';
-const LABEL_CLS = 'block mb-1 text-[11px] font-bold text-slate-500';
+const INPUT_CLS = 'w-full min-w-0 px-2 py-1 bg-white border rounded-md text-[11px] text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-400/60 focus:border-teal-400';
+const LABEL_CLS = 'block mb-0.5 text-[10px] font-bold text-slate-500';
 
-const toDraft = (color) => ({
-  startDate: color?.inspection?.startDate || '',
-  endDate: color?.inspection?.endDate || '',
-  events: (color?.inspection?.events || []).map(e => ({ ...e })),
-  notes: color?.inspection?.notes || '',
-});
+const copyRounds = (lot) => (lot?.inspections || []).map(r => ({ ...r, events: (r.events || []).map(e => ({ ...e })) }));
 
-const clean = (d) => ({ ...d, notes: d.notes.trim() });
+// 비교용 (예상 일정 · 메모 · 기록)
+const roundsKey = (list) => JSON.stringify((list || []).map(r => [
+  r.id, r.startDate || '', r.endDate || '', String(r.notes || '').trim(), (r.events || []).map(e => [e.id, e.status, e.date || '']),
+]));
+
+const cleanRounds = (list) => (list || []).map(r => ({ ...r, notes: String(r.notes || '').trim() }));
+
+const makeInitial = (color, prefill) => {
+  const out = Object.fromEntries((color?.lots || []).map(l => [l.id, copyRounds(l)]));
+  return { base: out, draft: applyPrefill(out, prefill) };
+};
+
+// 간트에서 고른 날 → 그 LOT 지금 차수(없으면 1차)의 예상 시작일·종료일
+function applyPrefill(byLot, prefill) {
+  if (!prefill?.lotId || !prefill.date || !(prefill.lotId in byLot)) return byLot;
+  const list = byLot[prefill.lotId].map(r => ({ ...r }));
+  if (!list.length) list.push(createInspectionRound());
+  const field = prefill.field === 'endDate' ? 'endDate' : 'startDate';
+  list[list.length - 1] = { ...list[list.length - 1], [field]: prefill.date };
+  return { ...byLot, [prefill.lotId]: list };
+}
 
 const isSubmitEnter = (e) => {
   if (e.key !== 'Enter' || e.shiftKey) return false;
@@ -38,11 +61,12 @@ const isSubmitEnter = (e) => {
 };
 
 export const InspectionPopover = ({
-  order, color, anchorRect = null, onClose, onSave, onSaveVendor, vendorOptions = [],
+  order, color, anchorRect = null, onClose, onSave, onSaveVendor, vendorOptions = [], onOpenLots, prefill = null,
 }) => {
   const listId = useId();
-  const [initial] = useState(() => toDraft(color));
-  const [draft, setDraft] = useState(initial);
+  const [init] = useState(() => makeInitial(color, prefill));
+  const [draft, setDraft] = useState(init.draft);
+  const [openHistory, setOpenHistory] = useState({}); // { [roundId]: true } 기록 펼침
   const [initialVendor] = useState(() => order?.inspectVendor || '');
   const [vendor, setVendor] = useState(initialVendor);
   const [error, setError] = useState('');
@@ -50,30 +74,61 @@ export const InspectionPopover = ({
 
   if (!order || !color) return null;
 
-  // 바뀐 칸만 (투입일 · 종료예정일 · 메모 · 상태 기록)
-  const d1 = clean(draft);
-  const d0 = clean(initial);
-  const inspPatch = {};
-  ['startDate', 'endDate', 'notes'].forEach(k => {
-    if (d1[k] !== d0[k]) inspPatch[k] = d1[k];
+  const lots = color.lots || [];
+  // 바뀐 LOT 만 (열 때 차수와 비교)
+  const patchByLot = {};
+  lots.forEach(l => {
+    const mine = draft[l.id];
+    const base = init.base[l.id];
+    if (!mine || !base) return; // 창을 연 뒤 새로 생긴 LOT — 이 창에서는 안 건드림
+    if (roundsKey(mine) !== roundsKey(base)) patchByLot[l.id] = { rounds: cleanRounds(mine), base };
   });
-  if (JSON.stringify(d1.events) !== JSON.stringify(d0.events)) Object.assign(inspPatch, { events: d1.events, eventsBase: d0.events });
-  const inspectionChanged = Object.keys(inspPatch).length > 0;
+  const lotsChanged = Object.keys(patchByLot).length > 0;
   const vendorChanged = !!onSaveVendor && vendor.trim() !== initialVendor.trim();
-  const isDirty = inspectionChanged || vendorChanged;
-  const dateBad = !!(draft.startDate && draft.endDate && draft.startDate > draft.endDate);
-  const current = draft.events[draft.events.length - 1]?.status || '';
-  const initialStatus = initial.events[initial.events.length - 1]?.status || '';
-  const willShip = current === 'shipped' && initialStatus !== 'shipped' && !color.shipDone;
-  // 외관검사 '출고완료'가 자동으로 체크했던 출고 → 다른 상태로 바꾸면 풀림 (orderModel.applyColorTracks)
-  const willUnship = initialStatus === 'shipped' && current !== 'shipped' && !!color.shipAuto;
+  const isDirty = lotsChanged || vendorChanged;
+  const badRounds = [];
+  lots.forEach(l => (draft[l.id] || []).forEach((r, i) => {
+    if (r.startDate && r.endDate && r.startDate > r.endDate) badRounds.push(`LOT${l.no} ${i + 1}차`);
+  }));
+
+  // 출고 칸 연동 미리 보기 (LOT 가 모두 '출고완료'가 되면 / 풀리면)
+  const withDraft = (byLot) => ({ ...color, lots: lots.map(l => ({ ...l, inspections: byLot[l.id] || l.inspections || [] })) });
+  const shippedBefore = getColorInspection(withDraft(init.base)).allShipped;
+  const shippedAfter = getColorInspection(withDraft(draft)).allShipped;
+  const willShip = shippedAfter && !shippedBefore && !color.shipDone;
+  const willUnship = shippedBefore && !shippedAfter && !!color.shipAuto;
 
   const options = [...new Set((vendorOptions || []).map(v => String(v ?? '').trim()).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'ko'));
 
+  // ---------- 변경 ----------
+  const setRounds = (lotId, fn) => setDraft(d => ({ ...d, [lotId]: fn(d[lotId] || []) }));
+  const updateRound = (lotId, roundId, patch) => setRounds(lotId, list => list.map(r => (r.id === roundId ? { ...r, ...patch } : r)));
+  const addRound = (lotId) => setRounds(lotId, list => [...list, createInspectionRound()]);
+  const removeRound = (lotId, round, no) => {
+    if (roundHasData(round) && !window.confirm(`${no}차 검사에 입력한 일정·상태·메모를 지울까요? (저장해야 지워져요)`)) return;
+    setRounds(lotId, list => list.filter(r => r.id !== round.id));
+  };
+  // 상태 드롭다운 → 오늘 날짜로 기록 한 줄 ('재가공'이고 마지막 차수면 다음 차수 줄도)
+  const setStatus = (lotId, round, status) => setRounds(lotId, list => {
+    const cur = getRoundStatus(round) || 'waiting';
+    if (!status || cur === status) return list;
+    const next = list.map(r => (r.id === round.id ? { ...r, events: [...(r.events || []), createStatusEvent(status)] } : r));
+    const isLast = list[list.length - 1]?.id === round.id;
+    if (status === 'redye' && isLast) next.push(createInspectionRound());
+    return next;
+  });
+  // 지금 상태를 고른 날 고치기 (마지막 기록의 날짜)
+  const setStatusDate = (lotId, round, date) => {
+    const ev = round.events || [];
+    if (!ev.length) return;
+    const last = ev[ev.length - 1];
+    updateRound(lotId, round.id, { events: ev.map(e => (e.id === last.id ? { ...e, date } : e)) });
+  };
+
   // ---------- 저장 / 닫기 ----------
   const handleSave = () => {
-    if (saving || dateBad) return;
+    if (saving || badRounds.length) return;
     if (!isDirty) {
       close();
       return;
@@ -83,7 +138,7 @@ export const InspectionPopover = ({
       try {
         // 검사처 → 외관검사 순서로 연달아 시작 (useOrder 가 앞 저장 위에 이어서 적용 — LOT 편집과 같은 방식)
         const vendorTask = vendorChanged ? Promise.resolve(onSaveVendor(vendor.trim())) : Promise.resolve(true);
-        const inspTask = inspectionChanged ? Promise.resolve(onSave?.({ inspection: inspPatch })) : Promise.resolve(true);
+        const inspTask = lotsChanged ? Promise.resolve(onSave?.(patchByLot)) : Promise.resolve(true);
         const [vOk, iOk] = await Promise.all([vendorTask, inspTask]);
         if (vOk === false || iOk === false) {
           setError(`${[vOk === false && '검사처', iOk === false && '외관검사'].filter(Boolean).join('·')} 저장에 실패했어요. 다시 시도해 주세요.`);
@@ -108,9 +163,11 @@ export const InspectionPopover = ({
     <div className="flex items-center justify-between gap-2">
       <div className="min-w-0 flex-1 text-[10px] leading-snug">
         {error ? <span className="font-bold text-red-600">{error}</span>
-          : willShip ? <span className="font-bold text-emerald-700">저장하면 이 컬러 출고 칸도 '완료'로 체크돼요.</span>
-            : willUnship ? <span className="font-bold text-amber-700">저장하면 '출고완료'로 자동 체크했던 출고가 풀려요.</span>
-            : null}
+          : badRounds.length ? <span className="font-bold text-red-600">{badRounds.join(', ')}: 예상 종료일이 예상 시작일보다 빨라요.</span>
+            : willShip ? <span className="font-bold text-emerald-700">LOT가 모두 출고완료 — 저장하면 이 컬러 출고 칸도 '완료'로 체크돼요.</span>
+              : willUnship ? <span className="font-bold text-amber-700">저장하면 '출고완료'로 자동 체크했던 출고가 풀려요.</span>
+                : prefill?.date && isDirty ? <span className="font-bold text-teal-700">간트에서 고른 {shortDate(prefill.date)}을 넣었어요 — [저장]하면 현황표에도 반영돼요.</span>
+                  : null}
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
         <button
@@ -123,7 +180,7 @@ export const InspectionPopover = ({
         <button
           type="button"
           onClick={handleSave}
-          disabled={saving || dateBad}
+          disabled={saving || badRounds.length > 0}
           className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-600 text-white text-[11px] font-bold shadow-sm hover:from-teal-700 hover:to-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {saving ? '저장 중…' : '저장'}
@@ -135,9 +192,9 @@ export const InspectionPopover = ({
   return (
     <PopoverShell
       anchorRect={anchorRect}
-      width={420}
+      width={640}
       title={`${order.orderNumber || '새 오더'} · ${color.name || '컬러'} 외관검사`}
-      subtitle={[order.articleNo, order.customer].filter(Boolean).join(' · ') || undefined}
+      subtitle="LOT마다 1차 · 2차 — 불량으로 염가공소에 다시 들어가면 '재가공' → 다음 차수"
       onClose={close}
       dirty={isDirty && !saving}
       onSaveDirty={handleSave}
@@ -154,67 +211,174 @@ export const InspectionPopover = ({
             onChange={e => setVendor(e.target.value)}
             disabled={!onSaveVendor}
             placeholder={options.length ? '목록에서 고르거나 직접 입력' : '검사처 이름'}
-            className={`${INPUT_CLS} border-slate-300 font-bold`}
+            className={`${INPUT_CLS} !py-1.5 !text-xs border-slate-300 font-bold`}
           />
           <datalist id={listId}>
             {options.map(v => <option key={v} value={v} />)}
           </datalist>
         </label>
 
-        {/* 투입일 / 종료예정일 */}
-        <div className="space-y-1">
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block min-w-0">
-              <span className={LABEL_CLS}>투입일</span>
-              <input
-                type="date"
-                value={draft.startDate}
-                onChange={e => setDraft(d => ({ ...d, startDate: e.target.value }))}
-                className={`${INPUT_CLS} ${dateBad ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
-              />
-            </label>
-            <label className="block min-w-0">
-              <span className={LABEL_CLS}>종료예정일</span>
-              <input
-                type="date"
-                value={draft.endDate}
-                onChange={e => setDraft(d => ({ ...d, endDate: e.target.value }))}
-                className={`${INPUT_CLS} ${dateBad ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
-              />
-            </label>
+        {lots.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-orange-300 bg-orange-50/40 p-3 text-center space-y-2">
+            <p className="text-[11px] text-slate-600">이 컬러는 아직 염가공 LOT가 없어요. 외관검사는 LOT마다 해요.</p>
+            {onOpenLots && (
+              <button
+                type="button"
+                onClick={() => { close(); onOpenLots(); }}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-orange-300 bg-white text-[11px] font-bold text-orange-800 hover:bg-orange-50"
+              >
+                <Droplets className="w-3.5 h-3.5" /> 염가공 LOT 만들기
+              </button>
+            )}
           </div>
-          {dateBad && (
-            <p className="flex items-center gap-1 text-[11px] font-bold text-red-600">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" /> 종료예정일이 투입일보다 빨라요.
-            </p>
-          )}
-        </div>
+        ) : lots.map(lot => {
+          const rounds = draft[lot.id] || [];
+          const lotSt = normalizeStatus(lot.status);
+          const lotNew = !(lot.id in init.base);
+          return (
+            <section key={lot.id} className="rounded-lg border border-violet-200 bg-violet-50/30 p-2 space-y-1.5">
+              {/* LOT 머리: 번호 · 배색량 · 염가공 상태 · 투입~완료예정 */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-extrabold text-orange-700">LOT {lot.no}</span>
+                {lot.dyeKg ? <span className="text-[10px] font-mono text-slate-500">배색 {fmtKg(lot.dyeKg)}kg</span> : null}
+                <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+                  <span className={`w-2 h-2 rounded-full ${PROGRESS_STATUS_COLORS[lotSt]?.dot || 'bg-slate-400'}`} />
+                  염가공 {getStatusLabel(lotSt)}
+                  {(lot.startDate || lot.endDate) && <span className="font-mono">· {shortDate(lot.startDate) || '?'}~{shortDate(lot.endDate) || '?'}</span>}
+                </span>
+                {lotNew && <span className="text-[10px] text-amber-700">창을 연 뒤 생긴 LOT — 다시 열어서 입력</span>}
+              </div>
 
-        {/* 상태 */}
-        <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-2.5">
-          <TrackEditor
-            label="상태"
-            statuses={INSPECTION_STATUSES}
-            events={draft.events}
-            onChange={events => setDraft(d => ({ ...d, events }))}
-          />
-        </div>
+              {rounds.length === 0 && !lotNew && (
+                <p className="text-[11px] text-slate-400">아직 검사 일정이 없어요 — [1차 검사 추가]</p>
+              )}
 
-        {/* 메모 */}
-        <label className="block">
-          <span className={LABEL_CLS}>메모</span>
-          <textarea
-            rows={2}
-            value={draft.notes}
-            onChange={e => setDraft(d => ({ ...d, notes: e.target.value }))}
-            placeholder="불량 내용 · 출고 준비 사항 (Enter 는 줄바꿈)"
-            className={`${INPUT_CLS} border-slate-300 resize-y leading-snug`}
-          />
-        </label>
+              {rounds.map((r, i) => {
+                const no = i + 1;
+                const status = getRoundStatus(r);
+                const ev = r.events || [];
+                const lastEv = ev[ev.length - 1];
+                const bad = !!(r.startDate && r.endDate && r.startDate > r.endDate);
+                const histOpen = !!openHistory[r.id];
+                const isLast = i === rounds.length - 1;
+                const afterRedye = i > 0 && getRoundStatus(rounds[i - 1]) === 'redye';
+                return (
+                  <div key={r.id} className={`rounded-md border bg-white p-1.5 space-y-1 ${isLast ? 'border-violet-300' : 'border-slate-200 opacity-90'}`}>
+                    <div className="grid grid-cols-[34px_120px_120px_1fr_116px_24px] items-end gap-1.5">
+                      <span className="pb-1 text-[11px] font-extrabold text-violet-700">{no}차</span>
+                      <label className="block min-w-0">
+                        <span className={LABEL_CLS}>예상 시작일</span>
+                        <input
+                          type="date"
+                          value={r.startDate}
+                          onChange={e => updateRound(lot.id, r.id, { startDate: e.target.value })}
+                          aria-label={`LOT${lot.no} ${no}차 예상 시작일`}
+                          className={`${INPUT_CLS} ${bad ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
+                        />
+                      </label>
+                      <label className="block min-w-0">
+                        <span className={LABEL_CLS}>예상 종료일</span>
+                        <input
+                          type="date"
+                          value={r.endDate}
+                          onChange={e => updateRound(lot.id, r.id, { endDate: e.target.value })}
+                          aria-label={`LOT${lot.no} ${no}차 예상 종료일`}
+                          className={`${INPUT_CLS} ${bad ? 'border-red-400 bg-red-50' : 'border-slate-300'}`}
+                        />
+                      </label>
+                      <div className="min-w-0">
+                        <span className={LABEL_CLS}>상태</span>
+                        <StatusSelect
+                          value={status || 'waiting'}
+                          options={INSPECTION_STATUSES}
+                          onChange={st => setStatus(lot.id, r, st)}
+                          size="md"
+                          instant={false}
+                          ariaLabel={`LOT${lot.no} ${no}차 상태`}
+                        />
+                      </div>
+                      <label className="block min-w-0">
+                        <span className={LABEL_CLS}>그 상태 날짜</span>
+                        <input
+                          type="date"
+                          value={lastEv?.date || ''}
+                          disabled={!lastEv}
+                          onChange={e => setStatusDate(lot.id, r, e.target.value)}
+                          aria-label={`LOT${lot.no} ${no}차 상태 날짜`}
+                          className={`${INPUT_CLS} border-slate-300 disabled:bg-slate-50 disabled:text-slate-300`}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => removeRound(lot.id, r, no)}
+                        className="mb-0.5 p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
+                        title={`${no}차 검사 지우기`}
+                        aria-label={`LOT${lot.no} ${no}차 검사 지우기`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={r.notes}
+                        onChange={e => updateRound(lot.id, r.id, { notes: e.target.value })}
+                        placeholder={afterRedye ? '재가공 내용 · 2차 검사 메모' : '불량 내용 · 출고 준비 사항'}
+                        aria-label={`LOT${lot.no} ${no}차 메모`}
+                        className={`${INPUT_CLS} border-slate-300`}
+                      />
+                      {ev.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setOpenHistory(h => ({ ...h, [r.id]: !h[r.id] }))}
+                          className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-1 rounded-md border border-slate-200 text-[10px] font-bold text-slate-500 hover:bg-slate-50"
+                          title="상태를 바꾼 기록 — 날짜·상태 고치기 · 지우기"
+                        >
+                          <History className="w-3 h-3" /> 기록 {ev.length}
+                          <ChevronDown className={`w-3 h-3 transition-transform ${histOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                      )}
+                    </div>
+                    {histOpen && (
+                      <TrackEditor
+                        label=""
+                        statuses={INSPECTION_STATUSES}
+                        events={ev}
+                        showPicker={false}
+                        onChange={events => updateRound(lot.id, r.id, { events })}
+                      />
+                    )}
+                    {status === 'redye' && isLast && (
+                      <p className="text-[10px] font-bold text-orange-700">재가공 — 다시 검사할 {no + 1}차 줄을 추가해 주세요.</p>
+                    )}
+                  </div>
+                );
+              })}
 
+              {!lotNew && (
+                <button
+                  type="button"
+                  onClick={() => addRound(lot.id)}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-dashed border-violet-300 bg-white text-[11px] font-bold text-violet-700 hover:bg-violet-50"
+                >
+                  <Plus className="w-3 h-3" /> {rounds.length + 1}차 검사 추가
+                </button>
+              )}
+            </section>
+          );
+        })}
+
+        {badRounds.length > 0 && (
+          <p className="flex items-center gap-1 text-[11px] font-bold text-red-600">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" /> 예상 종료일이 예상 시작일보다 빠른 차수가 있어요.
+          </p>
+        )}
         <p className="flex items-start gap-1 text-[10px] text-slate-500 leading-snug">
           <Info className="w-3 h-3 mt-px shrink-0" />
-          <span>'출고완료'를 고르면 이 컬러 출고 칸도 완료로 체크돼요 (출고일이 비었으면 그날). 다시 다른 상태로 바꾸면 자동 체크는 풀려요 — 출고 칸을 손으로 체크했으면 그대로.</span>
+          <span>
+            상태를 바꾸면 오늘 날짜로 기록돼요 ('그 상태 날짜'에서 고침). <b>투입 전</b>으로 되돌릴 수 있고,
+            <b> 재가공</b>을 고르면 다음 차수 줄이 생겨요. LOT가 모두 '출고완료'면 이 컬러 출고 칸도 완료로 체크돼요.
+          </span>
         </p>
       </div>
     </PopoverShell>

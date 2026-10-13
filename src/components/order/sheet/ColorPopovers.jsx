@@ -4,6 +4,7 @@ import { PopoverShell } from '../common/PopoverShell';
 import { TrackEditor } from '../common/TrackEditor';
 import { usePopoverSave } from '../common/usePopoverSave';
 import { BRAND_CONFIRM_STATUSES, TEST_REPORT_STATUSES } from '../../../constants/production';
+import { createStatusEvent } from '../../../utils/orderModel';
 import { shortDate, todayYmd } from '../../../utils/orderCalculations';
 
 // ============================================================
@@ -16,7 +17,9 @@ import { shortDate, todayYmd } from '../../../utils/orderCalculations';
 // - 로컬 draft 로 편집 → [저장] 시 바뀐 칸만 onSave({ testReport?: {바뀐 칸}, brandConfirm? })
 //   상태 기록은 열 때 기록(eventsBase)과 같이 보내서 지금 저장된 기록과 합침 (열어 둔 사이 현황표·다른 PC에서 고른 상태가 지워지지 않게)
 // - Enter = 저장, ESC / 바깥 클릭 = 닫기 — 저장 안 한 변경이 있으면 '변경사항이 있습니다' 창 (PopoverShell)
-// props: order, color, anchorRect(null=화면 가운데), onClose, onSave(patch) => Promise<boolean>
+// - prefill (간트에서 날짜를 눌러 연 경우): { brandSent: 날짜 } = 그 날 브랜드 '전달' 기록 / { testExpected: 날짜 } = 성적서 발행 예상일
+//   (넣은 채로 열림 — [저장]해야 반영)
+// props: order, color, anchorRect(null=화면 가운데), onClose, onSave(patch) => Promise<boolean>, prefill
 // ============================================================
 
 const INPUT_CLS = 'w-full min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-400/60 focus:border-teal-400';
@@ -42,10 +45,18 @@ const isSubmitEnter = (e) => {
   return tag === 'INPUT' && e.target.type !== 'checkbox';
 };
 
-export const ConfirmPopover = ({ order, color, anchorRect = null, onClose, onSave }) => {
+export const ConfirmPopover = ({ order, color, anchorRect = null, onClose, onSave, prefill = null }) => {
   // 열 때 값과 비교해 바뀐 칸만 저장 (열어둔 사이 다른 칸의 변경을 덮어쓰지 않도록)
   const [initial] = useState(() => toDraft(color));
-  const [draft, setDraft] = useState(initial);
+  const [draft, setDraft] = useState(() => {
+    const d = toDraft(color);
+    if (prefill?.brandSent) {
+      const ev = d.brandConfirm.events;
+      if (ev[ev.length - 1]?.status !== 'sent') d.brandConfirm.events = [...ev, createStatusEvent('sent', prefill.brandSent)];
+    }
+    if (prefill?.testExpected) d.testReport = { ...d.testReport, needed: true, expectedDate: prefill.testExpected };
+    return d;
+  });
   const { saving, close, run } = usePopoverSave(onClose);
 
   if (!order || !color) return null;
@@ -124,6 +135,18 @@ export const ConfirmPopover = ({ order, color, anchorRect = null, onClose, onSav
     >
       {/* 열리면 이 영역에 포커스(data-autofocus) → Tab 으로 칸 이동, 날짜 칸에서 Enter = 저장 */}
       <div className="p-3 space-y-3 outline-none" tabIndex={-1} data-autofocus onKeyDown={onKeyDown}>
+        {prefill && isDirty && (
+          <p className="px-2 py-1.5 rounded-lg border border-teal-200 bg-teal-50 text-[11px] font-bold text-teal-800 leading-snug">
+            간트에서 고른 날짜({shortDate(prefill.brandSent || prefill.testExpected)})를
+            {prefill.brandSent ? ' 브랜드 컨펌 \'전달\' 기록으로' : ' 시험성적서 발행 예상일로'} 넣었어요 — [저장]하면 현황표에도 반영돼요.
+          </p>
+        )}
+        {prefill?.brandSent && !isDirty && (
+          <p className="px-2 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-[11px] text-slate-600 leading-snug">
+            이미 브랜드 컨펌이 '전달' 상태예요 ({shortDate(initial.brandConfirm.events[initial.brandConfirm.events.length - 1]?.date) || '날짜 없음'}).
+            날짜를 바꾸려면 아래 기록에서 고쳐 주세요.
+          </p>
+        )}
         {/* ---------- 시험성적서 ---------- */}
         <section className={`rounded-lg border p-2.5 space-y-2 ${t.needed ? 'border-fuchsia-200 bg-fuchsia-50/40' : 'border-dashed border-slate-200'}`}>
           <label className="flex items-center gap-2 cursor-pointer select-none">

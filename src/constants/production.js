@@ -57,15 +57,16 @@ export const normalizeStatus = (status) => {
 // ------------------------------------------------------------
 //  vendorMaster: 외주처 자동완성 목록으로 쓸 settings/general 마스터 키 (없으면 자유입력만)
 //  염가공은 오더 단위가 아니라 컬러별 LOT로 관리하므로 여기 없음 (DYEING_STEP 참고)
-//  외관검사도 컬러별 (color.inspection — 대표님 요청 2026-10-11). 예전 오더 단위 외관검사는 읽을 때 컬러로 옮김
+//  외관검사는 LOT별 1차·2차 (lot.inspections — 대표님 요청 2026-10-14). 예전 컬러별·오더 단위 외관검사는 읽을 때 LOT로 옮김
 //  일정 = 예상 시작일·예상 종료일 (예상 종료일을 바꾸면 예전 날짜가 endHistory 에 남음 — 대표님 요청 2026-10-11)
-//  프리세팅: 편직 바로 다음 (대표님 요청 2026-10-11)
+//  프리세팅: 공정 칸에서 빠지고 염가공 LOT 창에서 관리 (대표님 요청 2026-10-14 — 염색 전에 하는 일, 오더에 한 번)
+//   · 값은 그대로 steps.presetting (오더 공통) — 흐름 순서(FLOW_ORDER)·공정 목록(getStepDefs)에는 없음
 // ============================================================
 export const ORDER_STEPS = [
   { key: 'yarn',              label: '원사',       vendorLabel: '원사처',   vendorMaster: 'yarnSuppliers' },
   { key: 'yarn_processing',   label: '사가공',     vendorLabel: '가공처',   vendorMaster: null },
   { key: 'knitting',          label: '편직',       vendorLabel: '편직처',   vendorMaster: 'knittingFactories' },
-  { key: 'presetting',        label: '프리세팅',   vendorLabel: '가공처',   vendorMaster: 'dyeingFactories' },
+  { key: 'presetting',        label: '프리세팅',   vendorLabel: '가공처',   vendorMaster: 'dyeingFactories', inLot: true },
   { key: 'finishing',         label: '후가공',     vendorLabel: '가공처',   vendorMaster: 'dyeingFactories' },
   { key: 'physical_test',     label: '이화학검사', vendorLabel: '시험기관', vendorMaster: null },
 ];
@@ -73,6 +74,9 @@ export const ORDER_STEPS = [
 export const ORDER_STEP_KEYS = ORDER_STEPS.map(s => s.key);
 
 export const getStepMeta = (key) => ORDER_STEPS.find(s => s.key === key) || null;
+
+// 염가공 LOT 창에서 관리하는 프리세팅 (오더 공통 — 외주처 칸 없이 예상 시작·종료일 · 상태 · 메모)
+export const PRESETTING_KEY = 'presetting';
 
 // ============================================================
 // 2-B. 공정 흐름 순서 + 추가 공정 (대표님 요청 2026-10-11 '공정을 추가할 수 있게')
@@ -82,9 +86,10 @@ export const getStepMeta = (key) => ORDER_STEPS.find(s => s.key === key) || null
 //   · after: 어느 칸 다음에 둘지 — 공정 key, '#dyeing'(염가공 LOT), 다른 추가 공정 key
 //   · 모든 오더에 칸이 생김 (칸을 채운 오더만 "사용하는 공정"). 일정 = 외주처·예상 시작/종료일·상태·메모
 // ============================================================
+//  '#closing' = 오더 마무리 (원사재고정리 · EZTEX 재고정리 · EZTEX 종결 — 오더 단위 칸, 대표님 요청 2026-10-14)
 export const FLOW_ORDER = [
-  'yarn', 'yarn_processing', 'knitting', 'presetting', '#greige', '#dyeing',
-  'finishing', 'physical_test', '#confirm', '#inspection', '#ship',
+  'yarn', 'yarn_processing', 'knitting', '#greige', '#dyeing',
+  'finishing', 'physical_test', '#confirm', '#inspection', '#ship', '#closing',
 ];
 
 // 추가 공정 위치로 고를 수 있는 컬러별 칸 (공정 사이에 끼울 수 있는 것만)
@@ -101,8 +106,10 @@ export const normalizeCustomSteps = (list) => {
     .map(s => ({
       key: s.key,
       label: String(s.label).trim(),
-      // 예전 오더 단위 '외관검사' 다음 → 컬러별 외관검사 칸 다음
-      after: s.after === 'visual_inspection' ? '#inspection' : String(s.after || ''),
+      // 예전 오더 단위 '외관검사' 다음 → 외관검사 칸 다음 / '프리세팅' 다음 → 편직 다음 (프리세팅이 LOT 창으로 가서 같은 자리)
+      after: s.after === 'visual_inspection' ? '#inspection'
+        : s.after === 'presetting' ? 'knitting'
+          : String(s.after || ''),
       vendorLabel: String(s.vendorLabel || '').trim() || '외주처',
     }));
 };
@@ -204,6 +211,8 @@ export const PROCESS_THEME = {
   test:              { label: '시험성적서', cell: 'bg-fuchsia-100 text-fuchsia-800', bar: 'bg-fuchsia-200 border-fuchsia-400 text-fuchsia-900', dot: 'bg-fuchsia-400' },
   ship:              { label: '출고',       cell: 'bg-blue-100 text-blue-800',       bar: 'bg-blue-200 border-blue-400 text-blue-900',        dot: 'bg-blue-500'    },
   custom:            { label: '추가 공정',  cell: 'bg-indigo-100 text-indigo-800',   bar: 'bg-indigo-200 border-indigo-400 text-indigo-900',  dot: 'bg-indigo-400'  },
+  redye:             { label: '재가공',     cell: 'bg-orange-50 text-orange-800',    bar: 'bg-orange-100 border-orange-500 text-orange-900',  dot: 'bg-orange-500'  },
+  closing:           { label: '마무리',     cell: 'bg-emerald-50 text-emerald-800',  bar: 'bg-emerald-200 border-emerald-400 text-emerald-900', dot: 'bg-emerald-500' },
 };
 
 // ============================================================
@@ -219,6 +228,7 @@ export const COLOR_STAGES = {
   greige_partial: { label: '생지 부분출고', cls: 'bg-lime-50 text-lime-800 border-lime-300 border-dashed' },
   dye_wait:    { label: '염색대기',   cls: 'bg-lime-100 text-lime-800 border-lime-400' },
   dyeing:      { label: '염색중',     cls: 'bg-orange-100 text-orange-800 border-orange-300' },
+  redye:       { label: '재가공중',   cls: 'bg-orange-50 text-orange-800 border-orange-400 border-dashed' },
   finish_wait: { label: '후가공대기', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
   finishing:   { label: '후가공중',   cls: 'bg-amber-100 text-amber-800 border-amber-300' },
   inspection:  { label: '검사중',     cls: 'bg-violet-100 text-violet-800 border-violet-300' },
@@ -269,12 +279,31 @@ export const detectOrderType = (orderNumber) => {
 // 작지수량 = 오더수량 × (1 + 로스율/100). 엑셀 실측 대부분 10%
 export const DEFAULT_LOSS_RATE = 10;
 
-// 생지 출고 종류 (컬러별 출고 기록 한 줄마다 — 대표님 요청 2026-10-11)
-//  전체 = 남은 생지 전부 (체크하면 그 컬러 생지 출고 끝) / 부분 = 일부만 (메모에 어떤 분인지)
+// 생지 출고 종류 (출고 기록 한 줄마다 — 대표님 요청 2026-10-11)
+//  전체 = 남은 생지 전부 (체크하면 생지 출고 끝) / 부분 = 일부만 (메모에 어떤 분인지). 줄마다 kg (2026-10-14)
 export const GREIGE_OUT_KINDS = [
   { key: 'full',    label: '전체 출고', short: '전체', cls: 'bg-lime-100 text-lime-800 border-lime-300' },
   { key: 'partial', label: '부분 출고', short: '부분', cls: 'bg-amber-50 text-amber-800 border-amber-300' },
 ];
+
+// 염색 방식 (오더마다 — 대표님 요청 2026-10-14)
+//  선염 = 원사를 먼저 염색 → 생지 출고는 컬러마다 / 후염 = 생지를 염색 → 생지 출고는 오더에 한 번
+//  '' = 아직 안 고름 (예전 오더 — 컬러마다 출고, 지금까지처럼). 새 오더는 후염
+export const DYE_METHODS = [
+  { key: 'yarn',  label: '선염', desc: '생지 출고 컬러마다', cls: 'bg-pink-50 text-pink-700 border-pink-300' },
+  { key: 'piece', label: '후염', desc: '생지 출고 오더에 한 번', cls: 'bg-sky-50 text-sky-700 border-sky-300' },
+];
+export const DEFAULT_DYE_METHOD = 'piece';
+export const getDyeMethodMeta = (key) => DYE_METHODS.find(m => m.key === key) || null;
+
+// 오더 마무리 체크 (대표님 요청 2026-10-14 — 이걸 끝내야 오더가 최종 마무리)
+//  3개를 모두 체크하면 오더가 자동으로 '완료' (체크를 풀면 다시 진행중 — 자동으로 완료한 경우만)
+export const CLOSING_ITEMS = [
+  { key: 'yarnStock',   label: '원사재고정리',   short: '원사재고' },
+  { key: 'eztexStock',  label: 'EZTEX 재고정리', short: 'EZTEX 재고' },
+  { key: 'eztexClosed', label: 'EZTEX 종결',     short: 'EZTEX 종결' },
+];
+export const CLOSING_KEYS = CLOSING_ITEMS.map(i => i.key);
 
 // ============================================================
 // 7-B. 상태 기록 드롭다운 (컬러별 — 대표님 요청 2026-10-11)
@@ -299,13 +328,17 @@ export const BRAND_CONFIRM_STATUSES = [
   { key: 'rejected',  label: '리젝', phase: 'issue',  startsRound: false, cls: 'bg-rose-100 text-rose-700 border-rose-300' },
 ];
 
-// 외관검사 (컬러별 — 투입일 · 종료예정일 · 상태). '출고완료'를 고르면 그 컬러 출고 칸도 완료로 (orderModel.applyColorTracks)
-//  '검사중'은 투입하고 결과가 나오기 전 (대표님 목록에 없던 상태 — 필요 없으면 빼면 됨)
+// 외관검사 (LOT별 · 1차·2차 차수마다 — 대표님 요청 2026-10-14) — 예상 시작일 · 예상 종료일 · 상태 · 메모
+//  '투입 전' = 아직 안 넣음 (언제든 되돌릴 수 있게) / '검사중' = 투입하고 결과 전
+//  '재가공' = 불량으로 염가공소에 다시 들어감 → 그 LOT 에 다음 차수(2차) 검사 줄이 자동으로 생김
+//  컬러의 LOT 가 모두 '출고완료'면 그 컬러 출고 칸도 완료로 (orderModel.syncShipFromInspection)
 export const INSPECTION_STATUSES = [
-  { key: 'inspecting', label: '검사중',       phase: 'active', startsRound: true,  cls: 'bg-violet-100 text-violet-700 border-violet-300' },
-  { key: 'defect',     label: '불량컨펌중',   phase: 'issue',  startsRound: false, cls: 'bg-rose-100 text-rose-700 border-rose-300' },
-  { key: 'ready',      label: '출고준비완료', phase: 'done',   startsRound: false, cls: 'bg-blue-100 text-blue-700 border-blue-300' },
-  { key: 'shipped',    label: '출고완료',     phase: 'done',   startsRound: false, cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  { key: 'waiting',    label: '투입 전',      phase: 'pending', startsRound: false, cls: 'bg-white text-slate-500 border-slate-300' },
+  { key: 'inspecting', label: '검사중',       phase: 'active',  startsRound: true,  cls: 'bg-violet-100 text-violet-700 border-violet-300' },
+  { key: 'defect',     label: '불량컨펌중',   phase: 'issue',   startsRound: false, cls: 'bg-rose-100 text-rose-700 border-rose-300' },
+  { key: 'redye',      label: '재가공',       phase: 'rework',  startsRound: false, cls: 'bg-orange-100 text-orange-800 border-orange-300' },
+  { key: 'ready',      label: '출고준비완료', phase: 'done',    startsRound: false, cls: 'bg-blue-100 text-blue-700 border-blue-300' },
+  { key: 'shipped',    label: '출고완료',     phase: 'done',    startsRound: false, cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
 ];
 
 // 상태 목록에서 한 줄 찾기 (없으면 null)

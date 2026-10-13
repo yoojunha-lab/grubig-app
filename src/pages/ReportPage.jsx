@@ -1,7 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { TrendingUp, Calendar, Users, Package, CheckCircle, AlertCircle, Truck, Layers } from 'lucide-react';
-import { ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_STEPS, DYEING_STEP } from '../constants/production';
-import { normalizeOrder, getLossRate, getWorkKg, getOrderTotals, isDropClosed, getInspectionDoneDate } from '../utils/orderModel';
+import { ORDER_STATUSES, ORDER_STATUS_COLORS, DYEING_STEP, PRESETTING_KEY, getStepDefs } from '../constants/production';
+import {
+  normalizeOrder, getLossRate, getWorkKg, getOrderTotals, isDropClosed,
+  getRoundStatus, getRoundDoneDate, getRoundStartedDate,
+} from '../utils/orderModel';
 import { diffDaysYmd, todayYmd, isYmd, round1, fmtKg } from '../utils/orderCalculations';
 
 // ============================================================
@@ -77,7 +80,9 @@ const avg = (arr) => (arr.length === 0 ? null : round1(arr.reduce((a, b) => a + 
 // 리포트 페이지 (Tailwind 자체 막대 차트)
 // ============================================================
 // stepDefs: 공정 목록 (기본 + 대표님이 추가한 공정, 흐름 순서) — 없으면 기본 공정만
-export const ReportPage = ({ orders = [], stepDefs = ORDER_STEPS }) => {
+const DEFAULT_STEP_DEFS = getStepDefs([]);
+
+export const ReportPage = ({ orders = [], stepDefs = DEFAULT_STEP_DEFS }) => {
   const [typeFilter, setTypeFilter] = useState(loadReportType);
   const changeType = (k) => {
     setTypeFilter(k);
@@ -215,19 +220,27 @@ export const ReportPage = ({ orders = [], stepDefs = ORDER_STEPS }) => {
   const monthMax = Math.max(1, ...monthlyStats.months.map(m => Math.max(m.registered, m.completed)));
 
   // 5. 공정별 평균 소요일 — 예상: 예상 시작일~예상 종료일, 실제: 예상 시작일~완료일(완료된 공정)
-  //    염가공은 컬러별 LOT 단위 (LOT엔 완료일이 없어 계획만)
+  //    프리세팅은 염가공 LOT 창에서 관리 (오더 공통 — 편직 다음 줄), 염가공은 컬러별 LOT 단위 (LOT엔 완료일이 없어 계획만)
+  //    외관검사는 LOT 차수마다 (1차 · 2차 따로 한 번씩 — 2026-10-14)
   const processStats = useMemo(() => {
-    const rows = stepDefs.map(m => ({ key: m.key, label: m.label, planned: [], actual: [], planOnly: false }));
+    const presetMeta = { key: PRESETTING_KEY, label: '프리세팅 (염색 전)' };
+    const metas = [];
+    stepDefs.forEach(m => {
+      metas.push(m);
+      if (m.key === 'knitting') metas.push(presetMeta);
+    });
+    if (!metas.includes(presetMeta)) metas.push(presetMeta);
+    const rows = metas.map(m => ({ key: m.key, label: m.label, planned: [], actual: [], planOnly: false }));
     const dyeRow = { key: DYEING_STEP.key, label: `${DYEING_STEP.label} (LOT당)`, planned: [], actual: [], planOnly: true };
     // 염가공 줄은 흐름 순서대로 — 후가공(또는 염가공 다음에 둔 추가 공정) 바로 앞, 없으면 맨 뒤
-    const dyeAt = stepDefs.findIndex(m => m.key === 'finishing' || m.after === '#dyeing');
+    const dyeAt = metas.findIndex(m => m.key === 'finishing' || m.after === '#dyeing');
     rows.splice(dyeAt === -1 ? rows.length : dyeAt, 0, dyeRow);
-    const inspRow = { key: 'inspection', label: '외관검사 (컬러별)', planned: [], actual: [], planOnly: false };
+    const inspRow = { key: 'inspection', label: '외관검사 (LOT 차수당)', planned: [], actual: [], planOnly: false };
     rows.push(inspRow);
     const byKey = new Map(rows.map(r => [r.key, r]));
 
     list.forEach(o => {
-      stepDefs.forEach(meta => {
+      metas.forEach(meta => {
         const step = o.steps?.[meta.key];
         if (!step) return;
         const row = byKey.get(meta.key);
@@ -240,16 +253,16 @@ export const ReportPage = ({ orders = [], stepDefs = ORDER_STEPS }) => {
         (c.lots || []).forEach(l => {
           const planned = spanDays(l.startDate, l.endDate);
           if (planned !== null) dyeRow.planned.push(planned);
+          // 외관검사 차수: 예상 = 예상 시작일~예상 종료일, 실제 = (검사 시작한 날 또는 예상 시작일)~출고준비완료·출고완료를 고른 날
+          (l.inspections || []).forEach(r => {
+            const p = spanDays(r.startDate, r.endDate);
+            if (p !== null) inspRow.planned.push(p);
+            const last = getRoundStatus(r);
+            const done = last === 'ready' || last === 'shipped' ? getRoundDoneDate(r) : '';
+            const actual = done ? spanDays(getRoundStartedDate(r) || r.startDate, done) : null;
+            if (actual !== null) inspRow.actual.push(actual);
+          });
         });
-        // 외관검사 (컬러별): 예상 = 투입일~종료예정일, 실제 = 투입일~출고준비완료(또는 출고완료)를 고른 날
-        const insp = c.inspection;
-        if (insp) {
-          const planned = spanDays(insp.startDate, insp.endDate);
-          if (planned !== null) inspRow.planned.push(planned);
-          const last = (insp.events || [])[(insp.events || []).length - 1]?.status;
-          const actual = last === 'ready' || last === 'shipped' ? spanDays(insp.startDate, getInspectionDoneDate(c)) : null;
-          if (actual !== null) inspRow.actual.push(actual);
-        }
       });
     });
 

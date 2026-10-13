@@ -151,7 +151,11 @@ export const DEV_SAMPLE_DESIGN_SHEETS = [
 //   대표님 엑셀 생산 현황표의 실제 행을 본뜸. 기준일(테스트 가정) ≈ 2026-09-28.
 //   - F-26M020 : (v9 — 2026-10-11 기능 확인용) 편직 기계 2대 + 최초 예상 종료 기록 + 프리세팅 · 생지 부분출고 ·
 //                시험성적서 · 브랜드 컨펌 기록 · 외관검사(불량컨펌중) · 가납기 일수 + 컬러별 LOT + 날짜 메모
+//                (v10 확인: BLACK 컬러별 외관검사 → LOT 마다 1차로 옮겨짐 · WHITE LOT1 1차 재가공 → 2차 투입 전(재가공중) · 배색량)
 //   - F-26M016 : 컨펌 합격 → 출고 완료/대기
+//   - F-26M041 : (v10 — 2026-10-14) 후염 · 생지 출고 오더에 한 번(kg) · 프리세팅 완료 · LOT 배색량 · 외관검사 1차 불량→재가공→2차 출고완료 ·
+//                출고 모두 끝 + 마무리 2/3 → '마무리 대기' (EZTEX 종결을 체크하면 자동 완료)
+//   - F-26M030 : 선염 스트라이프 (생산 ▾ 계산기 확인용)
 //   - F-26S055 : 샘플, 생지출고 완료 + LOT 1개 진행 — 설계서 ds_dev_6(F-26D006)과 연결된 샘플 오더
 //   - O-LEGACY-01 : v7(차수 구조) 옛 형식 → 화면에서 v8로 자동 변환되는지 확인용
 const devStep = (patch = {}) => ({ vendor: '', startDate: '', endDate: '', status: 'pending', doneDate: '', notes: '', ...patch });
@@ -193,12 +197,27 @@ export const DEV_SAMPLE_ORDERS = [
       }),
       devColor('c_m020_wh', 'WHITE', 484.5, {
         greigeOuts: [
-          { id: 'g_m020_wh1', date: '2026-09-03', kind: 'partial', memo: 'LOT1분 270kg', done: true },
-          { id: 'g_m020_wh2', date: '2026-09-20', kind: 'full', memo: '나머지', done: true },
+          { id: 'g_m020_wh1', date: '2026-09-03', kind: 'partial', memo: 'LOT1분', done: true, kg: 270 },
+          { id: 'g_m020_wh2', date: '2026-09-20', kind: 'full', memo: '나머지', done: true, kg: 270 },
         ],
         lots: [
-          devLot('l_m020_wh1', 1, 300, 266.5, '2026-09-15', '2026-09-18', 'done', 3),
-          devLot('l_m020_wh2', 2, 300, 266.5, '2026-09-24', '2026-09-30', 'in_progress'),
+          {
+            ...devLot('l_m020_wh1', 1, 300, 266.5, '2026-09-15', '2026-09-18', 'done', 3),
+            dyeKg: 266.5,
+            // 외관검사 1차 불량 → 재가공 (염가공소 재투입) → 2차 아직 투입 전
+            inspections: [
+              {
+                id: 'r_m020_wh1_1', startDate: '2026-09-19', endDate: '2026-09-20', notes: '이염 3롤 — 재가공',
+                events: [
+                  { id: 'e_m020_wh1_1', status: 'inspecting', date: '2026-09-19' },
+                  { id: 'e_m020_wh1_2', status: 'defect', date: '2026-09-20' },
+                  { id: 'e_m020_wh1_3', status: 'redye', date: '2026-09-22' },
+                ],
+              },
+              { id: 'r_m020_wh1_2', startDate: '2026-10-15', endDate: '2026-10-16', notes: '', events: [] },
+            ],
+          },
+          { ...devLot('l_m020_wh2', 2, 300, 266.5, '2026-09-24', '2026-09-30', 'in_progress'), dyeKg: 266.5 },
         ],
       }),
       devColor('c_m020_dg', 'DARK GREY', 270.2, {
@@ -214,9 +233,9 @@ export const DEV_SAMPLE_ORDERS = [
       devColor('c_m020_bk', 'BLACK', 1119.3, {
         greigeOuts: [{ id: 'g_m020_bk1', date: '2026-09-12', kind: 'full', memo: '', done: true }],
         lots: [
-          devLot('l_m020_bk1', 1, 500, 410.4, '2026-09-15', '2026-09-19', 'done', 3),
-          devLot('l_m020_bk2', 2, 500, 410.4, '2026-09-25', '2026-09-30', 'done'),
-          devLot('l_m020_bk3', 3, 500, 410.4, '2026-10-02', '2026-10-07', 'done'),
+          { ...devLot('l_m020_bk1', 1, 500, 410.4, '2026-09-15', '2026-09-19', 'done', 3), dyeKg: 410 },
+          { ...devLot('l_m020_bk2', 2, 500, 410.4, '2026-09-25', '2026-09-30', 'done'), dyeKg: 410 },
+          { ...devLot('l_m020_bk3', 3, 500, 410.4, '2026-10-02', '2026-10-07', 'done'), dyeKg: 410 },
         ],
         brandConfirm: { events: [{ id: 'ev_m020_bk_b1', status: 'sent', date: '2026-10-01' }, { id: 'ev_m020_bk_b2', status: 'confirmed', date: '2026-10-05' }] },
         inspection: {
@@ -294,11 +313,79 @@ export const DEV_SAMPLE_ORDERS = [
     ],
     changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-09-05T00:00:00.000Z', updatedAt: '2026-09-18T00:00:00.000Z',
   },
+  // (v10 — 2026-10-14) 후염: 생지 출고 오더에 한 번 · 프리세팅 · 배색량 · 외관검사 1차 불량→재가공→2차 · 출고 끝 + 마무리 2/3 → '마무리 대기'
+  {
+    id: 'ord_dev_m041', schemaVersion: 10, orderNumber: 'F-26M041', articleNo: 'GB-2403', detail: 'Poly Interlock 후염',
+    customer: '케일', type: 'main', finalDueDate: '2026-10-20', lossRate: 10, status: 'active',
+    notes: '', linkedFabricId: 'fab_dev_3', linkedFabricArticle: 'GB-2403', dyeVendor: '킹텍스', inspectVendor: '세화검사',
+    dyeMethod: 'piece',
+    greigeOuts: [{ id: 'g_m041_1', date: '2026-09-22', kind: 'full', memo: '전 컬러 한 번에', done: true, kg: 660 }],
+    closing: {
+      yarnStock: { done: true, date: '2026-10-12', memo: '남은 원사 35kg 편직처 보관' },
+      eztexStock: { done: true, date: '2026-10-13', memo: '' },
+      eztexClosed: { done: false, date: '', memo: '' },
+    },
+    closingAuto: null,
+    steps: devSteps({
+      knitting: {
+        ...devStep({ vendor: '한성섬유', startDate: '2026-09-10', endDate: '2026-09-20', status: 'done', doneDate: '2026-09-20' }),
+        dailyKg: 66, machines: [{ id: 'mc_m041_1', name: '1호기', dailyKg: 66 }],
+      },
+      presetting: devStep({ startDate: '2026-09-23', endDate: '2026-09-24', status: 'done', doneDate: '2026-09-24', notes: '185℃' }),
+    }),
+    colors: [
+      devColor('c_m041_nv', 'NAVY', 300, {
+        lots: [{
+          ...devLot('l_m041_nv1', 1, null, null, '2026-09-25', '2026-09-29', 'done'),
+          dyeKg: 330,
+          inspections: [{
+            id: 'r_m041_nv1_1', startDate: '2026-09-30', endDate: '2026-10-01', notes: '',
+            events: [
+              { id: 'e_m041_nv1_1', status: 'inspecting', date: '2026-09-30' },
+              { id: 'e_m041_nv1_2', status: 'ready', date: '2026-10-01' },
+              { id: 'e_m041_nv1_3', status: 'shipped', date: '2026-10-05' },
+            ],
+          }],
+        }],
+        brandConfirm: { events: [{ id: 'ev_m041_nv_b1', status: 'sent', date: '2026-09-30' }, { id: 'ev_m041_nv_b2', status: 'confirmed', date: '2026-10-02' }] },
+        shipDate: '2026-10-05', shipDone: true, shipAuto: { filledDate: '2026-10-05' },
+      }),
+      devColor('c_m041_bk', 'BLACK', 300, {
+        lots: [{
+          ...devLot('l_m041_bk1', 1, null, null, '2026-09-25', '2026-09-29', 'done'),
+          dyeKg: 330,
+          inspections: [
+            {
+              id: 'r_m041_bk1_1', startDate: '2026-09-30', endDate: '2026-10-01', notes: '얼룩 — 재가공',
+              events: [
+                { id: 'e_m041_bk1_1', status: 'inspecting', date: '2026-09-30' },
+                { id: 'e_m041_bk1_2', status: 'defect', date: '2026-10-01' },
+                { id: 'e_m041_bk1_3', status: 'redye', date: '2026-10-02' },
+              ],
+            },
+            {
+              id: 'r_m041_bk1_2', startDate: '2026-10-07', endDate: '2026-10-08', notes: '2차 합격',
+              events: [
+                { id: 'e_m041_bk1_4', status: 'inspecting', date: '2026-10-07' },
+                { id: 'e_m041_bk1_5', status: 'ready', date: '2026-10-08' },
+                { id: 'e_m041_bk1_6', status: 'shipped', date: '2026-10-10' },
+              ],
+            },
+          ],
+        }],
+        brandConfirm: { events: [{ id: 'ev_m041_bk_b1', status: 'sent', date: '2026-10-08' }, { id: 'ev_m041_bk_b2', status: 'confirmed', date: '2026-10-09' }] },
+        shipDate: '2026-10-10', shipDone: true, shipAuto: { filledDate: '2026-10-10' },
+      }),
+    ],
+    dailyNotes: [],
+    provisionalDue: { yarn: '', knitting: '2026-09-20', dyeing: '2026-09-30', visual_inspection: '2026-10-03' },
+    changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-09-05T00:00:00.000Z', updatedAt: '2026-10-13T00:00:00.000Z',
+  },
   // 선염 스트라이프 (생산 ▾ 계산기 '오더 불러오기' 확인용 — 대표님 캡처 컬러·kg, 2026-10-07)
   {
     id: 'ord_dev_m030', schemaVersion: 8, orderNumber: 'F-26M030', articleNo: 'PW1050', detail: 'F/60Nm SW/N 87/13 선염 STRIPE',
     customer: '그루빅', type: 'main', finalDueDate: '2026-11-20', lossRate: 10, status: 'active',
-    notes: '', linkedFabricId: null, linkedFabricArticle: '', dyeVendor: '',
+    notes: '', linkedFabricId: null, linkedFabricArticle: '', dyeVendor: '', dyeMethod: 'yarn',
     steps: devSteps(),
     colors: [
       devColor('c_m030_ap', 'APRICOT/BARK BROWN', 106.8),
