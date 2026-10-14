@@ -1,12 +1,13 @@
-import { Flag, Truck, PackageOpen, Droplets, BadgeCheck, ScanSearch, CalendarClock, ClipboardCheck } from 'lucide-react';
+import { Flag, Truck, PackageOpen, Droplets, BadgeCheck, ScanSearch, CalendarClock, ClipboardCheck, Layers } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
-import { PROCESS_THEME, withPresettingStep } from '../../../constants/production';
-import { isStepUsed, isPieceDyed, getClosingState } from '../../../utils/orderModel';
+import { PROCESS_THEME, YARN_DYEING_KEY, withSubSteps } from '../../../constants/production';
+import { isStepUsed, isPieceDyed, getClosingState, getYarnState, canUseYarnDyeing } from '../../../utils/orderModel';
 
 // ============================================================
 // 간트 줄 이름 옆 [+] 메뉴 — 아직 막대가 없는 일정도 간트에서 바로 시작 (대표님 요청 2026-10-11 '간트에서도 수정 및 진행')
 // ------------------------------------------------------------
-// - 오더 줄: 공정(원사 · 사가공 · 편직 · … 추가 공정) + 프리세팅(염색 전 · 오더 공통) 일정 · (후염) 생지 출고 · 가납기 · 마무리
+// - 오더 줄: 원사(사종 · 재고 사용 — 원사 창) + 공정(원사염색(선염) · 사가공 · 편직 · … 추가 공정) + 프리세팅(염색 전 · 오더 공통) 일정
+//   · (후염) 생지 출고 · 가납기 · 마무리
 // - 컬러 줄: (선염) 생지 출고 · 염가공 LOT · 컨펌·시험성적서 · 외관검사(LOT별) · 출고
 // - 고르면 onPick(kind, extra) → OrderGantt 가 그 입력 창을 같은 자리에 띄움
 // - 날짜가 정해진 입력은 빈 날짜 칸을 누르면 (GanttDateMenu)
@@ -28,8 +29,10 @@ export const GanttAddMenu = ({ order, color = null, stepDefs = [], anchorRect, o
   const title = `${order.orderNumber || '새 오더'}${color ? ` · ${color.name || '컬러'}` : ''}`;
   const piece = isPieceDyed(order);
   // 프리세팅은 편직 다음 (공정 칸에서는 빠졌지만 간트에서는 오더 줄 막대 — 염가공 LOT 창과 같은 값)
-  const steps = withPresettingStep(stepDefs);
+  // 원사염색은 맨 앞 — 선염 오더(또는 이미 넣은 오더)만
+  const steps = withSubSteps(stepDefs).filter(m => m.key !== YARN_DYEING_KEY || canUseYarnDyeing(order));
   const closing = getClosingState(order);
+  const yarn = getYarnState(order);
 
   return (
     <PopoverShell
@@ -52,6 +55,14 @@ export const GanttAddMenu = ({ order, color = null, stepDefs = [], anchorRect, o
             ))
         ) : (
           <>
+            <button type="button" onClick={() => onPick('yarn')} className={ITEM}>
+              <span className={`w-2 h-2 rounded-full shrink-0 ${PROCESS_THEME.yarn.dot} ${yarn.used ? '' : 'opacity-30'}`} />
+              <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <span className="flex-1 min-w-0 truncate">원사 (사종 · 재고 사용)</span>
+              <span className="text-[10px] font-normal text-slate-400">
+                {yarn.stock ? '재고' : yarn.items.length ? `사종 ${yarn.items.length}` : '입력'}
+              </span>
+            </button>
             <div className="px-2.5 pt-1 pb-0.5 text-[10px] font-bold text-slate-400 flex items-center gap-1">
               <CalendarClock className="w-3 h-3" /> 공정 일정
             </div>
@@ -64,6 +75,7 @@ export const GanttAddMenu = ({ order, color = null, stepDefs = [], anchorRect, o
                   <span className="flex-1 min-w-0 truncate">
                     {meta.label}
                     {meta.inLot && <span className="ml-1 text-[10px] font-normal text-slate-400">염색 전</span>}
+                    {meta.inYarn && <span className="ml-1 text-[10px] font-normal text-slate-400">선염</span>}
                   </span>
                   <span className="text-[10px] font-normal text-slate-400">{used ? '수정' : '입력'}</span>
                 </button>

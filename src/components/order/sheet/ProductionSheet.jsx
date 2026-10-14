@@ -6,7 +6,7 @@ import {
   PROCESS_THEME, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, COLOR_STAGES,
   DEFAULT_LOSS_RATE, PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS,
   TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES, INSPECTION_STATUSES, DYE_METHODS, CLOSING_ITEMS, PRESETTING_KEY,
-  DYE_REMAIN_STATES, buildFlowOrder, findStepMeta, getStepDefs, isCustomStepKey,
+  DYE_REMAIN_STATES, YARN_ORDER_STATUSES, YARN_DYEING_KEY, buildFlowOrder, findStepMeta, getStepDefs, isCustomStepKey,
 } from '../../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, isStepUsed, getKnittingEstimatedEnd, getEndShift, colorHasData,
@@ -14,6 +14,7 @@ import {
   isInspectionUsed, getColorInspection, getRoundStatusDate, getDyeYield, getColorDyeRemain, describeDyeRemain,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState, collectVendorOptions,
   isPieceDyed, getClosingState, isClosingPending,
+  getYarnState, getYarnOrderStatus, getYarnOrderStatusDate, canUseYarnDyeing,
 } from '../../../utils/orderModel';
 import { shortDate, fmtKg, todayYmd } from '../../../utils/orderCalculations';
 import { CellText, CellNumber, CellDate, CellCheck, CellAction } from './SheetCells';
@@ -24,7 +25,9 @@ import { ProvisionalDuePopover } from './ProvisionalDuePopover';
 import { GreigeOutPopover } from './GreigeOutPopover';
 import { InspectionPopover } from './InspectionPopover';
 import { ClosingPopover } from './ClosingPopover';
+import { YarnPopover } from './YarnPopover';
 import { PresettingChip } from '../common/PresettingChip';
+import { YarnDyeChip } from '../common/YarnDyeChip';
 import { SheetLinkChips } from '../common/SheetLinkChips';
 import { StatusSelect } from '../common/StatusSelect';
 import { StepManagerPopover } from './StepManagerPopover';
@@ -66,7 +69,9 @@ const QTY_COLS = [
 const STEP_COL_WIDTH = 140;
 const STEP_SHORT_LABELS = { physical_test: '이화학' }; // 좁은 머리글용
 //  '#closing' 마무리는 오더 단위 칸(rowSpan) — 원사재고정리 · EZTEX 재고정리 · EZTEX 종결 (2026-10-14)
+//  '#yarn' 원사도 오더 단위 칸(rowSpan) — 사종마다 상태 · 재고 사용 · 원사염색 (2026-10-14 v11)
 const COLOR_COLS = {
+  '#yarn':    { key: 'yarn',    label: '원사',       width: 190 },
   '#greige':  { key: 'greige',  label: '생지출고',   width: 132 },
   '#dyeing':  { key: 'dyeing',  label: '염가공 LOT', width: 170 },
   '#confirm': { key: 'confirm', label: '컨펌 · 성적서', width: 172 },
@@ -97,8 +102,10 @@ const LEFT_OFFSET = LEFT_COLS.reduce((acc, c, i) => {
 const LEFT_TOTAL = LEFT_COLS.reduce((s, c) => s + c.width, 0);
 
 // 컬럼 숨김 저장 (브라우저별). 처음엔 자주 안 쓰는 공정 숨김
+//  원사 칸은 v11 부터 기본으로 보임 (대표님 요청 2026-10-14) — 예전에 숨겨 둔 PC도 한 번은 보이게 (LS_YARN_SHOWN)
 const LS_HIDDEN_COLS = 'grubig.production.sheet.hiddenCols.v8';
-const DEFAULT_HIDDEN = ['yarn', 'yarn_processing', 'finishing', 'physical_test'];
+const LS_YARN_SHOWN = 'grubig.production.sheet.yarnShown.v11';
+const DEFAULT_HIDDEN = ['yarn_processing', 'finishing', 'physical_test'];
 
 // 추가 공정 칸 key 도 들어 있을 수 있어서 지금 칸 목록으로 거르지 않음 (설정이 늦게 와도 숨김이 풀리지 않게)
 const loadHiddenCols = () => {
@@ -106,7 +113,13 @@ const loadHiddenCols = () => {
     const raw = localStorage.getItem(LS_HIDDEN_COLS);
     if (raw === null) return DEFAULT_HIDDEN;
     const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr.filter(k => typeof k === 'string') : DEFAULT_HIDDEN;
+    let list = Array.isArray(arr) ? arr.filter(k => typeof k === 'string') : DEFAULT_HIDDEN;
+    if (!localStorage.getItem(LS_YARN_SHOWN)) {
+      list = list.filter(k => k !== 'yarn');
+      localStorage.setItem(LS_YARN_SHOWN, '1');
+      localStorage.setItem(LS_HIDDEN_COLS, JSON.stringify(list));
+    }
+    return list;
   } catch {
     return DEFAULT_HIDDEN;
   }
@@ -570,6 +583,69 @@ const InspectionCell = ({ order, color, last, bg, ctx }) => {
   );
 };
 
+// 원사 칸 (오더 단위, rowSpan — 대표님 요청 2026-10-14 v11)
+//  사종마다 '면 30s [발주완료 ▾] 입고 10/20' — 드롭다운 = 바로 저장 (오늘 날짜로 기록)
+//  [재고 사용]이면 '재고 사용' 한 줄 (사종 줄은 창에서만) / 원사염색(선염)은 아래 한 줄
+//  칸을 누르면 원사 창 (재고 사용 · 사종 줄 · 원사염색)
+const YARN_MAX_LINES = 4;
+const YarnCell = ({ order, span, bg, ctx }) => {
+  const y = getYarnState(order);
+  const open = (el) => ctx.openYarn(order.id, el);
+  const today = todayYmd();
+  const tone = y.done ? PROCESS_THEME.yarn.cell : y.used ? 'bg-stone-50' : bg;
+  const shown = y.items.slice(0, YARN_MAX_LINES);
+  return (
+    <td rowSpan={span} onClick={e => open(e.currentTarget)} className={cellCls({ thick: true, extra: `${CLICKABLE} ${tone}` })}>
+      <CellAction navKey="yarn" onActivate={open} title="원사 — 사종마다 발주대기·발주완료·입고완료·중지 · 재고 사용 · 원사염색 (클릭 또는 Enter · 드롭다운은 바로 저장)">
+        <div className="space-y-0.5">
+          {y.stock ? (
+            <div className="inline-flex items-center gap-1 px-1.5 py-px rounded-full border border-emerald-300 bg-emerald-100 text-emerald-800 text-[10px] font-extrabold" title="재고 원사 사용 — 원사 발주는 끝난 것으로 봐요">
+              재고 사용
+            </div>
+          ) : shown.map(row => {
+            const status = getYarnOrderStatus(row);
+            const statusDate = getYarnOrderStatusDate(row);
+            const late = !!row.expectedDate && (status === 'waiting' || status === 'ordered') && order.status !== 'completed' && row.expectedDate < today;
+            const stopped = status === 'stopped';
+            return (
+              <div key={row.id} className={`flex items-center gap-1 min-w-0 ${stopped ? 'opacity-60' : ''}`}>
+                <span
+                  className={`min-w-0 flex-1 truncate text-[10px] font-bold ${row.name ? '' : 'text-slate-400'} ${stopped ? 'line-through' : ''}`}
+                  title={[row.name || '사종 미입력', row.vendor, row.notes].filter(Boolean).join(' · ')}
+                >
+                  {row.name || '사종?'}
+                </span>
+                <StatusSelect
+                  value={status}
+                  options={YARN_ORDER_STATUSES}
+                  onChange={st => ctx.actions.addYarnEvent(order.id, row.id, st)}
+                  tabIndex={-1}
+                  title={`${row.name || '사종'} 상태 (바꾸면 오늘 날짜로 기록)`}
+                />
+                {status === 'arrived' || stopped ? (
+                  statusDate ? <span className="shrink-0 font-mono text-[9px] opacity-70">{shortDate(statusDate)}</span> : null
+                ) : row.expectedDate ? (
+                  <span
+                    className={`shrink-0 font-mono text-[9px] ${late ? 'text-red-600 font-bold' : 'opacity-70'}`}
+                    title={late ? '입고 예정일이 지났는데 아직 입고 전이에요' : '입고 예정일'}
+                  >
+                    입고 {shortDate(row.expectedDate)}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
+          {!y.stock && y.items.length > shown.length && <div className="text-[9px] opacity-70">+사종 {y.items.length - shown.length}개 더</div>}
+          <YarnDyeChip order={order} />
+          {!y.used && (
+            <span className="text-slate-300">{canUseYarnDyeing(order) ? '+ 원사 · 원사염색' : '+ 원사'}</span>
+          )}
+        </div>
+      </CellAction>
+    </td>
+  );
+};
+
 // 마무리 칸 (오더 단위, rowSpan — 대표님 요청 2026-10-14) — 원사재고정리 · EZTEX 재고정리 · EZTEX 종결
 //  체크 = 바로 저장 (3개 모두 → 오더 자동 '완료', 자동 완료를 체크 해제 → 다시 진행중) / 칸을 누르면 메모·날짜 창
 //  출고는 다 끝났는데 체크가 남으면 '마무리 대기'
@@ -643,6 +719,9 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
         : null;
     }
     switch (col.key) {
+      case 'yarn':
+        // 원사 (오더 단위 — 첫 줄에 rowSpan)
+        return first ? <YarnCell key="yarn" order={order} span={span} bg={plainBg} ctx={ctx} /> : null;
       case 'greige':
         // 후염: 오더에 한 번 (첫 줄에 rowSpan) / 선염·안 고름: 컬러마다
         if (isPieceDyed(order)) {
@@ -1037,6 +1116,7 @@ export const ProductionSheet = ({
   customSteps = [],         // 추가 공정 설정 [{ key, label, after, vendorLabel }]
   onSaveCustomSteps,        // 추가 공정 저장 (list) => Promise<boolean> — 없으면 [공정 추가] 버튼 숨김
   yieldSpecOf,              // (order) => 예상 YD 환산 원단 스펙 { gsm, widthFull, source } | null (OrderListPage)
+  yarnHelpers = null,       // 원사 창 { nameOptions, vendorOptions, dyeVendorOptions, sourceOf(order) } (OrderListPage)
 }) => {
   const scrollRef = useRef(null);
   const stepDefs = useMemo(() => stepDefsProp || getStepDefs(customSteps), [stepDefsProp, customSteps]);
@@ -1063,6 +1143,7 @@ export const ProductionSheet = ({
     const bump = (k) => { count[k] = (count[k] || 0) + 1; };
     orders.forEach(o => {
       stepDefs.forEach(s => { if (isStepUsed(o.steps?.[s.key])) bump(s.key); });
+      if (getYarnState(o).used) bump('yarn');
       const cs = o.colors || [];
       if ((o.greigeOuts || []).length || cs.some(c => (c.greigeOuts || []).length)) bump('greige');
       if (cs.some(c => (c.lots || []).length) || isStepUsed(o.steps?.[PRESETTING_KEY])) bump('dyeing');
@@ -1208,6 +1289,9 @@ export const ProductionSheet = ({
     ),
     openClosing: (orderId, cell) => openPopover(
       'closing', orderId, cell.getBoundingClientRect(), { returnFocus: cellFocusTarget(cell) }
+    ),
+    openYarn: (orderId, cell) => openPopover(
+      'yarn', orderId, cell.getBoundingClientRect(), { returnFocus: cellFocusTarget(cell) }
     ),
     yieldSpecOf: yieldSpecOf || null,
     openLots: onOpenLots || null,
@@ -1463,6 +1547,20 @@ export const ProductionSheet = ({
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={(patch, plan) => actions.setProvisionalDue(popOrder.id, patch, plan)}
+        />
+      )}
+      {popover?.kind === 'yarn' && popOrder && (
+        <YarnPopover
+          key={`yarn_${popOrder.id}`}
+          order={popOrder}
+          anchorRect={popover.anchorRect}
+          onClose={closePopover}
+          onSaveYarn={patch => actions.setYarn(popOrder.id, patch)}
+          onSaveYarnDyeing={patch => actions.setStep(popOrder.id, YARN_DYEING_KEY, patch)}
+          vendorOptions={yarnHelpers?.vendorOptions || []}
+          dyeVendorOptions={yarnHelpers?.dyeVendorOptions || []}
+          yarnNameOptions={yarnHelpers?.nameOptions || []}
+          {...(yarnHelpers?.sourceOf?.(popOrder) || {})}
         />
       )}
       {stepManagerRect && onSaveCustomSteps && (

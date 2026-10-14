@@ -152,10 +152,10 @@ export const DEV_SAMPLE_DESIGN_SHEETS = [
 //   - F-26M020 : (v9 — 2026-10-11 기능 확인용) 편직 기계 2대 + 최초 예상 종료 기록 + 프리세팅 · 생지 부분출고 ·
 //                시험성적서 · 브랜드 컨펌 기록 · 외관검사(불량컨펌중) · 가납기 일수 + 컬러별 LOT + 날짜 메모
 //                (v10 확인: BLACK 컬러별 외관검사 → LOT 마다 1차로 옮겨짐 · WHITE LOT1 1차 재가공 → 2차 투입 전(재가공중) · 배색량)
-//   - F-26M016 : 컨펌 합격 → 출고 완료/대기
+//   - F-26M016 : 컨펌 합격 → 출고 완료/대기 · (v11 확인) 예전 원사 일정 → 사종 한 줄로 옮겨짐
 //   - F-26M041 : (v10 — 2026-10-14) 후염 · 생지 출고 오더에 한 번(kg) · 프리세팅 완료 · LOT 배색량 · 외관검사 1차 불량→재가공→2차 출고완료 ·
 //                출고 모두 끝 + 마무리 2/3 → '마무리 대기' (EZTEX 종결을 체크하면 자동 완료)
-//   - F-26M030 : 선염 스트라이프 (생산 ▾ 계산기 확인용)
+//   - F-26M030 : 선염 스트라이프 (생산 ▾ 계산기 확인용) · (v11) 원사 사종 3줄(입고완료 · 발주완료 · 발주대기) + 원사염색 진행중 · 가납기 원사
 //   - F-26S055 : 샘플, 생지출고 완료 + LOT 1개 진행 — 설계서 ds_dev_6(F-26D006)과 연결된 샘플 오더
 //   - O-LEGACY-01 : v7(차수 구조) 옛 형식 → 화면에서 v8로 자동 변환되는지 확인용
 const devStep = (patch = {}) => ({ vendor: '', startDate: '', endDate: '', status: 'pending', doneDate: '', notes: '', ...patch });
@@ -260,6 +260,8 @@ export const DEV_SAMPLE_ORDERS = [
     customer: '케일', type: 'main', finalDueDate: '2026-09-30', lossRate: 10, status: 'active',
     notes: '', linkedFabricId: null, linkedFabricArticle: '', dyeVendor: '킹텍스',
     steps: devSteps({
+      // (v11 확인) 예전 원사 일정 한 세트 → 읽을 때 사종 한 줄로 (발주완료 8/5 · 입고완료 8/14)
+      yarn: devStep({ vendor: '효성', startDate: '2026-08-05', endDate: '2026-08-15', status: 'done', doneDate: '2026-08-14', notes: 'SW 40/1 · PES 75D' }),
       knitting: { ...devStep({ vendor: '한성섬유', startDate: '2026-08-18', endDate: '2026-08-29', status: 'done', doneDate: '2026-08-29' }), dailyKg: null },
     }),
     colors: [
@@ -383,10 +385,22 @@ export const DEV_SAMPLE_ORDERS = [
   },
   // 선염 스트라이프 (생산 ▾ 계산기 '오더 불러오기' 확인용 — 대표님 캡처 컬러·kg, 2026-10-07)
   {
-    id: 'ord_dev_m030', schemaVersion: 8, orderNumber: 'F-26M030', articleNo: 'PW1050', detail: 'F/60Nm SW/N 87/13 선염 STRIPE',
+    id: 'ord_dev_m030', schemaVersion: 11, orderNumber: 'F-26M030', articleNo: 'PW1050', detail: 'F/60Nm SW/N 87/13 선염 STRIPE',
     customer: '그루빅', type: 'main', finalDueDate: '2026-11-20', lossRate: 10, status: 'active',
     notes: '', linkedFabricId: null, linkedFabricArticle: '', dyeVendor: '', dyeMethod: 'yarn',
-    steps: devSteps(),
+    // (v11 — 2026-10-14) 원사 사종 줄: 입고완료 · 발주완료(입고 예정 지남) · 발주대기 + 원사염색 진행중
+    yarnStock: false,
+    yarnOrders: [
+      { id: 'yo_m030_1', name: 'F/60Nm SW/N 87/13', vendor: '대한방직', expectedDate: '2026-10-08', notes: '520kg',
+        events: [{ id: 'ev_m030_1a', status: 'ordered', date: '2026-09-29' }, { id: 'ev_m030_1b', status: 'arrived', date: '2026-10-07' }] },
+      { id: 'yo_m030_2', name: 'NY 70D', vendor: '효성', expectedDate: '2026-10-12', notes: '',
+        events: [{ id: 'ev_m030_2a', status: 'ordered', date: '2026-10-02' }] },
+      { id: 'yo_m030_3', name: 'PU 40D', vendor: '', expectedDate: '2026-10-25', notes: '', events: [] },
+    ],
+    steps: devSteps({
+      yarn_dyeing: devStep({ vendor: '동진염색', startDate: '2026-10-13', endDate: '2026-10-22', status: 'in_progress', notes: '3컬러' }),
+    }),
+    provisionalDue: { yarn: '2026-10-20', knitting: '', dyeing: '', visual_inspection: '' },
     colors: [
       devColor('c_m030_ap', 'APRICOT/BARK BROWN', 106.8),
       devColor('c_m030_dl', 'DEEP LIME/BARK BROWN', 151),

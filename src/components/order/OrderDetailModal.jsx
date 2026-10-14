@@ -8,7 +8,7 @@ import {
   ORDER_STEPS, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, PROCESS_THEME,
   COLOR_STAGES, ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_TYPES,
   PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS, TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES,
-  INSPECTION_STATUSES, DYE_METHODS, CLOSING_ITEMS, DYE_REMAIN_STATES, getStepDefs,
+  INSPECTION_STATUSES, DYE_METHODS, CLOSING_ITEMS, DYE_REMAIN_STATES, YARN_ORDER_STATUSES, YARN_DYEING_KEY, getStepDefs,
 } from '../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, getOrderTotals, isStepUsed, getKnittingEstimatedEnd, getEndShift,
@@ -16,8 +16,11 @@ import {
   getColorStage, getDday, colorHasData, collectVendorOptions,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState,
   getColorInspection, getRoundStatusDate, getDyeYield, isPieceDyed, getClosingState, isClosingPending,
+  getYarnState, getYarnOrderStatus, getYarnOrderStatusDate, canUseYarnDyeing,
 } from '../../utils/orderModel';
 import { PresettingChip } from './common/PresettingChip';
+import { YarnDyeChip } from './common/YarnDyeChip';
+import { YarnPopover } from './sheet/YarnPopover';
 import { shortDate, isYmd, toNumberOrNull, fmtKg, todayYmd } from '../../utils/orderCalculations';
 import { CHANGE_ACTIONS } from '../../utils/auditLog';
 import { PartnerPickerModal } from '../common/PartnerPickerModal';
@@ -481,6 +484,72 @@ const StepRow = ({ meta, step, order, onOpen, onStatus }) => {
           ariaLabel={`${meta.label} 상태`}
         />
       )}
+    </div>
+  );
+};
+
+// ============================================================
+// 2-B. 원사 (사종 줄 · 재고 사용 · 원사염색 — 대표님 요청 2026-10-14 v11)
+//    재고 사용 체크 · 사종 상태 드롭다운 = 바로 저장 (오늘 날짜로 기록) / [원사 편집] = 원사 창 (현황표와 같은 창)
+// ============================================================
+const YarnBox = ({ order, onOpen, onStock, onStatus }) => {
+  const y = getYarnState(order);
+  const today = todayYmd();
+  return (
+    <div className={`rounded-xl border px-3 py-2 space-y-1.5 ${y.done ? `${PROCESS_THEME.yarn.cell} border-stone-300` : y.used ? 'bg-stone-50 border-stone-200' : 'bg-white border-dashed border-slate-200'}`}>
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-extrabold text-stone-700 shrink-0">원사</span>
+        <label className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={y.stock}
+            onChange={e => onStock(e.target.checked)}
+            className="w-4 h-4 accent-emerald-600"
+          />
+          재고 사용
+        </label>
+        <span className="flex-1" />
+        <button type="button" onClick={onOpen} className={BTN_SUB}>
+          <Pencil className="w-3 h-3" /> 원사 편집
+        </button>
+      </div>
+      {y.stock ? (
+        <div className="text-[11px] font-bold text-emerald-700">재고 원사 사용 — 원사 발주는 끝난 것으로 봐요</div>
+      ) : y.items.length ? (
+        <div className="space-y-1">
+          {y.items.map(row => {
+            const status = getYarnOrderStatus(row);
+            const statusDate = getYarnOrderStatusDate(row);
+            const late = !!row.expectedDate && (status === 'waiting' || status === 'ordered') && row.expectedDate < today;
+            return (
+              <div key={row.id} className={`flex items-center gap-2 text-xs ${status === 'stopped' ? 'opacity-60' : ''}`}>
+                <span className={`min-w-0 flex-1 truncate font-bold ${row.name ? 'text-slate-700' : 'text-slate-400'}`} title={[row.vendor, row.notes].filter(Boolean).join(' · ') || undefined}>
+                  {row.name || '사종?'}
+                  {row.vendor && <span className="ml-1 font-normal text-[10px] text-slate-500">{row.vendor}</span>}
+                </span>
+                {status === 'arrived' || status === 'stopped' ? (
+                  statusDate ? <span className="shrink-0 font-mono text-[10px] text-slate-500">{shortDate(statusDate)}</span> : null
+                ) : row.expectedDate ? (
+                  <span className={`shrink-0 font-mono text-[10px] ${late ? 'font-bold text-red-600' : 'text-slate-500'}`}>입고 {shortDate(row.expectedDate)}</span>
+                ) : null}
+                <StatusSelect
+                  value={status}
+                  options={YARN_ORDER_STATUSES}
+                  onChange={st => onStatus(row.id, st)}
+                  size="md"
+                  className="shrink-0"
+                  ariaLabel={`${row.name || '사종'} 상태`}
+                />
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="text-[11px] text-slate-400">
+          사종이 없어요 — [원사 편집]에서 사종마다 발주대기 · 발주완료 · 입고완료 · 중지{canUseYarnDyeing(order) ? ' · 원사염색(선염)' : ''}
+        </div>
+      )}
+      <YarnDyeChip order={order} />
     </div>
   );
 };
@@ -1016,10 +1085,11 @@ const ORDER_GREIGE = '__order'; // 후염 — 오더 전체 생지 출고 창
 const OrderDetailBody = ({
   order, isDraft, onClose, actions, masters, stepDefs: stepDefsProp, inspectVendorOptions = [],
   partners, savePartner, deletePartner, makeEmptyPartner,
-  savedFabrics, onOpenLots, sheetLink = null, yieldSpecOf = null,
+  savedFabrics, onOpenLots, sheetLink = null, yieldSpecOf = null, yarnHelpers = null,
 }) => {
   const panelRef = useRef(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [yarnOpen, setYarnOpen] = useState(false); // 원사 창 (v11)
   const [confirmColorId, setConfirmColorId] = useState(null);
   const [processKey, setProcessKey] = useState(null); // 공정 입력 창을 연 공정
   const [provisionalOpen, setProvisionalOpen] = useState(false); // 가납기 입력 창
@@ -1106,7 +1176,8 @@ const OrderDetailBody = ({
     if (isDraft) {
       const hasInput = !!(order.articleNo || order.detail || order.customer || order.notes || order.finalDueDate)
         || colors.some(colorHasData)
-        || ORDER_STEPS.some(m => isStepUsed(order.steps?.[m.key]));
+        || ORDER_STEPS.some(m => isStepUsed(order.steps?.[m.key]))
+        || getYarnState(order).used;
       if (hasInput && !window.confirm('입력 중인 새 오더를 삭제할까요?\n입력한 내용은 저장되지 않고 사라져요.')) return;
       actions.discardDraft(order.id);
       onClose?.();
@@ -1319,6 +1390,12 @@ const OrderDetailBody = ({
             right={<span className="text-[11px] text-slate-400">사용 {usedStepCount} / {stepDefs.length}</span>}
           >
             <div className="space-y-1.5">
+              <YarnBox
+                order={order}
+                onOpen={() => setYarnOpen(true)}
+                onStock={on => actions.setYarn(order.id, { yarnStock: on })}
+                onStatus={(yarnId, st) => actions.addYarnEvent(order.id, yarnId, st)}
+              />
               {stepDefs.map(meta => (
                 <StepRow
                   key={meta.key}
@@ -1459,6 +1536,20 @@ const OrderDetailBody = ({
           anchorRect={null}
           onClose={() => setProvisionalOpen(false)}
           onSave={(patch, plan) => actions.setProvisionalDue(order.id, patch, plan)}
+        />
+      )}
+      {yarnOpen && (
+        <YarnPopover
+          key={`yarn_${order.id}`}
+          order={order}
+          anchorRect={null}
+          onClose={() => setYarnOpen(false)}
+          onSaveYarn={patch => actions.setYarn(order.id, patch)}
+          onSaveYarnDyeing={patch => actions.setStep(order.id, YARN_DYEING_KEY, patch)}
+          vendorOptions={yarnHelpers?.vendorOptions || collectVendorOptions(masters?.yarnSuppliers || [])}
+          dyeVendorOptions={yarnHelpers?.dyeVendorOptions || collectVendorOptions(masters?.dyeingFactories || [])}
+          yarnNameOptions={yarnHelpers?.nameOptions || []}
+          {...(yarnHelpers?.sourceOf?.(order) || {})}
         />
       )}
       {processMeta && (

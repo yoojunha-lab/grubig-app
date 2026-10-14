@@ -11,9 +11,10 @@ import { DevDropModal } from '../components/dashboard/DevDropModal';
 import {
   getDday, isDropClosed, getOpenWork, collectVendorOptions, resolveYieldSpec, getClosingState, isClosingPending,
 } from '../utils/orderModel';
-import { PRESETTING_KEY } from '../constants/production';
+import { PRESETTING_KEY, YARN_DYEING_KEY } from '../constants/production';
 import { todayYmd } from '../utils/orderCalculations';
 import { isYarnRatioComplete, sumYarnRatio } from '../utils/costModel';
+import { fabricYarnOptions } from '../utils/yarnDyeCalc';
 import { getDevQuoteBadge, indexDevQuotes } from '../utils/devQuoteModel';
 import { DESIGN_STAGES } from '../constants/common';
 
@@ -35,6 +36,7 @@ import { DESIGN_STAGES } from '../constants/common';
 //   · 체크가 남았는데 '완료'로 바꾸면 마무리 창 (체크하고 저장하면 자동 완료 / [체크 없이 완료])
 //   · 출고는 다 끝났는데 체크가 남은 오더 = '마무리 대기' (위 요약 · order# 칸)
 // - LOT 창: 원단 스펙(예상 YD 환산) = 원단 보관함 → 오더 값 → 같은 Article 원단 → 설계서 최종 스펙 (yieldSpecOf)
+// - 원사 창 (v11 — 대표님 요청 2026-10-14): 사종 · 원사처 · 원사염색 염색처 제안 + 오더 article# 원단의 원사 (yarnHelpers)
 // ============================================================
 
 // 메인 / 샘플 (order# 의 S/M 으로 자동, 칸에서 바꿀 수 있음) — 마지막 선택을 기억
@@ -81,6 +83,7 @@ const searchText = (o, sheetInfo) => [
   o.orderNumber, o.articleNo, o.detail, o.customer, o.notes, o.dyeVendor, o.inspectVendor,
   ...(o.colors || []).map(c => c.name),
   ...Object.values(o.steps || {}).map(s => s?.vendor),
+  ...(o.yarnOrders || []).flatMap(y => [y.name, y.vendor]),
   sheetInfo?.devOrderNo, sheetInfo?.sheet?.fabricName,
 ].filter(Boolean).join(' ').toLowerCase();
 
@@ -107,6 +110,7 @@ export const OrderListPage = ({
   customSteps = [],     // 추가 공정 설정 [{ key, label, after, vendorLabel }]
   onSaveCustomSteps,    // 추가 공정 저장 (list) => Promise<boolean>
   savedFabrics = [],
+  yarnLibrary = [],     // 원사 라이브러리 — 원사 창 사종 제안 · 원단 원사 이름
   partners = [], savePartner, deletePartner, makeEmptyPartner,
   designSheets,         // 설계서 (샘플 오더의 '설계서' 표시·아이템화)
   devRequests,          // 설계서의 바이어 이름 · 샘플 Drop 때 같이 Drop 할 개발 의뢰
@@ -178,6 +182,30 @@ export const OrderListPage = ({
       sheet: order.linkedSheetId ? sheetById.get(order.linkedSheetId) || null : null,
     });
   }, [fabricById, fabricByArticle, sheetById]);
+
+  // ---------- 원사 창 (v11) — 제안 목록 + 오더 article# 원단의 원사 ----------
+  //  원단: ① 연결된 원단 → ② 같은 Article 원단 → ③ 설계서(샘플 오더) 원사
+  const yarnHelpers = useMemo(() => {
+    const all = [...(orders || []), ...(drafts || [])];
+    const nameOptions = [...new Set((yarnLibrary || []).map(y => String(y?.name || '').trim()).filter(Boolean))];
+    const vendorOptions = collectVendorOptions(
+      [...(masters?.yarnSuppliers || []), ...all.flatMap(o => (o.yarnOrders || []).map(y => y.vendor))],
+    );
+    const dyeVendorOptions = collectVendorOptions(masters?.dyeingFactories || [], all, o => o.steps?.[YARN_DYEING_KEY]?.vendor);
+    const sourceOf = (order) => {
+      if (!order) return { articleYarns: [], articleLabel: '' };
+      const artKey = String(order.articleNo || '').replace(/\s+/g, '').toLowerCase();
+      const fabric = (order.linkedFabricId ? fabricById.get(order.linkedFabricId) : null)
+        || (artKey ? fabricByArticle.get(artKey) : null);
+      const sheet = !fabric && order.linkedSheetId ? sheetById.get(order.linkedSheetId) || null : null;
+      const src = fabric || sheet;
+      return {
+        articleYarns: src ? fabricYarnOptions(src, yarnLibrary) : [],
+        articleLabel: fabric ? String(fabric.article || '') : sheet ? (sheet.articleNo || sheet.devOrderNo || '설계서') : '',
+      };
+    };
+    return { nameOptions, vendorOptions, dyeVendorOptions, sourceOf };
+  }, [orders, drafts, yarnLibrary, masters, fabricById, fabricByArticle, sheetById]);
 
   // 아이템화 — 설계서에 Article·최종 스펙·혼용률 100% 가 없으면 막히므로 먼저 확인하고 설계서를 열어 줌
   //  확인 창 한 번 (원단이 새로 등록되고 오더가 닫힘 — 아직 끝나지 않은 공정이 있으면 같이 알려 줌)
@@ -540,6 +568,7 @@ export const OrderListPage = ({
             onOpenLots={openLots}
             sheetLink={sheetLink}
             inspectVendorOptions={inspectVendorOptions}
+            yarnHelpers={yarnHelpers}
           />
         ) : (
           <ProductionSheet
@@ -559,6 +588,7 @@ export const OrderListPage = ({
             onPendingFocusDone={() => setPendingFocusOrderId(null)}
             sheetLink={sheetLink}
             yieldSpecOf={yieldSpecOf}
+            yarnHelpers={yarnHelpers}
           />
         )}
         {search && visibleOrders.length === 0 && orders.length > 0 && (
@@ -592,6 +622,7 @@ export const OrderListPage = ({
           onOpenLots={openLots}
           sheetLink={sheetLink}
           yieldSpecOf={yieldSpecOf}
+          yarnHelpers={yarnHelpers}
         />
       )}
 

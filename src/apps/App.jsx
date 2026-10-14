@@ -1414,6 +1414,7 @@ const App = () => {
             customSteps={productionSteps}
             onSaveCustomSteps={saveProductionSteps}
             savedFabrics={savedFabrics}
+            yarnLibrary={yarnLibrary}
             {...partnerBag}
             // 설계서 샘플 오더 (대표님 요청 2026-10-10) — 설계서 열기 · 아이템화(개발/설계 현황과 같은 함수) · Drop · 복원
             designSheets={designSheets}

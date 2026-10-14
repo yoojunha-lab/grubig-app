@@ -1,8 +1,9 @@
-import { AlertTriangle, BadgeCheck, CalendarPlus, Droplets, FileCheck2, PackageOpen, ScanSearch, StickyNote, Truck } from 'lucide-react';
+import { AlertTriangle, BadgeCheck, CalendarPlus, Droplets, FileCheck2, Layers, PackageOpen, ScanSearch, StickyNote, Truck } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
-import { INSPECTION_STATUSES, PROCESS_THEME, findStatusMeta, withPresettingStep } from '../../../constants/production';
+import { INSPECTION_STATUSES, PROCESS_THEME, YARN_DYEING_KEY, findStatusMeta, withSubSteps } from '../../../constants/production';
 import {
   getStepEnd, getLotOverview, getGreigeStateFor, isPieceDyed, getLotCurrentRound, getRoundStatus, getLotRounds,
+  getYarnState, getYarnOrderStatus, getYarnOrderStatusDate, canUseYarnDyeing,
 } from '../../../utils/orderModel';
 import { shortDate } from '../../../utils/orderCalculations';
 import { fmtDayLabel } from './ganttLayout';
@@ -10,7 +11,7 @@ import { fmtDayLabel } from './ganttLayout';
 // ============================================================
 // 간트 날짜 칸 메뉴 — 빈 날짜를 누르면 그 날에 공정 넣기 (대표님 요청 2026-10-14 '메모 대신 공정을 넣을 수 있게')
 // ------------------------------------------------------------
-// - 오더 줄: 공정(원사 · 사가공 · 편직 · 후가공 · 이화학 · 추가 공정) + 프리세팅 + (후염) 생지 출고
+// - 오더 줄: 원사(사종 · 재고 사용 — 원사 창) + 공정(원사염색(선염) · 사가공 · 편직 · 후가공 · 이화학 · 추가 공정) + 프리세팅 + (후염) 생지 출고
 //   · 일정이 없는 공정 → [여기서 시작] (그 날 = 예상 시작일)
 //   · 일정이 있는 공정 → [시작일로] [종료일로] (그 날로 옮기기)
 // - 컬러 줄: (선염) 생지 출고 · 새 염가공 LOT(그 날 투입) · 외관검사(LOT마다 지금 차수 — 시작일로/종료일로) ·
@@ -34,7 +35,14 @@ const Warn = ({ children }) => (
 
 const maxDate = (list) => list.filter(Boolean).sort().pop() || '';
 
-// 앞 공정들 중 가장 늦은 예상 종료 { date, label } — 공정 순서: 원사 · 사가공 · 편직 · 프리세팅 · (염가공 LOT) · 후가공 · 이화학 · 추가 공정
+// 원사 입고 (원사염색 전) — 재고 사용이면 없음, 아니면 중지 뺀 사종의 입고한 날 · 입고 예정일 중 가장 늦은 날
+const yarnArrivalEnd = (o) => {
+  const y = getYarnState(o);
+  if (y.stock) return '';
+  return maxDate(y.active.map(r => (getYarnOrderStatus(r) === 'arrived' ? getYarnOrderStatusDate(r) : r.expectedDate)));
+};
+
+// 앞 공정들 중 가장 늦은 예상 종료 { date, label } — 공정 순서: 원사 입고 · 원사염색 · 사가공 · 편직 · 프리세팅 · (염가공 LOT) · 후가공 · 이화학 · 추가 공정
 const predecessorOf = (order, key, seq) => {
   let best = { date: '', label: '' };
   for (const item of seq) {
@@ -52,12 +60,13 @@ export const GanttDateMenu = ({
   const piece = isPieceDyed(order);
   const title = `${order.orderNumber || '새 오더'}${color ? ` · ${color.name || '컬러'}` : ' · 오더 전체'} · ${fmtDayLabel(date)}`;
 
-  // 공정 흐름 (앞 공정 비교용) — 프리세팅은 편직 다음, 염가공 LOT 는 후가공(또는 염가공 다음에 둔 추가 공정) 앞
-  const metas = withPresettingStep(stepDefs);
+  // 공정 흐름 (앞 공정 비교용) — 원사 입고가 맨 앞, 원사염색(선염 오더만)은 그 다음, 프리세팅은 편직 다음,
+  //  염가공 LOT 는 후가공(또는 염가공 다음에 둔 추가 공정) 앞
+  const metas = withSubSteps(stepDefs).filter(m => m.key !== YARN_DYEING_KEY || canUseYarnDyeing(order));
   const lotsEnd = (o) => maxDate((o.colors || []).map(c => getLotOverview(c.lots || []).end));
   const lotsItem = { key: '#lots', label: '염가공 LOT', end: lotsEnd };
   const dyeAt = metas.findIndex(m => m.key === 'finishing' || m.after === '#dyeing');
-  const seq = [];
+  const seq = [{ key: '#yarn', label: '원사 입고', end: yarnArrivalEnd }];
   metas.forEach((meta, i) => {
     if (i === dyeAt) seq.push(lotsItem);
     seq.push({ key: meta.key, label: meta.label, meta, end: (o) => getStepEnd(o, meta.key) });
@@ -86,6 +95,11 @@ export const GanttDateMenu = ({
       <div className="p-1.5 space-y-0.5 outline-none max-h-[70vh] overflow-y-auto" tabIndex={-1} data-autofocus>
         {!color ? (
           <>
+            <button type="button" onClick={() => onPick('yarn')} className={ITEM}>
+              <span className={`w-2 h-2 rounded-full shrink-0 ${PROCESS_THEME.yarn.dot}`} />
+              <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              원사 (사종 · 재고 사용)
+            </button>
             <div className={SECTION}>공정 일정</div>
             {processItems.map(({ meta, key, step, has, early }) => {
               const theme = PROCESS_THEME[key] || PROCESS_THEME.custom;

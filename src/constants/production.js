@@ -61,9 +61,13 @@ export const normalizeStatus = (status) => {
 //  일정 = 예상 시작일·예상 종료일 (예상 종료일을 바꾸면 예전 날짜가 endHistory 에 남음 — 대표님 요청 2026-10-11)
 //  프리세팅: 공정 칸에서 빠지고 염가공 LOT 창에서 관리 (대표님 요청 2026-10-14 — 염색 전에 하는 일, 오더에 한 번)
 //   · 값은 그대로 steps.presetting (오더 공통) — 흐름 순서(FLOW_ORDER)·공정 목록(getStepDefs)에는 없음
+//  원사 (대표님 요청 2026-10-14 v11): 공정 한 세트가 아니라 원사 칸 하나에 '사종 줄'(발주대기·발주완료·입고완료·중지) + [재고 사용]
+//   + 원사염색(선염 — 오더에 한 번). 원사 칸은 '#yarn'(오더 단위 특별 칸) — steps.yarn 은 예전 값만 남음 (읽을 때 사종 한 줄로 옮김)
+//   · 원사염색은 steps.yarn_dyeing (공정 한 세트 — 염색처 · 예상 시작/종료일 · 상태 · 메모). 원사 칸·원사 창에서 관리 (inYarn)
 // ============================================================
 export const ORDER_STEPS = [
   { key: 'yarn',              label: '원사',       vendorLabel: '원사처',   vendorMaster: 'yarnSuppliers' },
+  { key: 'yarn_dyeing',       label: '원사염색',   vendorLabel: '염색처',   vendorMaster: 'dyeingFactories', inYarn: true },
   { key: 'yarn_processing',   label: '사가공',     vendorLabel: '가공처',   vendorMaster: null },
   { key: 'knitting',          label: '편직',       vendorLabel: '편직처',   vendorMaster: 'knittingFactories' },
   { key: 'presetting',        label: '프리세팅',   vendorLabel: '가공처',   vendorMaster: 'dyeingFactories', inLot: true },
@@ -78,6 +82,9 @@ export const getStepMeta = (key) => ORDER_STEPS.find(s => s.key === key) || null
 // 염가공 LOT 창에서 관리하는 프리세팅 (오더 공통 — 외주처 칸 없이 예상 시작·종료일 · 상태 · 메모)
 export const PRESETTING_KEY = 'presetting';
 
+// 원사 칸 · 원사 창에서 관리하는 원사염색 (선염 — 오더에 한 번, 염색처 · 예상 시작/종료일 · 상태 · 메모)
+export const YARN_DYEING_KEY = 'yarn_dyeing';
+
 // ============================================================
 // 2-B. 공정 흐름 순서 + 추가 공정 (대표님 요청 2026-10-11 '공정을 추가할 수 있게')
 // ------------------------------------------------------------
@@ -87,13 +94,14 @@ export const PRESETTING_KEY = 'presetting';
 //   · 모든 오더에 칸이 생김 (칸을 채운 오더만 "사용하는 공정"). 일정 = 외주처·예상 시작/종료일·상태·메모
 // ============================================================
 //  '#closing' = 오더 마무리 (원사재고정리 · EZTEX 재고정리 · EZTEX 종결 — 오더 단위 칸, 대표님 요청 2026-10-14)
+//  '#yarn' = 원사 (사종 줄 · 재고 사용 · 원사염색 — 오더 단위 칸, 대표님 요청 2026-10-14 v11)
 export const FLOW_ORDER = [
-  'yarn', 'yarn_processing', 'knitting', '#greige', '#dyeing',
+  '#yarn', 'yarn_processing', 'knitting', '#greige', '#dyeing',
   'finishing', 'physical_test', '#confirm', '#inspection', '#ship', '#closing',
 ];
 
-// 추가 공정 위치로 고를 수 있는 컬러별 칸 (공정 사이에 끼울 수 있는 것만)
-export const FLOW_ANCHOR_LABELS = { '#dyeing': '염가공', '#inspection': '외관검사' };
+// 추가 공정 위치로 고를 수 있는 특별 칸 (공정 사이에 끼울 수 있는 것만)
+export const FLOW_ANCHOR_LABELS = { '#yarn': '원사', '#dyeing': '염가공', '#inspection': '외관검사' };
 
 export const isCustomStepKey = (key) => /^cs_/.test(String(key || ''));
 
@@ -107,9 +115,11 @@ export const normalizeCustomSteps = (list) => {
       key: s.key,
       label: String(s.label).trim(),
       // 예전 오더 단위 '외관검사' 다음 → 외관검사 칸 다음 / '프리세팅' 다음 → 편직 다음 (프리세팅이 LOT 창으로 가서 같은 자리)
+      //  '원사' 다음 → 원사 칸('#yarn') 다음 (원사가 특별 칸이 됨 — 2026-10-14 v11)
       after: s.after === 'visual_inspection' ? '#inspection'
         : s.after === 'presetting' ? 'knitting'
-          : String(s.after || ''),
+          : s.after === 'yarn' ? '#yarn'
+            : String(s.after || ''),
       vendorLabel: String(s.vendorLabel || '').trim() || '외주처',
     }));
 };
@@ -187,12 +197,14 @@ export const getStepDefs = (customSteps = []) => {
 // 공정 key → 메타 (목록에 없으면 기본 공정에서, 그래도 없으면 null)
 export const findStepMeta = (stepDefs, key) => (stepDefs || []).find(s => s.key === key) || getStepMeta(key);
 
-// 공정 목록 + 프리세팅 (편직 바로 다음, 편직이 없으면 맨 뒤 — 메타에 inLot: true)
-//  프리세팅은 공정 칸에는 없지만 간트 [+]·날짜 메뉴 · 리포트 소요일 · 남은 일에서는 같이 보여 줌 (2026-10-14)
-export const withPresettingStep = (stepDefs = []) => {
-  const list = (stepDefs || []).filter(s => s.key !== PRESETTING_KEY);
+// 공정 목록 + 원사염색(맨 앞 — 원사 다음, 메타에 inYarn: true) + 프리세팅(편직 바로 다음, 편직이 없으면 맨 뒤 — 메타에 inLot: true)
+//  둘 다 공정 칸에는 없지만 간트 [+]·날짜 메뉴 · 리포트 소요일 · 남은 일에서는 같이 보여 줌 (2026-10-14)
+//  (원사염색은 선염 오더에만 — 간트 메뉴는 orderModel.canUseYarnDyeing 으로 거름)
+export const withSubSteps = (stepDefs = []) => {
+  const list = (stepDefs || []).filter(s => s.key !== PRESETTING_KEY && s.key !== YARN_DYEING_KEY);
   const at = list.findIndex(s => s.key === 'knitting');
   list.splice(at === -1 ? list.length : at + 1, 0, getStepMeta(PRESETTING_KEY));
+  list.unshift(getStepMeta(YARN_DYEING_KEY));
   return list;
 };
 
@@ -207,6 +219,7 @@ export const DYEING_STEP = { key: 'dyeing', label: '염가공', vendorLabel: '�
 // ============================================================
 export const PROCESS_THEME = {
   yarn:              { label: '원사',       cell: 'bg-stone-100 text-stone-700',     bar: 'bg-stone-200 border-stone-400 text-stone-800',     dot: 'bg-stone-400'   },
+  yarn_dyeing:       { label: '원사염색',   cell: 'bg-pink-50 text-pink-800',        bar: 'bg-pink-200 border-pink-400 text-pink-900',        dot: 'bg-pink-400'    },
   yarn_processing:   { label: '사가공',     cell: 'bg-stone-100 text-stone-700',     bar: 'bg-stone-200 border-stone-400 text-stone-800',     dot: 'bg-stone-400'   },
   knitting:          { label: '편직',       cell: 'bg-yellow-100 text-yellow-800',   bar: 'bg-yellow-200 border-yellow-400 text-yellow-900',  dot: 'bg-yellow-400'  },
   presetting:        { label: '프리세팅',   cell: 'bg-cyan-100 text-cyan-800',       bar: 'bg-cyan-200 border-cyan-400 text-cyan-900',        dot: 'bg-cyan-400'    },
@@ -230,6 +243,7 @@ export const PROCESS_THEME = {
 export const COLOR_STAGES = {
   waiting:     { label: '대기',       cls: 'bg-slate-100 text-slate-600 border-slate-200' },
   yarn:        { label: '원사진행',   cls: 'bg-stone-100 text-stone-700 border-stone-300' },
+  yarn_dyeing: { label: '원사염색중', cls: 'bg-pink-50 text-pink-800 border-pink-300' },
   knit_wait:   { label: '편직대기',   cls: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
   knitting:    { label: '편직중',     cls: 'bg-yellow-200 text-yellow-900 border-yellow-400' },
   presetting:  { label: '프리세팅중', cls: 'bg-cyan-100 text-cyan-800 border-cyan-300' },
@@ -357,6 +371,17 @@ export const INSPECTION_STATUSES = [
   { key: 'redye',      label: '재가공',       phase: 'rework',  startsRound: false, cls: 'bg-orange-100 text-orange-800 border-orange-300' },
   { key: 'ready',      label: '출고준비완료', phase: 'done',    startsRound: false, cls: 'bg-blue-100 text-blue-700 border-blue-300' },
   { key: 'shipped',    label: '출고완료',     phase: 'done',    startsRound: false, cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+];
+
+// 원사 사종 줄 (원사 칸 — 대표님 요청 2026-10-14 v11) — 발주대기 · 발주완료 · 입고완료 · 중지
+//  드롭다운을 바꿀 때마다 그날 날짜로 기록 (시험성적서와 같은 방식). 기록이 없으면 '발주대기'
+//  '중지' = 그 사종 발주를 멈춤 → 원사가 끝났는지 볼 때 빠짐
+//  [재고 사용](오더 전체)을 체크하면 사종 줄과 상관없이 원사 발주는 끝난 것으로 봄
+export const YARN_ORDER_STATUSES = [
+  { key: 'waiting', label: '발주대기', phase: 'pending', cls: 'bg-white text-slate-600 border-slate-300' },
+  { key: 'ordered', label: '발주완료', phase: 'active',  cls: 'bg-amber-100 text-amber-800 border-amber-300' },
+  { key: 'arrived', label: '입고완료', phase: 'done',    cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  { key: 'stopped', label: '중지',     phase: 'stopped', cls: 'bg-slate-200 text-slate-500 border-slate-300' },
 ];
 
 // 상태 목록에서 한 줄 찾기 (없으면 null)

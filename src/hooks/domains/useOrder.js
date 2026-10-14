@@ -6,6 +6,7 @@ import {
   applyStepPatch, applyLots, applyDailyNote, applyProvisionalDue, applyGreigeOuts, fillOrderFromSheet,
   applyColorTracks, addColorTrackEvent,
   applyDyeMethod, applyOrderGreigeOuts, applyOrderSpec, applyLotInspections, addLotInspectionEvent, applyClosing,
+  applyYarn, addYarnOrderEvent,
   summarizeOrderChange, isSameOrderContent, ORDER_SCHEMA_VERSION,
 } from '../../utils/orderModel';
 import { makeChangeLogEntry, appendChangeLog } from '../../utils/auditLog';
@@ -400,6 +401,12 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     return ok;
   };
 
+  // ---------- v11 원사 (대표님 요청 2026-10-14) ----------
+  // 원사 창 { yarnStock?, yarnOrders?, yarnOrdersBase? } (base 를 주면 지금 저장된 사종 줄과 합침) — 원사염색은 setStep('yarn_dyeing')
+  const setYarn = (id, patch) => updateOrder(id, o => applyYarn(o, patch));
+  // 사종 상태 드롭다운 (현황표 칸 · 상세창 — 그날 날짜로 기록)
+  const addYarnEvent = (id, yarnId, status) => updateOrder(id, o => addYarnOrderEvent(o, yarnId, status));
+
   // 컬러 줄 추가 → 새 컬러 id 반환 (저장은 뒤에서 진행)
   const addColor = (id, afterColorId = null) => {
     let newColorId = null;
@@ -469,6 +476,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       setColorTracks, addTrackEvent,
       setDyeMethod, setOrderGreigeOuts, setOrderGreigeOutDone, setOrderSpec,
       setLotInspections, addLotInspection, setClosing,
+      setYarn, addYarnEvent,
       addDraftOrder, discardDraft, deleteOrder,
     },
     // 설계서 ↔ 샘플 오더 (App 이 설계서 훅에 연결)

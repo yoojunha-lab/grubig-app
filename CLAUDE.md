@@ -20,7 +20,7 @@
 | 원단 원가 계산 (편직 정액·LOSS 구간·가공 유형·이화학/운임·수입 원사 운반비·원가 설정·공통 환율(내수·수출)/견적 환율·실시간 환율·원가 확인 필요) + 견적서 (기준 견적·별도 견적·러닝 생지 견적·견적서 약관 문구(내수는 한글)) + 개발 의뢰 원가 견적·Drop 사유 | `docs/costing-model.md` (원가 모델 & 설정, 환율은 §5-A, 견적서는 §5-B, 개발 의뢰 원가 견적은 §5-C) |
 
 트리거 예시:
-- "생산 스케줄 다음 단계 하자" / "오더 관련 기능 추가해줘" / "간트 차트 만들자" / "알람 붙이자" / "선염 계산기·원사 컬러 배분·멜란지 비율" / "가납기·간트 메모" / "가납기 일수·기준일" / "편직 예상 종료일·기계별 생산량·프리세팅·공정 추가" / "생지 부분출고·시험성적서·브랜드 컨펌·외관검사·LOT" / "배색량·예상 YD·프리세팅·외관검사 1차 2차·재가공" / "남은 배색량·생지kg(예전 작지kg)·와이드 모니터에서 현황표·간트 넓게" / "오더 마무리·원사재고정리·EZTEX 종결·마무리 대기" / "선염/후염·생지 출고 한 번에·출고 kg" / "간트 날짜 눌러 공정 넣기" / "샘플 오더·메인/샘플·설계서 샘플 진행·생산 현황에서 아이템화" / "개발 의뢰 현황·EZ-TEX 등록·자체개발 설계서" / "샘플 Drop·복원·아이템화 대기·샘플 끝내기·리포트 메인/샘플" → 위 docs 2개를 먼저 읽고 작업 시작
+- "생산 스케줄 다음 단계 하자" / "오더 관련 기능 추가해줘" / "간트 차트 만들자" / "알람 붙이자" / "선염 계산기·원사 컬러 배분·멜란지 비율" / "가납기·간트 메모" / "가납기 일수·기준일" / "편직 예상 종료일·기계별 생산량·프리세팅·공정 추가" / "생지 부분출고·시험성적서·브랜드 컨펌·외관검사·LOT" / "배색량·예상 YD·프리세팅·외관검사 1차 2차·재가공" / "남은 배색량·생지kg(예전 작지kg)·와이드 모니터에서 현황표·간트 넓게" / "원사 사종·발주대기·발주완료·입고완료·중지·재고 사용·원사염색" / "오더 마무리·원사재고정리·EZTEX 종결·마무리 대기" / "선염/후염·생지 출고 한 번에·출고 kg" / "간트 날짜 눌러 공정 넣기" / "샘플 오더·메인/샘플·설계서 샘플 진행·생산 현황에서 아이템화" / "개발 의뢰 현황·EZ-TEX 등록·자체개발 설계서" / "샘플 Drop·복원·아이템화 대기·샘플 끝내기·리포트 메인/샘플" → 위 docs 2개를 먼저 읽고 작업 시작
 - "원가 계산 바꾸자" / "편직비·LOSS·운임 수정" / "원가 설정에 항목 추가" / "수량 직접 입력 칸 만들자" / "원사 운반비·수입사·수입 국가" / "환율·내수/수출 환율·실시간 환율·견적 다시 계산" / "원가 확인 경고·혼용률" / "견적서 구간·기준 견적·별도 견적" / "러닝 생지 견적·생지 짠 수량·컬러별 수량·소량 추가분(서차지)" / "개발 의뢰 원가 견적·Drop 사유·의뢰 견적서" → `docs/costing-model.md` 먼저 읽고 작업 시작
 - 라벨/용어를 바꾸거나 새 화면을 만들 때 → `docs/terminology.md` 를 먼저 확인하고 같은 기능은 같은 용어로 맞출 것
 - 새 팝업 창을 만들 때 → 배경은 `components/common/ModalBackdrop`, 입력하는 창이면 `useUnsavedGuard` + `UnsavedChangesDialog`로 '저장할까요?' (`docs/terminology.md` §4 팝업 창 규약)
@@ -68,7 +68,7 @@ GRUBIG-APP/
 │   │   └── domains/                    # 도메인별 비즈니스 로직 훅
 │   │       ├── useDevRequest.js        # 개발 의뢰 CRUD + 상태 전이 + 원가 견적 저장·Drop 사유
 │   │       ├── useDesignSheet.js       # 설계서 CRUD + 단계 전이 + 원단 연동 + EZ-TEX 등록 → 생산 현황 샘플 오더 (sampleOrderLink) + Drop·복원
-│   │       ├── useOrder.js             # 생산 현황 오더 (칸 단위 즉시 저장·가납기·생지 출고(선염/후염)·상태 기록(성적서·컨펌)·LOT 외관검사 차수·마무리 체크·설계서 샘플 오더 sheetOrderLink — Drop 표시 dropInfo)
+│   │       ├── useOrder.js             # 생산 현황 오더 (칸 단위 즉시 저장·가납기·생지 출고(선염/후염)·상태 기록(성적서·컨펌)·LOT 외관검사 차수·마무리 체크·원사 사종 줄·재고 사용·설계서 샘플 오더 sheetOrderLink — Drop 표시 dropInfo)
 │   │       ├── useTempDesignSheet.js   # 가설계서
 │   │       ├── useMainDetail.js        # 메인/QC 디테일
 │   │       ├── useFabric.js            # 원단 관리
@@ -82,7 +82,7 @@ GRUBIG-APP/
 │   │   ├── common/              # 공통 UI (Toast, SearchableSelect, MasterDataModal, ModalBackdrop(팝업 배경), UnsavedChangesDialog(저장할까요?) 등)
 │   │   ├── layout/              # Sidebar, LoginScreen
 │   │   ├── dashboard/           # 개발 의뢰 — DevRequestFormModal, DevArchiveModal(보관함·Drop 사유별 보기), DevCostQuoteModal(원가 견적), DevDropModal(Drop 사유), DevQuoteBadge(견적·예상 배지 공용), DevReqSummaryCard(현재 안 씀)
-│   │   ├── order/               # 생산 현황 — sheet/(현황표·⋯ 메뉴·입력 창: Process·ProvisionalDue·GreigeOut(선염/후염·kg)·LotEditor(배색량·예상 YD·프리세팅)·ColorPopovers(컨펌·성적서)·Inspection(LOT별 1차·2차)·Ship·Closing(마무리)·StepManager(공정 추가)), gantt/(간트·GanttAddMenu [+]·GanttDateMenu 날짜 → 그 날에 넣기), common/(SheetLinkChips '설계서' 표시·SampleCloseDialog 샘플 끝내기·PopoverShell(저장할까요?)·StatusSelect 상태 드롭다운·TrackEditor 상태 기록·PresettingChip), OrderDetailModal
+│   │   ├── order/               # 생산 현황 — sheet/(현황표·⋯ 메뉴·입력 창: Process·ProvisionalDue·GreigeOut(선염/후염·kg)·LotEditor(배색량·예상 YD·프리세팅)·ColorPopovers(컨펌·성적서)·Inspection(LOT별 1차·2차)·Ship·Closing(마무리)·StepManager(공정 추가)·Yarn(원사 — 사종 줄·재고 사용·원사염색)), gantt/(간트·GanttAddMenu [+]·GanttDateMenu 날짜 → 그 날에 넣기), common/(SheetLinkChips '설계서' 표시·SampleCloseDialog 샘플 끝내기·PopoverShell(저장할까요?)·StatusSelect 상태 드롭다운·TrackEditor 상태 기록·PresettingChip·YarnDyeChip), OrderDetailModal
 │   │   ├── design/              # DesignStepper (진행 단계 바)
 │   │   ├── design-sheet/        # 설계서 전용 (DesktopSheetRow, MobileSheetCard, DropSheetModal)
 │   │   ├── fabric/              # 원단 행/카드 (+ fabricRowModel: 행·카드 공통 계산)

@@ -2,12 +2,14 @@ import { useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 
 import { AlertTriangle, CalendarDays, CalendarPlus, Check, Crosshair, Flag, Plus } from 'lucide-react';
 import {
   COLOR_STAGES, ORDER_TYPES, PROCESS_THEME, PROVISIONAL_STATES, INSPECTION_STATUSES, PRESETTING_KEY,
+  YARN_ORDER_STATUSES, YARN_DYEING_KEY,
   getStatusLabel, getStepMeta, findStepMeta, getStepDefs, findStatusMeta,
 } from '../../../constants/production';
 import {
   describeProvisionalDue, describeStepCurrent,
   findDailyNote, getColorStage, getDday, getEndShift, getKnittingEstimatedEnd, getLossRate, getStepEnd, getWorkKg, isDropClosed,
   collectVendorOptions, isPieceDyed, getRoundStatus, isClosingPending, getColorDyeRemain, describeDyeRemain,
+  getYarnOrderStatus,
 } from '../../../utils/orderModel';
 import { addDaysYmd, diffDaysYmd, fmtKg, shortDate, toDate, todayYmd } from '../../../utils/orderCalculations';
 import { ProcessPopover } from '../sheet/ProcessPopover';
@@ -17,6 +19,7 @@ import { GreigeOutPopover } from '../sheet/GreigeOutPopover';
 import { InspectionPopover } from '../sheet/InspectionPopover';
 import { ShipPopover } from '../sheet/ShipPopover';
 import { ClosingPopover } from '../sheet/ClosingPopover';
+import { YarnPopover } from '../sheet/YarnPopover';
 import { GanttAddMenu } from './GanttAddMenu';
 import { GanttDateMenu } from './GanttDateMenu';
 import { SheetLinkChips } from '../common/SheetLinkChips';
@@ -31,7 +34,8 @@ import {
 // - 가로 = 날짜 칸(하루 1칸), 세로 = 오더 줄 + 그 아래 컬러 줄
 // - 줄마다 위쪽은 공정 막대 레인, 그 아래는 날짜 메모 (그날 현황 + 칸 색, 글자 전부 — 길면 줄바꿈)
 // - 오더 줄 맨 위 = 가납기 깃발 (늦으면 빨강) + 그 날짜에 오더 묶음 전체를 지나는 세로 점선 → 막대와 비교
-// - 막대 클릭: 공정·프리세팅 → ProcessPopover / LOT → onOpenLots / 컨펌 → ConfirmPopover / 생지출고 · 외관검사(LOT 차수·재가공) · 출고 → 그 입력 창
+// - 막대 클릭: 공정·프리세팅·원사염색 → ProcessPopover / 원사(사종) → YarnPopover / LOT → onOpenLots / 컨펌 → ConfirmPopover /
+//   생지출고 · 외관검사(LOT 차수·재가공) · 출고 → 그 입력 창
 // - 깃발 클릭 → 가납기 입력(ProvisionalDuePopover) → actions.setProvisionalDue
 // - 빈 날짜 칸 클릭 → 그 날에 넣기 메뉴(GanttDateMenu — 대표님 요청 2026-10-14 '메모 대신 공정을 넣을 수 있게')
 //   공정 · 프리세팅 · 생지 출고 · 새 LOT · 외관검사 · 컨펌 · 출고 → 그 날짜가 들어간 입력 창 ([저장] = 현황표와 같은 저장)
@@ -76,6 +80,8 @@ const TYPE_CHIP = {
 
 // 범례 (공정 색)
 const LEGEND = [
+  { key: 'yarn', label: '원사 (사종)' },
+  { key: 'yarn_dyeing', label: '원사염색' },
   { key: 'knitting', label: '편직' },
   { key: 'presetting', label: '프리세팅' },
   { key: 'greige', label: '생지출고' },
@@ -85,7 +91,7 @@ const LEGEND = [
   { key: 'inspection', label: '외관검사' },
   { key: 'ship', label: '출고' },
 ];
-const OTHER_STEP_DOTS = ['yarn', 'finishing', 'physical_test', 'custom'];
+const OTHER_STEP_DOTS = ['yarn_processing', 'finishing', 'physical_test', 'custom'];
 
 // ============================================================
 // 1. 작은 표시 컴포넌트
@@ -278,6 +284,7 @@ const describeBar = (order, color, bar, metaOf = getStepMeta) => {
     const shift = getEndShift(step);
     const lines = [];
     if (preset) lines.push('염색 전 · 오더 전체 공통 (염가공 LOT 창에서도 고쳐요)');
+    if (bar.stepKey === YARN_DYEING_KEY) lines.push('선염 · 오더 전체 공통 (원사 칸 · 원사 창에서도 고쳐요)');
     if (shift) {
       const d = shift.diff;
       lines.push(`최초 예상 종료 ${shortDate(shift.first)}${shift.current ? ` → 지금 ${shortDate(shift.current)}` : ''}${d ? ` (${d > 0 ? `${d}일 늦어짐` : `${-d}일 당겨짐`})` : ''}`);
@@ -292,6 +299,22 @@ const describeBar = (order, color, bar, metaOf = getStepMeta) => {
       vendor: preset ? order.dyeVendor : step.vendor,
       extra: lines.join('\n'),
       hint: preset ? '누르면 프리세팅 일정 · 상태 수정' : '누르면 공정 일정 · 상태 수정',
+    };
+  }
+  if (bar.kind === 'yarn') {
+    // 원사 사종 줄 (v11 — 발주완료 ~ 입고)
+    const y = (order.yarnOrders || []).find(x => x.id === bar.yarnId) || {};
+    const lines = [];
+    if (y.expectedDate) lines.push(`입고 예정 ${shortDate(y.expectedDate)}`);
+    (y.events || []).forEach(e => lines.push(`${shortDate(e.date) || '날짜?'} ${findStatusMeta(YARN_ORDER_STATUSES, e.status)?.label || e.status}`));
+    if (y.notes) lines.push(y.notes);
+    return {
+      ...base,
+      status: findStatusMeta(YARN_ORDER_STATUSES, getYarnOrderStatus(y))?.label || '발주대기',
+      vendorLabel: '원사처',
+      vendor: y.vendor,
+      extra: lines.join('\n'),
+      hint: '누르면 원사 수정 (사종 · 재고 사용 · 원사염색)',
     };
   }
   if (bar.kind === 'lot') {
@@ -443,6 +466,7 @@ const GanttUnderlay = ({ layout }) => (
 // ============================================================
 export const OrderGantt = ({
   orders = [], actions, masters = {}, stepDefs, onOpenDetail, onOpenLots, sheetLink = null, inspectVendorOptions = null,
+  yarnHelpers = null, // 원사 창 { nameOptions, vendorOptions, dyeVendorOptions, sourceOf(order) } (OrderListPage)
 }) => {
   const today = todayYmd();
   const [hideWeekends, setHideWeekends] = useState(loadHideWeekends);
@@ -545,6 +569,8 @@ export const OrderGantt = ({
     const anchorRect = { left: x, right: x + 1, top: r.top, bottom: r.bottom, width: 1, height: r.height };
     if (bar.kind === 'step' || bar.kind === 'presetting') {
       setPopover({ kind: 'process', orderId: order.id, stepKey: bar.stepKey, anchorRect });
+    } else if (bar.kind === 'yarn') {
+      setPopover({ kind: 'yarn', orderId: order.id, anchorRect });
     } else if (bar.kind === 'lot' && color) {
       if (onOpenLots) onOpenLots(order.id, color.id, anchorRect);
       else onOpenDetail?.(order.id);
@@ -623,6 +649,8 @@ export const OrderGantt = ({
       });
     } else if (kind === 'ship') {
       setPopover({ kind: 'ship', orderId, colorId, anchorRect, prefillDate: date });
+    } else if (kind === 'yarn') {
+      setPopover({ kind: 'yarn', orderId, anchorRect });
     } else if (kind === 'note') {
       setPopover({ ...cur, kind: 'note' });
     }
@@ -651,7 +679,7 @@ export const OrderGantt = ({
       return;
     }
     if (kind === 'process') setPopover({ ...base, kind: 'process', stepKey: extra.stepKey });
-    else if (kind === 'provisional' || kind === 'closing') setPopover({ ...base, kind });
+    else if (kind === 'provisional' || kind === 'closing' || kind === 'yarn') setPopover({ ...base, kind });
     else if (kind === 'greige') setPopover({ ...base, kind, colorId: extra.order ? null : cur.colorId });
     else setPopover({ ...base, kind, colorId: cur.colorId });
   };
@@ -948,7 +976,7 @@ export const OrderGantt = ({
           <span className="inline-flex gap-px">
             {OTHER_STEP_DOTS.map(k => <span key={k} className={`w-1.5 h-2.5 rounded-sm ${PROCESS_THEME[k].dot}`} />)}
           </span>
-          기타 공정(원사·후가공·이화학·추가 공정)
+          기타 공정(사가공·후가공·이화학·추가 공정)
         </span>
         <span className="text-slate-300">|</span>
         <span className="inline-flex items-center gap-1"><span className="w-0.5 h-3 bg-teal-500" />오늘</span>
@@ -1068,6 +1096,20 @@ export const OrderGantt = ({
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={patch => actions.setClosing(popOrder.id, patch)}
+        />
+      )}
+      {popover?.kind === 'yarn' && popOrder && (
+        <YarnPopover
+          key={`yarn_${popOrder.id}`}
+          order={popOrder}
+          anchorRect={popover.anchorRect}
+          onClose={closePopover}
+          onSaveYarn={patch => actions.setYarn(popOrder.id, patch)}
+          onSaveYarnDyeing={patch => actions.setStep(popOrder.id, YARN_DYEING_KEY, patch)}
+          vendorOptions={yarnHelpers?.vendorOptions || []}
+          dyeVendorOptions={yarnHelpers?.dyeVendorOptions || []}
+          yarnNameOptions={yarnHelpers?.nameOptions || []}
+          {...(yarnHelpers?.sourceOf?.(popOrder) || {})}
         />
       )}
       {popover?.kind === 'note' && popOrder && (!popover.colorId || popColor) && (

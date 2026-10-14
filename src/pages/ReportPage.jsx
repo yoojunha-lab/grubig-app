@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { TrendingUp, Calendar, Users, Package, CheckCircle, AlertCircle, Truck, Layers } from 'lucide-react';
-import { ORDER_STATUSES, ORDER_STATUS_COLORS, DYEING_STEP, getStepDefs, withPresettingStep } from '../constants/production';
+import { ORDER_STATUSES, ORDER_STATUS_COLORS, DYEING_STEP, getStepDefs, withSubSteps } from '../constants/production';
 import {
   normalizeOrder, getLossRate, getWorkKg, getOrderTotals, isDropClosed,
-  getRoundStatus, getRoundDoneDate, getRoundStartedDate,
+  getRoundStatus, getRoundDoneDate, getRoundStartedDate, getYarnOrderStatus, getYarnOrderEventDate,
 } from '../utils/orderModel';
 import { diffDaysYmd, todayYmd, isYmd, round1, fmtKg } from '../utils/orderCalculations';
 
@@ -220,20 +220,39 @@ export const ReportPage = ({ orders = [], stepDefs = DEFAULT_STEP_DEFS }) => {
   const monthMax = Math.max(1, ...monthlyStats.months.map(m => Math.max(m.registered, m.completed)));
 
   // 5. 공정별 평균 소요일 — 예상: 예상 시작일~예상 종료일, 실제: 예상 시작일~완료일(완료된 공정)
-  //    프리세팅은 염가공 LOT 창에서 관리 (오더 공통 — 편직 다음 줄), 염가공은 컬러별 LOT 단위 (LOT엔 완료일이 없어 계획만)
+  //    원사는 사종마다 발주→입고 (예상: 발주완료한 날~입고 예정일, 실제: 발주완료한 날~입고완료한 날 — 재고 사용·중지 빼고, 2026-10-14 v11)
+  //    원사염색(선염)은 원사 창 · 프리세팅은 염가공 LOT 창에서 관리 (오더 공통), 염가공은 컬러별 LOT 단위 (LOT엔 완료일이 없어 계획만)
   //    외관검사는 LOT 차수마다 (1차 · 2차 따로 한 번씩 — 2026-10-14)
   const processStats = useMemo(() => {
-    const metas = withPresettingStep(stepDefs);
-    const rows = metas.map(m => ({ key: m.key, label: m.inLot ? `${m.label} (염색 전)` : m.label, planned: [], actual: [], planOnly: false }));
+    const metas = withSubSteps(stepDefs);
+    const rows = metas.map(m => ({
+      key: m.key,
+      label: m.inLot ? `${m.label} (염색 전)` : m.inYarn ? `${m.label} (선염)` : m.label,
+      planned: [], actual: [], planOnly: false,
+    }));
+    const yarnRow = { key: 'yarn', label: '원사 (사종당 발주→입고)', planned: [], actual: [], planOnly: false };
+    rows.unshift(yarnRow);
     const dyeRow = { key: DYEING_STEP.key, label: `${DYEING_STEP.label} (LOT당)`, planned: [], actual: [], planOnly: true };
     // 염가공 줄은 흐름 순서대로 — 후가공(또는 염가공 다음에 둔 추가 공정) 바로 앞, 없으면 맨 뒤
+    //  (rows 맨 앞에 원사 줄이 하나 더 있어서 metas 위치 + 1)
     const dyeAt = metas.findIndex(m => m.key === 'finishing' || m.after === '#dyeing');
-    rows.splice(dyeAt === -1 ? rows.length : dyeAt, 0, dyeRow);
+    rows.splice(dyeAt === -1 ? rows.length : dyeAt + 1, 0, dyeRow);
     const inspRow = { key: 'inspection', label: '외관검사 (LOT 차수당)', planned: [], actual: [], planOnly: false };
     rows.push(inspRow);
     const byKey = new Map(rows.map(r => [r.key, r]));
 
     list.forEach(o => {
+      if (!o.yarnStock) {
+        (o.yarnOrders || []).forEach(y => {
+          const status = getYarnOrderStatus(y);
+          if (status === 'stopped') return;
+          const ordered = getYarnOrderEventDate(y, 'ordered');
+          const planned = spanDays(ordered, y.expectedDate);
+          if (planned !== null) yarnRow.planned.push(planned);
+          const actual = status === 'arrived' ? spanDays(ordered, getYarnOrderEventDate(y, 'arrived')) : null;
+          if (actual !== null) yarnRow.actual.push(actual);
+        });
+      }
       metas.forEach(meta => {
         const step = o.steps?.[meta.key];
         if (!step) return;
