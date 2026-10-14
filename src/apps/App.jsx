@@ -29,6 +29,7 @@ import { useProformaInvoice } from '../hooks/domains/useProformaInvoice';
 import { usePartner } from '../hooks/domains/usePartner';
 import { useLabdip } from '../hooks/domains/useLabdip';
 import { useYarnDyeCalc } from '../hooks/domains/useYarnDyeCalc';
+import { useHangerSticker } from '../hooks/domains/useHangerSticker';
 import { useExcelIO } from '../hooks/domains/useExcelIO';
 import { useQuoteExport } from '../hooks/domains/useQuoteExport';
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
@@ -57,6 +58,7 @@ import { TempDesignSheetListPage } from '../pages/TempDesignSheetListPage';
 import { OrderListPage } from '../pages/OrderListPage';
 import { ReportPage } from '../pages/ReportPage';
 import { ProductionCalcPage } from '../pages/ProductionCalcPage';
+import { HangerStickerPage } from '../pages/HangerStickerPage';
 import { CollectionPage } from '../pages/CollectionPage';
 import { ProformaInvoicePage } from '../pages/ProformaInvoicePage';
 import { PIPrintSheet } from '../components/pi/PIPrintSheet';
@@ -136,6 +138,7 @@ const App = () => {
   const [labdips, setLabdips] = useState([]);
   const [selectedLabdipForPrint, setSelectedLabdipForPrint] = useState(null);
   const [yarnDyeCalcs, setYarnDyeCalcs] = useState([]); // 생산 ▾ 계산기 — 저장된 선염 계산 (yarnDyeCalcs)
+  const [hangerStickers, setHangerStickers] = useState([]); // 기타 ▾ 헹거 스티커 (hangerStickers)
   const [partners, setPartners] = useState([]);
   const [partnersLoaded, setPartnersLoaded] = useState(false); // partners 스냅샷 최초 도착 여부 (seed 경쟁 조건 방지)
 
@@ -291,7 +294,9 @@ const App = () => {
     const unsubPartners = onSnapshot(collection(db, 'partners'), (snapshot) => { setPartners(snapshot.docs.map(doc => doc.data())); setPartnersLoaded(true); });
     // 생산 ▾ 계산기 — 저장된 선염 계산 구독
     const unsubYarnDyeCalcs = onSnapshot(collection(db, 'yarnDyeCalcs'), (snapshot) => setYarnDyeCalcs(snapshot.docs.map(doc => doc.data())));
-    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); unsubPIs(); unsubLabdips(); unsubPartners(); unsubYarnDyeCalcs(); };
+    // 기타 ▾ 헹거 스티커 구독
+    const unsubHangerStickers = onSnapshot(collection(db, 'hangerStickers'), (snapshot) => setHangerStickers(snapshot.docs.map(doc => doc.data())));
+    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); unsubPIs(); unsubLabdips(); unsubPartners(); unsubYarnDyeCalcs(); unsubHangerStickers(); };
   }, [user]);
 
   // 원사 검색/필터가 바뀌면 목록을 1페이지로 되돌림
@@ -321,7 +326,7 @@ const App = () => {
     quotes: setSavedQuotes, devRequests: setDevRequests, designSheets: setDesignSheets,
     mainDetails: setMainDetails, tempDesignSheets: setTempDesignSheets, orders: setOrders,
     proformaInvoices: setProformaInvoices, labdips: setLabdips, partners: setPartners,
-    yarnDyeCalcs: setYarnDyeCalcs,
+    yarnDyeCalcs: setYarnDyeCalcs, hangerStickers: setHangerStickers,
   };
   const saveDocToCloud = async (colName, item) => {
     if (DEV_BYPASS) {
@@ -625,6 +630,10 @@ const App = () => {
     dyeCalcInput, setDyeCalcInput, editingDyeCalcId, dyeCalcDirty,
     newDyeCalc, loadDyeCalc, saveDyeCalc, deleteDyeCalc, discardDyeCalc,
   } = useYarnDyeCalc(yarnDyeCalcs, saveDocToCloud, deleteDocFromCloud, showToast, user);
+
+  // ⚓️ 기타 ▾ 헹거 스티커 — 저장·삭제·엑셀 다운로드 (TAG 엑셀 양식 그대로)
+  const { saveSticker, deleteSticker, downloadStickers } =
+    useHangerSticker(hangerStickers, saveDocToCloud, deleteDocFromCloud, showToast, user);
 
   // ⚓️ 거래처(Partner) 훅 — 모든 거래처 선택/등록 공통
   const { makeEmptyPartner, savePartner, deletePartner } =
@@ -1456,6 +1465,18 @@ const App = () => {
             yarnLibrary={yarnLibrary}
             navGuardRef={navGuardRef}
             showToast={showToast}
+          />
+        )}
+
+        {/* TAB: 헹거 스티커 (기타 — TAG 엑셀 양식 그대로 뽑기, 2026-10-14) */}
+        {activeTab === 'hangerSticker' && (
+          <HangerStickerPage
+            stickers={hangerStickers}
+            savedFabrics={savedFabrics}
+            yarnLibrary={yarnLibrary}
+            saveSticker={saveSticker}
+            deleteSticker={deleteSticker}
+            downloadStickers={downloadStickers}
           />
         )}
 

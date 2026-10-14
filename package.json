@@ -10,8 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "fflate": "^0.8.3",
     "firebase": "^12.9.0",
+    "jsqr": "^1.4.0",
     "lucide-react": "^0.575.0",
+    "qrcode-generator": "^2.0.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

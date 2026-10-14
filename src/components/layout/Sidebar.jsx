@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Cloud, Menu, Layers, Home, Globe, FileSpreadsheet, Box, FileText, LogOut, DollarSign, Activity, Archive,
-  FileCheck, FlaskConical, LayoutDashboard, TrendingUp, ChevronDown, X, Boxes, FileSignature, SwatchBook, ExternalLink, Calculator,
+  FileCheck, FlaskConical, LayoutDashboard, TrendingUp, ChevronDown, X, Boxes, FileSignature, SwatchBook, ExternalLink, Calculator, Tag,
 } from 'lucide-react';
 import { rateLabel } from '../../utils/helpers';
 import { useMarketRate, NAVER_FX_URL } from '../../hooks/useMarketRate';
@@ -74,6 +74,14 @@ const NAV_GROUPS = [
       { tab: 'productionCalc', label: '계산기', icon: Calculator },   // 선염 계산기 (스트라이프 원사 배분·멜란지 수량 비율)
     ],
   },
+  {
+    key: 'etc',
+    label: '기타',
+    color: 'amber',
+    items: [
+      { tab: 'hangerSticker', label: '헹거 스티커', icon: Tag },     // TAG 엑셀 양식 그대로 스티커 뽑기 (2026-10-14)
+    ],
+  },
 ];
 
 // 그룹 컬러 → Tailwind 클래스 매핑
@@ -82,6 +90,7 @@ const GROUP_COLOR_CLASSES = {
   indigo: { active: 'from-indigo-600 to-indigo-500 shadow-indigo-500/20', hover: 'hover:bg-indigo-500/10 hover:text-indigo-300', dot: 'bg-indigo-400' },
   violet: { active: 'from-violet-600 to-purple-500 shadow-violet-500/20', hover: 'hover:bg-violet-500/10 hover:text-violet-300', dot: 'bg-violet-400' },
   teal:   { active: 'from-teal-600 to-cyan-500 shadow-teal-500/20',     hover: 'hover:bg-teal-500/10 hover:text-teal-300',     dot: 'bg-teal-400' },
+  amber:  { active: 'from-amber-600 to-orange-500 shadow-amber-500/20', hover: 'hover:bg-amber-500/10 hover:text-amber-300',   dot: 'bg-amber-400' },
 };
 
 export const Sidebar = ({

@@ -18,10 +18,12 @@
 | 생산 스케줄 (오더/공정/차수/알람/간트·가납기·날짜 메모) + 생산 현황 v9 (예상 시작/종료일·최초 예상 기록·상태 드롭다운·편직 기계별 생산량·공정 추가·가납기 일수·생지 전체/부분 출고·LOT·시험성적서·브랜드 컨펌·간트 [+]) + 생산 현황 v10 (LOT 배색량·예상 YD·프리세팅 → LOT 창·외관검사 LOT별 1차·2차(투입 전·재가공)·오더 마무리(원사재고정리·EZTEX 재고정리·EZTEX 종결)·선염/후염(후염 = 생지 출고 오더에 한 번)·생지 출고 kg·간트 날짜 → 그 날에 넣기) + 설계서 샘플 오더 (메인/샘플, EZ-TEX 등록 → 샘플 오더, 아이템화·Drop·샘플 끝내기·아이템화 대기) + 생산 ▾ 계산기 (선염 — 스트라이프 원사 배분·멜란지 수량 비율) | `docs/production-schedule-spec.md` (기획서 원본), `docs/production-schedule-plan.md` (구현 플랜 & 진행상황, v10은 '생산 현황 v10' 절, v9 개편은 '생산 현황 개편 v9' 절, 가납기는 '가납기 · 간트 메모' 절, 샘플 오더는 '설계서 ↔ 샘플 오더' 절 + '샘플 흐름 점검·디버깅' 절, 계산기는 '생산 ▾ 계산기' 절) |
 | UI 용어 통일 (마진 단계 등) + 가설계서/저장·삭제·날짜 규약 + 팝업 창 규약(ModalBackdrop) | `docs/terminology.md` (용어 사전) |
 | 원단 원가 계산 (편직 정액·LOSS 구간·가공 유형·이화학/운임·수입 원사 운반비·원가 설정·공통 환율(내수·수출)/견적 환율·실시간 환율·원가 확인 필요) + 견적서 (기준 견적·별도 견적·러닝 생지 견적·견적서 약관 문구(내수는 한글)) + 개발 의뢰 원가 견적·Drop 사유 | `docs/costing-model.md` (원가 모델 & 설정, 환율은 §5-A, 견적서는 §5-B, 개발 의뢰 원가 견적은 §5-C) |
+| 기타 ▾ 헹거 스티커 (TAG 엑셀 양식 그대로 뽑기 — 아이템에서 ART·WIDTH·WEIGHT, QR 그림 올리기(EZ-TEX 주소 읽기), 체크해서 여러 장 엑셀 다운로드) | `docs/hanger-sticker.md` (양식 칸 위치·QR 규칙·g/yd 5 단위 내림·엑셀 만드는 법·확인한 것) |
 
 트리거 예시:
 - "생산 스케줄 다음 단계 하자" / "오더 관련 기능 추가해줘" / "간트 차트 만들자" / "알람 붙이자" / "선염 계산기·원사 컬러 배분·멜란지 비율" / "가납기·간트 메모" / "가납기 일수·기준일" / "편직 예상 종료일·기계별 생산량·프리세팅·공정 추가" / "생지 부분출고·시험성적서·브랜드 컨펌·외관검사·LOT" / "배색량·예상 YD·프리세팅·외관검사 1차 2차·재가공" / "남은 배색량·생지kg(예전 작지kg)·와이드 모니터에서 현황표·간트 넓게" / "원사 사종·발주대기·발주완료·입고완료·중지·재고 사용·원사염색" / "오더 마무리·원사재고정리·EZTEX 종결·마무리 대기" / "선염/후염·생지 출고 한 번에·출고 kg" / "간트 날짜 눌러 공정 넣기" / "샘플 오더·메인/샘플·설계서 샘플 진행·생산 현황에서 아이템화" / "개발 의뢰 현황·EZ-TEX 등록·자체개발 설계서" / "샘플 Drop·복원·아이템화 대기·샘플 끝내기·리포트 메인/샘플" → 위 docs 2개를 먼저 읽고 작업 시작
 - "원가 계산 바꾸자" / "편직비·LOSS·운임 수정" / "원가 설정에 항목 추가" / "수량 직접 입력 칸 만들자" / "원사 운반비·수입사·수입 국가" / "환율·내수/수출 환율·실시간 환율·견적 다시 계산" / "원가 확인 경고·혼용률" / "견적서 구간·기준 견적·별도 견적" / "러닝 생지 견적·생지 짠 수량·컬러별 수량·소량 추가분(서차지)" / "개발 의뢰 원가 견적·Drop 사유·의뢰 견적서" → `docs/costing-model.md` 먼저 읽고 작업 시작
+- "헹거 스티커 칸 추가·양식 바꾸기" / "TAG 엑셀·스티커 QR" / "스티커 여러 장 뽑기·아이템과 다름" → `docs/hanger-sticker.md` 먼저 읽고 작업 시작
 - 라벨/용어를 바꾸거나 새 화면을 만들 때 → `docs/terminology.md` 를 먼저 확인하고 같은 기능은 같은 용어로 맞출 것
 - 새 팝업 창을 만들 때 → 배경은 `components/common/ModalBackdrop`, 입력하는 창이면 `useUnsavedGuard` + `UnsavedChangesDialog`로 '저장할까요?' (`docs/terminology.md` §4 팝업 창 규약)
 - 새 도메인 문서가 추가되면 이 표에 계속 업데이트할 것
@@ -33,6 +35,7 @@
 - **Frontend**: React + Vite, JavaScript(JSX), Tailwind CSS
 - **Backend**: Firebase (Firestore, Authentication) - 이미 연결되어 있음
 - **라이브러리**: SheetJS(엑셀 내보내기·업로드), Lucide-React(아이콘). PDF는 브라우저 인쇄(window.print + `PDFRenderer`)
+  - 헹거 스티커 전용: fflate(양식 엑셀 파일 안 XML 직접 고치기 — 글꼴·그림 그대로), qrcode-generator(QR 만들기), jsQR(올린 QR 그림 읽기 — 그때만 불러옴)
 - 라이브러리 관련 코드 작성 시 항상 **context7** 사용
 
 ---
@@ -59,7 +62,8 @@ GRUBIG-APP/
 │   │   ├── YarnLibraryPage.jsx         # 원사 라이브러리
 │   │   ├── QuotationPage.jsx           # 견적서 작성
 │   │   ├── QuoteHistoryPage.jsx        # 견적 이력
-│   │   └── ProductionCalcPage.jsx      # 생산 ▾ 계산기 (선염 — 스트라이프 원사 배분·멜란지 수량 비율, 저장 목록)
+│   │   ├── ProductionCalcPage.jsx      # 생산 ▾ 계산기 (선염 — 스트라이프 원사 배분·멜란지 수량 비율, 저장 목록)
+│   │   └── HangerStickerPage.jsx       # 기타 ▾ 헹거 스티커 (저장된 스티커 목록 · 체크해서 엑셀 다운로드)
 │   │
 │   ├── hooks/
 │   │   ├── useExternalScripts.js       # SheetJS 외부 스크립트 로더
@@ -76,6 +80,7 @@ GRUBIG-APP/
 │   │       ├── useExcelIO.js           # 원단·원사 엑셀 (백업·양식·일괄 등록)
 │   │       ├── useQuoteExport.js       # 견적서 PDF 인쇄·엑셀 내보내기
 │   │       ├── useYarnDyeCalc.js       # 생산 ▾ 계산기 — 선염 계산 저장·불러오기·삭제 (Firestore yarnDyeCalcs)
+│   │       ├── useHangerSticker.js     # 헹거 스티커 저장·삭제 (Firestore hangerStickers) + 엑셀 다운로드 (양식 그대로)
 │   │       └── useQuotation.js         # 견적
 │   │
 │   ├── components/
@@ -89,6 +94,7 @@ GRUBIG-APP/
 │   │   ├── yarn/                # 원사 행/카드 (+ yarnRowModel: 행·카드 공통 계산)
 │   │   ├── quote/               # PDFRenderer (견적서 PDF), QuoteParts (견적서 화면 공용 부품), FabricPickerModal, RunningGreigeModal (러닝 생지 견적 창)
 │   │   ├── cost/                # 원가 표·원가 설정·'원가 확인 필요' 경고 (CostBreakdownTable, CostSettingsModal + costSettingsForm·CostSettingsParts, CostWarnings)
+│   │   ├── sticker/             # 헹거 스티커 — StickerEditModal(입력 창: 아이템·칸·QR 그림 올리기), StickerPreview(엑셀 칸 크기 그대로 미리보기)
 │   │   └── domain/              # (도메인 컴포넌트 - 현재 비어있음)
 │   │
 │   ├── services/
@@ -102,6 +108,9 @@ GRUBIG-APP/
 │   │   ├── costFields.js        # 원가 칸 초기값 (원단·설계서·가설계서 공통)
 │   │   ├── devQuoteModel.js     # 개발 의뢰 원가 견적 (양식·원단 모양 변환·저장 전 확인·예상가·견적서 배지·설계서 이어받기)
 │   │   ├── yarnDyeCalc.js       # 선염 계산 (스트라이프 원사 컬러 배분·같은 컬러 합치기 / 멜란지 수량 비율 / O/D·ARTICLE(원사) 불러오기 / 결과 복사)
+│   │   ├── hangerSticker.js     # 헹거 스티커 칸 계산 (WIDTH 내폭/외폭 · WEIGHT g/yd 5 단위 내림 · 아이템과 다름 · QR 번호 → EZ-TEX 주소 · 저장 모양)
+│   │   ├── hangerStickerExcel.js # 헹거 스티커 엑셀 만들기 (양식 첫 시트를 스티커마다 복사해 값만 바꿈 — fflate, Node에서도 돌아감)
+│   │   ├── hangerStickerQr.js   # 헹거 스티커 QR (만들기: 미리보기 SVG·엑셀 PNG / 읽기: 올린 QR 그림 → 주소)
 │   │   └── costModel.js         # 원단 원가 엔진 (수량 함수 computeCostAtQty / 원가 표 6구간 calculateCostTiers)
 │   │
 │   ├── constants/
@@ -109,7 +118,7 @@ GRUBIG-APP/
 │   │   ├── costing.js           # 원가 설정 기본값 (편직 정액·LOSS 구간·가공 유형·이화학·운임)
 │   │   └── quote.js             # 견적 구간(300~5,000YD)·기본 이익율/정액·기본 표시 구간
 │   │
-│   ├── assets/                  # 정적 자산
+│   ├── assets/                  # 정적 자산 (hanger-sticker-template.xlsx = 헹거 스티커 양식 — 대표님 TAG.xlsx 첫 시트)
 │   ├── App.css
 │   └── index.css
 │
@@ -123,6 +132,7 @@ GRUBIG-APP/
 - `devRequests` (개발의뢰) ↔ `designSheets` (설계서) ↔ `fabrics` (원단)
 - 양방향 참조: `devReq.linkedDesignSheetId` ↔ `sheet.devRequestId`, `sheet.linkedFabricId` ↔ `fabric.linkedSheetId`
 - 설계서 단계: `draft → eztex → sampling → articled` (→ 원단 자동 등록)
+- `hangerStickers` (헹거 스티커) → `fabrics` (원단): `sticker.fabricId` 한쪽만 (원단을 지워도 스티커 값은 남음 — 목록에 '아이템 없음')
 
 ---
 
