@@ -10,7 +10,13 @@ import {
   fabricYarnHint, normalizeQrInput, eztexQrNumber, normalizeCare, orderCare, STICKER_TYPE_SUGGESTIONS, STICKER_CARE_MAX_LINES,
 } from '../../utils/hangerSticker';
 import { readQrFromImage } from '../../utils/hangerStickerQr';
-import { compareArticle } from '../../utils/helpers';
+import { todayLocalISO } from '../../utils/helpers';
+
+// 마지막 저장 날짜 — 이 PC 날짜로 (ISO 글자를 그냥 자르면 UTC라 오전 9시 전 저장은 전날로 보임)
+const localDateOf = (iso) => {
+  const d = iso ? new Date(iso) : null;
+  return d && !Number.isNaN(d.getTime()) ? todayLocalISO(d) : '';
+};
 
 // ============================================================
 // 헹거 스티커 입력 창 (기타 ▾ 헹거 스티커 — 대표님 요청 2026-10-14)
@@ -63,10 +69,9 @@ export const StickerEditModal = ({
 
   const patch = (fields) => setForm(prev => ({ ...prev, ...fields }));
 
-  // ── 아이템 (원단 관리) ──
-  const fabricOptions = useMemo(() => [...(savedFabrics || [])]
+  // ── 아이템 (원단 관리 — App에서 이미 Article 순서로 정렬해 둔 목록) ──
+  const fabricOptions = useMemo(() => (savedFabrics || [])
     .filter(f => String(f?.article || '').trim())
-    .sort((a, b) => compareArticle(a.article, b.article))
     .map(f => ({ id: String(f.id), name: `${f.article}${f.itemName ? ` · ${f.itemName}` : ''}` })), [savedFabrics]);
   const fabric = form.fabricId ? (savedFabrics || []).find(f => String(f.id) === String(form.fabricId)) || null : null;
   const spec = stickerSpecOf(form, fabric);
@@ -133,6 +138,11 @@ export const StickerEditModal = ({
   // ── 저장 · 닫기 ──
   const doSave = async () => {
     if (busyRef.current) return null;
+    // QR 그림을 읽는 중에 저장하면 QR이 빠진 채 저장됨 ('저장할까요?'의 [저장하고 나가기]도 여기를 지남)
+    if (qrReading) {
+      setQrNote({ type: 'warn', text: 'QR 그림을 읽는 중이에요. 끝나면 다시 저장해 주세요.' });
+      return null;
+    }
     busyRef.current = true;
     setBusy(true);
     try {
@@ -146,11 +156,14 @@ export const StickerEditModal = ({
   const requestClose = () => guard(onClose);
   const handleSave = async () => { if (await doSave()) onClose(); };
   // 저장하고 엑셀 받기 — 고친 게 없으면 저장된 스티커 그대로 받음
+  //  받기를 그만뒀거나(예: 'QR 없음' 확인에서 취소) 못 받았으면 창을 닫지 않음
+  //  → 방금 저장했으면 저장된 스티커로 다시 열어서 이어서 고치게 (새 스티커가 두 번 저장되지 않게)
   const handleSaveAndDownload = async () => {
-    const target = (!isDirty() && savedDoc) ? savedDoc : await doSave();
+    const needSave = isDirty() || !savedDoc;
+    const target = needSave ? await doSave() : savedDoc;
     if (!target) return;
-    await onDownload(target);
-    onClose();
+    if (await onDownload(target)) { onClose(); return; }
+    if (needSave) onOpenSticker(target.id);
   };
   const handleDelete = async () => { if (await onDelete(stickerId)) onClose(); };
   const keepEditing = () => setPending(null);
@@ -186,7 +199,7 @@ export const StickerEditModal = ({
               </h3>
               <p className="text-[11px] text-slate-500">
                 {savedDoc
-                  ? `마지막 저장 ${String(savedDoc.updatedAt || '').slice(0, 10)}${savedDoc.updatedBy ? ` · ${savedDoc.updatedBy}` : ''}`
+                  ? `마지막 저장 ${localDateOf(savedDoc.updatedAt)}${savedDoc.updatedBy ? ` · ${savedDoc.updatedBy}` : ''}`
                   : '아이템을 고르면 ART · WIDTH · WEIGHT가 채워져요.'}
                 {dirtyNow && <span className="ml-2 font-bold text-amber-600">● 저장 안 한 변경 있음</span>}
               </p>

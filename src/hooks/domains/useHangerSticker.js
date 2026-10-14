@@ -22,13 +22,17 @@ const COLLECTION = 'hangerStickers';
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const newStickerId = () => `hs_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
-// 양식 파일은 한 번만 받아 둠
+// 양식 파일은 한 번만 받아 둠 — 엑셀(zip) 파일이 맞을 때만 ('PK'로 시작)
+//  배포 뒤 예전 화면을 새로고침 안 하고 쓰면 옛 양식 주소가 없어서 호스팅이 첫 화면(HTML)을 돌려줌
+//  → 그걸 담아 두면 그 창에서는 계속 실패하므로 담지 않고 새로고침을 안내
 let templateBytes = null;
 const loadTemplate = async () => {
   if (templateBytes) return templateBytes;
   const res = await fetch(templateUrl);
   if (!res.ok) throw new Error('스티커 양식 파일을 받지 못했어요.');
-  templateBytes = new Uint8Array(await res.arrayBuffer());
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error('프로그램이 새로 바뀌었어요. 새로고침(F5) 후 다시 받아 주세요.');
+  templateBytes = bytes;
   return templateBytes;
 };
 
@@ -166,5 +170,5 @@ export const useHangerSticker = (hangerStickers, savedFabrics, stickerOptions, s
     }
   };
 
-  return { saveSticker, deleteSticker, downloadStickers, fabricOf };
+  return { saveSticker, deleteSticker, downloadStickers };
 };

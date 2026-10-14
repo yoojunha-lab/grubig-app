@@ -13,14 +13,14 @@ import { calculateGYd, compareArticle } from './helpers';
 //    → QR 그림을 올리면 주소를 읽어 저장 (utils/hangerStickerQr.js), 번호만 넣어도 주소로 바꿈
 // ============================================================
 
-export const EZTEX_QR_BASE = 'https://eztexerp.com/erp/qr/';
+const EZTEX_QR_BASE = 'https://eztexerp.com/erp/qr/';
 
 /** CATEGORY 기본 목록 (설정을 아직 저장하기 전) — 첫 번째가 새 스티커 기본값 */
-export const STICKER_DEFAULT_CATEGORIES = ['PERFORMANCE WOOL', 'WOOL CASUAL'];
+const STICKER_DEFAULT_CATEGORIES = ['PERFORMANCE WOOL', 'WOOL CASUAL'];
 /** CARE 기본 목록 (대표님 지정 2026-10-14) — 이 순서대로 엑셀 CARE 칸에 한 줄에 하나씩 */
-export const STICKER_DEFAULT_CARE_ITEMS = ['MACHINE WASHABLE', 'DRY CLEAN', 'HAND WASH', 'TUMBLE DRY'];
+const STICKER_DEFAULT_CARE_ITEMS = ['MACHINE WASHABLE', 'DRY CLEAN', 'HAND WASH', 'TUMBLE DRY'];
 /** 새 스티커에 미리 체크해 두는 CARE (기존 16장 모두 기계 세탁) */
-export const STICKER_DEFAULT_CARE = 'MACHINE WASHABLE';
+const STICKER_DEFAULT_CARE = 'MACHINE WASHABLE';
 /** 엑셀 CARE 칸(E13:F13)에 들어가는 줄 수 — 넘으면 잘림 */
 export const STICKER_CARE_MAX_LINES = 2;
 // 예전 CARE 글자 → 지금 항목 (TAG.xlsx 'WASHING MACHINE')
@@ -84,7 +84,7 @@ const posNum = (v) => {
 const fmt1 = (n) => n.toFixed(1);
 
 /** WIDTH — '내폭/외폭' 소수 한 자리 (예: 52.0/54.0). 하나만 있으면 그 값만 */
-export const stickerWidthOf = (fabric) => {
+const stickerWidthOf = (fabric) => {
   const cut = posNum(fabric?.widthCut);
   const full = posNum(fabric?.widthFull);
   if (cut && full) return `${fmt1(cut)}/${fmt1(full)}`;
@@ -97,7 +97,7 @@ export const stickerWidthOf = (fabric) => {
  * 스티커 g/yd — 원단 관리의 '실제 G/YD' 그대로 (gsm × 외폭, 원가 계산과 같은 식 · 정수)
  *  대표님 결정 2026-10-14: 5 단위로 내리지 않음 / 생산 G/YD(원가용 직접 입력)는 쓰지 않음
  */
-export const stickerGYdOf = (fabric) => {
+const stickerGYdOf = (fabric) => {
   const gsm = posNum(fabric?.gsm);
   const full = posNum(fabric?.widthFull);
   if (!gsm || !full) return 0;
@@ -105,7 +105,7 @@ export const stickerGYdOf = (fabric) => {
 };
 
 /** WEIGHT — '150 g/㎡ 188 g/yd' (외폭이 없으면 g/㎡만) */
-export const stickerWeightOf = (fabric) => {
+const stickerWeightOf = (fabric) => {
   const gsm = posNum(fabric?.gsm);
   if (!gsm) return '';
   const gsmText = Number.isInteger(gsm) ? String(gsm) : String(Math.round(gsm * 10) / 10);

@@ -737,6 +737,11 @@ const App = () => {
   //  최신 설정(ref)에 얹어서 저장 → 두 목록을 이어서 바꿔도 앞의 것이 덮이지 않음. DEV 우회 시 로컬만
   //  반환: 성공 true / 실패 false (실패하면 화면도 이전 목록으로 되돌림)
   const saveHangerStickerOptions = async (key, list) => {
+    // 회사 설정을 아직 받기 전이면 막음 — 기본 목록 + 새 항목으로 이미 저장된 목록을 덮어쓰지 않게
+    if (!DEV_BYPASS && !settingsLoaded) {
+      showToast('설정을 불러오는 중이에요. 잠시 후 다시 해 주세요.', 'error');
+      return false;
+    }
     const prevRaw = stickerOptionsRef.current;
     const next = resolveStickerOptions({ ...resolveStickerOptions(prevRaw), [key]: list });
     stickerOptionsRef.current = next;
@@ -860,7 +865,7 @@ const App = () => {
     handleDownloadYarnTemplate, handleYarnFileUpload,
   } = useExcelIO({
     isXlsxReady, costSettings, showToast, saveBatchToCloud,
-    savedFabrics, setSavedFabrics, yarnLibrary, setYarnLibrary,
+    savedFabrics, yarnLibrary, setYarnLibrary,
     fileInputRef, yarnFileInputRef, setIsBulkModalOpen, setIsYarnBulkModalOpen,
   });
 

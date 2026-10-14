@@ -8,7 +8,7 @@ import { todayLocalISO } from '../../utils/helpers';
 //  · 규칙: docs/costing-model.md §4-A (원사 업로드 = 등록 + 고치기, 원단 업로드 규칙)
 export const useExcelIO = ({
   isXlsxReady, costSettings, showToast, saveBatchToCloud,
-  savedFabrics, setSavedFabrics, yarnLibrary, setYarnLibrary,
+  savedFabrics, yarnLibrary, setYarnLibrary,
   fileInputRef, yarnFileInputRef, setIsBulkModalOpen, setIsYarnBulkModalOpen,
 }) => {
   // 원단 원사 칸의 원사 이름 (엑셀 백업용) — 원사 이름만. 예전엔 '이름 [업체]'로 나가서 그 파일을 다시 올리면 원사를 못 찾았음.
@@ -185,7 +185,8 @@ export const useExcelIO = ({
           // 실패: 모달 유지 + 로컬 state 롤백 (낙관적 업데이트 방지)
           return;
         }
-        setSavedFabrics([...newFabrics, ...savedFabrics]);
+        // 원단 목록은 저장소 구독(DEV는 로컬 저장)이 Article 순서로 넣어 줌 — 여기서 직접 앞에 붙이면
+        //  엑셀 행 순서(_1, _10, _2 …)로 맨 위에 쌓여 정렬이 깨지고, 그사이 다른 사람이 고친 원단도 옛 값으로 덮였음 (2026-10-14)
         setIsBulkModalOpen(false);
 
         const dupNote = dupSkipped > 0 ? `\n\n⚠️ 중복 Article ${dupSkipped}건은 건너뛰었습니다.` : '';

@@ -11,7 +11,7 @@ import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 // ============================================================
 
 /** 값을 넣는 칸 (양식 첫 시트 기준 — 합친 칸은 왼쪽 위 칸) */
-export const STICKER_CELLS = {
+const STICKER_CELLS = {
   art: 'E3',      // ART. (E3:E4)
   title: 'D6',    // 제목 — PERFORMANCE WOOL 자리 (D6:F7)
   content: 'E8',  // CONTENT (E8:F9)
@@ -227,9 +227,10 @@ const appXmlFor = (tplApp, names, hasPrintArea) => {
   const heading = `<HeadingPairs><vt:vector size="${pairs.length * 2}" baseType="variant">${pairs.map(([label, count]) =>
     `<vt:variant><vt:lpstr>${label}</vt:lpstr></vt:variant><vt:variant><vt:i4>${count}</vt:i4></vt:variant>`).join('')}</vt:vector></HeadingPairs>`;
   const parts = `<TitlesOfParts><vt:vector size="${titles.length}" baseType="lpstr">${titles.map(t => `<vt:lpstr>${escXml(t)}</vt:lpstr>`).join('')}</vt:vector></TitlesOfParts>`;
+  // 바꿀 글자는 함수로 넘김 — 글자로 넘기면 시트 이름(ART)의 '$&'·"$'" 같은 모양을 replace가 특수 기호로 읽어 XML이 깨짐
   return tplApp
-    .replace(/<HeadingPairs>[\s\S]*?<\/HeadingPairs>/, heading)
-    .replace(/<TitlesOfParts>[\s\S]*?<\/TitlesOfParts>/, parts);
+    .replace(/<HeadingPairs>[\s\S]*?<\/HeadingPairs>/, () => heading)
+    .replace(/<TitlesOfParts>[\s\S]*?<\/TitlesOfParts>/, () => parts);
 };
 const coreXmlFor = (tplCore, now) => tplCore.replace(
   /(<dcterms:modified\b[^>]*>)[^<]*(<\/dcterms:modified>)/,
@@ -309,7 +310,7 @@ export const buildStickerWorkbook = (templateBytes, pages, { now = new Date() } 
     .replace(/<definedNames>[\s\S]*?<\/definedNames>/, '')
     .replace(/<mc:AlternateContent\b[\s\S]*?<\/mc:AlternateContent>/g, m => (m.includes('absPath') ? '' : m)) // 양식을 만든 PC 폴더 경로
     .replace(/\s(?:activeTab|firstSheet)="\d+"/g, '')
-    .replace(/<sheets>[\s\S]*?<\/sheets>/, `${sheetsXml}${definedNames}`);
+    .replace(/<sheets>[\s\S]*?<\/sheets>/, () => `${sheetsXml}${definedNames}`); // 함수로 — 시트 이름의 '$' 모양을 그대로 (appXmlFor 참고)
 
   // 통합 문서 연결 — 시트들 + 스타일·테마(양식 그대로) + 공유 글자(새로)
   const keepRels = tpl.wbRels.filter(r => /\/(styles|theme)$/.test(r.Type));

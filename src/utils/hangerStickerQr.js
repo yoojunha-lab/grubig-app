@@ -73,7 +73,13 @@ export const makeQrPng = async (text, { cell = 8, margin = 2 } = {}) => {
  */
 export const readQrFromImage = async (file) => {
   if (!file) return null;
-  const { default: jsQR } = await import('jsqr');
+  let jsQR;
+  try {
+    ({ default: jsQR } = await import('jsqr'));
+  } catch {
+    // 배포 뒤 예전 화면이면 옛 'QR 읽기' 파일이 없어서 못 불러옴
+    throw new Error('QR 읽기를 불러오지 못했어요. 새로고침(F5) 후 다시 올려 주세요.');
+  }
   let bitmap;
   try {
     bitmap = await createImageBitmap(file);
