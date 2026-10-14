@@ -466,7 +466,7 @@ const GanttUnderlay = ({ layout }) => (
 // ============================================================
 export const OrderGantt = ({
   orders = [], actions, masters = {}, stepDefs, onOpenDetail, onOpenLots, sheetLink = null, inspectVendorOptions = null,
-  yarnHelpers = null, // 원사 창 { nameOptions, vendorOptions, dyeVendorOptions, sourceOf(order) } (OrderListPage)
+  yarnHelpers = null, // 원사 창 { popoverProps(order) — 제안 목록 · 원단 원사 } (OrderListPage)
 }) => {
   const today = todayYmd();
   const [hideWeekends, setHideWeekends] = useState(loadHideWeekends);
@@ -1106,10 +1106,7 @@ export const OrderGantt = ({
           onClose={closePopover}
           onSaveYarn={patch => actions.setYarn(popOrder.id, patch)}
           onSaveYarnDyeing={patch => actions.setStep(popOrder.id, YARN_DYEING_KEY, patch)}
-          vendorOptions={yarnHelpers?.vendorOptions || []}
-          dyeVendorOptions={yarnHelpers?.dyeVendorOptions || []}
-          yarnNameOptions={yarnHelpers?.nameOptions || []}
-          {...(yarnHelpers?.sourceOf?.(popOrder) || {})}
+          {...(yarnHelpers?.popoverProps?.(popOrder) || {})}
         />
       )}
       {popover?.kind === 'note' && popOrder && (!popover.colorId || popColor) && (

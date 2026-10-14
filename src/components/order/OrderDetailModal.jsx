@@ -16,7 +16,7 @@ import {
   getColorStage, getDday, colorHasData, collectVendorOptions,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState,
   getColorInspection, getRoundStatusDate, getDyeYield, isPieceDyed, getClosingState, isClosingPending,
-  getYarnState, getYarnOrderStatus, getYarnOrderStatusDate, canUseYarnDyeing,
+  getYarnState, getYarnRowInfo, canUseYarnDyeing,
 } from '../../utils/orderModel';
 import { PresettingChip } from './common/PresettingChip';
 import { YarnDyeChip } from './common/YarnDyeChip';
@@ -518,16 +518,14 @@ const YarnBox = ({ order, onOpen, onStock, onStatus }) => {
       ) : y.items.length ? (
         <div className="space-y-1">
           {y.items.map(row => {
-            const status = getYarnOrderStatus(row);
-            const statusDate = getYarnOrderStatusDate(row);
-            const late = !!row.expectedDate && (status === 'waiting' || status === 'ordered') && row.expectedDate < today;
+            const { status, statusDate, late, stopped, arrived } = getYarnRowInfo(order, row, today);
             return (
-              <div key={row.id} className={`flex items-center gap-2 text-xs ${status === 'stopped' ? 'opacity-60' : ''}`}>
+              <div key={row.id} className={`flex items-center gap-2 text-xs ${stopped ? 'opacity-60' : ''}`}>
                 <span className={`min-w-0 flex-1 truncate font-bold ${row.name ? 'text-slate-700' : 'text-slate-400'}`} title={[row.vendor, row.notes].filter(Boolean).join(' · ') || undefined}>
                   {row.name || '사종?'}
                   {row.vendor && <span className="ml-1 font-normal text-[10px] text-slate-500">{row.vendor}</span>}
                 </span>
-                {status === 'arrived' || status === 'stopped' ? (
+                {arrived || stopped ? (
                   statusDate ? <span className="shrink-0 font-mono text-[10px] text-slate-500">{shortDate(statusDate)}</span> : null
                 ) : row.expectedDate ? (
                   <span className={`shrink-0 font-mono text-[10px] ${late ? 'font-bold text-red-600' : 'text-slate-500'}`}>입고 {shortDate(row.expectedDate)}</span>
@@ -1546,10 +1544,10 @@ const OrderDetailBody = ({
           onClose={() => setYarnOpen(false)}
           onSaveYarn={patch => actions.setYarn(order.id, patch)}
           onSaveYarnDyeing={patch => actions.setStep(order.id, YARN_DYEING_KEY, patch)}
-          vendorOptions={yarnHelpers?.vendorOptions || collectVendorOptions(masters?.yarnSuppliers || [])}
-          dyeVendorOptions={yarnHelpers?.dyeVendorOptions || collectVendorOptions(masters?.dyeingFactories || [])}
-          yarnNameOptions={yarnHelpers?.nameOptions || []}
-          {...(yarnHelpers?.sourceOf?.(order) || {})}
+          {...(yarnHelpers?.popoverProps?.(order) || {
+            vendorOptions: collectVendorOptions(masters?.yarnSuppliers || []),
+            dyeVendorOptions: collectVendorOptions(masters?.dyeingFactories || []),
+          })}
         />
       )}
       {processMeta && (

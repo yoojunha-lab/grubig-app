@@ -889,11 +889,28 @@ export const getYarnOrderEventDate = yarnEventDate;
 export const canUseYarnDyeing = (order) => order?.dyeMethod === 'yarn' || isStepUsed(order?.steps?.[YARN_DYEING_KEY]);
 
 /**
+ * 사종 줄 표시용 (현황표 칸 · 상세창 · 원사 창 · 간트 공용)
+ *  { status, statusDate(마지막 기록 날), stopped, arrived,
+ *    late(입고 예정일이 지났는데 아직 발주대기·발주완료 — 완료된 오더는 아님) }
+ */
+export const getYarnRowInfo = (order, y, today = todayYmd()) => {
+  const status = getYarnOrderStatus(y);
+  const open = status === 'waiting' || status === 'ordered';
+  return {
+    status,
+    statusDate: getYarnOrderStatusDate(y),
+    stopped: status === 'stopped',
+    arrived: status === 'arrived',
+    late: open && !!y?.expectedDate && order?.status !== 'completed' && y.expectedDate < today,
+  };
+};
+
+/**
  * 원사 상태 한눈에
  *  { stock(재고 사용), items(사종 줄), active(중지 뺀 줄), counts{ waiting, ordered, arrived, stopped },
  *    dyeStep, dyeUsed(원사염색 입력 있음), dyeDone, used(원사 칸에 뭐라도 있음),
  *    orderingDone(재고 사용 · 또는 중지 뺀 사종이 모두 입고완료), done(발주 끝 + 원사염색 끝),
- *    currentEnd{ date, done } — 가납기 '원사' 비교 날짜 }
+ *    currentEnd{ date, done, by('arrival' 입고 예정 · 'dyeing' 원사염색 예상 종료 · 'done') } — 가납기 '원사' 비교 날짜 }
  *  · 사종이 모두 중지면 발주는 안 끝난 것으로 봄 (새 사종을 넣거나 재고 사용을 체크)
  *  · 끝났으면: 가장 늦게 입고완료한 날 · 원사염색 완료일 중 늦은 날
  *  · 아직이면: 안 들어온 사종 입고 예정일 · (안 끝난) 원사염색 예상 종료일 중 가장 늦은 날
@@ -911,12 +928,15 @@ export const getYarnState = (order) => {
   const used = stock || items.length > 0 || dyeUsed;
   const done = used && orderingDone && dyeDone;
   const dyeEnd = dyeUsed ? str(dyeDone ? (dyeStep.doneDate || dyeStep.endDate) : dyeStep.endDate) : '';
-  let currentEnd = { date: '', done: false };
+  let currentEnd = { date: '', done: false, by: '' };
   if (done) {
-    currentEnd = { date: maxYmd([...(stock ? [] : active.map(y => yarnEventDate(y, 'arrived'))), dyeEnd]), done: true };
+    currentEnd = { date: maxYmd([...(stock ? [] : active.map(y => yarnEventDate(y, 'arrived'))), dyeEnd]), done: true, by: 'done' };
   } else if (used) {
     const waitingRows = stock ? [] : active.filter(y => getYarnOrderStatus(y) !== 'arrived');
-    currentEnd = { date: maxYmd([...waitingRows.map(y => y.expectedDate), dyeDone ? '' : dyeEnd]), done: false };
+    const arrival = maxYmd(waitingRows.map(y => y.expectedDate));
+    const dyePending = dyeDone ? '' : dyeEnd;
+    const date = maxYmd([arrival, dyePending]);
+    currentEnd = { date, done: false, by: date && date === dyePending && date !== arrival ? 'dyeing' : 'arrival' };
   }
   return { stock, items, active, counts, dyeStep, dyeUsed, dyeDone, used, orderingDone, done, currentEnd };
 };
@@ -1246,7 +1266,7 @@ export const getStepCurrentEnd = (order, key) => {
   if (key === 'yarn') {
     // 원사 (v11): 재고 사용 · 사종 줄(중지 뺀 줄이 모두 입고완료) + 원사염색(넣었으면 완료까지) — getYarnState
     const y = getYarnState(order);
-    return { date: y.currentEnd.date, done: y.currentEnd.done, estimated: false };
+    return { date: y.currentEnd.date, done: y.currentEnd.done, estimated: false, by: y.currentEnd.by };
   }
   if (key === 'visual_inspection') {
     // 외관검사 (LOT별) — 컬러가 모두 끝나야(LOT 모두 출고준비완료·출고완료 또는 출고) 완료: 가장 늦게 끝난 날
@@ -1293,7 +1313,7 @@ export const getProvisionalDueInfo = (order, key, today = todayYmd()) => {
   const due = str(order?.provisionalDue?.[key]);
   const cur = getStepCurrentEnd(order, key);
   const done = cur.done || order?.status === 'completed';
-  const base = { key, due, current: cur.date, done, estimated: cur.estimated, diff: null };
+  const base = { key, due, current: cur.date, done, estimated: cur.estimated, by: cur.by || '', diff: null };
   if (!due) return { ...base, state: 'none' };
   if (done) {
     if (!cur.date) return { ...base, state: 'done' };
@@ -1329,6 +1349,7 @@ export const describeStepCurrent = (info) => {
   if (!info?.current) return info?.done ? '완료' : '일정 없음';
   const d = shortDate(info.current);
   if (info.done) return `완료 ${d}`;
+  if (info.key === 'yarn') return info.by === 'dyeing' ? `원사염색 예상 종료 ${d}` : `입고 예정 ${d}`;
   if (info.key === 'dyeing') return `LOT 완료예정 ${d}`;
   if (info.key === 'visual_inspection') return `외관검사 예상 종료 ${d}`;
   return `예상 종료 ${d}${info.estimated ? ' (생산량 계산)' : ''}`;
@@ -1477,12 +1498,12 @@ const lotInspectionBars = (lot, today) => {
 
 // 원사 사종 줄 → 막대 (오더 줄 — 대표님 요청 2026-10-14 v11). 재고 사용이면 막대 없음, 중지한 사종도 없음
 //  입고완료: 발주완료한 날(없으면 입고한 날) ~ 입고한 날
-//  발주완료: 발주완료한 날 ~ 입고 예정일 (없으면 오늘까지 — '입고 전')
+//  발주완료: 발주완료한 날 ~ 입고 예정일 (없으면 오늘까지 — '입고 전'). 입고 예정일이 지났으면 '입고 지연'(빨간 테두리)
 //  발주대기: 입고 예정일만 있으면 그 날 하루 점선 (계획)
 const yarnOrderBars = (order, today) => {
   if (order?.yarnStock) return [];
   return (order?.yarnOrders || []).flatMap(y => {
-    const status = getYarnOrderStatus(y);
+    const { status, late } = getYarnRowInfo(order, y, today);
     const name = y.name || '원사';
     const base = { id: `yarn_${y.id}`, kind: 'yarn', yarnId: y.id, theme: 'yarn' };
     if (status === 'arrived') {
@@ -1494,10 +1515,14 @@ const yarnOrderBars = (order, today) => {
       const ordered = yarnEventDate(y, 'ordered');
       const end = y.expectedDate || (ordered && ordered <= today ? today : ordered);
       const range = span(ordered || y.expectedDate, end);
-      return range ? [{ ...base, label: `${name} 발주완료${y.expectedDate ? '' : ' (입고 전)'}`, status: 'in_progress', ...range }] : [];
+      const tail = late ? ' (입고 지연)' : y.expectedDate ? '' : ' (입고 전)';
+      return range ? [{ ...base, label: `${name} 발주완료${tail}`, status: late ? 'issue' : 'in_progress', ...range }] : [];
     }
     if (status === 'waiting' && y.expectedDate) {
-      return [{ ...base, label: `${name} 입고 예정 (발주대기)`, status: 'pending', dashed: true, start: y.expectedDate, end: y.expectedDate }];
+      return [{
+        ...base, label: `${name} 입고 예정 (발주대기${late ? ' · 지남' : ''})`, status: late ? 'issue' : 'pending', dashed: true,
+        start: y.expectedDate, end: y.expectedDate,
+      }];
     }
     return [];
   });

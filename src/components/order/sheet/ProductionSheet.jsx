@@ -14,7 +14,7 @@ import {
   isInspectionUsed, getColorInspection, getRoundStatusDate, getDyeYield, getColorDyeRemain, describeDyeRemain,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState, collectVendorOptions,
   isPieceDyed, getClosingState, isClosingPending,
-  getYarnState, getYarnOrderStatus, getYarnOrderStatusDate, canUseYarnDyeing,
+  getYarnState, getYarnRowInfo, canUseYarnDyeing,
 } from '../../../utils/orderModel';
 import { shortDate, fmtKg, todayYmd } from '../../../utils/orderCalculations';
 import { CellText, CellNumber, CellDate, CellCheck, CellAction } from './SheetCells';
@@ -111,7 +111,11 @@ const DEFAULT_HIDDEN = ['yarn_processing', 'finishing', 'physical_test'];
 const loadHiddenCols = () => {
   try {
     const raw = localStorage.getItem(LS_HIDDEN_COLS);
-    if (raw === null) return DEFAULT_HIDDEN;
+    if (raw === null) {
+      // 처음 쓰는 PC — 기본값에 원사가 이미 보이므로 '한 번 보이게'는 끝난 것으로 (나중에 숨긴 원사를 다시 펴지 않게)
+      localStorage.setItem(LS_YARN_SHOWN, '1');
+      return DEFAULT_HIDDEN;
+    }
     const arr = JSON.parse(raw);
     let list = Array.isArray(arr) ? arr.filter(k => typeof k === 'string') : DEFAULT_HIDDEN;
     if (!localStorage.getItem(LS_YARN_SHOWN)) {
@@ -603,10 +607,7 @@ const YarnCell = ({ order, span, bg, ctx }) => {
               재고 사용
             </div>
           ) : shown.map(row => {
-            const status = getYarnOrderStatus(row);
-            const statusDate = getYarnOrderStatusDate(row);
-            const late = !!row.expectedDate && (status === 'waiting' || status === 'ordered') && order.status !== 'completed' && row.expectedDate < today;
-            const stopped = status === 'stopped';
+            const { status, statusDate, late, stopped, arrived } = getYarnRowInfo(order, row, today);
             return (
               <div key={row.id} className={`flex items-center gap-1 min-w-0 ${stopped ? 'opacity-60' : ''}`}>
                 <span
@@ -622,7 +623,7 @@ const YarnCell = ({ order, span, bg, ctx }) => {
                   tabIndex={-1}
                   title={`${row.name || '사종'} 상태 (바꾸면 오늘 날짜로 기록)`}
                 />
-                {status === 'arrived' || stopped ? (
+                {arrived || stopped ? (
                   statusDate ? <span className="shrink-0 font-mono text-[9px] opacity-70">{shortDate(statusDate)}</span> : null
                 ) : row.expectedDate ? (
                   <span
@@ -1116,7 +1117,7 @@ export const ProductionSheet = ({
   customSteps = [],         // 추가 공정 설정 [{ key, label, after, vendorLabel }]
   onSaveCustomSteps,        // 추가 공정 저장 (list) => Promise<boolean> — 없으면 [공정 추가] 버튼 숨김
   yieldSpecOf,              // (order) => 예상 YD 환산 원단 스펙 { gsm, widthFull, source } | null (OrderListPage)
-  yarnHelpers = null,       // 원사 창 { nameOptions, vendorOptions, dyeVendorOptions, sourceOf(order) } (OrderListPage)
+  yarnHelpers = null,       // 원사 창 { popoverProps(order) — 제안 목록 · 원단 원사 } (OrderListPage)
 }) => {
   const scrollRef = useRef(null);
   const stepDefs = useMemo(() => stepDefsProp || getStepDefs(customSteps), [stepDefsProp, customSteps]);
@@ -1166,6 +1167,7 @@ export const ProductionSheet = ({
     setHiddenCols(next);
     try {
       localStorage.setItem(LS_HIDDEN_COLS, JSON.stringify(next));
+      localStorage.setItem(LS_YARN_SHOWN, '1'); // 대표님이 고른 숨김은 그대로 (원사 '한 번 보이게'가 다시 안 일어나게)
     } catch { /* 저장 못 해도 화면은 그대로 동작 */ }
   };
   const toggleCol = (key) => saveHiddenCols(
@@ -1557,10 +1559,7 @@ export const ProductionSheet = ({
           onClose={closePopover}
           onSaveYarn={patch => actions.setYarn(popOrder.id, patch)}
           onSaveYarnDyeing={patch => actions.setStep(popOrder.id, YARN_DYEING_KEY, patch)}
-          vendorOptions={yarnHelpers?.vendorOptions || []}
-          dyeVendorOptions={yarnHelpers?.dyeVendorOptions || []}
-          yarnNameOptions={yarnHelpers?.nameOptions || []}
-          {...(yarnHelpers?.sourceOf?.(popOrder) || {})}
+          {...(yarnHelpers?.popoverProps?.(popOrder) || {})}
         />
       )}
       {stepManagerRect && onSaveCustomSteps && (

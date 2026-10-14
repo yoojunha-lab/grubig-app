@@ -8,7 +8,7 @@ import {
   YARN_ORDER_STATUSES, PROGRESS_STATUS_OPTIONS, YARN_DYEING_KEY, normalizeStatus, getDyeMethodMeta,
 } from '../../../constants/production';
 import {
-  createYarnOrder, createStatusEvent, getYarnOrderStatus, getYarnOrderStatusDate, isStepUsed, canUseYarnDyeing, getEndShift,
+  createYarnOrder, createStatusEvent, getYarnOrderStatus, getYarnRowInfo, isStepUsed, canUseYarnDyeing, getEndShift,
 } from '../../../utils/orderModel';
 import { shortDate, todayYmd } from '../../../utils/orderCalculations';
 
@@ -84,6 +84,7 @@ export const YarnPopover = ({
 
   const today = todayYmd();
   const initialIds = new Set(initial.rows.map(r => r.id));
+  const initialEventIds = new Set(initial.rows.flatMap(r => (r.events || []).map(e => e.id)));
 
   // ---------- 바뀐 것 ----------
   // 새로 넣고 비워 둔 줄은 저장 안 함 (예전부터 있던 줄은 비워도 그대로 — 지우려면 🗑)
@@ -119,9 +120,15 @@ export const YarnPopover = ({
   };
   const updateRow = (id, patch) => editRows(list => list.map(r => (r.id === id ? { ...r, ...patch } : r)));
   // 상태를 고르면 그날 날짜로 기록 한 줄 (지금 상태와 같으면 그대로)
-  const setRowStatus = (id, status) => editRows(list => list.map(r => (
-    r.id !== id || getYarnOrderStatus(r) === status ? r : { ...r, events: [...(r.events || []), createStatusEvent(status)] }
-  )));
+  //  이 창에서 방금 고른 상태(아직 저장 전 기록)를 다시 바꾸면 그 줄을 바꿔 씀 — 고르다 마음을 바꿔도 기록이 쌓이지 않게
+  const setRowStatus = (id, status) => editRows(list => list.map(r => {
+    if (r.id !== id) return r;
+    let events = r.events || [];
+    const last = events[events.length - 1];
+    if (last && !initialEventIds.has(last.id)) events = events.slice(0, -1);
+    if (getYarnOrderStatus({ events }) === status) return { ...r, events };
+    return { ...r, events: [...events, createStatusEvent(status)] };
+  }));
   const addRow = () => editRows(list => [...list, toRow(createYarnOrder(''))]);
   const removeRow = (row) => {
     if ((row.events || []).length && !window.confirm(`'${row.name || '사종'}' 줄에 상태 기록이 있어요. 지울까요? (저장해야 지워져요)`)) return;
@@ -199,9 +206,12 @@ export const YarnPopover = ({
     ? `사종 ${rowsOut.length}개${YARN_ORDER_STATUSES.filter(s => counts[s.key]).map(s => ` · ${s.label} ${counts[s.key]}`).join('')}`
     : '사종 줄 없음';
 
+  const noNameCount = rowsOut.filter(r => !r.name).length;
+
   let footerMsg;
   if (dyeDateBad) footerMsg = <span className="font-bold text-red-600">원사염색 예상 종료일이 예상 시작일보다 빨라요.</span>;
   else if (notice) footerMsg = <span className="font-bold text-teal-700">{notice}</span>;
+  else if (noNameCount) footerMsg = <span className="font-bold text-amber-600">사종 이름이 빈 줄이 {noNameCount}개 있어요 (저장은 돼요 — 현황표에 '사종?'으로 보여요).</span>;
   else if (stock) footerMsg = <span className="font-bold text-emerald-700">재고 사용 — 원사 발주는 끝난 것으로 봐요.</span>;
   else footerMsg = <span className="text-slate-500">{summary}</span>;
 
@@ -291,9 +301,7 @@ export const YarnPopover = ({
                     </td>
                   </tr>
                 ) : rows.map((row, i) => {
-                  const status = getYarnOrderStatus(row);
-                  const statusDate = getYarnOrderStatusDate(row);
-                  const late = !!row.expectedDate && (status === 'waiting' || status === 'ordered') && row.expectedDate < today;
+                  const { status, statusDate, late } = getYarnRowInfo(order, row, today);
                   const trackOpen = trackOpenId === row.id;
                   return (
                     <React.Fragment key={row.id}>

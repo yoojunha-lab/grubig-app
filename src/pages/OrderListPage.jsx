@@ -185,13 +185,16 @@ export const OrderListPage = ({
 
   // ---------- 원사 창 (v11) — 제안 목록 + 오더 article# 원단의 원사 ----------
   //  원단: ① 연결된 원단 → ② 같은 Article 원단 → ③ 설계서(샘플 오더) 원사
+  //  popoverProps(order): 현황표 · 간트 · 상세창의 원사 창(YarnPopover)에 그대로 넘기는 제안 목록 + 원단 원사
+  const yarnSupplierMaster = masters?.yarnSuppliers;
+  const dyeFactoryMaster = masters?.dyeingFactories;
   const yarnHelpers = useMemo(() => {
     const all = [...(orders || []), ...(drafts || [])];
-    const nameOptions = [...new Set((yarnLibrary || []).map(y => String(y?.name || '').trim()).filter(Boolean))];
+    const yarnNameOptions = [...new Set((yarnLibrary || []).map(y => String(y?.name || '').trim()).filter(Boolean))];
     const vendorOptions = collectVendorOptions(
-      [...(masters?.yarnSuppliers || []), ...all.flatMap(o => (o.yarnOrders || []).map(y => y.vendor))],
+      [...(yarnSupplierMaster || []), ...all.flatMap(o => (o.yarnOrders || []).map(y => y.vendor))],
     );
-    const dyeVendorOptions = collectVendorOptions(masters?.dyeingFactories || [], all, o => o.steps?.[YARN_DYEING_KEY]?.vendor);
+    const dyeVendorOptions = collectVendorOptions(dyeFactoryMaster || [], all, o => o.steps?.[YARN_DYEING_KEY]?.vendor);
     const sourceOf = (order) => {
       if (!order) return { articleYarns: [], articleLabel: '' };
       const artKey = String(order.articleNo || '').replace(/\s+/g, '').toLowerCase();
@@ -204,8 +207,9 @@ export const OrderListPage = ({
         articleLabel: fabric ? String(fabric.article || '') : sheet ? (sheet.articleNo || sheet.devOrderNo || '설계서') : '',
       };
     };
-    return { nameOptions, vendorOptions, dyeVendorOptions, sourceOf };
-  }, [orders, drafts, yarnLibrary, masters, fabricById, fabricByArticle, sheetById]);
+    const popoverProps = (order) => ({ vendorOptions, dyeVendorOptions, yarnNameOptions, ...sourceOf(order) });
+    return { popoverProps };
+  }, [orders, drafts, yarnLibrary, yarnSupplierMaster, dyeFactoryMaster, fabricById, fabricByArticle, sheetById]);
 
   // 아이템화 — 설계서에 Article·최종 스펙·혼용률 100% 가 없으면 막히므로 먼저 확인하고 설계서를 열어 줌
   //  확인 창 한 번 (원단이 새로 등록되고 오더가 닫힘 — 아직 끝나지 않은 공정이 있으면 같이 알려 줌)
