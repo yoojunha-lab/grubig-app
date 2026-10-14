@@ -285,15 +285,21 @@
 |---|---|---|
 | **기타** (메뉴) | 원단·영업·개발·생산에 안 맞는 메뉴 묶음 (지금은 헹거 스티커 하나) | `Sidebar` `NAV_GROUPS` key `etc` |
 | **헹거 스티커** | TAG 엑셀 양식(대표님 TAG.xlsx 첫 시트) 그대로 뽑는 스티커 — 1장 = 시트 1장 | 탭 `hangerSticker`, Firestore `hangerStickers` |
-| **아이템** (헹거 스티커) | 원단 관리의 원단 — 고르면 ART · WIDTH · WEIGHT를 채움 | 스티커 `fabricId` |
-| **제목 (가운데 큰 글자)** | 양식의 'PERFORMANCE WOOL' 자리 (기본 PERFORMANCE WOOL) | `title` |
+| **아이템** (헹거 스티커) | 원단 관리의 원단 — **꼭 골라야 저장됨**. 고르면 ART(고칠 수 있음) · WIDTH · WEIGHT(고칠 수 없음) | 스티커 `fabricId` |
+| **WIDTH · WEIGHT** (헹거 스티커) | 늘 **지금 아이템 값** (🔒 잠긴 칸 — 원단 관리에서 고치면 따라감). WEIGHT g/yd = 원단 관리 **'실제 G/YD'** 그대로. 아이템이 지워지면 마지막 저장 값 | `stickerSpecOf` |
+| **CATEGORY** | 가운데 큰 글자 (예전 '제목' · 양식의 PERFORMANCE WOOL 자리) — 설정 목록에서 고르기 (PERFORMANCE WOOL · WOOL CASUAL …) | `title` |
+| **CARE** (헹거 스티커) | 설정 목록에서 체크 (MACHINE WASHABLE · DRY CLEAN · HAND WASH · TUMBLE DRY …) — 엑셀 칸에 한 줄에 하나씩, 2개까지 들어감 | `care` (배열) |
+| **설정** (헹거 스티커) | 헹거 스티커 화면 [⚙ 설정] / 입력 창 [목록 고치기] — CATEGORY · CARE 목록 추가·삭제 (회사 공통, 누르면 바로 저장) | `settings/general.hangerStickerOptions` |
+| **설정에 없음** | 설정에서 지운 CATEGORY·CARE를 쓰던 스티커 — 값은 그대로 남고 입력 창에 이렇게 표시 | 입력 창 |
+| **아이템 없음** | 스티커에 아이템이 없거나 연결된 아이템이 지워짐 (WIDTH·WEIGHT를 못 가져옴) | 목록 배지 |
 | **아래 설명** | 양식 맨 아래 작은 글씨 칸 (D14:F18) | `note` |
 | **QR 그림 올리기** | EZ-TEX QR 그림에서 주소를 읽어 넣기 (번호만 넣어도 됨 → `https://eztexerp.com/erp/qr/번호`) | `qr` (주소 글자로 저장) |
-| **아이템과 다름** | 아이템의 ART·폭·중량이 바뀌어 스티커 값과 다름 → 입력 창 [아이템 정보 다시 불러오기] | `stickerFabricDiffs` |
 | **엑셀 다운로드 · 엑셀 받기** | 체크한 스티커(목록) / 이 스티커(입력 창)를 양식 그대로 엑셀로. 여러 장 인쇄는 엑셀 '전체 통합 문서 인쇄' | `useHangerSticker.downloadStickers` |
 
 > ⚠️ 메뉴·화면 이름은 대표님 표현 그대로 **'헹거 스티커'** ('행거 스티커'·'택'·'라벨'로 바꿔 쓰지 말 것).
-> ⚠️ WEIGHT의 g/yd는 **5 단위로 내림** (기존 스티커 16장 규칙 — 238 → 235). 원가 화면의 G/YD(반올림)와 숫자가 다를 수 있음.
+> ⚠️ 스티커 큰 글자 칸은 **CATEGORY** (2차 요청 — '제목'이라고 쓰지 말 것). CARE 항목은 대표님 표현 그대로 (TUMBLE DRY — 'TUMBLE DRY LOW'로 바꾸지 말 것, 대표님 결정).
+> ⚠️ WEIGHT의 g/yd는 **원단 관리 '실제 G/YD' 그대로** (2차 요청 — 1차의 5 단위 내림 없앰). 생산 G/YD(원가용)는 스티커에 안 씀.
+> ⚠️ 1차의 **'아이템과 다름'** 표시·[아이템 정보 다시 불러오기]는 없앰 — WIDTH·WEIGHT가 늘 아이템 값이라 필요 없음.
 
 ---
 

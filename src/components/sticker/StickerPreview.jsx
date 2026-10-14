@@ -1,13 +1,12 @@
 import React, { useLayoutEffect, useMemo, useRef } from 'react';
 import { makeQrMatrix, qrSvgPath } from '../../utils/hangerStickerQr';
-import { STICKER_DEFAULT_TITLE } from '../../utils/hangerSticker';
 
 // ============================================================
 // 헹거 스티커 미리보기 — 엑셀 양식(TAG.xlsx 첫 시트, 인쇄 영역 D2:F18)의 칸 크기·글자 크기를 그대로 줄여 그림 (2026-10-14)
 //  · 칸 너비·줄 높이(pt)는 엑셀에서 잰 값: C 20.25 · D 54 · E 63.75 · F 72.75 · G 11.25 / 줄은 양식 그대로 (17.1 → 엑셀 17)
-//  · 글자: ART. 14pt 굵게 · ART 값 12pt 굵게 · 제목 18pt 굵게 · 이름표 10pt 굵게 · 값 10pt · 아래 설명 7.5pt
+//  · 글자: ART. 14pt 굵게 · ART 값 12pt 굵게 · CATEGORY 18pt 굵게 · 이름표 10pt 굵게 · 값 10pt · 아래 설명 7.5pt
 //  · '셀에 맞춤'(ART·TYPE·WIDTH·WEIGHT 값)은 글자를 줄이고, '자동 줄 바꿈'(CONTENT·CARE·아래 설명)은 줄을 바꿈
-//  · 제목은 한 줄 — 'PERFORMANCE WOOL'도 D~F보다 넓어서 엑셀에서 양옆 빈 칸(C·G열)까지 넘쳐 찍힘 (2026-10-14 엑셀 PDF로 확인)
+//  · CATEGORY는 한 줄 — 'PERFORMANCE WOOL'도 D~F보다 넓어서 엑셀에서 양옆 빈 칸(C·G열)까지 넘쳐 찍힘 (2026-10-14 엑셀 PDF로 확인)
 //    → 미리보기도 C~G 너비로 그리고, 'PERFORMANCE WOOL'보다 길면 '잘릴 수 있어요'
 //  · 엑셀(윈도 글꼴 그리기)은 브라우저보다 글자를 조금 넓게 그림 (10pt에서 글자당 약 0.27pt) → 값 칸에 글자 간격을 조금 줌
 //  · 칸보다 글이 길면(엑셀에서 잘릴 수 있음) 빨간 점선 — 브라우저로 그려서 엑셀과 조금 다를 수 있음
@@ -22,6 +21,7 @@ const FONT = "'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', 'Noto San
 const QR_BOX = { left: 5.25, top: 4.5, size: 62.4 }; // F열 왼쪽·2행 위에서
 const QR_PIC = { left: 6.75, top: 4.5, size: 60 };
 const QR_MARGIN = 2;
+const TITLE_REFERENCE = 'PERFORMANCE WOOL'; // 엑셀에서 양옆 빈 칸까지 꽉 차게 찍히는 길이 — 이보다 길면 잘림
 
 // col·row = 그리드 선 번호 [시작, 끝) — 열은 C가 1번(D=2 · E=3 · F=4 · G=5), 행은 2행이 1번
 const CELLS = [
@@ -41,8 +41,9 @@ const CELLS = [
   { key: 'note', field: 'note', col: [2, 5], row: [13, 18], pt: 7.5, fit: 'wrap' },
 ];
 
-export const StickerPreview = ({ sticker, scale = 1.4 }) => {
-  const s = sticker || {};
+// values = 엑셀 칸에 들어갈 글자 (utils/hangerSticker.stickerCellValues — WIDTH·WEIGHT는 아이템 값, CARE는 한 줄에 하나씩)
+export const StickerPreview = ({ values, scale = 1.4 }) => {
+  const s = values || {};
   const qrText = String(s.qr || '').trim();
   const matrix = useMemo(() => makeQrMatrix(qrText), [qrText]);
   const qrPath = useMemo(() => qrSvgPath(matrix, QR_MARGIN), [matrix]);
@@ -152,7 +153,7 @@ export const StickerPreview = ({ sticker, scale = 1.4 }) => {
               {cell.fit === 'title' && (
                 <span ref={titleRefRef} aria-hidden="true" className="absolute invisible whitespace-pre"
                   style={{ fontWeight: 700, fontSize: px(cell.pt), lineHeight: 1.25 }}>
-                  {STICKER_DEFAULT_TITLE}
+                  {TITLE_REFERENCE}
                 </span>
               )}
             </div>

@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Tag, Plus, Download, Search, Loader2, Printer, QrCode } from 'lucide-react';
+import { Tag, Plus, Download, Search, Loader2, Printer, QrCode, Settings2 } from 'lucide-react';
 import { StickerEditModal } from '../components/sticker/StickerEditModal';
-import { sortStickers, stickerMatches, stickerFabricDiffs, qrShortLabel } from '../utils/hangerSticker';
+import { StickerSettingsModal } from '../components/sticker/StickerSettingsModal';
+import { sortStickers, stickerMatches, stickerSpecOf, normalizeCare, qrShortLabel } from '../utils/hangerSticker';
 import { formatMonthDay } from '../utils/helpers';
 
 // ============================================================
 // 기타 ▾ 헹거 스티커 (대표님 요청 2026-10-14)
 //  · 저장된 스티커 목록 — 체크해서 [엑셀 다운로드] (TAG 엑셀 양식 그대로, 1장 = 시트 1장, ART 순서)
 //  · [+ 스티커 만들기] / 줄을 누르면 입력 창 (components/sticker/StickerEditModal — 오른쪽에 미리보기)
-//  · 아이템(원단 관리)의 폭·중량이 바뀌어 스티커와 다르면 '아이템과 다름' 표시
+//  · WIDTH·WEIGHT는 늘 지금 아이템 값 (원단 관리에서 고치면 따라감). 아이템이 없으면 '아이템 없음' + 마지막 저장 값
+//  · [⚙ 설정] — CATEGORY · CARE 목록 (components/sticker/StickerSettingsModal, settings/general.hangerStickerOptions)
 //  · 저장·삭제·엑셀 만들기는 hooks/domains/useHangerSticker.js (Firestore hangerStickers)
 // ============================================================
 
@@ -21,14 +23,14 @@ const Badge = ({ tone, title, children }) => {
   return <span title={title} className={`inline-flex items-center gap-0.5 text-[10px] font-extrabold px-1.5 py-0.5 rounded border whitespace-nowrap ${cls}`}>{children}</span>;
 };
 
-// 아이템 연결 상태 — 아이템 정보와 다른 칸 / 연결된 아이템이 없어짐
-const ItemBadges = ({ sticker, fabric }) => {
-  if (sticker.fabricId && !fabric) return <Badge tone="slate" title="연결된 아이템을 원단 관리에서 찾을 수 없어요 (지워졌을 수 있어요)">아이템 없음</Badge>;
-  const diffs = stickerFabricDiffs(sticker, fabric);
-  if (diffs.length === 0) return null;
+// 아이템 연결이 없거나 연결된 아이템이 없어짐 → WIDTH·WEIGHT를 아이템에서 못 가져옴
+const ItemBadge = ({ sticker, fabric }) => {
+  if (fabric) return null;
   return (
-    <Badge tone="amber" title={`아이템 정보와 달라요 — 스티커를 열어 [아이템 정보 다시 불러오기]\n${diffs.map(d => `${d.label}: 스티커 ${d.sticker || '(빈 칸)'} · 아이템 ${d.item}`).join('\n')}`}>
-      아이템과 다름
+    <Badge tone="slate" title={sticker.fabricId
+      ? '연결된 아이템을 원단 관리에서 찾을 수 없어요 (지워졌을 수 있어요) — WIDTH·WEIGHT는 마지막 저장 값'
+      : '아이템이 연결되지 않았어요 — 스티커를 열어 아이템을 골라 주세요'}>
+      아이템 없음
     </Badge>
   );
 };
@@ -37,19 +39,25 @@ const QrBadge = ({ qr }) => (String(qr || '').trim()
   ? <Badge tone="emerald" title={qr}><QrCode className="w-3 h-3" /> {qrShortLabel(qr).slice(0, 12)}</Badge>
   : <Badge tone="amber" title="QR이 없으면 엑셀에서 QR 자리를 비워요">QR 없음</Badge>);
 
+const Dash = () => <span className="text-slate-300">—</span>;
+
 export const HangerStickerPage = ({
   stickers = [],          // 저장된 스티커 (Firestore hangerStickers)
   savedFabrics = [],      // 아이템 (원단 관리)
   yarnLibrary = [],
+  stickerOptions,         // 설정 { categories, careItems }
+  onSaveStickerOptions,   // (key, list) => 성공 true
   saveSticker, deleteSticker, downloadStickers,
 }) => {
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [editor, setEditor] = useState(null);      // 열려 있는 입력 창 { id: 스티커 id | null(새로), key }
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const headCheckRef = useRef(null);
 
   const fabricById = useMemo(() => new Map((savedFabrics || []).map(f => [String(f.id), f])), [savedFabrics]);
+  const fabricOf = (s) => (s.fabricId ? fabricById.get(String(s.fabricId)) || null : null);
   const rows = useMemo(() => sortStickers(stickers).filter(s => stickerMatches(s, search)), [stickers, search]);
   // 고른 스티커 (다른 PC에서 지운 스티커는 저절로 빠짐)
   const selected = useMemo(() => stickers.filter(s => selectedIds.has(s.id)), [stickers, selectedIds]);
@@ -94,9 +102,13 @@ export const HangerStickerPage = ({
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <Tag className="w-6 h-6 text-amber-600" /> 헹거 스티커
           </h2>
-          <p className="text-[11px] text-slate-500 mt-0.5">아이템을 고르면 ART · WIDTH · WEIGHT가 채워져요. 체크한 스티커를 TAG 엑셀 양식 그대로 받아요 (스티커 1장 = 시트 1장).</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">아이템을 고르면 ART · WIDTH · WEIGHT가 채워져요 (WIDTH·WEIGHT는 아이템 값 그대로). 체크한 스티커를 TAG 엑셀 양식 그대로 받아요 (스티커 1장 = 시트 1장).</p>
         </div>
         <div className="flex gap-2 w-full sm:w-auto">
+          <button type="button" onClick={() => setSettingsOpen(true)} title="CATEGORY · CARE 목록"
+            className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50 flex items-center justify-center gap-1.5 text-sm font-bold">
+            <Settings2 className="w-4 h-4" /> <span className="hidden sm:inline">설정</span>
+          </button>
           <button type="button" onClick={() => openEditor(null)}
             className="flex-1 sm:flex-none bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded-lg hover:bg-amber-50 hover:border-amber-300 flex items-center justify-center gap-1.5 text-sm font-bold">
             <Plus className="w-4 h-4" /> 스티커 만들기
@@ -113,7 +125,7 @@ export const HangerStickerPage = ({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="ART · CONTENT · TYPE · QR 번호 검색"
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="ART · CATEGORY · CONTENT · TYPE · QR 번호 검색"
             className="w-full bg-white border border-slate-200 rounded-lg pl-8 pr-2 py-1.5 text-sm outline-none focus:ring-2 ring-amber-200" />
         </div>
         <span className="text-xs text-slate-500">전체 {stickers.length}장{search.trim() ? ` · 찾은 ${rows.length}장` : ''}</span>
@@ -149,7 +161,7 @@ export const HangerStickerPage = ({
                         title="보이는 스티커 모두 고르기" className="w-4 h-4 accent-amber-600 cursor-pointer align-middle" />
                     </th>
                     <th className="text-left font-bold px-2 py-2">ART.</th>
-                    <th className="text-left font-bold px-2 py-2">제목</th>
+                    <th className="text-left font-bold px-2 py-2">CATEGORY</th>
                     <th className="text-left font-bold px-2 py-2">CONTENT</th>
                     <th className="text-left font-bold px-2 py-2">TYPE</th>
                     <th className="text-left font-bold px-2 py-2">WIDTH</th>
@@ -163,6 +175,9 @@ export const HangerStickerPage = ({
                 <tbody className="divide-y divide-slate-100">
                   {rows.map(s => {
                     const checked = selectedIds.has(s.id);
+                    const fabric = fabricOf(s);
+                    const spec = stickerSpecOf(s, fabric);
+                    const care = normalizeCare(s.care);
                     return (
                       <tr key={s.id} onClick={() => openEditor(s.id)}
                         className={`cursor-pointer transition-colors ${checked ? 'bg-amber-50/70' : 'hover:bg-slate-50'}`}>
@@ -174,17 +189,17 @@ export const HangerStickerPage = ({
                         <td className="px-2 py-2">
                           <div className="flex items-center gap-1.5">
                             <span className="font-extrabold text-slate-800">{s.art || '(ART 없음)'}</span>
-                            <ItemBadges sticker={s} fabric={s.fabricId ? fabricById.get(String(s.fabricId)) : null} />
+                            <ItemBadge sticker={s} fabric={fabric} />
                           </div>
                         </td>
-                        <td className="px-2 py-2 text-xs text-slate-600 max-w-[140px] truncate" title={s.title}>{s.title || '—'}</td>
-                        <td className="px-2 py-2 text-xs text-slate-700 max-w-[240px] truncate" title={s.content}>{s.content || <span className="text-slate-300">—</span>}</td>
-                        <td className="px-2 py-2 text-xs text-slate-700 whitespace-nowrap">{s.type || <span className="text-slate-300">—</span>}</td>
-                        <td className="px-2 py-2 text-xs font-mono text-slate-700 whitespace-nowrap">{s.width || <span className="text-slate-300">—</span>}</td>
-                        <td className="px-2 py-2 text-xs text-slate-700 whitespace-nowrap">{s.weight || <span className="text-slate-300">—</span>}</td>
-                        <td className="px-2 py-2 text-xs text-slate-600 whitespace-nowrap">{s.care || <span className="text-slate-300">—</span>}</td>
+                        <td className="px-2 py-2 text-xs text-slate-600 max-w-[140px] truncate" title={s.title}>{s.title || <Dash />}</td>
+                        <td className="px-2 py-2 text-xs text-slate-700 max-w-[240px] truncate" title={s.content}>{s.content || <Dash />}</td>
+                        <td className="px-2 py-2 text-xs text-slate-700 whitespace-nowrap">{s.type || <Dash />}</td>
+                        <td className="px-2 py-2 text-xs font-mono text-slate-700 whitespace-nowrap">{spec.width || <Dash />}</td>
+                        <td className="px-2 py-2 text-xs text-slate-700 whitespace-nowrap">{spec.weight || <Dash />}</td>
+                        <td className="px-2 py-2 text-xs text-slate-600 max-w-[200px] truncate" title={care.join('\n')}>{care.length ? care.join(' · ') : <Dash />}</td>
                         <td className="px-2 py-2"><QrBadge qr={s.qr} /></td>
-                        <td className="px-2 py-2 text-[11px] text-slate-500 max-w-[200px] truncate" title={s.note}>{s.note || <span className="text-slate-300">—</span>}</td>
+                        <td className="px-2 py-2 text-[11px] text-slate-500 max-w-[200px] truncate" title={s.note}>{s.note || <Dash />}</td>
                         <td className="px-2 py-2 text-[10px] text-slate-400 text-right whitespace-nowrap">
                           {formatMonthDay(s.updatedAt)}{s.updatedBy ? ` · ${s.updatedBy}` : ''}
                         </td>
@@ -202,6 +217,8 @@ export const HangerStickerPage = ({
               </label>
               {rows.map(s => {
                 const checked = selectedIds.has(s.id);
+                const fabric = fabricOf(s);
+                const spec = stickerSpecOf(s, fabric);
                 return (
                   <div key={s.id} onClick={() => openEditor(s.id)} className={`flex gap-3 px-3 py-2.5 cursor-pointer ${checked ? 'bg-amber-50/70' : ''}`}>
                     <label className="pt-0.5" onClick={e => e.stopPropagation()}>
@@ -210,11 +227,12 @@ export const HangerStickerPage = ({
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="font-extrabold text-slate-800">{s.art || '(ART 없음)'}</span>
-                        <ItemBadges sticker={s} fabric={s.fabricId ? fabricById.get(String(s.fabricId)) : null} />
+                        <ItemBadge sticker={s} fabric={fabric} />
                         <QrBadge qr={s.qr} />
                       </div>
+                      <p className="text-[11px] font-bold text-slate-500 mt-0.5">{s.title || '—'}</p>
                       <p className="text-xs text-slate-600 truncate mt-0.5">{s.content || '—'}</p>
-                      <p className="text-[11px] text-slate-500 mt-0.5">{[s.type, s.width, s.weight].filter(Boolean).join(' · ') || '—'}</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">{[s.type, spec.width, spec.weight].filter(Boolean).join(' · ') || '—'}</p>
                     </div>
                   </div>
                 );
@@ -230,7 +248,7 @@ export const HangerStickerPage = ({
       </p>
     </div>
 
-    {/* 입력 창 — 화면 칸(space-y) 밖에 (팝업 규약) */}
+    {/* 입력 창 · 설정 창 — 화면 칸(space-y) 밖에 (팝업 규약). 설정 창은 입력 창 위에도 뜸 */}
     {editor && (
       <StickerEditModal
         key={editor.key}
@@ -238,11 +256,21 @@ export const HangerStickerPage = ({
         stickers={stickers}
         savedFabrics={savedFabrics}
         yarnLibrary={yarnLibrary}
+        options={stickerOptions}
         onSave={saveSticker}
         onDelete={handleDelete}
         onDownload={(sticker) => downloadStickers([sticker])}
         onOpenSticker={(id) => openEditor(id)}
+        onOpenSettings={() => setSettingsOpen(true)}
         onClose={closeEditor}
+      />
+    )}
+    {settingsOpen && (
+      <StickerSettingsModal
+        options={stickerOptions}
+        stickers={stickers}
+        onSave={onSaveStickerOptions}
+        onClose={() => setSettingsOpen(false)}
       />
     )}
     </>

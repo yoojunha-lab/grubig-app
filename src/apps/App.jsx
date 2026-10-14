@@ -36,6 +36,7 @@ import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
 import { DEFAULT_EXCHANGE_RATE, rateLabel } from '../utils/helpers';
 import { resolveCostSettings } from '../utils/costModel';
 import { getOpenWork } from '../utils/orderModel';
+import { resolveStickerOptions } from '../utils/hangerSticker';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
 import { Toast } from '../components/common/Toast';
@@ -139,6 +140,10 @@ const App = () => {
   const [selectedLabdipForPrint, setSelectedLabdipForPrint] = useState(null);
   const [yarnDyeCalcs, setYarnDyeCalcs] = useState([]); // 생산 ▾ 계산기 — 저장된 선염 계산 (yarnDyeCalcs)
   const [hangerStickers, setHangerStickers] = useState([]); // 기타 ▾ 헹거 스티커 (hangerStickers)
+  // 헹거 스티커 설정 — CATEGORY · CARE 목록 (settings/general.hangerStickerOptions, null = 아직 저장 전 → 기본 목록)
+  const [hangerStickerOptionsRaw, setHangerStickerOptionsRaw] = useState(null);
+  const hangerStickerOptions = useMemo(() => resolveStickerOptions(hangerStickerOptionsRaw), [hangerStickerOptionsRaw]);
+  const stickerOptionsRef = useRef(null); // 이어서 저장할 때 최신 설정에 얹기 (화면 state는 다음 그리기까지 옛 값)
   const [partners, setPartners] = useState([]);
   const [partnersLoaded, setPartnersLoaded] = useState(false); // partners 스냅샷 최초 도착 여부 (seed 경쟁 조건 방지)
 
@@ -237,6 +242,12 @@ const App = () => {
         // 생산 현황 추가 공정 — 내용이 같으면 그대로 둠 (다른 설정 칸이 바뀔 때마다 현황표·간트를 다시 계산하지 않게)
         setProductionSteps(prev => {
           const next = normalizeCustomSteps(d.productionSteps);
+          return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+        });
+        // 헹거 스티커 CATEGORY · CARE 목록 — 내용이 같으면 그대로 둠
+        stickerOptionsRef.current = d.hangerStickerOptions || null;
+        setHangerStickerOptionsRaw(prev => {
+          const next = d.hangerStickerOptions || null;
           return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
         });
         // 원가 설정 — 내용이 같으면 그대로 둠 (바이어 추가 등 다른 칸이 바뀔 때마다 새 객체가 되어
@@ -633,7 +644,7 @@ const App = () => {
 
   // ⚓️ 기타 ▾ 헹거 스티커 — 저장·삭제·엑셀 다운로드 (TAG 엑셀 양식 그대로)
   const { saveSticker, deleteSticker, downloadStickers } =
-    useHangerSticker(hangerStickers, saveDocToCloud, deleteDocFromCloud, showToast, user);
+    useHangerSticker(hangerStickers, savedFabrics, hangerStickerOptions, saveDocToCloud, deleteDocFromCloud, showToast, user);
 
   // ⚓️ 거래처(Partner) 훅 — 모든 거래처 선택/등록 공통
   const { makeEmptyPartner, savePartner, deletePartner } =
@@ -715,6 +726,29 @@ const App = () => {
       setProductionSteps(prev);
       setSyncStatus('error');
       showToast(`공정 저장 실패: ${e?.message || '네트워크 오류'}`, 'error');
+      return false;
+    }
+  };
+
+  // 헹거 스티커 설정 저장 — CATEGORY · CARE 목록 중 하나(key)를 통째로 바꿈 (settings/general.hangerStickerOptions, 2026-10-14)
+  //  최신 설정(ref)에 얹어서 저장 → 두 목록을 이어서 바꿔도 앞의 것이 덮이지 않음. DEV 우회 시 로컬만
+  //  반환: 성공 true / 실패 false (실패하면 화면도 이전 목록으로 되돌림)
+  const saveHangerStickerOptions = async (key, list) => {
+    const prevRaw = stickerOptionsRef.current;
+    const next = resolveStickerOptions({ ...resolveStickerOptions(prevRaw), [key]: list });
+    stickerOptionsRef.current = next;
+    setHangerStickerOptionsRaw(next); // 낙관적 반영
+    if (DEV_BYPASS) { setSyncStatus('saved'); return true; }
+    setSyncStatus('syncing');
+    try {
+      await setDoc(doc(db, 'settings', 'general'), { hangerStickerOptions: next }, { merge: true });
+      setSyncStatus('saved');
+      return true;
+    } catch (e) {
+      stickerOptionsRef.current = prevRaw;
+      setHangerStickerOptionsRaw(prevRaw);
+      setSyncStatus('error');
+      showToast(`헹거 스티커 설정 저장 실패: ${e?.message || '네트워크 오류'}`, 'error');
       return false;
     }
   };
@@ -1474,6 +1508,8 @@ const App = () => {
             stickers={hangerStickers}
             savedFabrics={savedFabrics}
             yarnLibrary={yarnLibrary}
+            stickerOptions={hangerStickerOptions}
+            onSaveStickerOptions={saveHangerStickerOptions}
             saveSticker={saveSticker}
             deleteSticker={deleteSticker}
             downloadStickers={downloadStickers}

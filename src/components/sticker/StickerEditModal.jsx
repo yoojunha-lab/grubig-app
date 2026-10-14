@@ -1,20 +1,21 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { X, Save, Trash2, Download, Upload, RefreshCw, AlertTriangle, ExternalLink, Tag, Loader2 } from 'lucide-react';
+import { X, Save, Trash2, Download, Upload, AlertTriangle, ExternalLink, Tag, Loader2, Lock, Settings2 } from 'lucide-react';
 import { ModalBackdrop } from '../common/ModalBackdrop';
 import { UnsavedChangesDialog } from '../common/UnsavedChangesDialog';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { useUnsavedGuard } from '../../hooks/useUnsavedGuard';
 import { StickerPreview } from './StickerPreview';
 import {
-  makeBlankSticker, normalizeSticker, stickerFieldsFromFabric, stickerFabricDiffs, fabricYarnHint,
-  normalizeQrInput, eztexQrNumber, STICKER_TYPE_SUGGESTIONS, STICKER_DEFAULT_TITLE, STICKER_DEFAULT_CARE,
+  makeBlankSticker, normalizeSticker, stickerFieldsFromFabric, stickerSpecOf, stickerArtDiffers, stickerCellValues,
+  fabricYarnHint, normalizeQrInput, eztexQrNumber, normalizeCare, orderCare, STICKER_TYPE_SUGGESTIONS, STICKER_CARE_MAX_LINES,
 } from '../../utils/hangerSticker';
 import { readQrFromImage } from '../../utils/hangerStickerQr';
 
 // ============================================================
 // 헹거 스티커 입력 창 (기타 ▾ 헹거 스티커 — 대표님 요청 2026-10-14)
-//  · 아이템(원단 관리)을 고르면 ART · WIDTH · WEIGHT를 채움 (고칠 수 있음, [아이템 정보 다시 불러오기])
-//  · 직접 넣는 칸: 제목(큰 글자) · CONTENT · TYPE · CARE · QR · 아래 설명 — 오른쪽에 스티커 미리보기
+//  · 아이템(원단 관리) 필수 — 고르면 ART(고칠 수 있음) · WIDTH · WEIGHT(고칠 수 없음, 지금 아이템 값)
+//  · CATEGORY(가운데 큰 글자)는 고르기 · CARE는 체크(여러 개, 엑셀 칸에 한 줄에 하나씩) — 목록은 [⚙ 목록 고치기]
+//  · 직접 넣는 칸: CONTENT · TYPE · QR · 아래 설명 — 오른쪽에 스티커 미리보기
 //  · QR: EZ-TEX QR 그림을 올리면(파일·끌어 놓기·붙여 넣기) 안의 주소를 읽어서 넣음. 번호만 넣어도 됨
 //  · 저장 안 한 변경이 있으면 닫기 전에 '저장할까요?' (팝업 창 규약 — 새 스티커는 빈 양식 기준)
 // ============================================================
@@ -23,19 +24,33 @@ const inputCls = 'w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1
 const labelCls = 'block text-[11px] font-bold text-slate-500 mb-0.5';
 const ItemBadge = () => <span className="ml-1 text-[9px] font-extrabold px-1 py-px rounded bg-blue-50 text-blue-600 border border-blue-200">아이템</span>;
 
+// 아이템 값만 보이는 잠긴 칸 (WIDTH · WEIGHT)
+const LockedField = ({ label, sub, value, placeholder }) => (
+  <div>
+    <label className={labelCls}>{label}<ItemBadge /> {sub && <span className="font-medium text-slate-400">{sub}</span>}</label>
+    <div className={`w-full rounded-lg px-2.5 py-1.5 text-sm border flex items-center gap-1.5 ${value ? 'bg-slate-100 border-slate-200 text-slate-800 font-bold' : 'bg-slate-50 border-dashed border-slate-300 text-slate-400'}`}
+      title="아이템(원단 관리) 값 그대로 — 여기서는 고칠 수 없어요">
+      <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+      <span className="truncate">{value || placeholder}</span>
+    </div>
+  </div>
+);
+
 export const StickerEditModal = ({
   stickerId = null,      // 고치는 스티커 id (새 스티커면 null)
   stickers = [],         // 저장된 스티커 전체 (같은 아이템 알림 · 입력 추천)
   savedFabrics = [],
   yarnLibrary = [],
+  options,               // 설정 { categories, careItems } (resolveStickerOptions)
   onSave,                // (form, id) => 저장한 문서 | null
   onDelete,              // (id) => 지웠으면 true
   onDownload,            // (sticker) => 받았으면 true
   onOpenSticker,         // (id) => 다른 스티커 열기 (같은 아이템 스티커)
+  onOpenSettings,        // CATEGORY · CARE 목록 고치기 (설정 창을 이 창 위에)
   onClose,
 }) => {
   const savedDoc = stickerId ? stickers.find(s => s.id === stickerId) || null : null;
-  const [baseline] = useState(() => (savedDoc ? normalizeSticker(savedDoc) : makeBlankSticker()));
+  const [baseline] = useState(() => (savedDoc ? normalizeSticker(savedDoc, options) : makeBlankSticker(options)));
   const [form, setForm] = useState(baseline);
   const [pending, setPending] = useState(null);   // '저장할까요?' 뒤에 할 일
   const [busy, setBusy] = useState(false);
@@ -53,28 +68,31 @@ export const StickerEditModal = ({
     .sort((a, b) => String(a.article).localeCompare(String(b.article), undefined, { numeric: true }))
     .map(f => ({ id: String(f.id), name: `${f.article}${f.itemName ? ` · ${f.itemName}` : ''}` })), [savedFabrics]);
   const fabric = form.fabricId ? (savedFabrics || []).find(f => String(f.id) === String(form.fabricId)) || null : null;
-  const diffs = stickerFabricDiffs(form, fabric);
+  const spec = stickerSpecOf(form, fabric);
   const yarnHint = fabric ? fabricYarnHint(fabric, yarnLibrary) : '';
   const sameItem = form.fabricId
     ? stickers.filter(s => s.id !== stickerId && String(s.fabricId || '') === String(form.fabricId))
     : [];
-  const fromFabric = fabric ? stickerFieldsFromFabric(fabric) : null;
-  const fabricMissingData = fromFabric ? [!fromFabric.width && '폭', !fromFabric.weight && '중량(gsm)'].filter(Boolean) : [];
 
-  // 아이템을 고르면 ART · WIDTH · WEIGHT를 그 아이템 값으로 / 칸을 비우면 연결만 풂 (값은 그대로)
+  // 아이템을 고르면 ART · WIDTH · WEIGHT를 그 아이템 값으로 / 칸을 비우면 연결과 WIDTH·WEIGHT를 비움 (ART는 그대로)
   const applyFabric = (fabricId) => {
     const f = (savedFabrics || []).find(x => String(x.id) === String(fabricId)) || null;
-    if (!f) { patch({ fabricId: '' }); return; }
+    if (!f) { patch({ fabricId: '', width: '', weight: '' }); return; }
     patch(stickerFieldsFromFabric(f));
   };
-  const reloadFromFabric = () => { if (fabric) patch(stickerFieldsFromFabric(fabric)); };
 
-  // ── 입력 추천 (저장된 스티커에 쓴 값 + 양식에 있던 값) ──
-  const suggest = (key, extra = []) => [...new Set([...extra, ...stickers.map(s => String(s[key] || '').trim())].filter(Boolean))]
+  // ── CATEGORY · CARE (설정 목록) ──
+  const categories = options?.categories || [];
+  const careItems = options?.careItems || [];
+  const pickedCare = normalizeCare(form.care);
+  const careChoices = [...careItems, ...pickedCare.filter(c => !careItems.includes(c))]; // 설정에서 지운 예전 값도 보이게
+  const toggleCare = (item) => patch({
+    care: orderCare(pickedCare.includes(item) ? pickedCare.filter(c => c !== item) : [...pickedCare, item], careItems),
+  });
+
+  // ── 입력 추천 (TYPE — 저장된 스티커에 쓴 값 + 양식에 있던 값) ──
+  const typeList = [...new Set([...STICKER_TYPE_SUGGESTIONS, ...stickers.map(s => String(s.type || '').trim())].filter(Boolean))]
     .sort((a, b) => a.localeCompare(b));
-  const titleList = suggest('title', [STICKER_DEFAULT_TITLE]);
-  const typeList = suggest('type', STICKER_TYPE_SUGGESTIONS);
-  const careList = suggest('care', [STICKER_DEFAULT_CARE]);
 
   // ── QR ──
   const qrNumber = eztexQrNumber(form.qr);
@@ -146,6 +164,13 @@ export const StickerEditModal = ({
 
   // 화면 표시용 (머리 '● 저장 안 한 변경' · 엑셀 버튼 이름) — 닫을 때 묻는 건 useUnsavedGuard(isDirty)
   const dirtyNow = JSON.stringify(form) !== JSON.stringify(baseline);
+  const specNote = !form.fabricId
+    ? '아이템을 고르면 채워져요.'
+    : !fabric
+      ? '연결된 아이템을 원단 관리에서 찾을 수 없어서 마지막으로 저장한 값을 써요.'
+      : (!spec.width || !spec.weight)
+        ? `이 아이템에는 ${[!spec.width && '폭', !spec.weight && '중량(gsm)'].filter(Boolean).join('·')} 정보가 없어요 — 원단 관리에서 넣어 주세요.`
+        : '아이템 값 그대로예요. 바꾸려면 원단 관리에서 고쳐 주세요 (스티커도 따라 바뀌어요).';
 
   return (
     <>
@@ -173,30 +198,11 @@ export const StickerEditModal = ({
             <div className="flex flex-col lg:flex-row gap-5 items-start">
               <div className="flex-1 min-w-0 w-full space-y-3">
                 {/* 아이템 */}
-                <section className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <label className="text-[11px] font-bold text-slate-500">아이템 <span className="font-medium text-slate-400">(원단 관리 — 고르면 ART · WIDTH · WEIGHT)</span></label>
-                    {fabric && (
-                      <button type="button" onClick={reloadFromFabric} className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 shrink-0">
-                        <RefreshCw className="w-3 h-3" /> 아이템 정보 다시 불러오기
-                      </button>
-                    )}
-                  </div>
+                <section className={`border rounded-xl p-3 ${form.fabricId ? 'bg-slate-50 border-slate-200' : 'bg-amber-50/60 border-amber-200'}`}>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                    아이템 <span className="text-red-500">*</span> <span className="font-medium text-slate-400">(원단 관리 — 꼭 골라 주세요. 고르면 ART · WIDTH · WEIGHT)</span>
+                  </label>
                   <SearchableSelect value={form.fabricId} options={fabricOptions} onChange={applyFabric} placeholder="Article·원단명으로 검색" />
-                  {form.fabricId && !fabric && (
-                    <p className="text-[11px] text-slate-500 mt-1.5">연결된 아이템을 원단 관리에서 찾을 수 없어요 (지워졌을 수 있어요). 칸 값은 그대로 써요.</p>
-                  )}
-                  {fabricMissingData.length > 0 && (
-                    <p className="text-[11px] text-amber-700 mt-1.5">이 아이템에는 {fabricMissingData.join('·')} 정보가 없어요 — 칸에 직접 넣어 주세요.</p>
-                  )}
-                  {diffs.length > 0 && (
-                    <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 text-[11px] text-amber-800">
-                      <div className="font-extrabold flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> 아이템 정보와 달라요</div>
-                      <ul className="mt-0.5 space-y-0.5">
-                        {diffs.map(d => <li key={d.key}><b>{d.label}</b> 스티커 {d.sticker || '(빈 칸)'} · 아이템 {d.item}</li>)}
-                      </ul>
-                    </div>
-                  )}
                   {sameItem.length > 0 && (
                     <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1.5 text-[11px] text-blue-800 flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span>이 아이템 스티커가 이미 있어요:</span>
@@ -213,35 +219,69 @@ export const StickerEditModal = ({
                 {/* 스티커 칸 */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className={labelCls}>ART.<ItemBadge /></label>
+                    <label className={labelCls}>ART.<ItemBadge /> <span className="font-medium text-slate-400">(고칠 수 있음)</span></label>
                     <input type="text" value={form.art} onChange={e => patch({ art: e.target.value.toUpperCase() })} placeholder="예: PW1001" className={`${inputCls} font-bold uppercase`} />
+                    {stickerArtDiffers(form, fabric) && (
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        아이템 Article은 <b>{String(fabric.article || '').toUpperCase()}</b>
+                        <button type="button" onClick={() => patch({ art: String(fabric.article || '').trim().toUpperCase() })}
+                          className="ml-1.5 font-bold text-blue-600 hover:text-blue-800 underline underline-offset-2">아이템 Article로</button>
+                      </p>
+                    )}
                   </div>
                   <div>
-                    <label className={labelCls}>제목 <span className="font-medium text-slate-400">(가운데 큰 글자)</span></label>
-                    <input type="text" list="hs-title-list" value={form.title} onChange={e => patch({ title: e.target.value })} placeholder={STICKER_DEFAULT_TITLE} className={`${inputCls} font-bold`} />
+                    <div className="flex items-center justify-between gap-2 mb-0.5">
+                      <label className="text-[11px] font-bold text-slate-500">CATEGORY <span className="font-medium text-slate-400">(가운데 큰 글자)</span></label>
+                      <button type="button" onClick={onOpenSettings} className="text-[10px] font-bold text-amber-700 hover:text-amber-900 flex items-center gap-0.5">
+                        <Settings2 className="w-3 h-3" /> 목록 고치기
+                      </button>
+                    </div>
+                    <select value={form.title} onChange={e => patch({ title: e.target.value })} className={`${inputCls} font-bold`}>
+                      {!form.title && <option value="">— 골라 주세요 —</option>}
+                      {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                      {form.title && !categories.includes(form.title) && <option value={form.title}>{form.title} (설정에 없음)</option>}
+                    </select>
                   </div>
                   <div className="sm:col-span-2">
                     <label className={labelCls}>CONTENT <span className="font-medium text-slate-400">(혼용률)</span></label>
                     <input type="text" value={form.content} onChange={e => patch({ content: e.target.value })} placeholder="예: 87%Merino Wool(17.5mic) 13%Nylon" className={inputCls} />
                     {yarnHint && <p className="text-[10px] text-slate-400 mt-0.5">아이템 원사 (참고): {yarnHint}</p>}
                   </div>
-                  <div>
+                  <div className="sm:col-span-2">
                     <label className={labelCls}>TYPE</label>
                     <input type="text" list="hs-type-list" value={form.type} onChange={e => patch({ type: e.target.value })} placeholder="예: SINGLE" className={inputCls} />
                   </div>
-                  <div>
-                    <label className={labelCls}>CARE</label>
-                    <input type="text" list="hs-care-list" value={form.care} onChange={e => patch({ care: e.target.value })} placeholder={STICKER_DEFAULT_CARE} className={inputCls} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>WIDTH<ItemBadge /> <span className="font-medium text-slate-400">(내폭/외폭)</span></label>
-                    <input type="text" value={form.width} onChange={e => patch({ width: e.target.value })} placeholder="예: 52.0/54.0" className={inputCls} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>WEIGHT<ItemBadge /> <span className="font-medium text-slate-400">(g/yd는 5 단위로 내림)</span></label>
-                    <input type="text" value={form.weight} onChange={e => patch({ weight: e.target.value })} placeholder="예: 150 g/㎡ 195 g/yd" className={inputCls} />
-                  </div>
+                  <LockedField label="WIDTH" sub="(내폭/외폭)" value={spec.width} placeholder={form.fabricId ? '아이템에 폭이 없어요' : '아이템을 고르면 채워져요'} />
+                  <LockedField label="WEIGHT" sub="(gsm · 실제 G/YD)" value={spec.weight} placeholder={form.fabricId ? '아이템에 gsm이 없어요' : '아이템을 고르면 채워져요'} />
+                  <p className={`sm:col-span-2 -mt-1.5 text-[10px] ${form.fabricId && fabric && spec.width && spec.weight ? 'text-slate-400' : 'text-amber-700 font-bold'}`}>{specNote}</p>
                 </div>
+
+                {/* CARE */}
+                <section className="border border-slate-200 rounded-xl p-3">
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <label className="text-[11px] font-bold text-slate-500">CARE <span className="font-medium text-slate-400">(체크한 것이 엑셀 칸에 한 줄에 하나씩 · {STICKER_CARE_MAX_LINES}개까지 들어가요)</span></label>
+                    <button type="button" onClick={onOpenSettings} className="text-[10px] font-bold text-amber-700 hover:text-amber-900 flex items-center gap-0.5 shrink-0">
+                      <Settings2 className="w-3 h-3" /> 목록 고치기
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {careChoices.map(item => {
+                      const on = pickedCare.includes(item);
+                      return (
+                        <label key={item} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-bold cursor-pointer select-none transition-colors ${on ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+                          <input type="checkbox" checked={on} onChange={() => toggleCare(item)} className="w-3.5 h-3.5 accent-amber-600" />
+                          {item}
+                          {!careItems.includes(item) && <span className="text-[9px] font-medium text-slate-400">(설정에 없음)</span>}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {pickedCare.length > STICKER_CARE_MAX_LINES && (
+                    <p className="text-[11px] font-bold text-amber-700 mt-1.5 flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5" /> CARE 칸은 {STICKER_CARE_MAX_LINES}줄이라 {pickedCare.length}개를 고르면 엑셀에서 잘릴 수 있어요.
+                    </p>
+                  )}
+                </section>
 
                 {/* QR */}
                 <section
@@ -276,7 +316,7 @@ export const StickerEditModal = ({
 
               {/* 미리보기 */}
               <div className="w-full lg:w-auto lg:sticky lg:top-0 flex justify-center shrink-0">
-                <StickerPreview sticker={form} />
+                <StickerPreview values={stickerCellValues(form, fabric)} />
               </div>
             </div>
           </div>
@@ -306,9 +346,7 @@ export const StickerEditModal = ({
         </div>
       </ModalBackdrop>
 
-      <datalist id="hs-title-list">{titleList.map(v => <option key={v} value={v} />)}</datalist>
       <datalist id="hs-type-list">{typeList.map(v => <option key={v} value={v} />)}</datalist>
-      <datalist id="hs-care-list">{careList.map(v => <option key={v} value={v} />)}</datalist>
 
       {/* 팝업은 창 밖에 (팝업 규약) */}
       <UnsavedChangesDialog
