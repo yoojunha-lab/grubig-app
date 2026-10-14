@@ -267,7 +267,7 @@ export const ProcessPopover = ({
     >
       {/* 가운데 모달(외주처 칸에 커서를 두지 않을 때)은 이 영역에 포커스(data-autofocus) → Enter 로 저장 */}
       <div className="p-3 space-y-3 outline-none" tabIndex={-1} data-autofocus onKeyDown={onKeyDown}>
-        {prefill && (
+        {prefill && isDirty && (
           <p className="px-2 py-1.5 rounded-lg border border-teal-200 bg-teal-50 text-[11px] font-bold text-teal-800 leading-snug">
             간트에서 고른 날짜({shortDate(prefill.startDate || prefill.endDate)})를 {prefill.startDate ? '예상 시작일' : '예상 종료일'}로 넣었어요 —
             [저장]하면 현황표에도 반영돼요.

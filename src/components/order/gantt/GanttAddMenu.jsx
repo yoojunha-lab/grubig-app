@@ -1,6 +1,6 @@
 import { Flag, Truck, PackageOpen, Droplets, BadgeCheck, ScanSearch, CalendarClock, ClipboardCheck } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
-import { PROCESS_THEME, PRESETTING_KEY, getStepMeta } from '../../../constants/production';
+import { PROCESS_THEME, withPresettingStep } from '../../../constants/production';
 import { isStepUsed, isPieceDyed, getClosingState } from '../../../utils/orderModel';
 
 // ============================================================
@@ -28,12 +28,7 @@ export const GanttAddMenu = ({ order, color = null, stepDefs = [], anchorRect, o
   const title = `${order.orderNumber || '새 오더'}${color ? ` · ${color.name || '컬러'}` : ''}`;
   const piece = isPieceDyed(order);
   // 프리세팅은 편직 다음 (공정 칸에서는 빠졌지만 간트에서는 오더 줄 막대 — 염가공 LOT 창과 같은 값)
-  const steps = [];
-  stepDefs.forEach(meta => {
-    steps.push(meta);
-    if (meta.key === 'knitting') steps.push({ ...getStepMeta(PRESETTING_KEY), preset: true });
-  });
-  if (!steps.some(s => s.key === PRESETTING_KEY)) steps.push({ ...getStepMeta(PRESETTING_KEY), preset: true });
+  const steps = withPresettingStep(stepDefs);
   const closing = getClosingState(order);
 
   return (
@@ -68,7 +63,7 @@ export const GanttAddMenu = ({ order, color = null, stepDefs = [], anchorRect, o
                   <span className={`w-2 h-2 rounded-full shrink-0 ${theme.dot} ${used ? '' : 'opacity-30'}`} />
                   <span className="flex-1 min-w-0 truncate">
                     {meta.label}
-                    {meta.preset && <span className="ml-1 text-[10px] font-normal text-slate-400">염색 전</span>}
+                    {meta.inLot && <span className="ml-1 text-[10px] font-normal text-slate-400">염색 전</span>}
                   </span>
                   <span className="text-[10px] font-normal text-slate-400">{used ? '수정' : '입력'}</span>
                 </button>

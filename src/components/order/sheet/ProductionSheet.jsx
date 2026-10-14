@@ -641,7 +641,11 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
         }
         return <GreigeCell key="greige" order={order} color={color} last={last} bg={plainBg} ctx={ctx} />;
       case 'closing':
-        return first ? <ClosingCell key="closing" order={order} span={span} bg={plainBg} ctx={ctx} /> : null;
+        // order# 입력 전 새 줄은 마무리 체크 없음 (저장도 안 된 줄이 자동 완료되지 않게)
+        if (!first) return null;
+        return isDraft
+          ? <td key="closing" rowSpan={span} className={cellCls({ thick: true, extra: plainBg })}><span className="text-[10px] text-slate-300">-</span></td>
+          : <ClosingCell key="closing" order={order} span={span} bg={plainBg} ctx={ctx} />;
       case 'dyeing':
         return <LotCell key="dyeing" order={order} color={color} last={last} bg={plainBg} ctx={ctx} />;
       case 'confirm':

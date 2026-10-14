@@ -90,6 +90,8 @@ const EMPTY_PRESET = toPreset(null);
 // 열릴 때의 편집 상태 (key: 어떤 오더/컬러의 draft 인지)
 // vendor / rows / preset / spec 이 null 이면 "아직 안 건드림" → 화면은 최신 값을 그대로 보여줌
 // (열어둔 사이 다른 사람이 바꾼 값을, 건드리지도 않은 옛 값으로 덮어쓰지 않도록)
+//  presetBase: 프리세팅을 처음 고친 순간의 값 — 저장할 땐 이 값과 다른 칸만 보냄
+//   (고치는 사이 다른 PC가 바꾼, 내가 안 건드린 칸을 옛 값으로 되돌리지 않게)
 // prefillNewLotDate: 간트에서 고른 날 투입하는 새 LOT 를 처음부터 넣어 둠 (저장해야 반영)
 const makeDraft = (order, color, prefillNewLotDate = '') => {
   const lots = color?.lots || [];
@@ -98,6 +100,7 @@ const makeDraft = (order, color, prefillNewLotDate = '') => {
     vendor: null,
     rows: prefillNewLotDate ? [...lots.map(toRow), toRow(createLot(lots.length + 1, prefillNewLotDate))] : null,
     preset: null,
+    presetBase: null,
     presetShown: null,
     spec: null,
   };
@@ -144,12 +147,14 @@ export const LotEditor = ({
   const presetUsed = isStepUsed(presetStep);
   const livePreset = toPreset(presetStep);
   const preset = draft.preset ?? livePreset;
+  const presetBase = draft.presetBase ?? livePreset;
   const presetShown = draft.presetShown ?? presetUsed;
   const presetDateBad = presetShown && !!(preset.startDate && preset.endDate && preset.startDate > preset.endDate);
   const presetPatch = {};
   if (presetShown) {
+    // 처음 고친 순간의 값과 다른 칸만 (내가 고친 칸)
     PRESET_FIELDS.forEach(f => {
-      const a = f === 'notes' ? livePreset[f].trim() : livePreset[f];
+      const a = f === 'notes' ? presetBase[f].trim() : presetBase[f];
       const b = f === 'notes' ? preset[f].trim() : preset[f];
       if (a !== b) presetPatch[f] = b;
     });
@@ -160,15 +165,21 @@ export const LotEditor = ({
   const presetShift = getEndShift(presetStep);
 
   // 원단 스펙 (예상 YD 환산) — 원단 보관함·설계서에서 온 값은 읽기만, 없거나 오더에 저장된 값은 여기서 고침
+  //  칸은 오더에 저장된 gsm · 전폭 그대로 (하나만 있어도 보여 줌), 저장은 바꾼 칸만 (다른 칸을 지우지 않게)
   const specEditable = !spec || spec.kind === 'order';
-  const liveSpecForm = { gsm: numText(spec?.kind === 'order' ? spec.gsm : ''), widthFull: numText(spec?.kind === 'order' ? spec.widthFull : '') };
+  const liveSpecForm = { gsm: numText(positiveOf(order.gsm)), widthFull: numText(positiveOf(order.widthFull)) };
   const specForm = draft.spec ?? liveSpecForm;
   const specBad = specEditable && (badPositive(specForm.gsm) || badPositive(specForm.widthFull));
   const draftSpec = specEditable
     ? (positiveOf(specForm.gsm) && positiveOf(specForm.widthFull) ? { gsm: positiveOf(specForm.gsm), widthFull: positiveOf(specForm.widthFull) } : null)
     : spec;
-  const specChanged = !!onSaveSpec && specEditable
-    && (positiveOf(specForm.gsm) !== positiveOf(liveSpecForm.gsm) || positiveOf(specForm.widthFull) !== positiveOf(liveSpecForm.widthFull));
+  const specPatch = {};
+  if (specEditable) {
+    ['gsm', 'widthFull'].forEach(f => {
+      if (positiveOf(specForm[f]) !== positiveOf(liveSpecForm[f])) specPatch[f] = positiveOf(specForm[f]);
+    });
+  }
+  const specChanged = !!onSaveSpec && Object.keys(specPatch).length > 0;
 
   const vendorOptions = [...new Set((dyeVendorOptions || []).map(v => String(v || '').trim()).filter(Boolean))];
   const vendorTrim = vendor.trim();
@@ -206,11 +217,15 @@ export const LotEditor = ({
     editRows(list => list.filter(r => r.id !== row.id));
   };
   const addRow = () => editRows(list => [...list, toRow(createLot(list.length + 1))]);
-  const setPreset = (patch) => setDraft(d => ({ ...d, preset: { ...(d.preset ?? livePreset), ...patch } }));
+  const setPreset = (patch) => setDraft(d => ({
+    ...d,
+    preset: { ...(d.preset ?? livePreset), ...patch },
+    presetBase: d.presetBase ?? livePreset,
+  }));
   const showPreset = () => patchDraft({ presetShown: true });
   const hidePreset = () => {
     if (presetUsed && !window.confirm('프리세팅 일정·상태·메모를 비울까요? (저장해야 지워져요)')) return;
-    patchDraft({ presetShown: false, preset: EMPTY_PRESET });
+    setDraft(d => ({ ...d, presetShown: false, preset: EMPTY_PRESET, presetBase: d.presetBase ?? livePreset }));
   };
   const setSpecField = (field, value) => setDraft(d => ({ ...d, spec: { ...(d.spec ?? liveSpecForm), [field]: value } }));
 
@@ -237,9 +252,7 @@ export const LotEditor = ({
       const vendorTask = vendorChanged ? Promise.resolve(onSaveDyeVendor(vendorTrim)) : Promise.resolve(true);
       const lotsTask = lotsChanged ? Promise.resolve(onSaveLots(nextLots)) : Promise.resolve(true);
       const presetTask = presetChanged ? Promise.resolve(onSavePresetting(presetPatch)) : Promise.resolve(true);
-      const specTask = specChanged
-        ? Promise.resolve(onSaveSpec({ gsm: positiveOf(specForm.gsm), widthFull: positiveOf(specForm.widthFull) }))
-        : Promise.resolve(true);
+      const specTask = specChanged ? Promise.resolve(onSaveSpec(specPatch)) : Promise.resolve(true);
       const [vendorOk, lotsOk, presetOk, specOk] = await Promise.all([vendorTask, lotsTask, presetTask, specTask]);
       savingRef.current = false;
       if (closeCountRef.current !== closeCount) return; // 저장 중에 이미 닫힘
@@ -594,7 +607,7 @@ export const LotEditor = ({
             <span className="text-slate-300">|</span>
             {specEditable ? (
               <span className="inline-flex flex-wrap items-center gap-1">
-                <span>{spec ? '원단 스펙 (오더에 저장된 값)' : 'YD 환산에 원단 스펙이 필요해요 —'}</span>
+                <span>{spec ? `원단 스펙 (${spec.source})` : 'YD 환산에 원단 스펙이 필요해요 —'}</span>
                 <input
                   type="text"
                   inputMode="decimal"

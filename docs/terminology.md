@@ -233,7 +233,7 @@
 |---|---|---|
 | **배색량** | 염색소에 배색할 생지 kg (LOT마다) | lot `dyeKg` |
 | **예상 가공지 kg · 예상 YD** | 배색량에서 LOSS를 뺀 예상 — 가공지 kg = 배색량 ÷ (1 + 오더 로스율), YD = 가공지 kg ÷ 1야드 무게(gsm × 전폭) | `orderModel.getDyeYield` |
-| **원단 스펙 (YD 환산)** | gsm · 전폭 — 원단 보관함 → 오더에 저장된 값 → 같은 Article 원단 → 설계서 최종 스펙. 없으면 LOT 창에서 넣음(오더에 저장) | `resolveYieldSpec`, 오더 `gsm`·`widthFull` |
+| **원단 스펙 (YD 환산)** | gsm · 전폭 — 원단 보관함 → 오더에 저장된 값 → 같은 Article 원단 → 설계서 최종 스펙. 없으면 LOT 창에서 넣음(오더에 저장 — **'직접 넣은 값'**, article#를 바꿔도 남음. 원단에서 온 값은 article#를 다른 원단으로 바꾸면 지움) | `resolveYieldSpec`, 오더 `gsm`·`widthFull`·`specManual` |
 | **1차 · 2차 (외관검사 차수)** | LOT 한 개의 검사 회차. 불량 → 염가공소 재투입 → 다시 검사하면 다음 차수 | lot `inspections[0]` = 1차 |
 | **투입 전** | 외관검사 상태 — 아직 안 넣음 (드롭다운으로 언제든 되돌리기) | `INSPECTION_STATUSES.waiting` |
 | **재가공 · 재가공중** | 외관검사 불량으로 염가공소에 다시 들어감 (상태) → 다음 차수 검사 줄이 자동으로 생김. 다음 차수를 시작하기 전까지 컬러 단계 **'재가공중'** | `redye`, `COLOR_STAGES.redye` |

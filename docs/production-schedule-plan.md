@@ -51,7 +51,7 @@
 | 배색량 → 예상 | 오더 **로스율**(작지kg와 같은 값)로 **배색량 ÷ (1 + 로스율)** = 예상 가공지 kg → ÷ 1야드 무게(gsm × 전폭 × 0.02322576) = 예상 YD. 작지kg을 전부 배색하면 정확히 오더kg |
 | 프리세팅 | **오더에 한 번** (오더 공통 — 어느 컬러 LOT 창에서 열어도 같은 값) |
 | 마무리 3개 다 체크 | **자동 '완료'** + 알림. **체크를 풀면 다시 진행중** (자동으로 완료된 경우만 — 대표님: '잘못 눌렀으니 체크해제하면 다시 완료가 풀림') |
-| 체크가 남았는데 '완료' | 마무리 창 ("N개 남았어요") → 체크하고 저장(자동 완료) / **[체크 없이 완료]** (예전 오더 때문에 막지는 않음) |
+| 체크가 남았는데 '완료' | 마무리 창 ("N개 남았어요") → 체크하고 저장(자동 완료) / **[체크 없이 완료]** (예전 오더 때문에 막지는 않음 — 창에서 몇 개 체크했으면 **[저장하고 완료]**: 체크를 저장한 뒤 완료) |
 | 선염/후염 기본값 | 새 오더 = **후염**, 예전 오더 = '안 고름'(컬러마다 — 지금처럼) |
 | 날짜 메모 | 간트 날짜 메뉴 **맨 아래 '이 날 메모'**로 남김 (써 둔 메모도 그대로 보이고 누르면 고침) |
 | 추가 제안 | **생지 출고에 kg** → LOT 창에서 배색량 합계와 비교 — 진행 |
@@ -76,10 +76,11 @@ order += {
   closing: { yarnStock, eztexStock, eztexClosed } 각 { done, date, memo },
   closingAuto: { prevStatus, at } | null,                             // 마무리 3개로 자동 완료된 표시 (손으로 상태를 바꾸면 지움)
   gsm, widthFull,                                                     // (예전부터 있던 칸) LOT 창에서 직접 넣을 수도
+  specManual,                                                         // gsm·전폭을 LOT 창에서 직접 넣었는지 (article# 를 바꿔도 남김)
 }
 colors[].greigeOuts[] += kg
 colors[].lots[] += { dyeKg(배색량), inspections: [{ id, startDate, endDate, events: [{ id, status, date }], notes }] }  // [0] = 1차
-colors[].inspection → (없앰 — 읽을 때 LOT 1차로 옮기고 지움)
+colors[].inspection → (없앰 — 읽을 때 LOT 1차로 옮기고 지움. LOT 없고 상태 기록도 없던 컬러는 colors[].inspectionV9 에 보관)
 steps.presetting → 그대로 (공정 칸·FLOW_ORDER 에서만 빠짐 — LOT 창·간트 오더 줄 막대에서)
 ```
 - 주요 함수: `getDyeYield` · `resolveYieldSpec` · `getColorInspection`(rows · anyDefect · anyRedye · allDone · allShipped) · `addLotInspectionEvent` · `applyLotInspections`(차수 3방향 합치기 `mergeRounds`) ·
@@ -87,6 +88,7 @@ steps.presetting → 그대로 (공정 칸·FLOW_ORDER 에서만 빠짐 — LOT 
   `applyClosing`(자동 완료 · 되돌리기) · `getClosingState` · `isClosingPending` · `isShippingDone` · `getOpenWork`(+ 프리세팅 · 외관검사 LOT · 마무리)
 - 컬러 단계(`getColorStage`): 불량컨펌중 > **재가공중** > (LOT 모두 검사 끝 → 컨펌중/컨펌대기/출고대기) > 검사중 > … > 염색중 > **프리세팅중**(생지 출고 뒤) > 염색대기 (후염은 오더 생지 출고 기준)
 - 가납기 '외관검사' = LOT 기준 (모든 컬러의 LOT가 출고준비완료·출고완료면 완료, 아니면 안 끝난 LOT 지금 차수의 가장 늦은 예상 종료일)
+- 가납기 '염가공' = 재가공 중인 LOT가 있으면 **완료 아님** (LOT 염가공 상태가 '완료'여도 — 염가공소에 다시 들어간 것). 현재 날짜 = 다음 차수 검사 예상 시작일 (2026-10-14 검토)
 - `useOrder` 새 액션: `setDyeMethod` · `setOrderGreigeOuts` · `setOrderGreigeOutDone` · `setOrderSpec` · `setLotInspections` · `addLotInspection` · `setClosing`(자동 완료/되돌리기 알림)
 
 ### 화면
@@ -103,6 +105,23 @@ steps.presetting → 그대로 (공정 칸·FLOW_ORDER 에서만 빠짐 — LOT 
 - 리포트 공정별 소요일: '프리세팅 (염색 전)' 줄(편직 다음), '외관검사 (LOT 차수당)'
 - 새 파일: `sheet/ClosingPopover.jsx` · `gantt/GanttDateMenu.jsx` · `common/PresettingChip.jsx`
 - DEV 샘플: `F-26M041`(후염 · 프리세팅 완료 · 배색량 · 1차 불량→재가공→2차 출고완료 · 출고 끝 + 마무리 2/3 → 마무리 대기), `F-26M020` WHITE LOT1 1차 재가공 → 2차 투입 전, `F-26M030` 선염
+
+### 검토 · 디버깅 (2026-10-14 — 대표님 요청 '논리 검토 · 리팩토링 · 디버깅')
+| 고친 것 | 내용 |
+|---|---|
+| 가납기 염가공 · 재가공 | 재가공 중인 LOT가 있으면 염가공 '완료' 아님 (LOT 염가공 상태가 완료여도) — 다음 차수 검사 예상 시작일과 비교 |
+| 마무리 [체크 없이 완료] | 창에서 몇 개 체크·메모했으면 **[저장하고 완료]** — 고친 내용을 저장한 뒤 완료 (예전엔 버려졌음) |
+| 마무리 · Drop/아이템화 샘플 | 설계서 Drop·아이템화·복원 때 '마무리 자동 완료' 표시(`closingAuto`)를 지움 + Drop 샘플은 체크를 풀어도 그대로 — 체크 해제로 Drop 샘플이 다시 열리던 것 (다시 열려면 설계서 복원) |
+| 변경 이력 | 자동 완료된 오더를 손으로 진행중으로 바꾸면 '마무리 체크를 풀어서 완료 취소'가 잘못 남던 것 |
+| 새 줄 마무리 | order# 입력 전 새 줄은 마무리 체크 없음 (저장도 안 된 줄이 완료로 등록되던 것) |
+| 자동 완료 알림 | 출고가 안 끝난 컬러가 있으면 '⚠ 출고가 안 끝난 컬러 N개' 같이 |
+| 예상 YD 원단 스펙 | 원단을 고른 뒤 article#를 다른 원단으로 고치면 예전 원단 gsm·전폭이 남아 YD가 틀리던 것 → 원단에서 온 스펙은 지움. LOT 창에서 **직접 넣은 스펙**(`specManual`)은 그대로 ('직접 넣은 값') |
+| LOT 창 원단 스펙 | gsm·전폭 중 하나만 있으면 칸이 비어 보이고, 하나만 고쳐 저장하면 다른 하나가 지워지던 것 → 저장된 값 그대로 보이고 바꾼 칸만 저장 |
+| LOT 창 프리세팅 | 처음 고친 순간의 값과 비교해 내가 고친 칸만 저장 (고치는 사이 다른 PC가 바꾼 칸을 옛 값으로 되돌리지 않게) |
+| v9 → v10 외관검사 옮기기 | LOT 없는 컬러는 **상태 기록이 있을 때만** LOT1을 만듦. 예상 일정·메모만 있으면 LOT를 안 만들고 예전 값은 `inspectionV9`에 보관 (빈 'LOT 1개'가 생기지 않게) |
+| 후염으로 바꿀 때 합치기 | 입력이 있는 컬러 중 출고 기록이 없는 컬러가 있으면 오더 '전체 출고'로 만들지 않음 (그 컬러가 염색대기로 잘못 보이던 것) |
+| 공정 창 안내 | 간트에서 고른 날짜가 원래 값과 같으면 '넣었어요' 안내를 안 띄움 |
+- 리팩토링: '편직 다음에 프리세팅 끼우기'가 간트 [+]·날짜 메뉴·리포트·남은 일에 따로 있던 것 → `constants/production.withPresettingStep` 하나로
 
 ---
 

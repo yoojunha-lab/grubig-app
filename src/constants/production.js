@@ -187,6 +187,15 @@ export const getStepDefs = (customSteps = []) => {
 // 공정 key → 메타 (목록에 없으면 기본 공정에서, 그래도 없으면 null)
 export const findStepMeta = (stepDefs, key) => (stepDefs || []).find(s => s.key === key) || getStepMeta(key);
 
+// 공정 목록 + 프리세팅 (편직 바로 다음, 편직이 없으면 맨 뒤 — 메타에 inLot: true)
+//  프리세팅은 공정 칸에는 없지만 간트 [+]·날짜 메뉴 · 리포트 소요일 · 남은 일에서는 같이 보여 줌 (2026-10-14)
+export const withPresettingStep = (stepDefs = []) => {
+  const list = (stepDefs || []).filter(s => s.key !== PRESETTING_KEY);
+  const at = list.findIndex(s => s.key === 'knitting');
+  list.splice(at === -1 ? list.length : at + 1, 0, getStepMeta(PRESETTING_KEY));
+  return list;
+};
+
 // 염가공(컬러별 LOT) 메타 — 표시 라벨/색상 통일용
 export const DYEING_STEP = { key: 'dyeing', label: '염가공', vendorLabel: '염색소', vendorMaster: 'dyeingFactories' };
 

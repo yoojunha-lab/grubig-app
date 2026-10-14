@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { TrendingUp, Calendar, Users, Package, CheckCircle, AlertCircle, Truck, Layers } from 'lucide-react';
-import { ORDER_STATUSES, ORDER_STATUS_COLORS, DYEING_STEP, PRESETTING_KEY, getStepDefs } from '../constants/production';
+import { ORDER_STATUSES, ORDER_STATUS_COLORS, DYEING_STEP, getStepDefs, withPresettingStep } from '../constants/production';
 import {
   normalizeOrder, getLossRate, getWorkKg, getOrderTotals, isDropClosed,
   getRoundStatus, getRoundDoneDate, getRoundStartedDate,
@@ -223,14 +223,8 @@ export const ReportPage = ({ orders = [], stepDefs = DEFAULT_STEP_DEFS }) => {
   //    프리세팅은 염가공 LOT 창에서 관리 (오더 공통 — 편직 다음 줄), 염가공은 컬러별 LOT 단위 (LOT엔 완료일이 없어 계획만)
   //    외관검사는 LOT 차수마다 (1차 · 2차 따로 한 번씩 — 2026-10-14)
   const processStats = useMemo(() => {
-    const presetMeta = { key: PRESETTING_KEY, label: '프리세팅 (염색 전)' };
-    const metas = [];
-    stepDefs.forEach(m => {
-      metas.push(m);
-      if (m.key === 'knitting') metas.push(presetMeta);
-    });
-    if (!metas.includes(presetMeta)) metas.push(presetMeta);
-    const rows = metas.map(m => ({ key: m.key, label: m.label, planned: [], actual: [], planOnly: false }));
+    const metas = withPresettingStep(stepDefs);
+    const rows = metas.map(m => ({ key: m.key, label: m.inLot ? `${m.label} (염색 전)` : m.label, planned: [], actual: [], planOnly: false }));
     const dyeRow = { key: DYEING_STEP.key, label: `${DYEING_STEP.label} (LOT당)`, planned: [], actual: [], planOnly: true };
     // 염가공 줄은 흐름 순서대로 — 후가공(또는 염가공 다음에 둔 추가 공정) 바로 앞, 없으면 맨 뒤
     const dyeAt = metas.findIndex(m => m.key === 'finishing' || m.after === '#dyeing');

@@ -291,13 +291,16 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     if (!o) return null;
     const closed = o.status !== 'completed' || !!o.dropInfo;
     const relinked = !!fabric && String(o.linkedFabricId || '') !== String(fabric.id || '');
-    if (!closed && !relinked) return { ok: true, changed: false, closed: false, orderNumber: o.orderNumber };
+    // closingAuto(마무리 체크로 자동 완료) 표시는 지움 — 아이템화로 닫힌 오더가 마무리 체크를 풀었다고 다시 열리지 않게
+    //  (이미 완료였고 연결도 같아서 그 표시만 지우는 경우는 알림에 안 붙임 — changed: false)
+    const clearAuto = !!o.closingAuto;
+    if (!closed && !relinked && !clearAuto) return { ok: true, changed: false, closed: false, orderNumber: o.orderNumber };
     const ok = await updateOrder(
       o.id,
-      ord => ({ ...(fabric ? applyFabric(ord, fabric) : ord), status: 'completed', dropInfo: null }),
+      ord => ({ ...(fabric ? applyFabric(ord, fabric) : ord), status: 'completed', dropInfo: null, closingAuto: null }),
       { note: '설계서 아이템화' }
     );
-    return { ok, changed: true, closed, orderNumber: o.orderNumber };
+    return { ok, changed: closed || relinked, closed, orderNumber: o.orderNumber };
   };
 
   // 설계서 Drop → 샘플 오더를 '완료'로 닫고 Drop 표시 (dropInfo: Drop 전 상태 — 복원하면 그 상태로). 연결된 오더가 없으면 null
@@ -308,9 +311,10 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     if (!o) return null;
     if (o.status === 'completed' && o.dropInfo) return { ok: true, changed: false, orderNumber: o.orderNumber };
     const at = new Date().toISOString();
+    // closingAuto 도 지움 — Drop 된 샘플은 설계서 복원으로만 다시 열림 (마무리 체크를 풀어도 그대로)
     const ok = await updateOrder(
       o.id,
-      ord => ({ ...ord, status: 'completed', dropInfo: { prevStatus: ord.status, at } }),
+      ord => ({ ...ord, status: 'completed', dropInfo: { prevStatus: ord.status, at }, closingAuto: null }),
       { note: '설계서 Drop' }
     );
     return { ok, changed: true, orderNumber: o.orderNumber };
@@ -324,7 +328,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     if (!o) return null;
     if (!(o.status === 'completed' && o.dropInfo)) return { ok: true, changed: false, orderNumber: o.orderNumber, status: o.status };
     const status = o.dropInfo.prevStatus || 'active';
-    const ok = await updateOrder(o.id, ord => ({ ...ord, status, dropInfo: null }), { note: '설계서 복원' });
+    const ok = await updateOrder(o.id, ord => ({ ...ord, status, dropInfo: null, closingAuto: null }), { note: '설계서 복원' });
     return { ok, changed: true, orderNumber: o.orderNumber, status };
   };
 
@@ -382,7 +386,13 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     });
     if (ok && before && after && before.status !== after.status) {
       if (after.status === 'completed') {
-        showToast(`마무리 체크 3개 끝 — '${before.orderNumber}' 오더를 완료로 바꿨어요. (체크를 풀면 다시 진행중)`, 'success');
+        // 출고가 안 끝난 컬러가 있으면 같이 알려 줌 (완료는 그대로 — 대표님 결정: 마무리 3개 = 최종 마무리)
+        const unshipped = (after.colors || []).filter(c => colorHasData(c) && !c.shipDone).length;
+        showToast(
+          `마무리 체크 3개 끝 — '${before.orderNumber}' 오더를 완료로 바꿨어요. (체크를 풀면 다시 진행중)`
+          + (unshipped ? ` ⚠ 출고가 안 끝난 컬러 ${unshipped}개가 있어요.` : ''),
+          unshipped ? 'info' : 'success'
+        );
       } else {
         showToast(`마무리 체크를 풀어서 '${before.orderNumber}' 오더를 다시 ${after.status === 'on_hold' ? '보류' : '진행중'}으로 돌렸어요.`, 'info');
       }

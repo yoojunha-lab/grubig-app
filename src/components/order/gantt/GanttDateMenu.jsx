@@ -1,6 +1,6 @@
 import { AlertTriangle, BadgeCheck, CalendarPlus, Droplets, FileCheck2, PackageOpen, ScanSearch, StickyNote, Truck } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
-import { INSPECTION_STATUSES, PROCESS_THEME, PRESETTING_KEY, findStatusMeta, getStepMeta } from '../../../constants/production';
+import { INSPECTION_STATUSES, PROCESS_THEME, findStatusMeta, withPresettingStep } from '../../../constants/production';
 import {
   getStepEnd, getLotOverview, getGreigeStateFor, isPieceDyed, getLotCurrentRound, getRoundStatus, getLotRounds,
 } from '../../../utils/orderModel';
@@ -53,26 +53,22 @@ export const GanttDateMenu = ({
   const title = `${order.orderNumber || '새 오더'}${color ? ` · ${color.name || '컬러'}` : ' · 오더 전체'} · ${fmtDayLabel(date)}`;
 
   // 공정 흐름 (앞 공정 비교용) — 프리세팅은 편직 다음, 염가공 LOT 는 후가공(또는 염가공 다음에 둔 추가 공정) 앞
+  const metas = withPresettingStep(stepDefs);
   const lotsEnd = (o) => maxDate((o.colors || []).map(c => getLotOverview(c.lots || []).end));
   const lotsItem = { key: '#lots', label: '염가공 LOT', end: lotsEnd };
-  const presetItem = { key: PRESETTING_KEY, label: '프리세팅', end: (o) => getStepEnd(o, PRESETTING_KEY) };
-  const dyeAt = stepDefs.findIndex(m => m.key === 'finishing' || m.after === '#dyeing');
+  const dyeAt = metas.findIndex(m => m.key === 'finishing' || m.after === '#dyeing');
   const seq = [];
-  stepDefs.forEach((meta, i) => {
+  metas.forEach((meta, i) => {
     if (i === dyeAt) seq.push(lotsItem);
-    seq.push({ key: meta.key, label: meta.label, end: (o) => getStepEnd(o, meta.key) });
-    if (meta.key === 'knitting') seq.push(presetItem);
+    seq.push({ key: meta.key, label: meta.label, meta, end: (o) => getStepEnd(o, meta.key) });
   });
   if (dyeAt === -1) seq.push(lotsItem);
-  if (!seq.includes(presetItem)) seq.push(presetItem);
 
-  const presetMeta = getStepMeta(PRESETTING_KEY);
-  const processItems = seq.filter(s => !s.key.startsWith('#')).map(s => {
-    const meta = s.key === PRESETTING_KEY ? presetMeta : stepDefs.find(m => m.key === s.key);
+  const processItems = seq.filter(s => s.meta).map(s => {
     const step = order.steps?.[s.key] || {};
     const has = !!(step.startDate || step.endDate);
     const prev = predecessorOf(order, s.key, seq);
-    return { meta, key: s.key, step, has, early: prev && date < prev.date ? prev : null };
+    return { meta: s.meta, key: s.key, step, has, early: prev && date < prev.date ? prev : null };
   });
 
   // ---------- 컬러 줄 ----------

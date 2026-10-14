@@ -78,6 +78,21 @@ export const ClosingPopover = ({ order, anchorRect = null, onClose, onSave, mode
     handleSave();
   };
 
+  // [체크 없이 완료] — 이 창에서 체크·메모를 고쳤으면 먼저 저장하고 완료 (고친 내용이 버려지지 않게)
+  const handleForceComplete = () => {
+    if (saving || !onForceComplete) return;
+    if (!isDirty) {
+      close();
+      onForceComplete();
+      return;
+    }
+    run(async () => {
+      const ok = await onSave?.(patch);
+      if (ok !== false) onForceComplete();
+      return ok;
+    });
+  };
+
   const footer = (
     <div className="flex items-center justify-between gap-2">
       <div className="min-w-0 flex-1 text-[10px] leading-snug">
@@ -86,11 +101,12 @@ export const ClosingPopover = ({ order, anchorRect = null, onClose, onSave, mode
             : mode === 'complete' && onForceComplete ? (
               <button
                 type="button"
-                onClick={() => { close(); onForceComplete(); }}
-                className="px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] font-bold text-slate-600 hover:bg-slate-100"
-                title="마무리 체크 없이 오더만 완료 (체크는 나중에 해도 돼요)"
+                onClick={handleForceComplete}
+                disabled={saving}
+                className="px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                title={isDirty ? '고친 체크·메모를 저장하고 오더를 완료 (남은 체크는 나중에 해도 돼요)' : '마무리 체크 없이 오더만 완료 (체크는 나중에 해도 돼요)'}
               >
-                체크 없이 완료
+                {isDirty ? '저장하고 완료' : '체크 없이 완료'}
               </button>
             ) : <span className="text-slate-500">3개를 모두 체크하면 오더가 자동으로 '완료'돼요.</span>}
       </div>

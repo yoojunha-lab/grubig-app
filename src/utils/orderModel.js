@@ -46,7 +46,7 @@
 
 import {
   ORDER_STEPS, ORDER_STEP_KEYS, DEFAULT_LOSS_RATE,
-  normalizeStatus, getStatusLabel, getStepMeta, getStepDefs, ORDER_TYPES, ORDER_STATUSES,
+  normalizeStatus, getStatusLabel, getStepMeta, getStepDefs, withPresettingStep, ORDER_TYPES, ORDER_STATUSES,
   PROVISIONAL_DUE_STEPS, PROVISIONAL_DUE_KEYS, PROCESS_THEME, isCustomStepKey,
   TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES, INSPECTION_STATUSES, findStatusMeta,
   DEFAULT_DYE_METHOD, DYE_METHODS, CLOSING_ITEMS, CLOSING_KEYS, KG_CONVERSION_COEFFICIENT, PRESETTING_KEY,
@@ -385,12 +385,17 @@ const legacyInspectionHasData = (i) => !!(i && (i.startDate || i.endDate || (i.e
 /**
  * 예전(v9) 컬러별 외관검사 → 그 컬러 LOT 마다 1차 검사로 (대표님 요청 2026-10-14 'LOT마다 1차 2차')
  *  · LOT 가 있으면 외관검사 기록이 없는 LOT 마다 같은 값 (상태 기록까지)
- *  · LOT 가 없던 컬러는 LOT1 을 만들어 옮김 (상태 기록이 있으면 염색은 끝난 것으로 — 완료)
+ *  · LOT 가 없던 컬러는 상태 기록이 있을 때만 LOT1 을 만들어 옮김 (검사를 했으면 염색은 끝난 것 — 완료)
+ *    예상 일정·메모만 있던 컬러는 LOT 를 만들지 않고 예전 값을 inspectionV9 에 보관 (화면엔 안 보임 — 아직 염색 전이라
+ *    LOT 가 생기면 그때 LOT 마다 계획. 빈 LOT1 이 생겨 'LOT 1개'·염가공 미완료로 보이지 않게 — 2026-10-14 검토)
  *  · migrate=false(v10 문서)면 컬러 칸만 지움. id 는 결정적 (같은 문서는 항상 같은 id)
  */
 const moveColorInspectionToLots = (color, migrate) => {
   const { inspection, ...rest } = color;
   if (!migrate || !legacyInspectionHasData(inspection)) return rest;
+  if (!(rest.lots || []).length && !(inspection.events || []).length) {
+    return { ...rest, inspectionV9: { startDate: inspection.startDate, endDate: inspection.endDate, notes: inspection.notes } };
+  }
   const roundFor = (lotId) => ({
     id: `${lotId}_r0`,
     startDate: inspection.startDate,
@@ -869,7 +874,7 @@ export const resolveYieldSpec = (order, { linkedFabric = null, articleFabric = n
     : null);
   const tries = [
     [linkedFabric && pick(linkedFabric.gsm, linkedFabric.widthFull), `원단 보관함 ${str(linkedFabric?.article)}`.trim(), 'fabric'],
-    [pick(order?.gsm, order?.widthFull), '오더에 저장된 값', 'order'],
+    [pick(order?.gsm, order?.widthFull), order?.specManual ? '직접 넣은 값' : '오더에 저장된 값', 'order'],
     [articleFabric && pick(articleFabric.gsm, articleFabric.widthFull), `원단 보관함 ${str(articleFabric?.article)}`.trim(), 'fabric'],
     [sheet && pick(sheet.costInput?.gsm, sheet.costInput?.widthFull), '설계서 최종 스펙', 'sheet'],
   ];
@@ -1078,12 +1083,6 @@ export const getDday = (finalDueDate) => (finalDueDate ? diffDaysYmd(todayYmd(),
 
 // ---------- 가납기 (대략적인 공정별 목표 날짜 — 원사·편직·염가공·외관검사) ----------
 
-/**
- * 가납기와 비교할 그 공정의 "현재 날짜".
- *  - 원사·편직·외관검사: 완료면 완료일(없으면 종료일), 아니면 종료일 (편직은 일일 생산량으로 계산한 예상 종료일도)
- *  - 염가공: 모든 컬러 LOT 중 가장 늦은 완료예정일. LOT 가 전부 완료면 완료
- * 반환 { date('' = 일정 없음), done, estimated(편직 예상 종료) }
- */
 // 외관검사가 끝난 컬러인지 (LOT 가 모두 출고준비완료·출고완료, 또는 출고 칸 완료)
 export const isInspectionDone = (color) => !!color?.shipDone || getColorInspection(color).allDone;
 // 끝난 날 — LOT 마다 지금 차수가 끝난 날 중 가장 늦은 날 (출고준비완료 → 불량컨펌중 → 출고준비완료 면 마지막 출고준비완료)
@@ -1097,6 +1096,14 @@ export const getInspectionDoneDate = (color) => {
   return str(color?.shipDate) || maxYmd(lots.map(l => getLotCurrentRound(l)?.endDate));
 };
 
+/**
+ * 가납기와 비교할 그 공정의 "현재 날짜".
+ *  - 원사·편직: 완료면 완료일(없으면 종료일), 아니면 종료일 (편직은 일일 생산량으로 계산한 예상 종료일도)
+ *  - 염가공: 모든 컬러 LOT 중 가장 늦은 완료예정일. LOT 가 전부 완료면 완료
+ *    단, 외관검사에서 '재가공'으로 염가공소에 다시 들어간 LOT 가 있으면 아직 완료 아님 (2026-10-14)
+ *  - 외관검사: LOT 기준 (아래)
+ * 반환 { date('' = 일정 없음), done, estimated(편직 예상 종료) }
+ */
 export const getStepCurrentEnd = (order, key) => {
   if (key === 'visual_inspection') {
     // 외관검사 (LOT별) — 컬러가 모두 끝나야(LOT 모두 출고준비완료·출고완료 또는 출고) 완료: 가장 늦게 끝난 날
@@ -1117,8 +1124,11 @@ export const getStepCurrentEnd = (order, key) => {
   if (key === 'dyeing') {
     const lots = (order?.colors || []).flatMap(c => c.lots || []);
     if (!lots.length) return { date: '', done: false, estimated: false };
-    const done = lots.every(l => normalizeStatus(l.status) === 'done');
-    return { date: maxYmd(lots.map(l => l.endDate)), done, estimated: false };
+    // 외관검사 불량으로 재가공 중인 LOT 는 염가공이 다시 진행 중 — 다음 차수 검사 예상 시작일까지 (없으면 원래 완료예정)
+    const redyeing = (order?.colors || []).flatMap(c => getColorInspection(c).rows).filter(r => r.redyeing);
+    const done = lots.every(l => normalizeStatus(l.status) === 'done') && redyeing.length === 0;
+    const redyeDates = redyeing.map(r => (r.status === 'redye' ? '' : str(r.round?.startDate)));
+    return { date: maxYmd([...lots.map(l => l.endDate), ...redyeDates]), done, estimated: false };
   }
   const step = order?.steps?.[key];
   if (!step) return { date: '', done: false, estimated: false };
@@ -1415,6 +1425,12 @@ export const applyOrderField = (order, field, value) => {
       next.linkedFabricId = null;
       next.linkedFabricArticle = '';
     }
+    // 다른 article 로 바꾸면 예전 원단에서 가져온 gsm · 전폭도 지움 (예상 YD 가 예전 원단 스펙으로 계산되지 않게)
+    //  LOT 창에서 직접 넣은 스펙(specManual)은 그대로
+    if (!sameName(next.articleNo, order.articleNo) && !order.specManual) {
+      next.gsm = null;
+      next.widthFull = null;
+    }
   }
   if (field === 'lossRate') {
     const n = numOrNull(value);
@@ -1430,24 +1446,27 @@ export const applyOrderField = (order, field, value) => {
 };
 
 // 원단 스펙 직접 넣기 (LOT 창 — 원단 보관함·설계서에 스펙이 없을 때 예상 YD 환산용) { gsm?, widthFull? }
+//  specManual: 직접 넣은 스펙 표시 — article# 를 다른 원단으로 바꿔도 지우지 않음 (원단에서 온 값은 article# 가 바뀌면 지움)
 export const applyOrderSpec = (order, spec) => {
   const next = { ...order };
   if (spec && 'gsm' in spec) next.gsm = positiveOrNull(spec.gsm);
   if (spec && 'widthFull' in spec) next.widthFull = positiveOrNull(spec.widthFull);
+  next.specManual = positiveOrNull(next.gsm) !== null || positiveOrNull(next.widthFull) !== null;
   return next;
 };
 
 /**
  * 컬러별 생지 출고 기록 → 오더 출고 목록 (후염으로 바꿀 때 — 같은 날짜·종류끼리 하나로)
  *  · 체크는 모두 체크된 경우만, kg 은 더함, 메모는 '컬러 메모'로 이어 붙임. 날짜 순서
- *  · '전체'는 오더 전체 생지가 다 나간 것 → 출고 기록이 있는 컬러가 모두 그날 '전체'일 때만 '전체',
- *    몇 컬러만이면 '부분' + 메모 'BLACK·WHITE 전체'
+ *  · '전체'는 오더 전체 생지가 다 나간 것 → 입력이 있는 컬러가 모두 그날 '전체'일 때만 '전체',
+ *    몇 컬러만이면 '부분' + 메모 'BLACK·WHITE 전체' (출고 기록이 없는 컬러가 있으면 '전체' 없음)
  *  · 컬러마다 전체 출고가 다 끝나 있었으면 마지막 '전체' 줄은 '전체' (오더 생지 출고 끝)
  */
 const mergeColorGreigeOuts = (colors = []) => {
-  const withGreige = colors.filter(c => (c.greigeOuts || []).length);
+  // 입력이 있는 컬러 모두 기준 — 출고 기록이 없는 컬러가 있으면 오더 전체 '전체 출고'가 아님 (그 컬러 생지는 아직)
+  const targets = colors.filter(c => (c.greigeOuts || []).length || colorHasData(c));
   const groups = new Map();
-  withGreige.forEach(c => (c.greigeOuts || []).forEach(g => {
+  targets.forEach(c => (c.greigeOuts || []).forEach(g => {
     const key = `${g.date}|${g.kind}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push({ g, color: c });
@@ -1456,7 +1475,7 @@ const mergeColorGreigeOuts = (colors = []) => {
     .map(list => {
       const first = list[0].g;
       const colorIds = new Set(list.map(x => x.color.id));
-      const coversAll = colorIds.size === withGreige.length;
+      const coversAll = colorIds.size === targets.length;
       const names = [...new Set(list.map(x => x.color.name).filter(Boolean))].join('·');
       const memos = list.filter(x => x.g.memo).map(x => `${x.color.name ? `${x.color.name} ` : ''}${x.g.memo}`);
       const kind = first.kind === 'full' && coversAll ? 'full' : 'partial';
@@ -1470,7 +1489,7 @@ const mergeColorGreigeOuts = (colors = []) => {
       };
     })
     .sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
-  const allColorsFull = withGreige.length > 0 && withGreige.every(c => getGreigeState(c).fullDone);
+  const allColorsFull = targets.length > 0 && targets.every(c => getGreigeState(c).fullDone);
   if (allColorsFull && !rows.some(r => r.kind === 'full' && r.done)) {
     const last = [...rows].reverse().find(r => r.fromFull && r.done);
     if (last) last.kind = 'full';
@@ -1546,7 +1565,8 @@ export const applyClosing = (order, patchByKey) => {
     out.status = 'completed';
     out.dropInfo = null;
     out.closingAuto = { prevStatus: order.status === 'on_hold' ? 'on_hold' : 'active', at: new Date().toISOString() };
-  } else if (wasAll && !nowAll && order.status === 'completed' && order.closingAuto) {
+  } else if (wasAll && !nowAll && order.status === 'completed' && order.closingAuto && !order.dropInfo) {
+    // (설계서 Drop 으로 닫힌 샘플은 체크를 풀어도 그대로 — 다시 열려면 설계서 복원)
     out.status = order.closingAuto.prevStatus === 'on_hold' ? 'on_hold' : 'active';
     out.closingAuto = null;
   }
@@ -1554,16 +1574,20 @@ export const applyClosing = (order, patchByKey) => {
 };
 
 // 원단 보관함에서 품번 선택 → article#·detail·gsm·폭 채움
+//  gsm · 전폭은 원단 값으로 (원단에 없는 값만 오더 값 그대로). 원단 값을 다 받았으면 '직접 넣은 스펙' 표시는 지움
 export const applyFabric = (order, fabric) => {
   if (!fabric) return order;
+  const fGsm = positiveOrNull(fabric.gsm);
+  const fWidth = positiveOrNull(fabric.widthFull);
   return {
     ...order,
     articleNo: str(fabric.article),
     linkedFabricId: fabric.id || null,
     linkedFabricArticle: str(fabric.article),
     detail: order.detail || str(fabric.itemName),
-    gsm: Number(fabric.gsm) || order.gsm || 0,
-    widthFull: Number(fabric.widthFull) || order.widthFull || 0,
+    gsm: fGsm ?? positiveOrNull(order.gsm),
+    widthFull: fWidth ?? positiveOrNull(order.widthFull),
+    specManual: fGsm !== null && fWidth !== null ? false : !!order.specManual,
   };
 };
 
@@ -1964,8 +1988,10 @@ export const summarizeOrderChange = (prev, next, stepDefs = DEFAULT_STEP_DEFS) =
   const out = [];
   diffFields(prev, next, ORDER_FIELD_LABELS, '', out);
   // 마무리 체크로 자동 완료 / 체크를 풀어 다시 진행 (오더상태 줄 앞에 까닭)
+  //  손으로 상태를 바꿔 자동 완료 표시가 지워진 경우(체크는 그대로)는 '오더상태' 줄만 남김
   if (!prev.closingAuto && next.closingAuto) out.push('마무리 체크 3개 끝 → 자동 완료');
-  if (prev.closingAuto && !next.closingAuto && prev.status === 'completed' && next.status !== 'completed') {
+  if (prev.closingAuto && !next.closingAuto && prev.status === 'completed' && next.status !== 'completed'
+    && getClosingState(prev).complete && !getClosingState(next).complete) {
     out.push('마무리 체크를 풀어서 완료 취소');
   }
 
@@ -2132,8 +2158,8 @@ export const isDropClosed = (order) => !!order && order.status === 'completed' &
 export const getOpenWork = (order, stepDefs = DEFAULT_STEP_DEFS) => {
   if (!order || order.status === 'completed') return [];
   const out = [];
-  // 공정 + 프리세팅 (LOT 창에서 관리하는 오더 공통 공정)
-  [...stepDefs, getStepMeta(PRESETTING_KEY)].forEach(meta => {
+  // 공정 + 프리세팅 (LOT 창에서 관리하는 오더 공통 공정 — 편직 다음 순서로)
+  withPresettingStep(stepDefs).forEach(meta => {
     const step = order.steps?.[meta.key];
     if (!step) return;
     const st = normalizeStatus(step.status);
