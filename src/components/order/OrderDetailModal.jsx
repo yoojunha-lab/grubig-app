@@ -8,7 +8,7 @@ import {
   ORDER_STEPS, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, PROCESS_THEME,
   COLOR_STAGES, ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_TYPES,
   PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS, TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES,
-  INSPECTION_STATUSES, DYE_METHODS, CLOSING_ITEMS, DYE_REMAIN_STATES, YARN_ORDER_STATUSES, YARN_DYEING_KEY, getStepDefs,
+  INSPECTION_STATUSES, DYE_METHODS, CLOSING_ITEMS, DYE_REMAIN_STATES, YARN_ORDER_STATUSES, YARN_DYEING_KEY, DONE_TONE, getStepDefs,
 } from '../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, getOrderTotals, isStepUsed, getKnittingEstimatedEnd, getEndShift,
@@ -496,9 +496,9 @@ const YarnBox = ({ order, onOpen, onStock, onStatus }) => {
   const y = getYarnState(order);
   const today = todayYmd();
   return (
-    <div className={`rounded-xl border px-3 py-2 space-y-1.5 ${y.done ? `${PROCESS_THEME.yarn.cell} border-stone-300` : y.used ? 'bg-stone-50 border-stone-200' : 'bg-white border-dashed border-slate-200'}`}>
+    <div className={`rounded-xl border px-3 py-2 space-y-1.5 ${y.done || order.status === 'completed' ? `${DONE_TONE.cell} border-slate-300` : y.used ? `${PROCESS_THEME.yarn.cell} border-green-200` : 'bg-white border-dashed border-slate-200'}`}>
       <div className="flex items-center gap-2">
-        <span className="text-xs font-extrabold text-stone-700 shrink-0">원사</span>
+        <span className="text-xs font-extrabold text-green-800 shrink-0">원사</span>
         <label className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer select-none">
           <input
             type="checkbox"

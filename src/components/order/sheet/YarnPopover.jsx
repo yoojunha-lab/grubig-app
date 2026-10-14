@@ -277,13 +277,13 @@ export const YarnPopover = ({
         {/* ===== 사종 줄 ===== */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-extrabold text-stone-700">사종별 발주</span>
+            <span className="text-[11px] font-extrabold text-green-800">사종별 발주</span>
             {stock && <span className="text-[10px] text-slate-500">재고 사용 중 — 사종 줄은 참고만 (진행 계산에서 빠져요)</span>}
           </div>
           <div className={`overflow-x-auto rounded-lg border border-slate-200 ${stock ? 'opacity-60' : ''}`}>
             <table className="w-full min-w-[720px] border-collapse text-[11px]">
               <thead>
-                <tr className="bg-stone-50 text-[10px] font-bold text-slate-500">
+                <tr className="bg-green-50 text-[10px] font-bold text-slate-500">
                   <th className="px-1.5 py-1.5 text-left">사종</th>
                   <th className="w-[120px] px-1 py-1.5 text-left">원사처</th>
                   <th className="w-[112px] px-1 py-1.5 text-left">상태</th>
@@ -409,7 +409,7 @@ export const YarnPopover = ({
               type="button"
               onClick={loadArticleYarns}
               disabled={!articleYarns.length}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-stone-300 bg-white text-stone-700 text-[11px] font-bold hover:bg-stone-50 disabled:opacity-40 disabled:hover:bg-white"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-green-300 bg-white text-green-800 text-[11px] font-bold hover:bg-green-50 disabled:opacity-40 disabled:hover:bg-white"
               title={articleYarns.length
                 ? `${articleLabel || '원단'}의 원사: ${articleYarns.map(y => `${y.name}${y.ratio ? ` ${y.ratio}%` : ''}`).join(', ')}`
                 : 'article#가 원단 보관함 원단과 연결돼야 원사를 불러올 수 있어요'}

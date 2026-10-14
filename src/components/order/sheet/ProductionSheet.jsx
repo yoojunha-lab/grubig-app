@@ -6,14 +6,14 @@ import {
   PROCESS_THEME, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, COLOR_STAGES,
   DEFAULT_LOSS_RATE, PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS,
   TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES, INSPECTION_STATUSES, DYE_METHODS, CLOSING_ITEMS, PRESETTING_KEY,
-  DYE_REMAIN_STATES, YARN_ORDER_STATUSES, YARN_DYEING_KEY, buildFlowOrder, findStepMeta, getStepDefs, isCustomStepKey,
+  DYE_REMAIN_STATES, YARN_ORDER_STATUSES, YARN_DYEING_KEY, DONE_TONE, buildFlowOrder, findStepMeta, getStepDefs, isCustomStepKey,
 } from '../../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, isStepUsed, getKnittingEstimatedEnd, getEndShift, colorHasData,
   getLotOverview, getLotsStatus, getColorStage, getDday, getTrackEvent, isTestReportPassed,
   isInspectionUsed, getColorInspection, getRoundStatusDate, getDyeYield, getColorDyeRemain, describeDyeRemain,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState, collectVendorOptions,
-  isPieceDyed, getClosingState, isClosingPending,
+  isPieceDyed, getClosingState, isClosingPending, isShippingDone,
   getYarnState, getYarnRowInfo, canUseYarnDyeing,
 } from '../../../utils/orderModel';
 import { shortDate, fmtKg, todayYmd } from '../../../utils/orderCalculations';
@@ -144,6 +144,11 @@ const cellCls = ({ thick = false, lastSticky = false, extra = '' } = {}) => [
   thick ? 'border-b-2 border-b-slate-300' : 'border-b border-b-slate-100',
   extra,
 ].join(' ');
+
+// 끝난 것(종결) = 회색 (대표님 요청 2026-10-14 '종결된 건 회색으로 통일')
+//  완료된 오더(마무리 끝 · Drop)는 모든 칸, 진행 중인 오더는 끝난 칸만 (done) — 아니면 원래 색(tone)
+const isClosedOrder = (order) => order?.status === 'completed';
+const doneTone = (order, done, tone) => (isClosedOrder(order) || done ? DONE_TONE.cell : tone);
 
 // 왼쪽 고정 칸: 좁은 화면(md 미만)에서는 고정하지 않음 → 고정 칸이 화면을 다 가리지 않게
 const STICKY = 'relative md:sticky md:left-[var(--sl)] md:z-10';
@@ -279,7 +284,7 @@ const StepCell = ({ order, stepKey, span, bg, ctx }) => {
     <td
       rowSpan={span}
       onClick={e => open(e.currentTarget)}
-      className={cellCls({ thick: true, extra: `${CLICKABLE} ${used ? theme.cell : bg}` })}
+      className={cellCls({ thick: true, extra: `${CLICKABLE} ${used ? doneTone(order, step.status === 'done', theme.cell) : bg}` })}
     >
       <CellAction navKey={`step_${stepKey}`} onActivate={open} title={`${label} 일정 입력 (클릭 또는 Enter)`}>
         {used
@@ -351,7 +356,7 @@ const GreigeLines = ({ entries, onDone, max = 3 }) => {
               title="출고 체크 (바로 저장 — 날짜가 비었으면 오늘)"
               aria-label={`${kind.label} 출고 체크`}
             />
-            <span className={`shrink-0 px-1 rounded border text-[9px] font-bold ${kind.cls}`}>{kind.short}</span>
+            <span className={`shrink-0 px-1 rounded border text-[9px] font-bold ${g.done ? DONE_TONE.chip : kind.cls}`}>{kind.short}</span>
             <span className="shrink-0 font-mono text-[10px]">{g.date ? shortDate(g.date) : '날짜?'}</span>
             {g.kg ? <span className="shrink-0 font-mono text-[9px] opacity-80">{fmtKg(g.kg)}kg</span> : null}
             {g.memo && <span className="min-w-0 truncate text-[9px] opacity-70">{g.memo}</span>}
@@ -370,7 +375,9 @@ const GreigeCell = ({ order, color, last, bg, ctx, span = 1 }) => {
   const st = getGreigeState(piece ? order : color);
   const entries = st.entries;
   const open = (el) => ctx.openGreige(order.id, piece ? null : color.id, el);
-  const tone = st.fullDone ? PROCESS_THEME.greige.cell : st.partialDone ? 'bg-lime-50 text-lime-900' : bg;
+  // 끝 = 전체 출고 끝 · 또는 그 컬러(후염은 오더 전체) 출고 완료 → 회색
+  const shipped = piece ? isShippingDone(order) : !!color.shipDone;
+  const tone = doneTone(order, st.fullDone || shipped, st.partialDone ? 'bg-lime-50 text-lime-900' : bg);
   const onDone = (entryId, done) => (piece
     ? ctx.actions.setOrderGreigeOutDone(order.id, entryId, done)
     : ctx.actions.setGreigeOutDone(order.id, color.id, entryId, done));
@@ -404,6 +411,8 @@ const LotCell = ({ order, color, last, bg, ctx }) => {
   const range = fmtRange(ov.start, ov.end);
   const y = ov.dyeKg ? getDyeYield(ov.dyeKg, getLossRate(order), ctx.yieldSpecOf?.(order) || null) : null;
   const remain = getColorDyeRemain(order, color);
+  // 끝 = LOT 모두 완료(재가공 중이면 아님) · 또는 그 컬러 출고 완료 → 회색
+  const lotsDone = status === 'done' && !getColorInspection(color).anyRedye;
   const tooltip = has
     ? lots.map(l => `LOT${l.no} · ${getStatusLabel(l.status)}${l.startDate || l.endDate ? ` · ${fmtRange(l.startDate, l.endDate)}` : ''}${l.dyeKg ? ` · 배색 ${fmtKg(l.dyeKg)}kg` : ''}${l.notes ? ` · ${l.notes}` : ''}`).join('\n')
     : (canOpen ? '염가공 LOT 계획 입력' : undefined);
@@ -411,7 +420,7 @@ const LotCell = ({ order, color, last, bg, ctx }) => {
   return (
     <td
       onClick={canOpen ? e => open(e.currentTarget) : undefined}
-      className={cellCls({ thick: last, extra: `${has ? PROCESS_THEME.dyeing.cell : bg} ${canOpen ? CLICKABLE : ''}` })}
+      className={cellCls({ thick: last, extra: `${has ? doneTone(order, lotsDone || color.shipDone, PROCESS_THEME.dyeing.cell) : bg} ${canOpen ? CLICKABLE : ''}` })}
     >
       <CellAction navKey="lots" onActivate={canOpen ? open : undefined} disabled={!canOpen} title={tooltip}>
         <PresettingChip order={order} className="mb-0.5" />
@@ -468,8 +477,10 @@ const ConfirmCell = ({ order, color, last, bg, ctx }) => {
   const expected = color.testReport?.expectedDate || '';
   const expectedLate = needed && expected && !isTestReportPassed(color) && expected < todayYmd();
   const addEvent = (track) => (status) => ctx.actions.addTrackEvent(order.id, color.id, track, status);
+  // 끝 = 브랜드 컨펌 + (체크한 컬러는) 성적서 합격 · 또는 그 컬러 출고 완료 → 회색
+  const confirmDone = brandEv?.status === 'confirmed' && isTestReportPassed(color);
   return (
-    <td onClick={e => open(e.currentTarget)} className={cellCls({ thick: last, extra: `${CLICKABLE} ${bg}` })}>
+    <td onClick={e => open(e.currentTarget)} className={cellCls({ thick: last, extra: `${CLICKABLE} ${doneTone(order, confirmDone || color.shipDone, bg)}` })}>
       <CellAction navKey="confirm" onActivate={open} title="시험성적서 · 브랜드 컨펌 — 누르면 날짜·기록 수정 (드롭다운은 바로 저장)">
         <div className="space-y-1">
           {/* 시험성적서 */}
@@ -537,7 +548,9 @@ const InspectionCell = ({ order, color, last, bg, ctx }) => {
   const insp = getColorInspection(color);
   const lots = color.lots || [];
   const open = (el) => ctx.openInspection(order.id, color.id, el);
-  const tone = insp.anyDefect ? 'bg-rose-50' : insp.anyRedye ? 'bg-orange-50' : insp.used ? PROCESS_THEME.inspection.cell : bg;
+  // 끝 = LOT 모두 출고완료 · 또는 그 컬러 출고 완료 → 회색 (불량컨펌중 · 재가공은 먼저)
+  const tone = insp.anyDefect ? 'bg-rose-50' : insp.anyRedye ? 'bg-orange-50'
+    : doneTone(order, insp.allShipped || (insp.used && color.shipDone), insp.used ? PROCESS_THEME.inspection.cell : bg);
   const shown = insp.rows.slice(0, INSPECTION_MAX_LINES);
   const today = todayYmd();
   return (
@@ -596,14 +609,14 @@ const YarnCell = ({ order, span, bg, ctx }) => {
   const y = getYarnState(order);
   const open = (el) => ctx.openYarn(order.id, el);
   const today = todayYmd();
-  const tone = y.done ? PROCESS_THEME.yarn.cell : y.used ? 'bg-stone-50' : bg;
+  const tone = doneTone(order, y.done, y.used ? PROCESS_THEME.yarn.cell : bg); // 원사 끝 = 회색
   const shown = y.items.slice(0, YARN_MAX_LINES);
   return (
     <td rowSpan={span} onClick={e => open(e.currentTarget)} className={cellCls({ thick: true, extra: `${CLICKABLE} ${tone}` })}>
       <CellAction navKey="yarn" onActivate={open} title="원사 — 사종마다 발주대기·발주완료·입고완료·중지 · 재고 사용 · 원사염색 (클릭 또는 Enter · 드롭다운은 바로 저장)">
         <div className="space-y-0.5">
           {y.stock ? (
-            <div className="inline-flex items-center gap-1 px-1.5 py-px rounded-full border border-emerald-300 bg-emerald-100 text-emerald-800 text-[10px] font-extrabold" title="재고 원사 사용 — 원사 발주는 끝난 것으로 봐요">
+            <div className={`inline-flex items-center gap-1 px-1.5 py-px rounded-full border text-[10px] font-extrabold ${DONE_TONE.chip}`} title="재고 원사 사용 — 원사 발주는 끝난 것으로 봐요">
               재고 사용
             </div>
           ) : shown.map(row => {
@@ -654,7 +667,7 @@ const ClosingCell = ({ order, span, bg, ctx }) => {
   const cs = getClosingState(order);
   const pending = isClosingPending(order);
   const open = (el) => ctx.openClosing(order.id, el);
-  const tone = cs.complete ? PROCESS_THEME.closing.cell : pending ? 'bg-amber-50' : bg;
+  const tone = doneTone(order, cs.complete, pending ? 'bg-amber-50' : bg); // 마무리 3개 끝 = 회색
   return (
     <td rowSpan={span} onClick={e => open(e.currentTarget)} className={cellCls({ thick: true, extra: `${CLICKABLE} ${tone}` })}>
       <CellAction navKey="closing" onActivate={open} title="오더 마무리 — 원사재고정리 · EZTEX 재고정리 · EZTEX 종결 (체크는 바로 저장 · 칸을 누르면 메모)">
@@ -679,7 +692,7 @@ const ClosingCell = ({ order, span, bg, ctx }) => {
                   className="w-3 h-3 shrink-0 accent-emerald-600 cursor-pointer"
                   aria-label={`${it.label} 체크`}
                 />
-                <span className={`truncate text-[10px] ${item.done ? 'font-bold text-emerald-800' : 'text-slate-600'}`}>{it.short}</span>
+                <span className={`truncate text-[10px] ${item.done ? 'font-bold text-slate-500 line-through decoration-slate-400' : 'text-slate-700'}`}>{it.short}</span>
                 {item.done && item.date && <span className="shrink-0 font-mono text-[9px] opacity-60">{shortDate(item.date)}</span>}
                 {item.memo && <span className="shrink-0 text-[9px] text-slate-400">메모</span>}
               </label>
@@ -706,8 +719,13 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
   const dropClosed = isDropClosed(order);
 
   // 고정 칸은 불투명 배경 필수 (가로 스크롤 내용이 비치지 않게)
-  const stickyBg = `${isDraft ? 'bg-amber-50' : 'bg-white'} group-hover/ord:bg-teal-50`;
-  const plainBg = `${isDraft ? 'bg-amber-50/40' : ''} group-hover/ord:bg-teal-50/60`;
+  //  완료된 오더(마무리 끝 · Drop)는 줄 전체 회색 (대표님 요청 2026-10-14 — 칸 안 배지·드롭다운도 회색으로: tbody grayscale)
+  const stickyBg = completed
+    ? 'bg-slate-100 group-hover/ord:bg-slate-200'
+    : `${isDraft ? 'bg-amber-50' : 'bg-white'} group-hover/ord:bg-teal-50`;
+  const plainBg = completed
+    ? 'bg-slate-100 text-slate-500 group-hover/ord:bg-slate-200/70'
+    : `${isDraft ? 'bg-amber-50/40' : ''} group-hover/ord:bg-teal-50/60`;
 
   const setField = (field, value) => actions.setOrderField(order.id, field, value);
   const setColor = (colorId, patch) => actions.setColorField(order.id, colorId, patch);
@@ -746,7 +764,7 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
           <td
             key="ship"
             onClick={focusInside}
-            className={cellCls({ thick: last, extra: color.shipDone ? PROCESS_THEME.ship.cell : plainBg })}
+            className={cellCls({ thick: last, extra: color.shipDone ? DONE_TONE.cell : plainBg })}
           >
             <CellDate
               value={color.shipDate}
@@ -793,7 +811,7 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
   };
 
   return (
-    <tbody className={`group/ord ${onHold ? '[&_td>*]:opacity-70' : ''}`}>
+    <tbody className={`group/ord ${onHold ? '[&_td>*]:opacity-70' : ''} ${completed ? '[&_td>*]:grayscale' : ''}`}>
       {colors.map((color, ci) => {
         const first = ci === 0;
         const last = ci === span - 1;
@@ -860,13 +878,13 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
                       </span>
                     )}
                     {completed && !dropClosed && (
-                      <span className="px-1 py-px rounded border bg-emerald-100 text-emerald-700 border-emerald-300 text-[9px] font-extrabold">
+                      <span className={`px-1 py-px rounded border text-[9px] font-extrabold ${DONE_TONE.chip}`}>
                         완료
                       </span>
                     )}
                     {/* Drop 으로 닫힌 오더 — 설계서 꼬리표가 이미 'Drop'이면 한 번만 (설계서가 지워졌어도 오더에 남음) */}
                     {dropClosed && !sheetInfo?.dropped && (
-                      <span className="px-1 py-px rounded border bg-rose-50 text-rose-600 border-rose-200 text-[9px] font-extrabold" title="설계서 Drop으로 닫힌 샘플 오더">
+                      <span className={`px-1 py-px rounded border text-[9px] font-extrabold ${DONE_TONE.chip}`} title="설계서 Drop으로 닫힌 샘플 오더">
                         Drop
                       </span>
                     )}

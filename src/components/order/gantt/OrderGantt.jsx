@@ -2,7 +2,7 @@ import { useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 
 import { AlertTriangle, CalendarDays, CalendarPlus, Check, Crosshair, Flag, Plus } from 'lucide-react';
 import {
   COLOR_STAGES, ORDER_TYPES, PROCESS_THEME, PROVISIONAL_STATES, INSPECTION_STATUSES, PRESETTING_KEY,
-  YARN_ORDER_STATUSES, YARN_DYEING_KEY,
+  YARN_ORDER_STATUSES, YARN_DYEING_KEY, DONE_TONE,
   getStatusLabel, getStepMeta, findStepMeta, getStepDefs, findStatusMeta,
 } from '../../../constants/production';
 import {
@@ -131,7 +131,8 @@ const OrderLabel = ({ order, sheetInfo = null, onOpenDetail }) => {
       className="w-full h-full text-left pl-2.5 pr-8 py-1 flex flex-col justify-center hover:bg-teal-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-400"
       title="누르면 오더 상세 보기"
     >
-      <span className={`flex items-center gap-1 w-full min-w-0 ${dim ? 'opacity-70' : ''}`}>
+      {/* 완료된 오더(종결)는 이름 줄 배지까지 회색 (대표님 요청 2026-10-14) */}
+      <span className={`flex items-center gap-1 w-full min-w-0 ${dim ? 'opacity-70' : ''} ${completed ? 'grayscale' : ''}`}>
         <span className="font-mono font-extrabold text-xs text-teal-700 truncate">{order.orderNumber || '(order# 없음)'}</span>
         <span className={`${BADGE} text-[9px] px-1 ${TYPE_CHIP[order.type] || TYPE_CHIP.main}`}>{typeLabel}</span>
         {order.dyeMethod && (
@@ -141,9 +142,9 @@ const OrderLabel = ({ order, sheetInfo = null, onOpenDetail }) => {
         )}
         <SheetLinkChips info={sheetInfo} />
         {isClosingPending(order) && <span className={`${BADGE} text-[9px] px-1 bg-amber-50 text-amber-800 border-amber-300`}>마무리 대기</span>}
-        {dim && <span className={`${BADGE} text-[9px] px-1 bg-slate-200 text-slate-600 border-slate-300`}>보류</span>}
-        {completed && !dropClosed && <span className={`${BADGE} text-[9px] px-1 bg-emerald-100 text-emerald-700 border-emerald-300`}>완료</span>}
-        {dropClosed && !sheetInfo?.dropped && <span className={`${BADGE} text-[9px] px-1 bg-rose-50 text-rose-600 border-rose-200`}>Drop</span>}
+        {dim && <span className={`${BADGE} text-[9px] px-1 bg-white text-slate-500 border-slate-300 border-dashed`}>보류</span>}
+        {completed && !dropClosed && <span className={`${BADGE} text-[9px] px-1 ${DONE_TONE.chip}`}>완료</span>}
+        {dropClosed && !sheetInfo?.dropped && <span className={`${BADGE} text-[9px] px-1 ${DONE_TONE.chip}`}>Drop</span>}
         {/* 완료 오더는 D-day 숨김 (현황표·모바일 목록과 같은 규칙) */}
         {!completed && <span className="ml-auto shrink-0"><DdayBadge due={order.finalDueDate} /></span>}
       </span>
@@ -164,7 +165,7 @@ const ColorLabel = ({ order, color }) => {
     remain ? `${describeDyeRemain(remain)} (배색 ${fmtKg(remain.dyeKg)}kg)` : '',
   ].filter(Boolean).join(' · ');
   return (
-    <div className={`h-full flex items-center gap-1.5 pl-6 pr-8 min-w-0 ${order.status === 'on_hold' ? 'opacity-70' : ''}`} title={tip}>
+    <div className={`h-full flex items-center gap-1.5 pl-6 pr-8 min-w-0 ${order.status === 'on_hold' ? 'opacity-70' : ''} ${order.status === 'completed' ? 'grayscale' : ''}`} title={tip}>
       <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
       <span className={`text-[11px] font-bold truncate ${color.name ? 'text-slate-700' : 'text-slate-400'}`}>{color.name || '컬러'}</span>
       {workKg !== null && (
@@ -725,10 +726,13 @@ export const OrderGantt = ({
     />
   );
 
+  // 끝난 막대 · 완료된 오더(종결)의 막대 = 회색 (대표님 요청 2026-10-14 '종결된 건 회색으로 통일') — ✓ 는 끝난 막대만
+  //  완료된 오더는 '문제' 빨간 테두리도 안 씀 (끝난 오더에 경고가 남지 않게)
   const renderBar = (order, color, bar) => {
-    const theme = PROCESS_THEME[bar.theme] || PROCESS_THEME.custom;
+    const closed = order.status === 'completed';
     const done = bar.status === 'done';
-    const issue = bar.status === 'issue';
+    const issue = bar.status === 'issue' && !closed;
+    const barCls = closed || done ? DONE_TONE.bar : (PROCESS_THEME[bar.theme] || PROCESS_THEME.custom).bar;
     const estimated = isEstimatedBar(order, bar);
     const dashed = estimated || !!bar.dashed;
     const rounded = `${bar.clipL ? 'rounded-l-none border-l-0' : 'rounded-l-md'} ${bar.clipR ? 'rounded-r-none border-r-0' : 'rounded-r-md'}`;
@@ -741,9 +745,9 @@ export const OrderGantt = ({
         onMouseLeave={hideTip}
         onFocus={e => showTip(e, order, color, bar)}
         onBlur={hideTip}
-        className={`absolute z-[2] flex items-center px-1 border text-[10px] font-bold leading-none whitespace-nowrap text-left transition-shadow hover:shadow-md hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${theme.bar} ${rounded} ${
-          done ? 'opacity-60' : ''
-        } ${issue ? 'ring-2 ring-red-500' : ''} ${dashed ? 'border-dashed' : ''}`}
+        className={`absolute z-[2] flex items-center px-1 border text-[10px] font-bold leading-none whitespace-nowrap text-left transition-shadow hover:shadow-md hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${barCls} ${rounded} ${
+          issue ? 'ring-2 ring-red-500' : ''
+        } ${dashed ? 'border-dashed' : ''}`}
         style={{
           left: bar.startCol * DAY_W + (bar.clipL ? 0 : 2),
           width: (bar.endCol - bar.startCol + 1) * DAY_W - (bar.clipL ? 0 : 2) - (bar.clipR ? 0 : 2),
@@ -784,9 +788,10 @@ export const OrderGantt = ({
   );
 
   // ---------- 가납기 깃발 (오더 줄 맨 위) — 깃발 오른쪽 끝 = 그 날짜 칸 끝 (납기 점선과 같은 기준) ----------
+  //  완료된 오더(종결)는 깃발 · 점선도 회색 (늦게 끝났어도 — 숫자 꼬리 '+3'은 그대로)
   const renderFlag = (order, flag) => {
     const worst = worstMark(flag.marks);
-    const st = PROVISIONAL_STATES[worst.info.state] || PROVISIONAL_STATES.none;
+    const st = order.status === 'completed' ? PROVISIONAL_STATES.done : (PROVISIONAL_STATES[worst.info.state] || PROVISIONAL_STATES.none);
     const tail = describeProvisionalDue(worst.info).short;
     return (
       <button
@@ -808,8 +813,8 @@ export const OrderGantt = ({
   };
 
   // 가납기 세로 점선 — 오더 묶음(오더 줄 + 컬러 줄) 전체를 지나서 아래 막대 끝과 비교
-  const renderFlagGuide = (flag) => {
-    const st = PROVISIONAL_STATES[worstMark(flag.marks).info.state] || PROVISIONAL_STATES.none;
+  const renderFlagGuide = (order, flag) => {
+    const st = order.status === 'completed' ? PROVISIONAL_STATES.done : (PROVISIONAL_STATES[worstMark(flag.marks).info.state] || PROVISIONAL_STATES.none);
     return (
       <div
         key={`g${flag.col}`}
@@ -826,10 +831,11 @@ export const OrderGantt = ({
     const { order } = group;
     const isOrder = row.kind === 'order';
     const dim = order.status === 'on_hold';
+    const closed = order.status === 'completed'; // 완료된 오더(종결) = 줄 전체 회색 (2026-10-14)
     return (
       <div key={row.key} className="flex border-b border-slate-100 last:border-b-0" style={{ minHeight: row.minH }}>
         <div
-          className={`sticky left-0 z-20 shrink-0 border-r-2 border-r-slate-300 ${isOrder ? 'bg-slate-50' : 'bg-white'}`}
+          className={`sticky left-0 z-20 shrink-0 border-r-2 border-r-slate-300 ${closed ? 'bg-slate-100' : isOrder ? 'bg-slate-50' : 'bg-white'}`}
           style={{ width: LABEL_W }}
         >
           {isOrder
@@ -847,7 +853,7 @@ export const OrderGantt = ({
           </button>
         </div>
         <div
-          className={`relative shrink-0 cursor-pointer ${isOrder ? 'bg-slate-400/[0.06]' : ''} ${dim ? 'opacity-70' : ''}`}
+          className={`relative shrink-0 cursor-pointer ${closed ? 'bg-slate-400/[0.12]' : isOrder ? 'bg-slate-400/[0.06]' : ''} ${dim ? 'opacity-70' : ''}`}
           style={{ width: layout.width, ...GRID_BG }}
           onMouseDown={handleCellMouseDown}
           onClick={e => handleCellClick(e, order, row.color)}
@@ -951,7 +957,7 @@ export const OrderGantt = ({
             {layout.groups.map(group => (
               <div key={group.order.id} className="relative border-b-2 border-slate-300">
                 {group.rows.map(row => renderRow(group, row))}
-                {group.flags.map(renderFlagGuide)}
+                {group.flags.map(flag => renderFlagGuide(group.order, flag))}
               </div>
             ))}
             {layout.todayCol >= 0 && (
@@ -986,7 +992,9 @@ export const OrderGantt = ({
           <span className={`px-1 rounded-sm border text-[9px] font-extrabold ${PROVISIONAL_STATES.ok.flag}`}>맞음</span>
           <span className={`px-1 rounded-sm border text-[9px] font-extrabold ${PROVISIONAL_STATES.late.flag}`}>늦음</span>
         </span>
-        <span className="inline-flex items-center gap-1"><Check className="w-3 h-3" strokeWidth={3} />완료(흐리게)</span>
+        <span className="inline-flex items-center gap-1" title="끝난 막대 · 완료된 오더는 모두 회색">
+          <span className={`inline-flex items-center px-1 rounded-sm border ${DONE_TONE.bar}`}><Check className="w-3 h-3" strokeWidth={3} /></span>완료(회색)
+        </span>
         <span className="inline-flex items-center gap-1"><span className="w-3 h-2.5 rounded-sm ring-2 ring-red-500 bg-white" />문제</span>
         <span className="inline-flex items-center gap-1"><span className="w-3 h-2.5 rounded-sm border border-dashed border-yellow-500 bg-yellow-100" />생산량 계산</span>
         <span className="inline-flex items-center gap-1" title="예상 종료일을 바꾼 공정 — 회색 점선이 최초 예상 종료일까지"><span className="w-3 h-2.5 rounded-sm border-2 border-dashed border-slate-400 bg-slate-300/20" />최초 예상</span>

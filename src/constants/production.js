@@ -17,11 +17,22 @@ export const PROGRESS_STATUSES = [
   { key: 'done',        label: '완료'   },
 ];
 
+// 끝난 것(종결) 공통 회색 — 현황표 칸 · 간트 막대 · 상태 배지 (대표님 요청 2026-10-14 '종결된 건 회색으로 통일')
+//  완료된 오더(마무리 끝 · Drop)는 줄 전체, 진행 중인 오더는 끝난 칸 · 막대만. 진행 중(파랑) · 문제(빨강)만 색으로 남음
+//  cell: 표 칸 배경+글자 / bar: 간트 막대 / chip: 상태 드롭다운 · 배지 / dot: 점
+export const DONE_TONE = {
+  cell: 'bg-slate-100 text-slate-500',
+  bar: 'bg-slate-200 border-slate-400 text-slate-600',
+  chip: 'bg-slate-200 text-slate-600 border-slate-400',
+  dot: 'bg-slate-400',
+};
+
+//  대기 = 흰 바탕(아직 시작 전) / 완료 = 회색(끝남 — DONE_TONE) — 둘 다 회색이면 헷갈려서 대기는 흰색
 export const PROGRESS_STATUS_COLORS = {
-  pending:     { bg: 'bg-slate-100',   text: 'text-slate-700',   border: 'border-slate-300',   dot: 'bg-slate-400'   },
+  pending:     { bg: 'bg-white',       text: 'text-slate-600',   border: 'border-slate-300',   dot: 'bg-slate-300'   },
   in_progress: { bg: 'bg-blue-100',    text: 'text-blue-700',    border: 'border-blue-300',    dot: 'bg-blue-500'    },
   issue:       { bg: 'bg-red-100',     text: 'text-red-700',     border: 'border-red-300',     dot: 'bg-red-500'     },
-  done:        { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-300', dot: 'bg-emerald-500' },
+  done:        { bg: 'bg-slate-200',   text: 'text-slate-600',   border: 'border-slate-400',   dot: DONE_TONE.dot    },
 };
 
 export const getStatusLabel = (key) => PROGRESS_STATUSES.find(s => s.key === key)?.label || '대기';
@@ -217,10 +228,11 @@ export const DYEING_STEP = { key: 'dyeing', label: '염가공', vendorLabel: '�
 //  엑셀: 편직=노랑, 생지출고·염색대기=초록, 염가공=주황, 컨펌·출고=파랑
 //  cell: 표 칸/뱃지 배경+글자, bar: 간트 막대(진한 배경+테두리), dot: 범례 점
 // ============================================================
+//  원사 · 사가공은 초록 (예전 회갈색은 '끝남' 회색과 헷갈려서 — 2026-10-14)
 export const PROCESS_THEME = {
-  yarn:              { label: '원사',       cell: 'bg-stone-100 text-stone-700',     bar: 'bg-stone-200 border-stone-400 text-stone-800',     dot: 'bg-stone-400'   },
+  yarn:              { label: '원사',       cell: 'bg-green-50 text-green-900',      bar: 'bg-green-200 border-green-500 text-green-900',     dot: 'bg-green-500'   },
   yarn_dyeing:       { label: '원사염색',   cell: 'bg-pink-50 text-pink-800',        bar: 'bg-pink-200 border-pink-400 text-pink-900',        dot: 'bg-pink-400'    },
-  yarn_processing:   { label: '사가공',     cell: 'bg-stone-100 text-stone-700',     bar: 'bg-stone-200 border-stone-400 text-stone-800',     dot: 'bg-stone-400'   },
+  yarn_processing:   { label: '사가공',     cell: 'bg-green-50 text-green-900',      bar: 'bg-green-100 border-green-400 text-green-900',     dot: 'bg-green-400'   },
   knitting:          { label: '편직',       cell: 'bg-yellow-100 text-yellow-800',   bar: 'bg-yellow-200 border-yellow-400 text-yellow-900',  dot: 'bg-yellow-400'  },
   presetting:        { label: '프리세팅',   cell: 'bg-cyan-100 text-cyan-800',       bar: 'bg-cyan-200 border-cyan-400 text-cyan-900',        dot: 'bg-cyan-400'    },
   greige:            { label: '생지출고',   cell: 'bg-lime-100 text-lime-800',       bar: 'bg-lime-200 border-lime-500 text-lime-900',        dot: 'bg-lime-500'    },
@@ -241,8 +253,8 @@ export const PROCESS_THEME = {
 // 4. 컬러 줄의 "현재 단계" (입력한 일정/상태로 자동 계산 — orderModel.getColorStage)
 // ============================================================
 export const COLOR_STAGES = {
-  waiting:     { label: '대기',       cls: 'bg-slate-100 text-slate-600 border-slate-200' },
-  yarn:        { label: '원사진행',   cls: 'bg-stone-100 text-stone-700 border-stone-300' },
+  waiting:     { label: '대기',       cls: 'bg-white text-slate-500 border-slate-300' },     // 시작 전 = 흰색 (끝남 회색과 구분)
+  yarn:        { label: '원사진행',   cls: 'bg-green-50 text-green-800 border-green-300' },
   yarn_dyeing: { label: '원사염색중', cls: 'bg-pink-50 text-pink-800 border-pink-300' },
   knit_wait:   { label: '편직대기',   cls: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
   knitting:    { label: '편직중',     cls: 'bg-yellow-200 text-yellow-900 border-yellow-400' },
@@ -260,10 +272,10 @@ export const COLOR_STAGES = {
   confirm_wait: { label: '컨펌대기',  cls: 'bg-sky-50 text-sky-700 border-sky-200' },
   confirm:     { label: '컨펌중',     cls: 'bg-sky-100 text-sky-800 border-sky-300' },
   ship_wait:   { label: '출고대기',   cls: 'bg-blue-100 text-blue-800 border-blue-300' },
-  shipped:     { label: '출고완료',   cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  shipped:     { label: '출고완료',   cls: DONE_TONE.chip },   // 끝남 = 회색 (2026-10-14)
   issue:       { label: '문제',       cls: 'bg-red-100 text-red-700 border-red-300' },
-  on_hold:     { label: '보류',       cls: 'bg-slate-200 text-slate-600 border-slate-300' },
-  completed:   { label: '완료',       cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  on_hold:     { label: '보류',       cls: 'bg-white text-slate-500 border-slate-300 border-dashed' },
+  completed:   { label: '완료',       cls: DONE_TONE.chip },
 };
 
 // ============================================================
@@ -275,10 +287,11 @@ export const ORDER_STATUSES = [
   { key: 'completed', label: '완료'   },
 ];
 
+//  완료 = 회색 (끝남 — DONE_TONE, 2026-10-14) · 보류 = 흰 바탕 점선 느낌의 연한 회색
 export const ORDER_STATUS_COLORS = {
   active:    { bg: 'bg-blue-100',    text: 'text-blue-700',    border: 'border-blue-300',    dot: 'bg-blue-500'    },
-  on_hold:   { bg: 'bg-slate-100',   text: 'text-slate-600',   border: 'border-slate-300',   dot: 'bg-slate-400'   },
-  completed: { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-300', dot: 'bg-emerald-500' },
+  on_hold:   { bg: 'bg-white',       text: 'text-slate-500',   border: 'border-slate-300',   dot: 'bg-slate-300'   },
+  completed: { bg: 'bg-slate-200',   text: 'text-slate-600',   border: 'border-slate-400',   dot: DONE_TONE.dot    },
 };
 
 // ============================================================
@@ -303,11 +316,11 @@ export const detectOrderType = (orderNumber) => {
 export const DEFAULT_LOSS_RATE = 10;
 
 // 남은 배색량 (생지kg − 배색량 합계 — 대표님 요청 2026-10-14) 색
-//  left = 더 배색할 게 남음(주황) / done = 딱 맞음(초록) / over = 생지kg 보다 더 배색(빨강)
+//  left = 더 배색할 게 남음(주황) / done = 딱 맞음(회색 — 끝남) / over = 생지kg 보다 더 배색(빨강)
 //  text = 칸 안 글자, badge = LOT 창 배지
 export const DYE_REMAIN_STATES = {
   left: { text: 'text-orange-700', badge: 'bg-orange-100 text-orange-800 border-orange-300' },
-  done: { text: 'text-emerald-700', badge: 'bg-emerald-50 text-emerald-700 border-emerald-300' },
+  done: { text: 'text-slate-500', badge: DONE_TONE.chip },
   over: { text: 'text-red-600', badge: 'bg-red-50 text-red-700 border-red-300' },
 };
 
@@ -343,20 +356,21 @@ export const CLOSING_KEYS = CLOSING_ITEMS.map(i => i.key);
 //  드롭다운을 바꿀 때마다 그날 날짜로 한 줄씩 남음 (날짜는 고칠 수 있음) → 마지막 줄이 지금 상태
 //  phase: 'active'(진행) · 'done'(끝) · 'issue'(문제) — 간트 막대 색 · 컬러 단계 계산용
 //  startsRound: 이 상태로 새 차수가 시작됨 (간트 막대 = 시작 ~ 결과)
+//  끝(done) 상태는 회색 (DONE_TONE — 2026-10-14 '종결된 건 회색')
 // ============================================================
 // 시험성적서 (컨펌 칸 — '시험성적서'를 체크한 컬러만)
 export const TEST_REPORT_STATUSES = [
   { key: 'issuing',  label: '발행중', phase: 'active', startsRound: true,  cls: 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-300' },
-  { key: 'pass',     label: '합격',   phase: 'done',   startsRound: false, cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  { key: 'pass',     label: '합격',   phase: 'done',   startsRound: false, cls: DONE_TONE.chip },
   { key: 'fail',     label: '불합격', phase: 'issue',  startsRound: false, cls: 'bg-rose-100 text-rose-700 border-rose-300' },
   { key: 'resubmit', label: '재투입', phase: 'active', startsRound: true,  cls: 'bg-amber-100 text-amber-800 border-amber-300' },
-  { key: 'repass',   label: '재합격', phase: 'done',   startsRound: false, cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  { key: 'repass',   label: '재합격', phase: 'done',   startsRound: false, cls: DONE_TONE.chip },
 ];
 
 // 브랜드 컨펌 (가공지를 브랜드에 보내 승인받기)
 export const BRAND_CONFIRM_STATUSES = [
   { key: 'sent',      label: '전달', phase: 'active', startsRound: true,  cls: 'bg-sky-100 text-sky-700 border-sky-300' },
-  { key: 'confirmed', label: '컨펌', phase: 'done',   startsRound: false, cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  { key: 'confirmed', label: '컨펌', phase: 'done',   startsRound: false, cls: DONE_TONE.chip },
   { key: 'rejected',  label: '리젝', phase: 'issue',  startsRound: false, cls: 'bg-rose-100 text-rose-700 border-rose-300' },
 ];
 
@@ -370,7 +384,7 @@ export const INSPECTION_STATUSES = [
   { key: 'defect',     label: '불량컨펌중',   phase: 'issue',   startsRound: false, cls: 'bg-rose-100 text-rose-700 border-rose-300' },
   { key: 'redye',      label: '재가공',       phase: 'rework',  startsRound: false, cls: 'bg-orange-100 text-orange-800 border-orange-300' },
   { key: 'ready',      label: '출고준비완료', phase: 'done',    startsRound: false, cls: 'bg-blue-100 text-blue-700 border-blue-300' },
-  { key: 'shipped',    label: '출고완료',     phase: 'done',    startsRound: false, cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+  { key: 'shipped',    label: '출고완료',     phase: 'done',    startsRound: false, cls: DONE_TONE.chip },
 ];
 
 // 원사 사종 줄 (원사 칸 — 대표님 요청 2026-10-14 v11) — 발주대기 · 발주완료 · 입고완료 · 중지
@@ -380,8 +394,8 @@ export const INSPECTION_STATUSES = [
 export const YARN_ORDER_STATUSES = [
   { key: 'waiting', label: '발주대기', phase: 'pending', cls: 'bg-white text-slate-600 border-slate-300' },
   { key: 'ordered', label: '발주완료', phase: 'active',  cls: 'bg-amber-100 text-amber-800 border-amber-300' },
-  { key: 'arrived', label: '입고완료', phase: 'done',    cls: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
-  { key: 'stopped', label: '중지',     phase: 'stopped', cls: 'bg-slate-200 text-slate-500 border-slate-300' },
+  { key: 'arrived', label: '입고완료', phase: 'done',    cls: DONE_TONE.chip },
+  { key: 'stopped', label: '중지',     phase: 'stopped', cls: 'bg-slate-50 text-slate-400 border-slate-300 border-dashed' },
 ];
 
 // 상태 목록에서 한 줄 찾기 (없으면 null)
@@ -431,7 +445,7 @@ export const PROVISIONAL_DUE_KEYS = PROVISIONAL_DUE_STEPS.map(s => s.key);
 //  chip: 현황표·상세창·입력 창 뱃지 / flag: 간트 깃발 / line: 간트 세로 점선 / rank: 깃발을 합칠 때 더 나쁜 상태 우선
 export const PROVISIONAL_STATES = {
   none:      { rank: 0, chip: 'bg-white text-slate-300 border-slate-200',          flag: 'bg-white text-slate-500 border-slate-300',          line: 'border-slate-300'   },
-  done:      { rank: 1, chip: 'bg-emerald-100 text-emerald-700 border-emerald-300', flag: 'bg-emerald-100 text-emerald-800 border-emerald-400', line: 'border-emerald-500' },
+  done:      { rank: 1, chip: DONE_TONE.chip, flag: DONE_TONE.chip, line: 'border-slate-400' },   // 가납기 안에 끝남 = 회색 (2026-10-14)
   ok:        { rank: 2, chip: 'bg-emerald-50 text-emerald-700 border-emerald-200',  flag: 'bg-emerald-50 text-emerald-800 border-emerald-400',  line: 'border-emerald-500' },
   unplanned: { rank: 3, chip: 'bg-slate-100 text-slate-500 border-slate-200',      flag: 'bg-white text-slate-600 border-slate-400',          line: 'border-slate-400'   },
   done_late: { rank: 4, chip: 'bg-orange-100 text-orange-700 border-orange-300',   flag: 'bg-orange-100 text-orange-800 border-orange-400',   line: 'border-orange-500'  },
