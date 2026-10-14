@@ -33,7 +33,7 @@ import { useHangerSticker } from '../hooks/domains/useHangerSticker';
 import { useExcelIO } from '../hooks/domains/useExcelIO';
 import { useQuoteExport } from '../hooks/domains/useQuoteExport';
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
-import { DEFAULT_EXCHANGE_RATE, rateLabel } from '../utils/helpers';
+import { DEFAULT_EXCHANGE_RATE, rateLabel, sortByArticle } from '../utils/helpers';
 import { resolveCostSettings } from '../utils/costModel';
 import { getOpenWork } from '../utils/orderModel';
 import { resolveStickerOptions } from '../utils/hangerSticker';
@@ -219,7 +219,7 @@ const App = () => {
     if (DEV_BYPASS) {
       // Firestore 구독 대신 격리 샘플 데이터 주입 (collections는 빈 상태에서 UI로 생성)
       setYarnLibrary(DEV_SAMPLE_YARNS);
-      setSavedFabrics(DEV_SAMPLE_FABRICS);
+      setSavedFabrics(sortByArticle(DEV_SAMPLE_FABRICS));
       setDevRequests(DEV_SAMPLE_DEV_REQUESTS);
       setDesignSheets(DEV_SAMPLE_DESIGN_SHEETS);
       setOrders(DEV_SAMPLE_ORDERS);            // 생산 현황 v8 샘플 (옛 형식 1건 포함)
@@ -286,7 +286,8 @@ const App = () => {
       }));
       setYarnsLoaded(true);
     });
-    const unsubFabrics = onSnapshot(collection(db, 'fabrics'), (snapshot) => setSavedFabrics(snapshot.docs.map(doc => doc.data())));
+    // 원단 — Article 순서로 정렬해서 둠 (저장소는 등록 번호 순서로 줌 → 원단 관리·컬렉션·견적·PI 등 모든 원단 목록이 섞여 보였음, 2026-10-14)
+    const unsubFabrics = onSnapshot(collection(db, 'fabrics'), (snapshot) => setSavedFabrics(sortByArticle(snapshot.docs.map(doc => doc.data()))));
     const unsubQuotes = onSnapshot(collection(db, 'quotes'), (snapshot) => { setSavedQuotes(snapshot.docs.map(doc => doc.data())); setSyncStatus('saved'); });
     const unsubDevReqs = onSnapshot(collection(db, 'devRequests'), (snapshot) => setDevRequests(snapshot.docs.map(doc => doc.data())));
     const unsubDesignSheets = onSnapshot(collection(db, 'designSheets'), (snapshot) => setDesignSheets(snapshot.docs.map(doc => doc.data())));
@@ -333,7 +334,9 @@ const App = () => {
 
   // DEV 우회 시 Firestore 대신 로컬 state만 갱신하기 위한 컬렉션명 → setter 매핑
   const DEV_LOCAL_SETTERS = {
-    collections: setCollections, fabrics: setSavedFabrics, yarns: setYarnLibrary,
+    collections: setCollections, yarns: setYarnLibrary,
+    // 원단은 DEV에서도 Article 순서 유지 (실제 구독과 같게)
+    fabrics: (update) => setSavedFabrics(prev => sortByArticle(typeof update === 'function' ? update(prev) : update)),
     quotes: setSavedQuotes, devRequests: setDevRequests, designSheets: setDesignSheets,
     mainDetails: setMainDetails, tempDesignSheets: setTempDesignSheets, orders: setOrders,
     proformaInvoices: setProformaInvoices, labdips: setLabdips, partners: setPartners,
@@ -616,7 +619,7 @@ const App = () => {
     handleCollectionChange, resetCollectionForm,
     handleSaveCollection, handleEditCollection, handleDeleteCollection,
     addArticlesToCollection, removeArticleFromCollection,
-    updateArticleMemo, moveArticle,
+    updateArticleMemo, moveArticle, sortCollectionArticles,
   } = useCollection(collections, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast);
 
   // ⚓️ PI/거래확인서(영업) 훅
@@ -1199,6 +1202,7 @@ const App = () => {
             removeArticleFromCollection={removeArticleFromCollection}
             updateArticleMemo={updateArticleMemo}
             moveArticle={moveArticle}
+            sortCollectionArticles={sortCollectionArticles}
           />
         )}
 

@@ -16,7 +16,7 @@
 | 도메인 | 문서 위치 |
 |-------|---------|
 | 생산 스케줄 (오더/공정/차수/알람/간트·가납기·날짜 메모) + 생산 현황 v9 (예상 시작/종료일·최초 예상 기록·상태 드롭다운·편직 기계별 생산량·공정 추가·가납기 일수·생지 전체/부분 출고·LOT·시험성적서·브랜드 컨펌·간트 [+]) + 생산 현황 v10 (LOT 배색량·예상 YD·프리세팅 → LOT 창·외관검사 LOT별 1차·2차(투입 전·재가공)·오더 마무리(원사재고정리·EZTEX 재고정리·EZTEX 종결)·선염/후염(후염 = 생지 출고 오더에 한 번)·생지 출고 kg·간트 날짜 → 그 날에 넣기) + 설계서 샘플 오더 (메인/샘플, EZ-TEX 등록 → 샘플 오더, 아이템화·Drop·샘플 끝내기·아이템화 대기) + 생산 ▾ 계산기 (선염 — 스트라이프 원사 배분·멜란지 수량 비율) | `docs/production-schedule-spec.md` (기획서 원본), `docs/production-schedule-plan.md` (구현 플랜 & 진행상황, v10은 '생산 현황 v10' 절, v9 개편은 '생산 현황 개편 v9' 절, 가납기는 '가납기 · 간트 메모' 절, 샘플 오더는 '설계서 ↔ 샘플 오더' 절 + '샘플 흐름 점검·디버깅' 절, 계산기는 '생산 ▾ 계산기' 절) |
-| UI 용어 통일 (마진 단계 등) + 가설계서/저장·삭제·날짜 규약 + 팝업 창 규약(ModalBackdrop) | `docs/terminology.md` (용어 사전) |
+| UI 용어 통일 (마진 단계 등) + 가설계서/저장·삭제·날짜 규약 + 목록 정렬(Article 순서 §3-A) + 팝업 창 규약(ModalBackdrop) | `docs/terminology.md` (용어 사전) |
 | 원단 원가 계산 (편직 정액·LOSS 구간·가공 유형·이화학/운임·수입 원사 운반비·원가 설정·공통 환율(내수·수출)/견적 환율·실시간 환율·원가 확인 필요) + 견적서 (기준 견적·별도 견적·러닝 생지 견적·견적서 약관 문구(내수는 한글)) + 개발 의뢰 원가 견적·Drop 사유 | `docs/costing-model.md` (원가 모델 & 설정, 환율은 §5-A, 견적서는 §5-B, 개발 의뢰 원가 견적은 §5-C) |
 | 기타 ▾ 헹거 스티커 (TAG 엑셀 양식 그대로 뽑기 — 아이템 필수·WIDTH·WEIGHT는 아이템 값 잠금(실제 G/YD), CATEGORY 고르기·CARE 체크([⚙ 설정] 목록), QR 그림 올리기(EZ-TEX 주소 읽기), 체크해서 여러 장 엑셀 다운로드) | `docs/hanger-sticker.md` (양식 칸 위치·QR 규칙·칸 규칙·설정·엑셀 만드는 법·확인한 것) |
 
@@ -102,7 +102,7 @@ GRUBIG-APP/
 │   │   └── db.js                # Firestore 추상화 (saveDocToCloud, deleteDocFromCloud 등)
 │   │
 │   ├── utils/
-│   │   ├── helpers.js           # num, calculateGYd, todayLocalISO(오늘 날짜) 등 순수 함수
+│   │   ├── helpers.js           # num, calculateGYd, todayLocalISO(오늘 날짜), compareArticle·sortByArticle(Article 순서 — PW1001 → PW1002 …) 등 순수 함수
 │   │   ├── quoteModel.js        # 견적 계산 (기준 견적 판가 / 별도 견적 / 외관검사·시험성적서 제외 / 예전 견적 정규화 / 출력 전 확인)
 │   │   ├── excelIO.js           # 엑셀 업로드 칸 읽기 (숫자·%·예/아니오·통화)
 │   │   ├── costFields.js        # 원가 칸 초기값 (원단·설계서·가설계서 공통)

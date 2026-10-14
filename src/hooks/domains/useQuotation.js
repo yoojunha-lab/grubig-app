@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { calculateMcqYd, num, todayLocalISO, rateForMarket, rateLabel } from '../../utils/helpers';
+import { calculateMcqYd, num, todayLocalISO, rateForMarket, rateLabel, compareArticle } from '../../utils/helpers';
 import { QUOTE_TIERS, QUOTE_TIER_KEYS, DEFAULT_SHOWN_TIERS, DEFAULT_CUSTOM_QTY, DEFAULT_CUSTOM_COLORS } from '../../constants/quote';
 import {
   normalizeQuote, isNewMarginModel, convertMarginAdd, convertAmount, convertBasePrice, convertCostParts,
@@ -759,8 +759,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     const itemCount = (quoteInput.items || []).length + (quoteInput.customItems || []).length;
     if (itemCount === 0) { showToast("기준 견적이나 별도 견적에 원단을 추가해주세요.", 'error'); return false; }
 
-    // [기획 요구사항 3] 저장(Save) 시 자동 정렬 (Article 기반 가나다/오름차순) — 기준 견적만. 별도 견적은 넣은 순서 그대로
-    const sortedItems = [...(quoteInput.items || [])].sort((a, b) => String(a.article).localeCompare(String(b.article)));
+    // [기획 요구사항 3] 저장(Save) 시 자동 정렬 (Article 순서 — 숫자는 크기대로, 원단 목록과 같은 규칙) — 기준 견적만. 별도 견적은 넣은 순서 그대로
+    const sortedItems = [...(quoteInput.items || [])].sort((a, b) => compareArticle(a.article, b.article));
 
     const authorName = user?.displayName || user?.email?.split('@')[0] || 'Unknown';
     // 기존 id가 있으면 유지(수정 모드) → 중복 생성 방지, 없으면 새 ID 부여 (스냅샷 정렬 배열 포함)

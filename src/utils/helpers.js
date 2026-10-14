@@ -184,6 +184,24 @@ export const formatMonthDay = (value) => {
 };
 
 /**
+ * Article 순서 비교 — 숫자는 크기대로 (PW1001 → PW1001A → PW1002 → … → PW1010 → … → PW2011)
+ *  · 대소문자·앞뒤 띄어쓰기 무시, 빈 Article은 맨 뒤
+ *  · 원단 목록은 저장소(Firestore)에서 '등록 번호(등록한 시각) 순서'로 오고, 엑셀로 한꺼번에 올린 원단은
+ *    번호 끝이 _1, _10, _11 … _2 처럼 글자 순서라 섞임 → 화면에 쓰기 전에 이 순서로 정렬 (대표님 제보 2026-10-14)
+ */
+const articleCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+export const compareArticle = (a, b) => {
+  const x = String(a ?? '').trim();
+  const y = String(b ?? '').trim();
+  if (!x || !y) return x ? -1 : (y ? 1 : 0);
+  return articleCollator.compare(x, y);
+};
+
+/** Article 순서로 정렬한 새 배열 (원본은 그대로) — getArticle로 Article을 꺼내는 법을 바꿀 수 있음. Article이 같으면 id 순서 */
+export const sortByArticle = (list, getArticle = (x) => x?.article) => [...(list || [])].sort((a, b) =>
+  compareArticle(getArticle(a), getArticle(b)) || String(a?.id ?? '').localeCompare(String(b?.id ?? '')));
+
+/**
  * 견적서 날짜 표기 (유효기간)
  *  · 'en' — 'OCT 21, 2026' 영문 대문자 (수출 견적서)
  *  · 'ko' — '2026년 10월 21일' (내수 견적서 약관 — 대표님 요청 2026-10-07)

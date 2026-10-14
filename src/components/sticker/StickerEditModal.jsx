@@ -10,6 +10,7 @@ import {
   fabricYarnHint, normalizeQrInput, eztexQrNumber, normalizeCare, orderCare, STICKER_TYPE_SUGGESTIONS, STICKER_CARE_MAX_LINES,
 } from '../../utils/hangerSticker';
 import { readQrFromImage } from '../../utils/hangerStickerQr';
+import { compareArticle } from '../../utils/helpers';
 
 // ============================================================
 // 헹거 스티커 입력 창 (기타 ▾ 헹거 스티커 — 대표님 요청 2026-10-14)
@@ -65,7 +66,7 @@ export const StickerEditModal = ({
   // ── 아이템 (원단 관리) ──
   const fabricOptions = useMemo(() => [...(savedFabrics || [])]
     .filter(f => String(f?.article || '').trim())
-    .sort((a, b) => String(a.article).localeCompare(String(b.article), undefined, { numeric: true }))
+    .sort((a, b) => compareArticle(a.article, b.article))
     .map(f => ({ id: String(f.id), name: `${f.article}${f.itemName ? ` · ${f.itemName}` : ''}` })), [savedFabrics]);
   const fabric = form.fabricId ? (savedFabrics || []).find(f => String(f.id) === String(form.fabricId)) || null : null;
   const spec = stickerSpecOf(form, fabric);

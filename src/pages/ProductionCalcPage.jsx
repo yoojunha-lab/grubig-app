@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Calculator, Plus, Save, Trash2, X, Copy, FilePlus, Search, AlertTriangle } from 'lucide-react';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
-import { formatMonthDay } from '../utils/helpers';
+import { formatMonthDay, compareArticle } from '../utils/helpers';
 import {
   CALC_KINDS, CALC_UNITS, calcKindLabel, unitLabel, calcFromOrder, calcHasData,
   findFabricForOrder, fabricYarnOptions, nextBaseYarnName,
@@ -134,7 +134,7 @@ export const ProductionCalcPage = ({
   // ── ARTICLE (원단 관리) — 지금 고른 원단과 그 원사 (O/D·ARTICLE을 바꿀 때 원사를 정하는 데도 씀) ──
   const fabricOptions = useMemo(() => [...(savedFabrics || [])]
     .filter(f => String(f?.article || '').trim())
-    .sort((a, b) => String(a.article).localeCompare(String(b.article)))
+    .sort((a, b) => compareArticle(a.article, b.article))
     .map(f => ({ id: String(f.id), name: `${f.article} · ${f.itemName || ''}` })), [savedFabrics]);
   const currentFabric = calc.fabricId ? (savedFabrics || []).find(f => String(f.id) === String(calc.fabricId)) || null : null;
   const yarnChoices = currentFabric ? fabricYarnOptions(currentFabric, yarnLibrary) : [];

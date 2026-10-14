@@ -1,9 +1,12 @@
 import { useState } from 'react';
+import { compareArticle, sortByArticle } from '../../utils/helpers';
 
 // GRUBIG ERP - 컬렉션 관리 (영업: 시즌/전시회/바이어/월별 아티클 묶음) 로직 훅
 //  - 컬렉션 메타(이름/분류/날짜 등) CRUD
 //  - 아티클(원단)은 원단 리스트(savedFabrics)를 fabricId로 참조해서 담기/빼기
 //  - items 변경은 collections 라이브 문서를 찾아 통째로 저장 (useOrder 패턴 동일)
+//  - 아티클 순서 (대표님 결정 2026-10-14): 새로 담으면 Article 순서 자리에 끼워 넣음 + [ART 순서로 정렬]로 한 번에 정리
+//    ↑↓로 직접 바꾸는 것도 그대로 (예전엔 담은 순서대로 뒤에 붙어서 PW 번호가 섞였음)
 export const useCollection = (collections, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast) => {
   const [editingCollectionId, setEditingCollectionId] = useState(null);
 
@@ -86,13 +89,13 @@ export const useCollection = (collections, savedFabrics, saveDocToCloud, deleteD
   // ── 아티클(원단) 담기 ──────────────────────────────────────
   //  fabrics: 담을 원단 객체 배열 (savedFabrics에서 선택된 것들)
   //  이미 담긴 fabricId는 자동 제외, article/itemName은 스냅샷으로 함께 저장(원단 삭제 대비)
+  //  새 아티클은 Article 순서 자리에 끼워 넣음 — 지금 목록에서 처음으로 Article이 더 큰 아티클 앞 (없으면 맨 뒤)
   const addArticlesToCollection = (collectionId, fabrics) => {
     const col = (collections || []).find(c => c.id === collectionId);
     if (!col) return;
 
     const existingIds = new Set((col.items || []).map(it => String(it.fabricId)));
-    const newItems = (fabrics || [])
-      .filter(f => f && !existingIds.has(String(f.id)))
+    const newItems = sortByArticle((fabrics || []).filter(f => f && !existingIds.has(String(f.id))))
       .map(f => ({
         fabricId: f.id,
         article: f.article || '',
@@ -106,13 +109,34 @@ export const useCollection = (collections, savedFabrics, saveDocToCloud, deleteD
       return;
     }
 
+    const items = [...(col.items || [])];
+    newItems.forEach(item => {
+      const at = items.findIndex(it => compareArticle(it.article, item.article) > 0);
+      if (at === -1) items.push(item);
+      else items.splice(at, 0, item);
+    });
     const updatedCol = {
       ...col,
-      items: [...(col.items || []), ...newItems],
+      items,
       updatedAt: new Date().toISOString(),
     };
     saveDocToCloud('collections', updatedCol);
     showToast(`${newItems.length}개 아티클을 담았습니다.`, 'success');
+  };
+
+  // ── 아티클 ART 순서로 정렬 (한 번에 — ↑↓로 바꾼 순서는 사라져서 먼저 확인) ──
+  const sortCollectionArticles = (collectionId) => {
+    const col = (collections || []).find(c => c.id === collectionId);
+    if (!col) return;
+    const items = col.items || [];
+    const sorted = sortByArticle(items);
+    if (sorted.every((it, i) => it === items[i])) {
+      showToast('이미 ART 순서예요.', 'info');
+      return;
+    }
+    if (!window.confirm(`'${col.name || '컬렉션'}'의 아티클 ${items.length}개를 ART 순서(PW1001 → PW1002 …)로 바꿀까요?\n↑↓로 직접 바꾼 순서는 사라져요.`)) return;
+    saveDocToCloud('collections', { ...col, items: sorted, updatedAt: new Date().toISOString() });
+    showToast('아티클을 ART 순서로 정렬했어요.', 'success');
   };
 
   // ── 아티클(원단) 빼기 ──────────────────────────────────────
@@ -170,5 +194,6 @@ export const useCollection = (collections, savedFabrics, saveDocToCloud, deleteD
     removeArticleFromCollection,
     updateArticleMemo,
     moveArticle,
+    sortCollectionArticles,
   };
 };

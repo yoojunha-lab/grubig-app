@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import {
   Boxes, Plus, Edit2, Trash2, X, Calendar, Tag, Package, Users, FolderPlus, ChevronRight, AlertTriangle,
-  FileSpreadsheet, Printer, ChevronUp, ChevronDown, StickyNote,
+  FileSpreadsheet, Printer, ChevronUp, ChevronDown, StickyNote, ArrowDownAZ,
 } from 'lucide-react';
 import { AddArticleModal } from '../components/collection/AddArticleModal';
 import { CollectionPrintSheet } from '../components/collection/CollectionPrintSheet';
+import { compareArticle } from '../utils/helpers';
 
 // 컬렉션 분류 태그 (필터 + 배지 색상)
 const COLLECTION_TYPES = [
@@ -34,6 +35,7 @@ export const CollectionPage = ({
   removeArticleFromCollection,
   updateArticleMemo = () => {},
   moveArticle = () => {},
+  sortCollectionArticles = () => {}, // [ART 순서] — 아티클을 Article 순서로 한 번에 정렬 (2026-10-14)
 }) => {
   const [selectedId, setSelectedId] = useState(null);
   const [filterType, setFilterType] = useState('전체');
@@ -69,6 +71,12 @@ export const CollectionPage = ({
     () => (selectedCol?.items || []).map(it => it.fabricId),
     [selectedCol]
   );
+
+  // 선택 컬렉션 아티클이 이미 ART 순서인지 (그러면 [ART 순서] 버튼을 흐리게)
+  const articlesInOrder = useMemo(() => {
+    const items = selectedCol?.items || [];
+    return items.every((it, i) => i === 0 || compareArticle(items[i - 1].article, it.article) <= 0);
+  }, [selectedCol]);
 
   // 새 컬렉션 만들기
   const openCreateForm = () => {
@@ -278,6 +286,14 @@ export const CollectionPage = ({
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => sortCollectionArticles(selectedCol.id)}
+                      disabled={(selectedCol.items || []).length < 2 || articlesInOrder}
+                      title={articlesInOrder ? '이미 ART 순서예요' : 'ART 순서(PW1001 → PW1002 …)로 정렬 — ↑↓로 바꾼 순서는 사라져요'}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-bold rounded-lg shadow-sm transition-colors active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <ArrowDownAZ className="w-4 h-4" /> <span className="hidden sm:inline">ART 순서</span>
+                    </button>
                     <button
                       onClick={handleExport}
                       disabled={(selectedCol.items || []).length === 0}

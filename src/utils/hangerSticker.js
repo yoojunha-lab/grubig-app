@@ -1,4 +1,4 @@
-import { calculateGYd } from './helpers';
+import { calculateGYd, compareArticle } from './helpers';
 
 // ============================================================
 // GRUBIG ERP - 헹거 스티커 (기타 ▾ 헹거 스티커) — 칸 계산 · 저장 모양 (대표님 요청 2026-10-14)
@@ -199,9 +199,9 @@ export const cleanStickerForSave = (s, careItems = null) => ({
 export const normalizeSticker = (doc, options = resolveStickerOptions(null)) =>
   cleanStickerForSave({ ...makeBlankSticker(options), ...(doc || {}) }, options.careItems);
 
-/** ART 순서 (PW1001 · PW1001A · PW1006 …) */
+/** ART 순서 (PW1001 · PW1001A · PW1006 … — 원단 목록과 같은 규칙 helpers.compareArticle) */
 export const sortStickers = (list = []) => [...list].sort((a, b) =>
-  String(a.art || '').localeCompare(String(b.art || ''), undefined, { numeric: true })
+  compareArticle(a.art, b.art)
   || String(a.updatedAt || '').localeCompare(String(b.updatedAt || '')));
 
 /** 검색 — ART · CATEGORY · CONTENT · TYPE · CARE · QR 번호 · 아래 설명 */
