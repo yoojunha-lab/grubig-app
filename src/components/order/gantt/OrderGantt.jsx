@@ -7,7 +7,7 @@ import {
 import {
   describeProvisionalDue, describeStepCurrent,
   findDailyNote, getColorStage, getDday, getEndShift, getKnittingEstimatedEnd, getLossRate, getStepEnd, getWorkKg, isDropClosed,
-  collectVendorOptions, isPieceDyed, getRoundStatus, isClosingPending,
+  collectVendorOptions, isPieceDyed, getRoundStatus, isClosingPending, getColorDyeRemain, describeDyeRemain,
 } from '../../../utils/orderModel';
 import { addDaysYmd, diffDaysYmd, fmtKg, shortDate, toDate, todayYmd } from '../../../utils/orderCalculations';
 import { ProcessPopover } from '../sheet/ProcessPopover';
@@ -146,16 +146,23 @@ const OrderLabel = ({ order, sheetInfo = null, onOpenDetail }) => {
   );
 };
 
-// 컬러 줄 라벨: 컬러명 · 작지kg · 단계 뱃지
+// 컬러 줄 라벨: 컬러명 · 생지kg · 단계 뱃지
+//  마우스를 올리면 '생지 1,100kg · 남은 배색 120kg' (배색량을 넣었을 때 — 대표님 요청 2026-10-14)
 const ColorLabel = ({ order, color }) => {
   const workKg = getWorkKg(color, getLossRate(order));
   const stage = COLOR_STAGES[getColorStage(order, color)] || COLOR_STAGES.waiting;
+  const remain = getColorDyeRemain(order, color);
+  const tip = [
+    color.name || '컬러',
+    workKg !== null ? `생지 ${fmtKg(workKg)}kg` : '',
+    remain ? `${describeDyeRemain(remain)} (배색 ${fmtKg(remain.dyeKg)}kg)` : '',
+  ].filter(Boolean).join(' · ');
   return (
-    <div className={`h-full flex items-center gap-1.5 pl-6 pr-8 min-w-0 ${order.status === 'on_hold' ? 'opacity-70' : ''}`}>
+    <div className={`h-full flex items-center gap-1.5 pl-6 pr-8 min-w-0 ${order.status === 'on_hold' ? 'opacity-70' : ''}`} title={tip}>
       <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
       <span className={`text-[11px] font-bold truncate ${color.name ? 'text-slate-700' : 'text-slate-400'}`}>{color.name || '컬러'}</span>
       {workKg !== null && (
-        <span className="text-[10px] font-mono text-slate-500 shrink-0" title="작지kg">{fmtKg(workKg)}kg</span>
+        <span className="text-[10px] font-mono text-slate-500 shrink-0">{fmtKg(workKg)}kg</span>
       )}
       <span className={`ml-auto shrink-0 ${BADGE} ${stage.cls}`}>{stage.label}</span>
     </div>
@@ -446,10 +453,27 @@ export const OrderGantt = ({
   const tipRef = useRef(null);
   const viewRef = useRef(null);                 // 화면 왼쪽 첫 날짜 { ymd, offset } — 주말 토글·기간 변경 때 같은 날짜 유지
   const skipCellClickRef = useRef(false);       // 팝오버가 떠 있을 때 빈 칸 클릭 = 닫기만 (새 메모 창 안 엶)
+  // 화면에 보이는 날짜 칸 수 — 와이드 모니터에서 날짜 칸을 더 그려 오른쪽 빈 곳을 채움 (대표님 요청 2026-10-14)
+  const [viewCols, setViewCols] = useState(0);
+  const hasOrders = orders.length > 0;
 
+  // ---------- 간트 본문 폭 재기 (창 크기를 바꾸면 다시) ----------
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return undefined;
+    const measure = () => setViewCols(Math.max(0, Math.ceil((el.clientWidth - LABEL_W) / DAY_W)));
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasOrders]);
+
+  // 처음엔 오늘 칸이 왼쪽에서 세 번째 → 오늘 칸부터 (보이는 칸 − 2)칸이 있으면 화면 끝까지 날짜가 참
+  const minColsFromToday = Math.max(0, viewCols - TODAY_OFFSET_COLS);
   const layout = useMemo(
-    () => buildGanttLayout(orders, { today, hideWeekends, stepDefs }),
-    [orders, today, hideWeekends, stepDefs]
+    () => buildGanttLayout(orders, { today, hideWeekends, stepDefs, minColsFromToday }),
+    [orders, today, hideWeekends, stepDefs, minColsFromToday]
   );
   const stepMetaOf = (key) => findStepMeta(stepDefs, key);
 

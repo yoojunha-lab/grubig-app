@@ -8,11 +8,11 @@ import {
   ORDER_STEPS, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, PROCESS_THEME,
   COLOR_STAGES, ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_TYPES,
   PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS, TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES,
-  INSPECTION_STATUSES, DYE_METHODS, CLOSING_ITEMS, getStepDefs,
+  INSPECTION_STATUSES, DYE_METHODS, CLOSING_ITEMS, DYE_REMAIN_STATES, getStepDefs,
 } from '../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, getOrderTotals, isStepUsed, getKnittingEstimatedEnd, getEndShift,
-  getLotOverview, getLotsStatus, getTrackEvent, isTestReportPassed,
+  getLotOverview, getLotsStatus, getTrackEvent, isTestReportPassed, getDyeRemain, describeDyeRemain,
   getColorStage, getDday, colorHasData, collectVendorOptions,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState,
   getColorInspection, getRoundStatusDate, getDyeYield, isPieceDyed, getClosingState, isClosingPending,
@@ -503,6 +503,7 @@ const ColorCard = ({
   const lotOv = getLotOverview(lots);
   const lotStatus = getLotsStatus(lots);
   const lotYield = lotOv.dyeKg ? getDyeYield(lotOv.dyeKg, lossRate, yieldSpec) : null;
+  const dyeRemain = getDyeRemain(workKg, lotOv.dyeKg); // 남은 배색량 = 생지kg − 배색 합계
   const testNeeded = !!color.testReport?.needed;
   const testEv = getTrackEvent(color, 'testReport');
   const brandEv = getTrackEvent(color, 'brandConfirm');
@@ -510,7 +511,7 @@ const ColorCard = ({
   const expectedLate = testNeeded && expected && !isTestReportPassed(color) && expected < todayYmd();
   const insp = getColorInspection(color);
 
-  // 작지kg: 자동값 그대로면 저장 안 함, 비우면 자동으로 되돌림
+  // 생지kg (예전 이름 '작지kg'): 자동값 그대로면 저장 안 함, 비우면 자동으로 되돌림
   const commitWorkKg = (n) => {
     if (n === null) {
       if (manual) onPatch({ workKg: null });
@@ -560,7 +561,7 @@ const ColorCard = ({
           <NumberInput value={color.orderKg} suffix="kg" placeholder="0" onCommit={n => onPatch({ orderKg: n })} />
         </Field>
         <Field
-          label={<>작지 kg <span className="font-normal text-slate-400">{manual ? '(직접 입력)' : `(자동 · 로스 ${fmtKg(lossRate)}%)`}</span></>}
+          label={<>생지 kg <span className="font-normal text-slate-400">{manual ? '(직접 입력)' : `(자동 · 로스 ${fmtKg(lossRate)}%)`}</span></>}
           hint={manual && autoWork !== null && autoWork !== workKg ? `자동 계산 ${fmtKg(autoWork)}kg` : undefined}
         >
           <div className="flex items-center gap-1">
@@ -661,6 +662,12 @@ const ColorCard = ({
               {lotYield && (
                 <span className="w-full font-mono text-[11px] text-orange-900">
                   배색 {fmtKg(lotOv.dyeKg)}kg → 예상 {fmtKg(lotYield.finishedKg)}kg{lotYield.yd !== null ? ` · ${lotYield.yd.toLocaleString()}YD` : ''}
+                </span>
+              )}
+              {dyeRemain && (
+                <span className={`w-full text-[11px] font-bold ${DYE_REMAIN_STATES[dyeRemain.state].text}`}>
+                  {describeDyeRemain(dyeRemain)}
+                  <span className="font-normal font-mono text-slate-500"> (생지 {fmtKg(dyeRemain.greigeKg)}kg − 배색 {fmtKg(dyeRemain.dyeKg)}kg)</span>
                 </span>
               )}
             </div>
@@ -1138,7 +1145,7 @@ const OrderDetailBody = ({
             <h3 className="text-base md:text-lg font-extrabold truncate">{order.articleNo || order.detail || '오더 상세'}</h3>
             <div className="mt-0.5 flex items-center gap-1.5 flex-wrap text-[11px] text-teal-50">
               {order.customer && <span className="inline-block align-bottom font-bold truncate max-w-[40vw]">{order.customer}</span>}
-              <span className="font-mono">컬러 {colors.length} · 오더 {fmtKg(totals.orderKg) || 0}kg · 작지 {fmtKg(totals.workKg) || 0}kg</span>
+              <span className="font-mono">컬러 {colors.length} · 오더 {fmtKg(totals.orderKg) || 0}kg · 생지 {fmtKg(totals.workKg) || 0}kg</span>
               {order.status !== 'completed' && <DdayBadge dueDate={order.finalDueDate} />}
             </div>
           </div>
@@ -1238,7 +1245,7 @@ const OrderDetailBody = ({
                   {order.status !== 'completed' && <DdayBadge dueDate={order.finalDueDate} />}
                 </div>
               </Field>
-              <Field label="로스율" hint="작지 kg = 오더 kg × (1 + 로스율)">
+              <Field label="로스율" hint="생지 kg = 오더 kg × (1 + 로스율)">
                 <NumberInput value={order.lossRate} suffix="%" placeholder="10" onCommit={n => setField('lossRate', n)} />
               </Field>
 
@@ -1334,7 +1341,7 @@ const OrderDetailBody = ({
             title={`컬러 (${colors.length})`}
             right={(
               <span className="text-[11px] text-slate-500 font-mono">
-                오더 {fmtKg(totals.orderKg) || 0}kg · 작지 {fmtKg(totals.workKg) || 0}kg · 로스 {fmtKg(lossRate)}%
+                오더 {fmtKg(totals.orderKg) || 0}kg · 생지 {fmtKg(totals.workKg) || 0}kg · 로스 {fmtKg(lossRate)}%
               </span>
             )}
           >

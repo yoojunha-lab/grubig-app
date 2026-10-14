@@ -420,12 +420,12 @@ export const ProcessPopover = ({
                   하루 합계 <b>{fmtKg(plan.daily)} kg</b>{machineCount > 1 ? ` (${machineCount}대)` : ''}
                   {plan.days > 0 ? (
                     <>
-                      {' · '}작지 {fmtKg(plan.total)} kg ÷ {fmtKg(plan.daily)} kg = <b>약 {plan.days}일</b>
+                      {' · '}생지 {fmtKg(plan.total)} kg ÷ {fmtKg(plan.daily)} kg = <b>약 {plan.days}일</b>
                     </>
                   ) : null}
                 </p>
                 {plan.days === 0 && (
-                  <p className="text-[11px] text-yellow-800">컬러별 오더kg(작지kg)이 없어 며칠 걸리는지 계산할 수 없어요.</p>
+                  <p className="text-[11px] text-yellow-800">컬러별 오더kg(생지kg)이 없어 며칠 걸리는지 계산할 수 없어요.</p>
                 )}
                 {plan.days > 0 && plan.end && (
                   <div className="flex flex-wrap items-center justify-between gap-1.5">

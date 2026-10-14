@@ -9,7 +9,7 @@ import { diffDaysYmd, todayYmd, isYmd, round1, fmtKg } from '../utils/orderCalcu
 
 // ============================================================
 // 메인 / 샘플 고르기 (대표님 결정 2026-10-10 — 처음엔 '메인', 마지막 선택 기억)
-//  샘플 오더(설계서 EZ-TEX 등록마다 생김)가 납기 준수율·출고 kg·진행 작지 숫자를 흐리지 않게
+//  샘플 오더(설계서 EZ-TEX 등록마다 생김)가 납기 준수율·출고 kg·진행 생지 숫자를 흐리지 않게
 //  설계서 Drop 으로 닫힌 샘플은 어느 쪽이든 '완료' 통계에서 빼고 상태별 분포에 'Drop'으로 따로
 // ============================================================
 const TYPE_TABS = [
@@ -104,7 +104,7 @@ export const ReportPage = ({ orders = [], stepDefs = DEFAULT_STEP_DEFS }) => {
 
   const thisMonth = todayYmd().slice(0, 7);
 
-  // 0. 수량 카드: 이번 달 출고 kg / 진행중 오더 총 작지 kg
+  // 0. 수량 카드: 이번 달 출고 kg / 진행중 오더 총 생지 kg
   const kgStats = useMemo(() => {
     const r = {
       shipKg: 0, shipColors: 0, shipOrders: 0, shipMissingKg: 0,
@@ -114,7 +114,7 @@ export const ReportPage = ({ orders = [], stepDefs = DEFAULT_STEP_DEFS }) => {
       const lossRate = getLossRate(o);
       const colors = o.colors || [];
 
-      // 출고 완료 + 출고일이 이번 달인 컬러 (작지kg 기준)
+      // 출고 완료 + 출고일이 이번 달인 컬러 (생지kg 기준)
       const shippedNow = colors.filter(c => c.shipDone && isYmd(c.shipDate) && c.shipDate.slice(0, 7) === thisMonth);
       if (shippedNow.length > 0) r.shipOrders++;
       shippedNow.forEach(c => {
@@ -124,7 +124,7 @@ export const ReportPage = ({ orders = [], stepDefs = DEFAULT_STEP_DEFS }) => {
         else r.shipKg += kg;
       });
 
-      // 진행중 오더 전체 작지 kg
+      // 진행중 오더 전체 생지 kg
       if (o.status === 'active') {
         const totals = getOrderTotals(o);
         r.activeOrders++;
@@ -312,7 +312,7 @@ export const ReportPage = ({ orders = [], stepDefs = DEFAULT_STEP_DEFS }) => {
         <KgCard
           icon={Truck}
           title="이번 달 출고"
-          subtitle={`${Number(thisMonth.slice(5))}월 · 출고 완료 컬러의 작지 kg`}
+          subtitle={`${Number(thisMonth.slice(5))}월 · 출고 완료 컬러의 생지 kg`}
           kg={kgStats.shipKg}
           lines={[
             kgStats.shipColors === 0
@@ -323,7 +323,7 @@ export const ReportPage = ({ orders = [], stepDefs = DEFAULT_STEP_DEFS }) => {
         />
         <KgCard
           icon={Layers}
-          title="진행중 오더 총 작지"
+          title="진행중 오더 총 생지"
           subtitle="진행중 오더의 모든 컬러 합계"
           kg={kgStats.activeWorkKg}
           lines={[

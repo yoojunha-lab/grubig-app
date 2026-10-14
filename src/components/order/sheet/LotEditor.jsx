@@ -3,11 +3,11 @@ import { Plus, Trash2, Save, CalendarPlus, Info, Minus } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
 import { StatusSelect } from '../common/StatusSelect';
 import {
-  DYEING_STEP, PROGRESS_STATUS_OPTIONS, PROCESS_THEME, PRESETTING_KEY, normalizeStatus,
+  DYEING_STEP, PROGRESS_STATUS_OPTIONS, PROCESS_THEME, PRESETTING_KEY, DYE_REMAIN_STATES, normalizeStatus,
 } from '../../../constants/production';
 import {
   createLot, getLotOverview, getDyeYield, getLossRate, getWorkKg, getGreigeStateFor, isPieceDyed, isStepUsed,
-  getEndShift, isLotInspectionUsed, getLotRounds,
+  getEndShift, isLotInspectionUsed, getLotRounds, getDyeRemain, describeDyeRemain,
 } from '../../../utils/orderModel';
 import { shortDate, fmtKg, round1, toNumberOrNull } from '../../../utils/orderCalculations';
 
@@ -17,6 +17,7 @@ import { shortDate, fmtKg, round1, toNumberOrNull } from '../../../utils/orderCa
 // - LOT = 염색기를 한 번 돌리는 단위. LOT 마다 투입일 · 완료예정 · 상태 · 배색량 · 메모
 //   · 배색량 = 염색소에 배색할 생지 kg → LOSS(오더 로스율)를 뺀 예상 가공지 kg · 예상 YD (대표님 요청 2026-10-14)
 //     예상 가공지 kg = 배색량 ÷ (1 + 로스율), 예상 YD = 그 kg ÷ 1야드 무게(gsm × 전폭)
+//   · 남은 배색량 = 생지kg − 배색량 합계 (입력하는 동안 바로 — 대표님 요청 2026-10-14)
 //   · 탕·수량·롤 칸은 없음 (예전에 넣은 값은 문서에 그대로 남음)
 // - 프리세팅 (오더 공통 — 염색 전에 하는 일, 원단마다 달라서 [+ 프리세팅]으로 필요할 때만): 예상 시작일 · 예상 종료일 · 상태 · 메모
 // - 원단 스펙(gsm · 전폭)은 원단 보관함 · 설계서에서 가져오고, 없으면 여기서 넣으면 오더에 저장 (예상 YD 환산용)
@@ -190,10 +191,11 @@ export const LotEditor = ({
   const hasError = badNos.length > 0 || badKgNos.length > 0 || presetDateBad || specBad;
   const isDraftOrder = !order.orderNumber;
 
-  // 합계 · 비교 (배색량 → 예상 가공지 kg · YD / 오더kg · 작지kg / 생지 출고 kg)
+  // 합계 · 비교 (배색량 → 예상 가공지 kg · YD / 오더kg / 남은 배색량(생지kg − 배색 합계) / 생지 출고 kg)
   const totalYield = getDyeYield(overview.dyeKg, lossRate, draftSpec);
   const orderKg = toNumberOrNull(color.orderKg);
   const workKg = getWorkKg(color, lossRate);
+  const remain = getDyeRemain(workKg, overview.dyeKg);
   const gap = totalYield && orderKg !== null ? round1(totalYield.finishedKg - orderKg) : null;
   const piece = isPieceDyed(order);
   const greige = getGreigeStateFor(order, color);
@@ -567,10 +569,23 @@ export const LotEditor = ({
           )}
         </div>
 
-        {/* ===== 배색 합계 → 예상 수량 · 오더/작지/생지와 비교 ===== */}
+        {/* ===== 남은 배색량 · 배색 합계 → 예상 수량 · 오더/생지 출고와 비교 ===== */}
         <div className="rounded-lg border border-orange-200 bg-orange-50/40 p-2 space-y-1 text-[11px] text-slate-700">
           {overview.dyeKg ? (
             <>
+              {/* 남은 배색량 = 생지kg − 배색 합계 (입력하는 동안 바로 바뀜) */}
+              {remain ? (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span className={`px-2 py-0.5 rounded-full border text-xs font-extrabold ${DYE_REMAIN_STATES[remain.state].badge}`}>
+                    {remain.state === 'left' ? `남은 배색량 ${fmtKg(remain.remain)}kg` : describeDyeRemain(remain)}
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    생지 {fmtKg(remain.greigeKg)}kg − 배색 {fmtKg(remain.dyeKg)}kg
+                  </span>
+                </div>
+              ) : (
+                <p className="text-[10px] text-slate-500">오더kg(생지kg)을 넣으면 남은 배색량도 알려 드려요.</p>
+              )}
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <span className="font-extrabold text-orange-900">배색 합계 {fmtKg(overview.dyeKg)}kg</span>
                 <span className="text-slate-400">→</span>
@@ -578,11 +593,6 @@ export const LotEditor = ({
                 {orderKg !== null && (
                   <span className={`px-1.5 py-px rounded-full border text-[10px] font-bold ${gap < 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
                     오더 {fmtKg(orderKg)}kg {gap < 0 ? `${fmtKg(-gap)}kg 모자람` : gap > 0 ? `+${fmtKg(gap)}kg 여유` : '딱 맞음'}
-                  </span>
-                )}
-                {workKg !== null && (
-                  <span className="text-[10px] text-slate-500">
-                    작지 {fmtKg(workKg)}kg {overview.dyeKg < workKg ? `중 ${fmtKg(round1(workKg - overview.dyeKg))}kg 아직 배색 전` : overview.dyeKg > workKg ? `보다 ${fmtKg(round1(overview.dyeKg - workKg))}kg 더 배색` : '전부 배색'}
                   </span>
                 )}
               </div>
@@ -603,7 +613,7 @@ export const LotEditor = ({
           {/* 환산 기준: 로스율 + 원단 스펙 */}
           <div className="pt-1 border-t border-orange-200/70 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-slate-500">
             <Info className="w-3 h-3 shrink-0" />
-            <span>LOSS = 오더 로스율 <b className="text-slate-700">{fmtKg(lossRate)}%</b> (작지kg 계산과 같은 값)</span>
+            <span>LOSS = 오더 로스율 <b className="text-slate-700">{fmtKg(lossRate)}%</b> (생지kg 계산과 같은 값)</span>
             <span className="text-slate-300">|</span>
             {specEditable ? (
               <span className="inline-flex flex-wrap items-center gap-1">

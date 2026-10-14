@@ -8,7 +8,7 @@ import { SheetLinkChips } from './common/SheetLinkChips';
 // GRUBIG ERP - 생산 현황 모바일 목록 (v8)
 // ------------------------------------------------------------
 // - 좁은 화면에서는 엑셀형 표 대신 오더 카드 목록을 보여주고, 편집은 상세창(OrderDetailModal)에서 한다
-// - 카드: order#·구분·D-day / article#·buyer / detail(1줄) / 컬러마다 한 줄(컬러명, 오더kg→작지kg, 현재 단계)
+// - 카드: order#·구분·D-day / article#·buyer / detail(1줄) / 컬러마다 한 줄(컬러명, 오더kg→생지kg, 현재 단계)
 // - 카드를 누르면 onOpen(orderId). 맨 위 [+ 오더 추가] → onAdd()
 // - 설계서 샘플 오더는 '설계서' 표시 (누르면 설계서 창 — sheetLink.open)
 // props: { orders, drafts, onOpen(orderId), onAdd(), sheetLink? }

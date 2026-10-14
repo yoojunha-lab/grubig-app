@@ -750,7 +750,7 @@ export const getLossRate = (order) => {
 
 export const isWorkKgManual = (color) => numOrNull(color?.workKg) !== null;
 
-// 작지수량(KG): 직접 입력값 우선, 없으면 오더수량 × (1 + 로스율)
+// 생지kg (예전 이름 '작지수량' — 데이터 칸은 workKg 그대로): 직접 입력값 우선, 없으면 오더수량 × (1 + 로스율)
 export const getWorkKg = (color, lossRate) => {
   const manual = numOrNull(color?.workKg);
   if (manual !== null) return manual;
@@ -785,7 +785,7 @@ export const getKnittingDailyKg = (step) => (
 
 /**
  * 편직 소요일 계산 (기계별 일일 생산량 — 대표님 요청 2026-10-11)
- *  daily = 기계 합계 kg/일, total = 총 작지kg, days = 올림(total ÷ daily)
+ *  daily = 기계 합계 kg/일, total = 총 생지kg, days = 올림(total ÷ daily)
  *  end = 예상 시작일 + days - 1 (시작일이 없으면 '')
  *  반환 { daily, total, days, end } — 계산할 수 없으면 days 0
  */
@@ -798,7 +798,7 @@ export const getKnittingPlan = (order, step = order?.steps?.knitting) => {
   return { daily, total, days, end: step?.startDate ? addDaysYmd(step.startDate, days - 1) : '' };
 };
 
-// 편직 계산 종료일: 예상 시작일 + 총 작지kg ÷ 하루 생산량 (예상 종료일을 직접 넣지 않았을 때 참고용)
+// 편직 계산 종료일: 예상 시작일 + 총 생지kg ÷ 하루 생산량 (예상 종료일을 직접 넣지 않았을 때 참고용)
 export const getKnittingEstimatedEnd = (order) => getKnittingPlan(order).end;
 
 // 최초 예상 종료일 비교 — 예상 종료일을 바꾼 적이 있으면 { first: 최초 날짜, current, diff(+ = 늦어짐), count: 바꾼 횟수 }
@@ -842,7 +842,7 @@ export const getLotOverview = (lots = []) => {
 };
 
 // ---------- 배색량 → 예상 가공지 kg · 예상 YD (대표님 결정 2026-10-14) ----------
-//  예상 가공지 kg = 배색량 ÷ (1 + 로스율) — 작지kg(= 오더kg × (1 + 로스율))을 전부 배색하면 정확히 오더kg 이 나오게
+//  예상 가공지 kg = 배색량 ÷ (1 + 로스율) — 생지kg(= 오더kg × (1 + 로스율))을 전부 배색하면 정확히 오더kg 이 나오게
 //  예상 YD = 예상 가공지 kg ÷ 1야드 무게 (gsm × 전폭(인치) × 0.02322576 g)
 
 // 1야드 무게(g) — 스펙이 없으면 null
@@ -862,6 +862,36 @@ export const getDyeYield = (dyeKg, lossRate, spec) => {
   const finished = kg / (1 + (Number(lossRate) || 0) / 100);
   const g = gramsPerYd(spec);
   return { dyeKg: kg, finishedKg: round1(finished), yd: g ? Math.round((finished * 1000) / g) : null };
+};
+
+// ---------- 남은 배색량 (대표님 요청 2026-10-14) ----------
+//  남은 배색량 = 생지kg − 배색량 합계 (컬러마다). 배색량을 하나도 안 넣었거나 생지kg 이 없으면 null
+//  state: 'left'(더 배색할 게 남음) | 'done'(딱 맞음) | 'over'(생지kg 보다 더 배색)
+
+/**
+ * { greigeKg(생지kg), dyeKg(배색량 합계), remain(+ = 더 배색할 kg, − = 넘게 배색한 kg), state } — 계산할 수 없으면 null
+ *  LOT 창은 편집 중인 배색 합계를 넣어서 부름 (입력하는 동안 바로 바뀌게)
+ */
+export const getDyeRemain = (greigeKg, dyeKg) => {
+  const g = positiveOrNull(greigeKg);
+  const d = positiveOrNull(dyeKg);
+  if (g === null || d === null) return null;
+  const remain = round1(g - d);
+  return { greigeKg: g, dyeKg: d, remain, state: remain > 0 ? 'left' : remain < 0 ? 'over' : 'done' };
+};
+
+// 저장된 컬러 기준 남은 배색량 (현황표 LOT 칸 · 상세창 · 간트)
+export const getColorDyeRemain = (order, color) => getDyeRemain(
+  getWorkKg(color, getLossRate(order)),
+  getLotOverview(color?.lots || []).dyeKg,
+);
+
+// 남은 배색량 글자 — '남은 배색 120kg' / '배색 끝' / '20kg 더 배색'
+export const describeDyeRemain = (r) => {
+  if (!r) return '';
+  if (r.state === 'left') return `남은 배색 ${fmtKg(r.remain)}kg`;
+  if (r.state === 'over') return `${fmtKg(-r.remain)}kg 더 배색`;
+  return '배색 끝';
 };
 
 /**
@@ -1916,7 +1946,7 @@ const diffStep = (a, b, label, out) => {
   return out.length > before;
 };
 const COLOR_FIELD_LABELS = {
-  name: '컬러명', orderKg: '오더kg', workKg: '작지kg',
+  name: '컬러명', orderKg: '오더kg', workKg: '생지kg',
   shipDate: '출고일', shipDone: '출고', notes: '메모',
 };
 

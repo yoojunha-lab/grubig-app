@@ -312,7 +312,7 @@ export const GreigeOutPopover = ({ order, color = null, anchorRect = null, onClo
         {(st.totalKg || needKg) ? (
           <p className="text-[11px] text-slate-600">
             {st.totalKg ? <>출고 kg 합계 <b className="font-mono">{fmtKg(st.totalKg)}kg</b>{st.doneKg !== null && st.doneKg !== st.totalKg ? ` (체크한 출고 ${fmtKg(st.doneKg)}kg)` : ''}</> : '출고 kg 미입력'}
-            {needKg ? <span className="text-slate-400"> · 작지 {piece ? '합계 ' : ''}{fmtKg(needKg)}kg</span> : null}
+            {needKg ? <span className="text-slate-400"> · 생지 {piece ? '합계 ' : ''}{fmtKg(needKg)}kg</span> : null}
           </p>
         ) : null}
 

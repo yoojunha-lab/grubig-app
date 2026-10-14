@@ -409,8 +409,10 @@ export const OrderListPage = ({
 
   const partnerProps = { partners, savePartner, deletePartner, makeEmptyPartner };
 
+  // 폭 제한 없음 — 와이드 모니터에서는 현황표·간트가 화면 폭만큼 늘어나 가로로 더 보임 (대표님 요청 2026-10-14)
+  //  현황표는 칸이 다 보이고도 남으면 오른쪽은 빈자리, 간트는 날짜 칸을 더 그려서 채움
   return (
-    <div className="max-w-[1900px] mx-auto pb-12">
+    <div className="w-full pb-12">
       {/* 헤더 */}
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
         <div className="flex items-center gap-3">

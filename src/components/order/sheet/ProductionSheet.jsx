@@ -6,12 +6,12 @@ import {
   PROCESS_THEME, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, COLOR_STAGES,
   DEFAULT_LOSS_RATE, PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS,
   TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES, INSPECTION_STATUSES, DYE_METHODS, CLOSING_ITEMS, PRESETTING_KEY,
-  buildFlowOrder, findStepMeta, getStepDefs, isCustomStepKey,
+  DYE_REMAIN_STATES, buildFlowOrder, findStepMeta, getStepDefs, isCustomStepKey,
 } from '../../../constants/production';
 import {
   getWorkKg, isWorkKgManual, getLossRate, isStepUsed, getKnittingEstimatedEnd, getEndShift, colorHasData,
   getLotOverview, getLotsStatus, getColorStage, getDday, getTrackEvent, isTestReportPassed,
-  isInspectionUsed, getColorInspection, getRoundStatusDate, getDyeYield,
+  isInspectionUsed, getColorInspection, getRoundStatusDate, getDyeYield, getColorDyeRemain, describeDyeRemain,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState, collectVendorOptions,
   isPieceDyed, getClosingState, isClosingPending,
 } from '../../../utils/orderModel';
@@ -56,7 +56,7 @@ const LEFT_COLS = [
 // 수량·납기·가납기 (항상 표시)
 const QTY_COLS = [
   { key: 'orderKg',     label: '오더kg', width: 70, align: 'right' },
-  { key: 'workKg',      label: '작지kg', width: 78, align: 'right' },
+  { key: 'workKg',      label: '생지kg', width: 78, align: 'right' },
   { key: 'due',         label: '납기',   width: 96 },
   { key: 'provisional', label: '가납기', width: 150, title: '원사·편직·염가공·외관검사 대략적인 목표 날짜 — 지금 일정과 비교' },
 ];
@@ -375,7 +375,7 @@ const GreigeCell = ({ order, color, last, bg, ctx, span = 1 }) => {
 };
 
 // 염가공 LOT 칸 (컬러 단위) — onOpenLots 가 있을 때만 클릭 가능
-//  LOT 개수 · 완료 · 투입~완료예정 · 배색량 합계 → 예상 YD (LOSS 뺀) · 프리세팅(오더 공통)
+//  LOT 개수 · 완료 · 투입~완료예정 · 배색량 합계 → 예상 YD (LOSS 뺀) · 남은 배색량(생지kg − 배색 합계) · 프리세팅(오더 공통)
 const LotCell = ({ order, color, last, bg, ctx }) => {
   const lots = color.lots || [];
   const has = lots.length > 0;
@@ -386,6 +386,7 @@ const LotCell = ({ order, color, last, bg, ctx }) => {
   const status = getLotsStatus(lots);
   const range = fmtRange(ov.start, ov.end);
   const y = ov.dyeKg ? getDyeYield(ov.dyeKg, getLossRate(order), ctx.yieldSpecOf?.(order) || null) : null;
+  const remain = getColorDyeRemain(order, color);
   const tooltip = has
     ? lots.map(l => `LOT${l.no} · ${getStatusLabel(l.status)}${l.startDate || l.endDate ? ` · ${fmtRange(l.startDate, l.endDate)}` : ''}${l.dyeKg ? ` · 배색 ${fmtKg(l.dyeKg)}kg` : ''}${l.notes ? ` · ${l.notes}` : ''}`).join('\n')
     : (canOpen ? '염가공 LOT 계획 입력' : undefined);
@@ -419,6 +420,14 @@ const LotCell = ({ order, color, last, bg, ctx }) => {
             {y && (
               <div className="font-mono text-[9px] leading-tight" title={`배색량 합계 ${fmtKg(ov.dyeKg)}kg → LOSS ${fmtKg(getLossRate(order))}% 뺀 예상 가공지 ${fmtKg(y.finishedKg)}kg${y.yd !== null ? ` · ${y.yd.toLocaleString()}YD` : ' (원단 스펙이 없어 YD 계산 전)'}`}>
                 배색 {fmtKg(ov.dyeKg)}kg → {y.yd !== null ? `${y.yd.toLocaleString()}YD` : `${fmtKg(y.finishedKg)}kg`}
+              </div>
+            )}
+            {remain && (
+              <div
+                className={`text-[10px] font-bold leading-tight ${DYE_REMAIN_STATES[remain.state].text}`}
+                title={`생지 ${fmtKg(remain.greigeKg)}kg − 배색 ${fmtKg(remain.dyeKg)}kg`}
+              >
+                {describeDyeRemain(remain)}
               </div>
             )}
           </div>
@@ -930,7 +939,7 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
               ) : null}
             </td>
 
-            {/* ---------- 작지kg (자동=회색, 직접입력=검정) + 첫 줄 로스율 ---------- */}
+            {/* ---------- 생지kg (자동=회색, 직접입력=검정) + 첫 줄 로스율 — 예전 이름 '작지kg' (2026-10-14) ---------- */}
             <td onClick={focusInside} className={cellCls({ thick: last, extra: plainBg })}>
               <div className="flex items-start">
                 <CellNumber
@@ -940,7 +949,7 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
                   rootClassName="flex-1 min-w-0"
                   className="text-slate-900"
                   displayClassName={manual ? 'font-bold' : '!text-slate-400'}
-                  title={manual ? '직접 입력한 작지수량' : `자동 계산: 오더kg × (1 + 로스 ${fmtKg(lossRate)}%)`}
+                  title={manual ? '직접 입력한 생지kg' : `자동 계산: 오더kg × (1 + 로스 ${fmtKg(lossRate)}%)`}
                   onCommit={n => {
                     if (n === null && !manual) return;
                     setColor(color.id, { workKg: n });
@@ -964,7 +973,7 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
                   navKey="lossRate"
                   align="left"
                   rootClassName="mt-0.5"
-                  title="로스율 — 작지kg = 오더kg × (1 + 로스율)"
+                  title="로스율 — 생지kg = 오더kg × (1 + 로스율)"
                   display={v => (
                     <span className="inline-block px-1 rounded bg-slate-100 border border-slate-200 text-slate-500 text-[9px] font-bold font-sans">
                       로스 {fmtKg(v)}%

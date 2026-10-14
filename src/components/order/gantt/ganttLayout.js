@@ -273,8 +273,12 @@ const barsHeight = (laneCount) => BAR_PAD * 2 + Math.max(1, laneCount) * LANE_H;
 //    colFwd(ymd), groups:[{ order, dueCol, flags,
 //      rows:[{ key, kind:'order'|'color', color, bars, notes, flags, laneCount, barsH, minH }] }] }
 //  flags: 가납기 깃발 (오더 줄에만, 그룹에도 같은 값 — 오더 묶음 전체를 지나는 세로 점선용)
+//  minColsFromToday: 오늘 칸부터 끝까지 있어야 하는 날짜 칸 수 (OrderGantt 가 화면 폭으로 계산)
+//   → 와이드 모니터에서 오른쪽이 비지 않게 한 주씩 날짜를 더 그림 (대표님 요청 2026-10-14)
 // ============================================================
-export const buildGanttLayout = (orders = [], { today, hideWeekends = true, stepDefs = undefined } = {}) => {
+const MAX_FILL_WEEKS = 52;      // 화면 채우기로 늘리는 최대 주 수 (안전장치)
+
+export const buildGanttLayout = (orders = [], { today, hideWeekends = true, stepDefs = undefined, minColsFromToday = 0 } = {}) => {
   // 오더마다 타임라인·가납기 먼저 (기간 계산 + 배치에 재사용)
   //  stepDefs: 공정 목록 (기본 + 추가 공정) — 없으면 기본 공정만
   const timelines = orders.map(order => ({
@@ -291,8 +295,18 @@ export const buildGanttLayout = (orders = [], { today, hideWeekends = true, step
     if (order.finalDueDate) dates.push(order.finalDueDate);
     marks.forEach(m => dates.push(m.date));
   });
-  const range = computeRange(dates.filter(d => toDate(d)), today);
-  const { days, colFwd, colBwd } = buildColumns(range.start, range.end, hideWeekends, today);
+  let range = computeRange(dates.filter(d => toDate(d)), today);
+  let cols = buildColumns(range.start, range.end, hideWeekends, today);
+  // 화면이 넓으면 날짜 칸을 더 그림 — 끝은 일요일이라 7일씩 늘리면 계속 일요일 (주말을 숨기면 한 주 = 5칸)
+  const todayIdx = cols.colFwd(today);
+  const haveFromToday = todayIdx === null ? cols.days.length : cols.days.length - todayIdx;
+  const needCols = minColsFromToday - haveFromToday;
+  if (needCols > 0) {
+    const weeks = Math.min(MAX_FILL_WEEKS, Math.ceil(needCols / (hideWeekends ? 5 : 7)));
+    range = { start: range.start, end: addDaysYmd(range.end, weeks * 7) };
+    cols = buildColumns(range.start, range.end, hideWeekends, today);
+  }
+  const { days, colFwd, colBwd } = cols;
   const lastCol = days.length - 1;
 
   const groups = timelines.map(({ order, tl, marks }) => {
