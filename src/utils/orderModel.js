@@ -6,6 +6,7 @@
 //   {
 //     id, schemaVersion: 8,
 //     orderNumber, articleNo, detail, customer(buyer), type('main'|'sample'),
+//     sampleKind('new' 신제품 | 'resample' 재샘플 | '' 메인·종류 미정 — 2026-10-19 v12. 구분은 만들 때 정하고 잠김),
 //     finalDueDate, lossRate(%), status('active'|'on_hold'|'completed'), notes,
 //     linkedFabricId, linkedFabricArticle, dyeVendor(염색소), inspectVendor(외관검사 검사처 — 오더 공통),
 //     gsm, widthFull (원단 스펙 — 원단 보관함에서 고르면 채워짐, 없으면 LOT 창에서 직접 — 배색량 → 예상 YD 환산용),
@@ -50,7 +51,8 @@
 
 import {
   ORDER_STEPS, ORDER_STEP_KEYS, DEFAULT_LOSS_RATE,
-  normalizeStatus, getStatusLabel, getStepMeta, getStepDefs, withSubSteps, ORDER_TYPES, ORDER_STATUSES,
+  normalizeStatus, getStatusLabel, getStepMeta, getStepDefs, withSubSteps, ORDER_STATUSES,
+  ORDER_KINDS, SAMPLE_KIND_KEYS, UNKNOWN_ORDER_KIND,
   PROVISIONAL_DUE_STEPS, PROVISIONAL_DUE_KEYS, PROCESS_THEME, isCustomStepKey,
   TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES, INSPECTION_STATUSES, YARN_ORDER_STATUSES, findStatusMeta,
   DEFAULT_DYE_METHOD, DYE_METHODS, CLOSING_ITEMS, CLOSING_KEYS, KG_CONVERSION_COEFFICIENT, PRESETTING_KEY, YARN_DYEING_KEY,
@@ -61,8 +63,10 @@ import { addDaysYmd, diffDaysYmd, todayYmd, toYmd, round1, calcKgFromYd, shortDa
 // v10 (2026-10-14): 외관검사 LOT별 1차·2차 · LOT 배색량 · 선염/후염(후염 = 생지 출고 오더에 한 번) · 생지 출고 kg ·
 //                   오더 마무리 체크 · 프리세팅은 LOT 창에서
 // v11 (2026-10-14): 원사 = 사종 줄(발주대기·발주완료·입고완료·중지) + 재고 사용 + 원사염색(선염) — 예전 원사 일정은 사종 한 줄로
+// v12 (2026-10-19): 샘플 종류 sampleKind (신제품 · 재샘플) — 구분(메인 · 신제품 · 재샘플)은 만들 때 정하고 잠김
+//                   예전 샘플은 읽을 때: 설계서 연결 = 신제품 / 원단 연결 = 재샘플 / 둘 다 없음 = 종류 미정
 //  예전 문서는 읽을 때 자동으로 맞춤 (오더 단위 외관검사 → 컬러별 → LOT별, 예전 컨펌 라운드 → 상태 기록)
-export const ORDER_SCHEMA_VERSION = 11;
+export const ORDER_SCHEMA_VERSION = 12;
 
 // 공정 목록 기본값 (추가 공정이 없을 때 — 프리세팅은 LOT 창에서 관리하므로 빠짐)
 const DEFAULT_STEP_DEFS = getStepDefs([]);
@@ -148,8 +152,10 @@ export const createProvisionalPlan = () => ({
 });
 
 // 새 오더 (현황표 [+ 오더 추가]) — order#를 입력해야 저장된다
-export const createEmptyOrder = (userEmail = '') => {
+//  kind: 'main' | 'new'(신제품) | 'resample'(재샘플) — [+ 오더 추가] 메뉴에서 고른 구분 (대표님 요청 2026-10-19)
+export const createEmptyOrder = (userEmail = '', kind = 'main') => {
   const now = new Date().toISOString();
+  const kindMeta = ORDER_KINDS.find(k => k.key === kind) || ORDER_KINDS[0];
   return {
     id: uid('ord'),
     schemaVersion: ORDER_SCHEMA_VERSION,
@@ -157,7 +163,8 @@ export const createEmptyOrder = (userEmail = '') => {
     articleNo: '',
     detail: '',
     customer: '',
-    type: 'main',
+    type: kindMeta.type,
+    sampleKind: kindMeta.sampleKind,
     finalDueDate: '',
     lossRate: DEFAULT_LOSS_RATE,
     status: 'active',
@@ -204,6 +211,18 @@ const normalizeOrderStatus = (s) => (s === 'completed' ? 'completed' : s === 'on
 const normalizeDropInfo = (raw, status) => {
   if (status !== 'completed' || !raw || typeof raw !== 'object') return null;
   return { prevStatus: normalizeOrderStatus(raw.prevStatus), at: str(raw.at) };
+};
+
+// 샘플 종류 (v12 — 대표님 요청 2026-10-19). 메인 오더는 ''
+//  v12 전 샘플: 설계서와 연결 = 신제품 / 원단 관리 원단과 연결 = 재샘플 / 둘 다 없음 = '' (종류 미정 — 한 번 고르면 잠김)
+//  v12 오더는 저장된 값 그대로 (읽을 때마다 연결을 보고 바뀌지 않게)
+const normalizeSampleKind = (raw, schema) => {
+  if (raw.type !== 'sample') return '';
+  if (SAMPLE_KIND_KEYS.includes(raw.sampleKind)) return raw.sampleKind;
+  if (schema >= 12) return '';
+  if (raw.linkedSheetId) return 'new';
+  if (raw.linkedFabricId) return 'resample';
+  return '';
 };
 
 // 예전 예상 종료일 기록 [{ date, at }] — 날짜가 없는 줄은 버림
@@ -582,6 +601,7 @@ const normalizeV8 = (raw) => {
     detail: str(raw.detail),
     customer: str(raw.customer),
     type: raw.type === 'sample' ? 'sample' : 'main',
+    sampleKind: normalizeSampleKind(raw, schema),
     finalDueDate: str(raw.finalDueDate),
     lossRate: lossRate === null ? DEFAULT_LOSS_RATE : lossRate,
     status,
@@ -2124,9 +2144,10 @@ export const applyProvisionalDue = (order, patch, plan = undefined) => {
 // ============================================================
 // 6. 변경 이력 요약 (감사 로그) — 이전/이후 오더 비교해 한국어 한 줄로
 // ============================================================
+// 구분(type · sampleKind)은 여기 말고 summarizeOrderChange 에서 한 줄로 ('구분 신제품→재샘플' — 2026-10-19)
 const ORDER_FIELD_LABELS = {
   orderNumber: 'order#', articleNo: 'article#', detail: '디테일', customer: 'buyer',
-  type: '구분', finalDueDate: '납기', lossRate: '로스율', status: '오더상태', notes: '메모', dyeVendor: '염색소',
+  finalDueDate: '납기', lossRate: '로스율', status: '오더상태', notes: '메모', dyeVendor: '염색소',
   inspectVendor: '검사처', dyeMethod: '염색 방식', gsm: 'gsm', widthFull: '전폭',
 };
 const STEP_FIELD_LABELS = {
@@ -2235,7 +2256,6 @@ const fmtVal = (field, v) => {
   if (v === null || v === undefined || v === '') return '-';
   if (typeof v === 'boolean') return v ? '완료' : '미완료';
   if (field === 'status') return ORDER_STATUSES.find(s => s.key === v)?.label || getStatusLabel(v);
-  if (field === 'type') return ORDER_TYPES.find(t => t.key === v)?.label || v;
   if (field === 'dyeMethod') return DYE_METHODS.find(m => m.key === v)?.label || v;
   if (field === 'dyeKg') return `${fmtKg(v)}kg`;
   if (/Date$/.test(field)) return shortDate(v) || String(v);
@@ -2255,6 +2275,10 @@ export const summarizeOrderChange = (prev, next, stepDefs = DEFAULT_STEP_DEFS) =
   if (!prev || !next) return null;
   const out = [];
   diffFields(prev, next, ORDER_FIELD_LABELS, '', out);
+  // 구분 (메인 · 신제품 · 재샘플 · 종류 미정 — type 과 sampleKind 를 한 줄로)
+  const kindA = getOrderKind(prev);
+  const kindB = getOrderKind(next);
+  if (kindA !== kindB) out.push(`구분 ${getOrderKindMeta(kindA).label}→${getOrderKindMeta(kindB).label}`);
   // 마무리 체크로 자동 완료 / 체크를 풀어 다시 진행 (오더상태 줄 앞에 까닭)
   //  손으로 상태를 바꿔 자동 완료 표시가 지워진 경우(체크는 그대로)는 '오더상태' 줄만 남김
   if (!prev.closingAuto && next.closingAuto) out.push('마무리 체크 3개 끝 → 자동 완료');
@@ -2413,6 +2437,50 @@ export const isSameOrderContent = (a, b) => {
 };
 
 // ============================================================
+// 6-B. 구분 — 메인 / 신제품 / 재샘플 (대표님 요청 2026-10-19 '샘플/메인을 함부로 바꿀 수 있으면 안 됨')
+// ------------------------------------------------------------
+//  신제품 = 설계서가 필요한 샘플 (설계서 → 아이템화 또는 Drop). 개발/설계 현황에서 넘어오는 샘플은 모두 신제품
+//  재샘플 = 기존 아이템(원단 관리 원단)을 한 번 더 샘플 — 아이템을 골라야 '완료' (끝 = 완료, 아이템화 없음)
+//  종류 미정 = 예전 샘플 중 설계서 · 원단 연결이 없던 것 (한 번 고르면 잠김)
+//  구분은 [+ 오더 추가]에서 고르고 저장되면 잠김 — 바꾸는 건 [구분 바꾸기] 창(사유)만 (useOrder 가 막음)
+// ============================================================
+
+// 구분 키: 'main' | 'new' | 'resample' | 'unknown'(종류 미정 샘플)
+export const getOrderKind = (order) => {
+  if (!order || order.type !== 'sample') return 'main';
+  return SAMPLE_KIND_KEYS.includes(order.sampleKind) ? order.sampleKind : 'unknown';
+};
+
+// 구분 표시 정보 { key, label, menuLabel, desc, chip } (constants/production ORDER_KINDS · UNKNOWN_ORDER_KIND)
+export const getOrderKindMeta = (orderOrKind) => {
+  const key = typeof orderOrKind === 'string' ? orderOrKind : getOrderKind(orderOrKind);
+  return ORDER_KINDS.find(k => k.key === key) || UNKNOWN_ORDER_KIND;
+};
+
+// 구분 바꾸기 → type · sampleKind (kind: 'main' | 'new' | 'resample')
+export const applyOrderKind = (order, kind) => {
+  const meta = ORDER_KINDS.find(k => k.key === kind);
+  if (!order || !meta) return order;
+  return { ...order, type: meta.type, sampleKind: meta.sampleKind };
+};
+
+// 신제품인데 설계서가 아직 없음 (⋯ 메뉴 [새 설계서 작성] · [작성 중인 설계서 연결])
+export const isSheetMissing = (order) => getOrderKind(order) === 'new' && !order?.linkedSheetId;
+
+// 재샘플인데 아이템(원단 관리 원단)을 아직 안 고름 — 이 상태로는 '완료'가 안 됨 (대표님 결정 2026-10-19)
+export const isItemMissing = (order) => getOrderKind(order) === 'resample' && !order?.linkedFabricId;
+
+// 구분 때문에 남은 할 일 (진행 중 오더만 — 완료된 오더는 표시 안 함): 'unknown' | 'sheet' | 'item' | ''
+export const getOrderKindTodo = (order) => {
+  if (!order || order.status === 'completed') return '';
+  const kind = getOrderKind(order);
+  if (kind === 'unknown') return 'unknown';
+  if (isSheetMissing(order)) return 'sheet';
+  if (isItemMissing(order)) return 'item';
+  return '';
+};
+
+// ============================================================
 // 7. 설계서 ↔ 샘플 오더 (대표님 요청 2026-10-10)
 // ------------------------------------------------------------
 //  설계서에 EZ-TEX O/D NO.를 등록하면 그 번호(order#)로 생산 현황에 샘플 오더가 생기고,
@@ -2470,7 +2538,7 @@ export const getOpenWork = (order, stepDefs = DEFAULT_STEP_DEFS) => {
 };
 
 /**
- * 설계서 값으로 샘플 오더 칸 채우기 (구분 = 샘플 + 설계서 연결)
+ * 설계서 값으로 샘플 오더 칸 채우기 (구분 = 신제품 + 설계서 연결 — 설계서에서 오는 샘플은 모두 신제품, 2026-10-19)
  *  detail = 원단명 · buyer = 의뢰 바이어 · 납기 = 설계서 납기 · article# = 설계서 Article (원단이 연결돼 있으면 연결도)
  *  편직처 = 설계서 편직처 · 염색소 = 설계서 염색처 · 후가공처 = 설계서 후가공처
  *  onlyEmpty: 이미 있는 오더에 연결할 때 — 비어 있는 칸만 채움 (생산 현황에 적어 둔 값은 그대로)
@@ -2485,6 +2553,7 @@ export const fillOrderFromSheet = (order, sheet, { buyerName = '', onlyEmpty = f
   let next = {
     ...order,
     type: 'sample',
+    sampleKind: 'new',
     linkedSheetId: sheet.id,
     detail: take(order.detail, sheet.fabricName),
     customer: take(order.customer, buyerName),

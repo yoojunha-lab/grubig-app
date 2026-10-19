@@ -409,6 +409,37 @@ export const DEV_SAMPLE_ORDERS = [
     dailyNotes: [],
     changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-10-07T00:00:00.000Z', updatedAt: '2026-10-07T00:00:00.000Z',
   },
+  // (v12 — 2026-10-19) 구분 잠금 · 샘플 종류 확인용
+  //  F-26S060: 예전 샘플 (v11 — 설계서 · 원단 연결 없음) → '종류 미정' (눌러서 한 번 고르기)
+  //  F-26S061: 재샘플인데 아이템을 안 고름 (article# 글자만) → '아이템 선택' · 완료 막힘
+  //  F-26S062: 생산 현황에서 바로 만든 신제품 (설계서 없음) → ⋯ 메뉴 [새 설계서 작성] · [작성 중인 설계서 연결]
+  {
+    id: 'ord_dev_s060', schemaVersion: 11, orderNumber: 'F-26S060', articleNo: '', detail: 'CM/N 70/30 RIB (예전 샘플)',
+    customer: '케일', type: 'sample', finalDueDate: '2026-11-05', lossRate: 10, status: 'active',
+    notes: '', linkedFabricId: null, linkedFabricArticle: '', dyeVendor: '',
+    steps: devSteps({}),
+    colors: [devColor('c_s060_1', 'BLACK', 25)],
+    dailyNotes: [],
+    changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-10-08T00:00:00.000Z', updatedAt: '2026-10-08T00:00:00.000Z',
+  },
+  {
+    id: 'ord_dev_s061', schemaVersion: 12, orderNumber: 'F-26S061', articleNo: 'GB-2402', detail: 'Cotton Span Rib 재샘플',
+    customer: '세웅상사', type: 'sample', sampleKind: 'resample', finalDueDate: '2026-11-10', lossRate: 10, status: 'active',
+    notes: '컬러 2개 추가 샘플', linkedFabricId: null, linkedFabricArticle: '', dyeVendor: '킹텍스',
+    steps: devSteps({}),
+    colors: [devColor('c_s061_1', 'NAVY', 20), devColor('c_s061_2', 'IVORY', 20)],
+    dailyNotes: [],
+    changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-10-15T00:00:00.000Z', updatedAt: '2026-10-15T00:00:00.000Z',
+  },
+  {
+    id: 'ord_dev_s062', schemaVersion: 12, orderNumber: 'F-26S062', articleNo: '', detail: 'W/P=50/50 하이게이지 신규',
+    customer: '네셔널 지오그래픽', type: 'sample', sampleKind: 'new', finalDueDate: '2026-11-15', lossRate: 10, status: 'active',
+    notes: '', linkedFabricId: null, linkedFabricArticle: '', dyeVendor: '',
+    steps: devSteps({}),
+    colors: [devColor('c_s062_1', 'GREY MELANGE', 30)],
+    dailyNotes: [],
+    changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-10-16T00:00:00.000Z', updatedAt: '2026-10-16T00:00:00.000Z',
+  },
   // v7 옛 형식 (차수 구조) — 자동 변환 확인용. schemaVersion 없음
   {
     id: 'O-LEGACY-01', orderNumber: 'O-LEGACY-01', articleNo: 'GB-2402', customer: '세웅상사', type: 'main',

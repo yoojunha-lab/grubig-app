@@ -295,13 +295,61 @@ export const ORDER_STATUS_COLORS = {
 };
 
 // ============================================================
-// 6. 오더 구분 (메인/샘플) — order#에 S/M이 있으면 자동 선택
+// 6. 오더 구분 — 메인 / 신제품 / 재샘플 (대표님 요청 2026-10-19 '샘플/메인을 함부로 바꿀 수 있으면 안 됨')
+//    type: 'main' | 'sample' — [전체 · 메인 · 샘플] 버튼 · 리포트는 이 값 (샘플 = 신제품 + 재샘플)
+//    sampleKind: 'new'(신제품 — 설계서 → 아이템화 또는 Drop) | 'resample'(재샘플 — 기존 아이템을 한 번 더) | ''(메인 · 종류 미정)
+//    구분은 [+ 오더 추가]에서 고르고, 저장되면 잠김 → 바꾸려면 ⋯ 메뉴 [구분 바꾸기] (사유 — 변경 이력에 남음)
+//    order# 의 S/M 은 새 줄을 저장할 때 고른 구분과 다르면 한 번 묻는 데만 씀 (예전처럼 저절로 바꾸지 않음)
 //    예) F-26S046 → 샘플, F-26M020 → 메인 (접두 영문 + 연도 2자리 뒤의 S/M)
 // ============================================================
 export const ORDER_TYPES = [
   { key: 'main',   label: '메인' },
   { key: 'sample', label: '샘플' },
 ];
+
+// 구분 3가지 (오더 추가 메뉴 · 구분 표시 · 구분 바꾸기 창)
+//  menuLabel: 오더 추가 메뉴 글자 / desc: 메뉴·창 설명 / chip: 구분 표시 색
+export const ORDER_KINDS = [
+  {
+    key: 'main', label: '메인', type: 'main', sampleKind: '',
+    menuLabel: '메인 오더', desc: '생산 오더 (보통 M 번호)',
+    chip: 'bg-teal-50 text-teal-700 border-teal-200',
+  },
+  {
+    key: 'new', label: '신제품', type: 'sample', sampleKind: 'new',
+    menuLabel: '신제품 샘플', desc: '설계서를 쓰고 아이템화(원단 등록) 또는 Drop으로 끝내요 (보통 S 번호)',
+    chip: 'bg-purple-50 text-purple-700 border-purple-200',
+  },
+  {
+    key: 'resample', label: '재샘플', type: 'sample', sampleKind: 'resample',
+    menuLabel: '재샘플', desc: '기존 아이템(원단 관리)을 한 번 더 샘플 — article#에서 아이템을 골라요',
+    chip: 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200',
+  },
+];
+export const SAMPLE_KIND_KEYS = ['new', 'resample'];
+
+// 예전 샘플 오더 중 설계서 · 원단 연결이 없어 종류를 모르는 것 (한 번 고르면 잠김)
+export const UNKNOWN_ORDER_KIND = {
+  key: 'unknown', label: '종류 미정', type: 'sample', sampleKind: '',
+  menuLabel: '종류 미정', desc: '예전에 만든 샘플 — 신제품인지 재샘플인지 한 번 골라 주세요',
+  chip: 'bg-amber-50 text-amber-800 border-amber-300',
+};
+
+// 구분 때문에 남은 할 일 꼬리표 (진행 중 오더만 — orderModel.getOrderKindTodo)
+//  sheet: 신제품인데 설계서 없음 / item: 재샘플인데 아이템(원단 관리 원단) 안 고름 — 고르기 전에는 '완료' 못 함
+//  (종류 미정은 구분 표시 자체가 노란 '종류 미정')
+export const ORDER_KIND_TODOS = {
+  sheet: {
+    label: '설계서 없음',
+    cls: 'bg-amber-50 text-amber-800 border-amber-300',
+    title: '신제품 샘플인데 설계서가 아직 없어요 — ⋯ 메뉴에서 [새 설계서 작성] 또는 [작성 중인 설계서 연결] (설계서가 있어야 아이템화)',
+  },
+  item: {
+    label: '아이템 선택',
+    cls: 'bg-red-50 text-red-700 border-red-300',
+    title: '재샘플은 article# 칸에서 기존 아이템(원단 관리)을 골라야 해요 — 고르기 전에는 완료할 수 없어요',
+  },
+};
 
 export const detectOrderType = (orderNumber) => {
   const m = String(orderNumber || '').trim().toUpperCase().match(/^[A-Z]+-?\d{2}([SM])/);

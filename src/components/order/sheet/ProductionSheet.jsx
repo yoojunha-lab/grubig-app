@@ -30,6 +30,8 @@ import { PresettingChip } from '../common/PresettingChip';
 import { YarnDyeChip } from '../common/YarnDyeChip';
 import { SheetLinkChips } from '../common/SheetLinkChips';
 import { StatusSelect } from '../common/StatusSelect';
+import { OrderKindChip, OrderKindTodoChip } from '../common/OrderKindChip';
+import { AddOrderMenu } from '../common/AddOrderMenu';
 import { StepManagerPopover } from './StepManagerPopover';
 import { PartnerPickerModal } from '../../common/PartnerPickerModal';
 
@@ -41,6 +43,9 @@ import { PartnerPickerModal } from '../../common/PartnerPickerModal';
 // - 왼쪽 5칸(order#~color) 고정, 나머지 가로 스크롤. 공정/컬러 칸은 보이기/숨기기 가능
 // - 초안(order# 입력 전 새 줄)은 저장된 오더 다음에 같은 목록(key=order.id)으로 렌더
 //   → order# 를 입력해 저장돼도 줄이 다시 마운트되지 않아 입력 흐름이 끊기지 않음
+// - 구분(메인 · 신제품 · 재샘플 — 2026-10-19): 새 줄만 드롭다운, 저장된 오더는 표시만 (바꾸려면 ⋯ 메뉴 [구분 바꾸기])
+//   '종류 미정'을 누르면 고르는 창 · '설계서 없음'을 누르면 ⋯ 메뉴 · 재샘플 '아이템 선택'은 article# 칸
+//   [+ 오더 추가]는 구분을 고르는 메뉴 (AddOrderMenu)
 // - 모든 저장은 actions(useOrder 의 orderActions)로만
 // ============================================================
 
@@ -844,19 +849,17 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
                   />
                   {isDraft && <div className="px-1 text-[9px] font-bold text-amber-600">입력하면 저장</div>}
                   <div className="flex items-center flex-wrap gap-1 mt-1 px-1">
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      onClick={() => setField('type', order.type === 'sample' ? 'main' : 'sample')}
-                      title="클릭하면 메인/샘플 전환"
-                      className={`px-1.5 py-px rounded border text-[9px] font-extrabold ${
-                        order.type === 'sample'
-                          ? 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
-                          : 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100'
-                      }`}
-                    >
-                      {order.type === 'sample' ? '샘플' : '메인'}
-                    </button>
+                    {/* 구분 — 새 줄만 드롭다운, 저장된 오더는 표시만 (대표님 요청 2026-10-19) */}
+                    <OrderKindChip
+                      order={order}
+                      isDraft={isDraft}
+                      onDraftKind={k => actions.setDraftKind(order.id, k)}
+                      onPickKind={actions.requestKindChange ? () => actions.requestKindChange(order.id) : undefined}
+                      showTodo={false}
+                    />
+                    {!isDraft && (
+                      <OrderKindTodoChip order={order} only="sheet" onTodo={rect => ctx.openMenu(order.id, rect)} />
+                    )}
                     {/* 선염 / 후염 (후염 = 생지 출고 오더에 한 번 — 고르면 바로 저장) */}
                     <StatusSelect
                       value={order.dyeMethod || ''}
@@ -926,6 +929,10 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
                       <Link2 className="w-3 h-3" /> 보관함 연결
                     </div>
                   )}
+                  {/* 재샘플인데 아이템을 안 골랐으면 — 위 칸에 품번을 넣고 목록에서 고르기 (고르기 전에는 완료 못 함) */}
+                  <div className="px-1">
+                    <OrderKindTodoChip order={order} only="item" />
+                  </div>
                 </td>
 
                 {/* ---------- detail ---------- */}
@@ -1193,8 +1200,9 @@ export const ProductionSheet = ({
   );
 
   // ---------- 새 줄 / 컬러 줄 추가 + 자동 포커스 ----------
-  const addDraft = () => {
-    const id = actions.addDraftOrder();
+  //  kind: [+ 오더 추가 ▾] 에서 고른 구분 ('main' | 'new' | 'resample')
+  const addDraft = (kind = 'main') => {
+    const id = actions.addDraftOrder(kind);
     if (id) setLocalFocusId(id);
   };
   const focusOrderId = pendingFocusOrderId || localFocusId;
@@ -1327,15 +1335,14 @@ export const ProductionSheet = ({
         <FileSpreadsheet className="w-10 h-10 text-slate-300 mx-auto mb-3" />
         <p className="text-sm font-bold text-slate-600">표시할 오더가 없어요</p>
         <p className="text-xs text-slate-400 mt-1">
-          엑셀처럼 한 줄씩 입력하면 바로 저장돼요. 새 줄에서 order#부터 입력해 주세요.
+          엑셀처럼 한 줄씩 입력하면 바로 저장돼요. 구분(메인 · 신제품 · 재샘플)을 고른 뒤 새 줄에서 order#부터 입력해 주세요.
         </p>
-        <button
-          type="button"
-          onClick={addDraft}
+        <AddOrderMenu
+          onPick={addDraft}
           className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-600 text-white text-xs font-bold shadow-sm hover:opacity-90"
         >
-          <Plus className="w-4 h-4" /> 첫 오더 추가
-        </button>
+          <Plus className="w-4 h-4" /> 첫 오더 추가 <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+        </AddOrderMenu>
       </div>
     );
   }
@@ -1470,19 +1477,18 @@ export const ProductionSheet = ({
             />
           ))}
 
-          {/* ---------- 맨 아래 줄: + 오더 추가 ---------- */}
+          {/* ---------- 맨 아래 줄: + 오더 추가 (구분 고르기 메뉴) ---------- */}
           <tbody>
             <tr>
               <td colSpan={columns.length} className="p-0 border-b border-b-slate-200">
-                <button
-                  type="button"
-                  onClick={addDraft}
+                <AddOrderMenu
+                  onPick={addDraft}
                   className="w-full text-left py-2 text-xs font-bold text-teal-700 hover:bg-teal-50 transition-colors"
                 >
                   <span className="sticky left-0 inline-flex items-center gap-1 px-3">
-                    <Plus className="w-3.5 h-3.5" /> 오더 추가
+                    <Plus className="w-3.5 h-3.5" /> 오더 추가 <ChevronDown className="w-3 h-3 opacity-70" />
                   </span>
-                </button>
+                </AddOrderMenu>
               </td>
             </tr>
           </tbody>

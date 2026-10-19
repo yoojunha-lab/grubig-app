@@ -1,7 +1,7 @@
 import { useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CalendarDays, CalendarPlus, Check, Crosshair, Flag, Plus } from 'lucide-react';
 import {
-  COLOR_STAGES, ORDER_TYPES, PROCESS_THEME, PROVISIONAL_STATES, INSPECTION_STATUSES, PRESETTING_KEY,
+  COLOR_STAGES, PROCESS_THEME, PROVISIONAL_STATES, INSPECTION_STATUSES, PRESETTING_KEY,
   YARN_ORDER_STATUSES, YARN_DYEING_KEY, DONE_TONE,
   getStatusLabel, getStepMeta, findStepMeta, getStepDefs, findStatusMeta,
 } from '../../../constants/production';
@@ -23,6 +23,7 @@ import { YarnPopover } from '../sheet/YarnPopover';
 import { GanttAddMenu } from './GanttAddMenu';
 import { GanttDateMenu } from './GanttDateMenu';
 import { SheetLinkChips } from '../common/SheetLinkChips';
+import { OrderKindChip } from '../common/OrderKindChip';
 import { DayNotePopover } from './DayNotePopover';
 import {
   BAR_H, BAR_PAD, DAY_W, LABEL_W, LANE_H, MARK_H, WEEKDAY_KO, buildGanttLayout,
@@ -73,11 +74,6 @@ const worstMark = (marks) => marks.reduce((w, m) => (
 
 const BADGE = 'inline-flex items-center px-1.5 py-px rounded-full border text-[10px] font-bold whitespace-nowrap';
 
-const TYPE_CHIP = {
-  main: 'bg-teal-50 text-teal-700 border-teal-200',
-  sample: 'bg-violet-50 text-violet-700 border-violet-200',
-};
-
 // 범례 (공정 색)
 const LEGEND = [
   { key: 'yarn', label: '원사 (사종)' },
@@ -116,10 +112,9 @@ const DdayBadge = ({ due }) => {
   return <span className={`${BADGE} font-extrabold ${cls}`} title={due ? `납기 ${due}` : undefined}>{label}</span>;
 };
 
-// 오더 줄 라벨: order# · 구분 · (후염) · (설계서) · D-day / buyer · article# · detail
-// (button 안에는 div 대신 span 만 — 올바른 HTML 구조. 설계서 표시도 글자만 — 설계서 열기는 상세창·현황표에서)
+// 오더 줄 라벨: order# · 구분(메인·신제품·재샘플 + 설계서 없음·아이템 선택) · (후염) · (설계서) · D-day / buyer · article# · detail
+// (button 안에는 div 대신 span 만 — 올바른 HTML 구조. 설계서·구분 표시도 글자만 — 설계서 열기·구분 바꾸기는 상세창·현황표에서)
 const OrderLabel = ({ order, sheetInfo = null, onOpenDetail }) => {
-  const typeLabel = ORDER_TYPES.find(t => t.key === order.type)?.label || '메인';
   const sub = [order.customer, order.articleNo, order.detail].filter(Boolean).join(' · ');
   const dim = order.status === 'on_hold';
   const completed = order.status === 'completed';
@@ -134,7 +129,7 @@ const OrderLabel = ({ order, sheetInfo = null, onOpenDetail }) => {
       {/* 완료된 오더(종결)는 이름 줄 배지까지 회색 (대표님 요청 2026-10-14) */}
       <span className={`flex items-center gap-1 w-full min-w-0 ${dim ? 'opacity-70' : ''} ${completed ? 'grayscale' : ''}`}>
         <span className="font-mono font-extrabold text-xs text-teal-700 truncate">{order.orderNumber || '(order# 없음)'}</span>
-        <span className={`${BADGE} text-[9px] px-1 ${TYPE_CHIP[order.type] || TYPE_CHIP.main}`}>{typeLabel}</span>
+        <OrderKindChip order={order} />
         {order.dyeMethod && (
           <span className={`${BADGE} text-[9px] px-1 ${order.dyeMethod === 'piece' ? 'bg-sky-50 text-sky-700 border-sky-300' : 'bg-pink-50 text-pink-700 border-pink-300'}`}>
             {order.dyeMethod === 'piece' ? '후염' : '선염'}

@@ -7,6 +7,7 @@ import {
   applyColorTracks, addColorTrackEvent,
   applyDyeMethod, applyOrderGreigeOuts, applyOrderSpec, applyLotInspections, addLotInspectionEvent, applyClosing,
   applyYarn, addYarnOrderEvent,
+  applyOrderKind, getOrderKind, getOrderKindMeta, isItemMissing, isSheetMissing,
   summarizeOrderChange, isSameOrderContent, ORDER_SCHEMA_VERSION,
 } from '../../utils/orderModel';
 import { makeChangeLogEntry, appendChangeLog } from '../../utils/auditLog';
@@ -22,6 +23,9 @@ import { todayYmd } from '../../utils/orderCalculations';
 //   - 그래서 연속 수정·한 핸들러 안의 연속 저장도 항상 직전 수정본 위에 이어서 적용 → 앞 수정이 사라지지 않음
 //   - 저장 실패 시 overrides 를 걷어내 서버 값으로 되돌림 (실패 토스트는 saveDocToCloud 가 표시)
 // ■ 새 오더 줄(초안)은 order# 를 입력하는 순간 저장(등록)된다. 그 전엔 화면에만 있음
+// ■ 구분(메인 · 신제품 · 재샘플 — 대표님 요청 2026-10-19)은 새 줄을 만들 때 고르고, 저장되면 잠김
+//   저장된 오더의 구분은 changeOrderKind([구분 바꾸기] 창 — 사유) · 설계서 연결(→ 신제품)로만 바뀜 (updateOrder 가 막음)
+//   재샘플은 아이템(원단 관리 원단)을 골라야 '완료' (마무리 체크 자동 완료도 안 함)
 
 // override 가 서버 값보다 앞서 있는지 (true 면 override 를 보여줌)
 //  - 서버에 없는 문서: 저장이 아직 안 끝났을 때만 (끝났는데 없으면 다른 곳에서 삭제된 것)
@@ -124,8 +128,9 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
    * 오더 하나를 updater(오더) => 새 오더 로 수정하고 저장.
    * 초안(새 줄)은 order# 가 생기는 순간 등록 저장된다.
    * opts.note: 변경 이력 앞에 붙일 까닭 (설계서 쪽에서 바꾼 경우 등)
+   * opts.allowKind: 저장된 오더의 구분을 바꿔도 됨 — [구분 바꾸기] 창(changeOrderKind) · 설계서 연결(→ 신제품)만
    */
-  const updateOrder = async (id, updater, { note = '' } = {}) => {
+  const updateOrder = async (id, updater, { note = '', allowKind = false } = {}) => {
     const draft = findDraft(id);
     const prev = draft || findLatest(id);
     if (!prev) return false;
@@ -134,16 +139,30 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       showToast('이 오더는 새 버전 화면에서 저장됐어요. 새로고침(F5)한 뒤 다시 고쳐 주세요.', 'error');
       return false;
     }
-    let next = updater(prev);
+    const next = updater(prev);
     if (!next || next === prev) return true;
 
-    // 설계서와 연결된 샘플 오더는 '샘플' 그대로 — 메인으로 바뀌면 설계서 아이템화·Drop 때 그 오더가 메인인 채로 닫힘 (2026-10-10)
-    if (prev.linkedSheetId && prev.type === 'sample' && next.type !== 'sample') {
-      showToast('설계서와 연결된 샘플 오더는 메인으로 바꿀 수 없어요. 메인 생산은 [오더 추가]로 새 오더(M 번호)를 만들어 주세요.', 'error');
+    // 구분(메인 · 신제품 · 재샘플)은 만들 때 정하고 잠김 (대표님 요청 2026-10-19 '샘플/메인을 함부로 바꿀 수 있으면 안 됨')
+    //  · 설계서와 연결된 신제품은 [구분 바꾸기]로도 안 됨 — 메인·재샘플이 되면 설계서 아이템화·Drop 때 그 오더가 엉뚱하게 닫힘 (2026-10-10)
+    //  · 그 밖의 저장된 오더는 [구분 바꾸기] 창(사유) · 설계서 연결로만 (allowKind)
+    if (!draft && getOrderKind(prev) !== getOrderKind(next)) {
+      if (prev.linkedSheetId && getOrderKind(next) !== 'new') {
+        showToast('설계서와 연결된 신제품 샘플은 구분을 바꿀 수 없어요. 샘플을 그만두려면 ⋯ 메뉴의 Drop을 써 주세요.', 'error');
+        return false;
+      }
+      if (!allowKind) {
+        showToast('구분(메인 · 신제품 · 재샘플)은 오더를 만들 때 정해요. 바꾸려면 ⋯ 메뉴 [구분 바꾸기]에서 사유와 같이 바꿔 주세요.', 'error');
+        return false;
+      }
+    }
+
+    // 재샘플은 아이템(원단 관리 원단)을 골라야 '완료' (대표님 결정 2026-10-19 — 어느 화면에서 완료해도 같게)
+    if (!draft && next.status === 'completed' && prev.status !== 'completed' && isItemMissing(next)) {
+      showToast('재샘플은 article# 칸에서 기존 아이템(원단 관리)을 골라야 완료할 수 있어요.', 'error');
       return false;
     }
 
-    // order# 검증 + 구분(메인/샘플) 자동 선택 (설계서 샘플 오더는 번호가 바뀌어도 '샘플' 그대로)
+    // order# 검증 — 구분은 order# 를 바꿔도 그대로 (2026-10-19 부터 S/M 을 보고 저절로 바꾸지 않음)
     if (next.orderNumber !== prev.orderNumber) {
       const no = next.orderNumber;
       if (!no && !draft) {
@@ -154,8 +173,15 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
         showToast(`order# '${no}'는 이미 등록되어 있어요.`, 'error');
         return false;
       }
-      const detected = detectOrderType(no);
-      if (detected && !prev.linkedSheetId) next = { ...next, type: detected };
+      // 새 줄: 고른 구분과 order# 의 S/M 이 다르면 등록 전에 한 번 묻기 (취소 = 저장 안 함 → order#·구분을 다시 고를 수 있음)
+      const detected = draft && no ? detectOrderType(no) : null;
+      if (detected && detected !== next.type) {
+        const ok = window.confirm(
+          `order# '${no}'는 ${detected === 'sample' ? '샘플(S)' : '메인(M)'} 번호인데 구분을 '${getOrderKindMeta(next).menuLabel}'(으)로 골랐어요.\n\n`
+          + '이대로 등록할까요? 등록하면 구분은 잠겨요.\n(취소하면 order#를 다시 넣거나 구분을 바꿀 수 있어요)'
+        );
+        if (!ok) return false;
+      }
     }
 
     if (draft) {
@@ -192,12 +218,16 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
   //  그 메인 오더가 닫혀 버림 (설계서 EZ-TEX 칸에 메인 오더 번호를 잘못 넣은 경우, 2026-10-10)
   const mainOrderMessage = (no) =>
     `생산 현황에 order# '${no}' 메인 오더가 있어요. 샘플 EZ-TEX O/D NO.가 맞는지 확인해 주세요. `
-    + "(그 오더를 이 설계서의 샘플 오더로 쓰려면 생산 현황에서 구분을 '샘플'로 바꾼 뒤 다시 등록)";
+    + "(그 오더가 사실 신제품 샘플이면 생산 현황 ⋯ 메뉴 [구분 바꾸기]로 '신제품'으로 바꾼 뒤 다시 등록)";
+  // 재샘플(기존 아이템을 한 번 더) 오더도 끌어오지 않음 — 설계서에서 오는 샘플은 신제품 (대표님 요청 2026-10-19)
+  const resampleOrderMessage = (no) =>
+    `생산 현황 order# '${no}'는 재샘플(기존 아이템) 오더예요. 신제품 설계서의 EZ-TEX O/D NO.가 맞는지 확인해 주세요. `
+    + "(그 오더가 사실 신제품이면 생산 현황 ⋯ 메뉴 [구분 바꾸기]로 '신제품'으로 바꾼 뒤 다시 등록)";
 
   /**
    * EZ-TEX O/D NO. 를 이 설계서에 등록해도 되는지 — 설계서를 저장하기 전에 확인 (막히면 설계서도 저장하지 않음)
    *  - 그 order# 오더가 다른 설계서(아직 있는)와 연결돼 있으면 안 됨
-   *  - 연결 안 된 메인 오더면 안 됨 (위 mainOrderMessage)
+   *  - 연결 안 된 메인 · 재샘플 오더면 안 됨 (위 mainOrderMessage · resampleOrderMessage)
    *  - 이 설계서와 연결된 오더의 번호를 바꾸는데 그 번호의 다른 오더가 이미 있으면 안 됨
    *    (새 설계서 = 아직 id 가 없어 연결된 오더도 없음 — 예전엔 '연결 안 된 아무 오더'를 연결된 오더로 잘못 봐서 막혔음)
    * 반환: 막는 까닭 ('' = 괜찮음)
@@ -212,6 +242,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       return `생산 현황 오더 '${no}'는 이미 다른 설계서와 연결돼 있어요. EZ-TEX O/D NO.를 확인해 주세요.`;
     }
     if (!same.linkedSheetId && same.type === 'main') return mainOrderMessage(no);
+    if (!same.linkedSheetId && getOrderKind(same) === 'resample') return resampleOrderMessage(no);
     const linked = sheet.id ? list.find(o => String(o.linkedSheetId || '') === String(sheet.id)) : null;
     if (linked && linked.id !== same.id) {
       return `생산 현황에 order# '${no}' 오더가 이미 있어요 (이 설계서의 샘플 오더는 ${linked.orderNumber}). EZ-TEX O/D NO.를 확인해 주세요.`;
@@ -220,11 +251,12 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
   };
 
   /**
-   * 설계서 EZ-TEX O/D NO. → 생산 현황 샘플 오더 (만들기 / 연결 / 번호 따라 바꾸기)
+   * 설계서 EZ-TEX O/D NO. → 생산 현황 샘플 오더 (만들기 / 연결 / 번호 따라 바꾸기) — 설계서에서 오는 샘플은 모두 신제품
    *  - 이 설계서와 이미 연결된 오더: EZ-TEX 번호를 고쳤고 오더 order# 가 예전 번호 그대로면 order# 도 바꿈
    *  - 아이템화·Drop된 설계서: 새로 만들거나 연결하지 않음 ('skipped' — 끝난 샘플이 '진행중' 오더로 생기지 않게)
-   *  - 같은 order# 오더가 있으면 새로 만들지 않고 연결 (빈 칸만 설계서 값으로). 다른 설계서와 연결된 오더·메인 오더면 거절
-   *  - 없으면 새 샘플 오더 등록
+   *  - 같은 order# 오더가 있으면 새로 만들지 않고 연결 (빈 칸만 설계서 값으로 + 신제품 — 생산 현황에서 만든 신제품 ·
+   *    종류 미정 샘플). 다른 설계서와 연결된 오더 · 메인 · 재샘플 오더면 거절
+   *  - 없으면 새 샘플 오더(신제품) 등록
    *  알림은 부른 쪽(설계서 훅)이 설계서 저장 알림과 합쳐서 띄움 — 여기선 결과만 돌려줌
    * opts: { buyerName, prevEztexNo, sheetExists(id) — 다른 설계서가 아직 있는지 (지워진 설계서 연결은 무시) }
    * 반환: { ok, action: 'created'|'linked'|'renamed'|'exists'|'skipped'|'conflict'|'failed', orderId?, orderNumber?, message? }
@@ -268,7 +300,15 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       if (!same.linkedSheetId && same.type === 'main') {
         return { ok: false, action: 'conflict', orderId: same.id, orderNumber: no, message: mainOrderMessage(no) };
       }
-      const ok = await updateOrder(same.id, o => fillOrderFromSheet(o, sheet, { buyerName, onlyEmpty: true }), { note: '설계서 EZ-TEX O/D NO. 등록' });
+      if (!same.linkedSheetId && getOrderKind(same) === 'resample') {
+        return { ok: false, action: 'conflict', orderId: same.id, orderNumber: no, message: resampleOrderMessage(no) };
+      }
+      // 종류 미정 샘플 → 신제품 (설계서와 연결되는 샘플 = 신제품) — 구분이 바뀌므로 allowKind
+      const ok = await updateOrder(
+        same.id,
+        o => fillOrderFromSheet(o, sheet, { buyerName, onlyEmpty: true }),
+        { note: '설계서 EZ-TEX O/D NO. 등록', allowKind: true }
+      );
       return ok
         ? { ok: true, action: 'linked', orderId: same.id, orderNumber: no }
         : { ok: false, action: 'failed', orderId: same.id, orderNumber: no };
@@ -378,21 +418,33 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
   const setLotInspections = (id, colorId, patchByLot) => updateOrder(id, o => applyLotInspections(o, colorId, patchByLot));
   const addLotInspection = (id, colorId, lotId, status) => updateOrder(id, o => addLotInspectionEvent(o, colorId, lotId, status));
   // 오더 마무리 체크 { yarnStock: { done?, date?, memo? }, … } — 3개가 다 되면 자동 '완료', 자동 완료를 체크 해제하면 다시 진행
+  //  재샘플인데 아이템을 안 골랐으면 체크만 저장하고 자동 완료는 안 함 (아이템을 골라야 완료 — 2026-10-19)
   const setClosing = async (id, patchByKey) => {
     const before = findLatest(id);
     let after = null;
+    let heldForItem = false;
     const ok = await updateOrder(id, o => {
       after = applyClosing(o, patchByKey);
+      if (after.status === 'completed' && o.status !== 'completed' && isItemMissing(after)) {
+        after = { ...after, status: o.status, dropInfo: o.dropInfo ?? null, closingAuto: o.closingAuto ?? null };
+        heldForItem = true;
+      }
       return after;
     });
+    if (ok && heldForItem) {
+      showToast(`마무리 체크는 저장했어요. '${before?.orderNumber || ''}'는 재샘플이라 article# 칸에서 아이템(원단 관리)을 골라야 완료돼요.`, 'info');
+    }
     if (ok && before && after && before.status !== after.status) {
       if (after.status === 'completed') {
         // 출고가 안 끝난 컬러가 있으면 같이 알려 줌 (완료는 그대로 — 대표님 결정: 마무리 3개 = 최종 마무리)
+        //  설계서가 없는 신제품이면 그것도 (설계서가 있어야 아이템화 — ⋯ 메뉴에서 붙이면 '아이템화 대기')
         const unshipped = (after.colors || []).filter(c => colorHasData(c) && !c.shipDone).length;
+        const noSheet = isSheetMissing(after);
         showToast(
           `마무리 체크 3개 끝 — '${before.orderNumber}' 오더를 완료로 바꿨어요. (체크를 풀면 다시 진행중)`
-          + (unshipped ? ` ⚠ 출고가 안 끝난 컬러 ${unshipped}개가 있어요.` : ''),
-          unshipped ? 'info' : 'success'
+          + (unshipped ? ` ⚠ 출고가 안 끝난 컬러 ${unshipped}개가 있어요.` : '')
+          + (noSheet ? ' ⚠ 신제품인데 설계서가 없어요 — 아이템화하려면 ⋯ 메뉴에서 설계서를 붙여 주세요.' : ''),
+          unshipped || noSheet ? 'info' : 'success'
         );
       } else {
         showToast(`마무리 체크를 풀어서 '${before.orderNumber}' 오더를 다시 ${after.status === 'on_hold' ? '보류' : '진행중'}으로 돌렸어요.`, 'info');
@@ -430,10 +482,33 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
   };
 
   // 새 오더 줄 추가 → 초안 id 반환
-  const addDraftOrder = () => {
-    const d = createEmptyOrder(user?.email);
+  //  kind: [+ 오더 추가] 메뉴에서 고른 구분 'main' | 'new'(신제품) | 'resample'(재샘플)
+  const addDraftOrder = (kind = 'main') => {
+    const d = createEmptyOrder(user?.email, kind);
     updateDrafts(list => [...list, d]);
     return d.id;
+  };
+
+  // 새 줄(order# 입력 전) 구분 바꾸기 — 저장되기 전까지만 (저장된 오더는 changeOrderKind)
+  const setDraftKind = (id, kind) => {
+    if (!findDraft(id)) return Promise.resolve(false);
+    return updateOrder(id, o => applyOrderKind(o, kind));
+  };
+
+  // [구분 바꾸기] 창 (⋯ 메뉴 · 상세창 — 대표님 요청 2026-10-19): 사유를 변경 이력에 남김
+  //  종류 미정 샘플(예전 오더)에 처음 고르는 것만 사유 없이도 됨
+  //  설계서와 연결된 신제품은 updateOrder 가 막음
+  const changeOrderKind = (id, kind, reason = '') => {
+    const prev = findLatest(id);
+    if (!prev) return Promise.resolve(false);
+    const first = getOrderKind(prev) === 'unknown';
+    const why = String(reason || '').trim();
+    if (!first && !why) {
+      showToast('구분을 바꾸는 사유를 적어 주세요. (변경 이력에 남아요)', 'error');
+      return Promise.resolve(false);
+    }
+    const note = first ? `샘플 종류 정함${why ? ` (사유: ${why})` : ''}` : `구분 변경 (사유: ${why})`;
+    return updateOrder(id, o => applyOrderKind(o, kind), { note, allowKind: true });
   };
 
   const discardDraft = (id) => updateDrafts(list => list.filter(d => d.id !== id));
@@ -477,7 +552,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       setDyeMethod, setOrderGreigeOuts, setOrderGreigeOutDone, setOrderSpec,
       setLotInspections, addLotInspection, setClosing,
       setYarn, addYarnEvent,
-      addDraftOrder, discardDraft, deleteOrder,
+      addDraftOrder, setDraftKind, changeOrderKind, discardDraft, deleteOrder,
     },
     // 설계서 ↔ 샘플 오더 (App 이 설계서 훅에 연결)
     sheetOrderLink: {

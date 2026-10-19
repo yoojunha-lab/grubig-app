@@ -537,7 +537,7 @@ const App = () => {
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
     resetSheetForm, setStage, registerEztexOrderNo, syncEztexFromOrder,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
-    getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
+    getDesignCost, initFromDevRequest, initFromOrder, dropDesignSheet, restoreFromDrop,
     saveSheetAndRegisterFabric, getBlankSheetInput
   } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, exchangeRates, saveFabricFromSheet, devRequests, sampleOrderLink);
 
@@ -551,6 +551,13 @@ const App = () => {
       return;
     }
     handleEditSheet(sheet);
+    setIsDesignSheetModalOpen(true);
+  };
+  //  - 새 설계서 작성: 생산 현황 신제품 샘플(설계서 없음) ⋯ 메뉴 → 오더 값을 채운 새 설계서 창 (대표님 요청 2026-10-19)
+  //    저장하면 EZ-TEX O/D NO.(= order#) 등록과 같아서 이 오더와 연결되고 설계서는 '샘플 진행'
+  const openNewSheetForOrder = (order) => {
+    if (!order) return;
+    initFromOrder(order);
     setIsDesignSheetModalOpen(true);
   };
   const [productionFocus, setProductionFocus] = useState(null); // { orderNumber, nonce }
@@ -1479,6 +1486,10 @@ const App = () => {
               dropWithDev: dropDevWithSheet, // 개발 의뢰가 있는 샘플 → Drop 사유 창 → 의뢰·설계서·샘플 오더 같이
               restore: restoreFromDrop,
               syncEztex: syncEztexFromOrder, // 샘플 오더 order# 를 고치면 설계서 EZ-TEX O/D NO.도 같이
+              // 설계서 없는 신제품 샘플 (대표님 요청 2026-10-19): 새 설계서 작성 / 작성 중인 설계서 연결
+              //  연결 = 그 설계서에 이 오더 번호를 EZ-TEX O/D NO.로 [등록] (개발/설계 현황 [등록]과 같은 함수 → '샘플 진행' + 연결)
+              create: openNewSheetForOrder,
+              link: (sheetId, orderNumber) => registerEztexOrderNo(sheetId, orderNumber),
             }}
             focusRequest={productionFocus}
             onFocusHandled={() => setProductionFocus(null)}

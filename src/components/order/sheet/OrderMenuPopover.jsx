@@ -1,13 +1,17 @@
 import { useRef, useState } from 'react';
-import { Award, FileText, PanelRightOpen, RotateCcw, Trash2, XCircle } from 'lucide-react';
+import { Award, FilePlus2, FileText, Link2, PanelRightOpen, RotateCcw, Tags, Trash2, XCircle } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
+import { OrderKindChip } from '../common/OrderKindChip';
 import { ORDER_STATUSES, ORDER_STATUS_COLORS } from '../../../constants/production';
+import { getOrderKind, isSheetMissing } from '../../../utils/orderModel';
 
 // ============================================================
 // 현황표 order# 칸의 `⋯` 메뉴
 // ------------------------------------------------------------
-// - 저장된 오더: 상세 보기 / (설계서 샘플 오더면) 설계서 열기·아이템화·Drop·복원 / 오더 상태(진행중·보류·완료) / 오더 삭제
-// - 초안(order# 입력 전 새 줄): 줄 삭제만
+// - 저장된 오더: 상세 보기 / 구분 (대표님 요청 2026-10-19 — [구분 바꾸기] · 설계서 없는 신제품이면 [새 설계서 작성] ·
+//   [작성 중인 설계서 연결]) / (설계서 샘플 오더면) 설계서 열기·아이템화·Drop·복원 / 오더 상태(진행중·보류·완료) / 오더 삭제
+//   · 구분 바꾸기 · 설계서 연결 창은 OrderListPage 가 띄움 (actions.requestKindChange · sheetActions.newSheet · pickSheet)
+// - 초안(order# 입력 전 새 줄): 줄 삭제만 (구분은 order# 칸 드롭다운)
 // - 삭제 확인창은 useOrder 훅이 띄움 (취소하면 메뉴 유지)
 // - 설계서 버튼은 개발/설계 현황과 같은 함수 (대표님 요청 2026-10-10 '아이템화·설계서 ARTICLE 연동까지 동일하게')
 //   아이템화 → (확인 창: OrderListPage.itemizeSheet) 원단 등록 + 이 오더 article# 연결·완료
@@ -15,7 +19,7 @@ import { ORDER_STATUSES, ORDER_STATUS_COLORS } from '../../../constants/producti
 // - 오더 상태 버튼은 OrderListPage 가 얹은 규칙을 따름 (actions.setOrderField):
 //   설계서가 안 끝난 샘플을 '완료' → 샘플 끝내기 창 / Drop 된 샘플을 '진행중'·'보류' → 설계서 복원
 // props: order, isDraft, anchorRect, onClose, onOpenDetail(orderId), actions,
-//        sheetInfo(OrderListPage.sheetInfoOf), sheetActions({ open, itemize, drop, restore })
+//        sheetInfo(OrderListPage.sheetInfoOf), sheetActions({ open, itemize, drop, restore, newSheet, pickSheet })
 // ============================================================
 
 const MenuButton = ({ icon: Icon, danger = false, disabled = false, onClick, children }) => (
@@ -94,6 +98,15 @@ export const OrderMenuPopover = ({
     onClose?.();
   };
 
+  // ---------- 구분 (메인 · 신제품 · 재샘플) ----------
+  //  창을 여는 버튼들 — 메뉴는 닫고 OrderListPage 가 창을 띄움
+  const unknownKind = getOrderKind(order) === 'unknown';
+  const noSheet = isSheetMissing(order);
+  const openAndClose = (fn) => {
+    fn?.(order.id);
+    onClose?.();
+  };
+
   return (
     <PopoverShell
       anchorRect={anchorRect}
@@ -110,6 +123,28 @@ export const OrderMenuPopover = ({
             {onOpenDetail && (
               <MenuButton icon={PanelRightOpen} onClick={openDetail}>상세 보기</MenuButton>
             )}
+
+            {/* 구분 — 설계서 없는 신제품이면 설계서 붙이기 · 구분 바꾸기 (사유) */}
+            <div className="mt-1 pt-1.5 border-t border-slate-100">
+              <div className="px-2.5 pb-1 text-[10px] font-bold text-slate-400 flex items-center gap-1 flex-wrap">
+                구분 <OrderKindChip order={order} />
+              </div>
+              {noSheet && sheetActions?.newSheet && (
+                <MenuButton icon={FilePlus2} onClick={() => openAndClose(sheetActions.newSheet)}>
+                  <span className="text-teal-700">새 설계서 작성</span>
+                </MenuButton>
+              )}
+              {noSheet && sheetActions?.pickSheet && (
+                <MenuButton icon={Link2} onClick={() => openAndClose(sheetActions.pickSheet)}>
+                  작성 중인 설계서 연결
+                </MenuButton>
+              )}
+              {actions.requestKindChange && (
+                <MenuButton icon={Tags} onClick={() => openAndClose(actions.requestKindChange)}>
+                  {unknownKind ? '샘플 종류 정하기' : '구분 바꾸기'}
+                </MenuButton>
+              )}
+            </div>
 
             {/* 설계서 샘플 오더 — 설계서 열기 · 아이템화 · Drop · 복원 */}
             {sheet && sheetActions && (

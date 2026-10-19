@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, Package, Trash2, Plus, Search, Link2, RotateCcw,
   ClipboardList, Factory, Palette, History, FilePlus2, Pencil, Flag,
-  FileText, Award, XCircle, ClipboardCheck,
+  FileText, Award, XCircle, ClipboardCheck, Tags,
 } from 'lucide-react';
 import {
   ORDER_STEPS, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, PROCESS_THEME,
-  COLOR_STAGES, ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_TYPES,
+  COLOR_STAGES, ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_KINDS,
   PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS, TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES,
   INSPECTION_STATUSES, DYE_METHODS, CLOSING_ITEMS, DYE_REMAIN_STATES, YARN_ORDER_STATUSES, YARN_DYEING_KEY, DONE_TONE, getStepDefs,
 } from '../../constants/production';
@@ -17,9 +17,11 @@ import {
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState,
   getColorInspection, getRoundStatusDate, getDyeYield, isPieceDyed, getClosingState, isClosingPending,
   getYarnState, getYarnRowInfo, canUseYarnDyeing,
+  getOrderKind, getOrderKindMeta, isItemMissing, isSheetMissing,
 } from '../../utils/orderModel';
 import { PresettingChip } from './common/PresettingChip';
 import { YarnDyeChip } from './common/YarnDyeChip';
+import { OrderKindChip } from './common/OrderKindChip';
 import { YarnPopover } from './sheet/YarnPopover';
 import { shortDate, isYmd, toNumberOrNull, fmtKg, todayYmd } from '../../utils/orderCalculations';
 import { CHANGE_ACTIONS } from '../../utils/auditLog';
@@ -37,8 +39,10 @@ import { StatusSelect } from './common/StatusSelect';
 // - 모바일에서는 이 창이 유일한 편집 화면 → 한 열 폼, 칸마다 바로 저장
 // - 입력 규칙은 현황표와 같음: 글자/숫자 = blur·Enter 확정, Esc 취소 / 날짜 = 고르는 즉시 / 체크 = 즉시
 // - 모든 저장은 actions(useOrder 의 orderActions)로만 한다 (Firestore 직접 호출 금지)
-// - 섹션: (설계서 샘플 오더면 맨 위에 설계서) ① 기본정보(+ 선염/후염) ② 가납기 ③ 공정 일정 ④ 컬러(후염이면 맨 위에 오더 생지 출고)
+// - 섹션: (설계서 샘플 오더면 맨 위에 설계서 — 설계서 없는 신제품이면 [새 설계서 작성] · [작성 중인 설계서 연결])
+//         ① 기본정보(+ 구분 · 선염/후염) ② 가납기 ③ 공정 일정 ④ 컬러(후염이면 맨 위에 오더 생지 출고)
 //         ④-2 마무리(원사재고정리 · EZTEX 재고정리 · EZTEX 종결) ⑤ 변경 이력 ⑥ 등록/수정 시각
+// - 구분(메인 · 신제품 · 재샘플 — 2026-10-19): 새 줄만 고름, 저장된 오더는 [구분 바꾸기](사유)로만 (창은 OrderListPage)
 
 // ============================================================
 // 0. 공통 스타일 / 작은 부품
@@ -47,11 +51,6 @@ import { StatusSelect } from './common/StatusSelect';
 // 개별 칸에서 글자색·여백을 바꿀 땐 '!' 접두어(예: !text-teal-700)로 덮어씀
 const INPUT_CLS = 'w-full min-w-0 border border-slate-200 rounded-lg px-2.5 py-1.5 text-base md:text-sm text-slate-800 bg-white outline-none focus:ring-2 focus:ring-teal-400/60 focus:border-teal-400 placeholder:text-slate-300 placeholder:font-normal placeholder:normal-case';
 const BTN_SUB = 'inline-flex items-center gap-1 shrink-0 bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 hover:text-teal-700 px-2 py-1 rounded-md text-[11px] font-bold';
-
-const TYPE_CLS = {
-  main:   'bg-blue-100 text-blue-700 border-blue-300',
-  sample: 'bg-amber-100 text-amber-700 border-amber-300',
-};
 
 const orderStatusCls = (key) => {
   const c = ORDER_STATUS_COLORS[key] || ORDER_STATUS_COLORS.active;
@@ -1075,6 +1074,41 @@ const SheetSection = ({ order, sheetLink }) => {
   );
 };
 
+// 설계서가 아직 없는 신제품 샘플 — 설계서 붙이기 (대표님 요청 2026-10-19 '개발/설계 현황을 거치지 않더라도 설계서 작성해서 아이템화')
+//  [새 설계서 작성] = 오더 값을 채운 설계서 창 (저장하면 연결) / [작성 중인 설계서 연결] = 고르는 창 (창은 OrderListPage)
+const NoSheetSection = ({ order, sheetLink }) => {
+  if (!sheetLink?.newSheet && !sheetLink?.pickSheet) return null;
+  return (
+    <Section icon={FileText} title="설계서 (신제품)">
+      <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 space-y-2">
+        <p className="text-[11px] font-bold text-amber-800 leading-snug">
+          신제품 샘플인데 설계서가 아직 없어요. 설계서가 있어야 아이템화(원단 등록)할 수 있어요.
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {sheetLink.newSheet && (
+            <button
+              type="button"
+              onClick={() => sheetLink.newSheet(order.id)}
+              className={`${BTN_SUB} !text-teal-700 !border-teal-300 hover:!bg-teal-50`}
+            >
+              <FilePlus2 className="w-3 h-3" /> 새 설계서 작성
+            </button>
+          )}
+          {sheetLink.pickSheet && (
+            <button type="button" onClick={() => sheetLink.pickSheet(order.id)} className={BTN_SUB}>
+              <Link2 className="w-3 h-3" /> 작성 중인 설계서 연결
+            </button>
+          )}
+        </div>
+        <p className="text-[10px] text-slate-400 leading-snug">
+          새 설계서는 EZ-TEX O/D NO.(= order# {order.orderNumber}) · 원단명 · 납기가 채워진 채로 열려요.
+          저장하면 이 오더와 연결되고 설계서는 '샘플 진행'이 돼요.
+        </p>
+      </div>
+    </Section>
+  );
+};
+
 // ============================================================
 // 5. 상세창 본문 (order.id 가 바뀌면 key 로 새로 마운트 → 접힘/팝업 상태 초기화)
 // ============================================================
@@ -1138,7 +1172,9 @@ const OrderDetailBody = ({
   const piece = isPieceDyed(order);
   const yieldSpec = yieldSpecOf ? yieldSpecOf(order) : null;
   const canPickPartner = !!(savePartner && deletePartner && makeEmptyPartner);
-  const typeLabel = ORDER_TYPES.find(t => t.key === order.type)?.label || '메인';
+  const kindMeta = getOrderKindMeta(order); // 구분 (메인 · 신제품 · 재샘플 · 종류 미정)
+  const unknownKind = getOrderKind(order) === 'unknown';
+  const itemMissing = isItemMissing(order); // 재샘플인데 아이템을 안 고름 → 완료 못 함
   const dropClosed = isDropClosed(order); // 설계서 Drop 으로 닫힌 샘플 → 머리에 'Drop'
   const statusLabel = dropClosed ? 'Drop (샘플)' : (ORDER_STATUSES.find(s => s.key === order.status)?.label || '진행중');
 
@@ -1207,7 +1243,7 @@ const OrderDetailBody = ({
               <Package className="w-3.5 h-3.5" />
               <span className="font-mono font-bold text-white break-all">{order.orderNumber || '새 오더 (order# 미입력)'}</span>
               <span className="text-white/40">•</span>
-              <span>{typeLabel}</span>
+              <span>{kindMeta.label}</span>
               <span className="text-white/40">•</span>
               <span>{statusLabel}</span>
             </div>
@@ -1235,8 +1271,10 @@ const OrderDetailBody = ({
 
         {/* ---------- 본문 ---------- */}
         <div className="flex-1 overflow-y-auto overscroll-contain p-4 md:p-5 space-y-6">
-          {/* 설계서 샘플 오더면 설계서 (열기 · 아이템화 · Drop · 복원) */}
-          {!isDraft && <SheetSection order={order} sheetLink={sheetLink} />}
+          {/* 설계서 샘플 오더면 설계서 (열기 · 아이템화 · Drop · 복원) / 설계서 없는 신제품이면 설계서 붙이기 */}
+          {!isDraft && (isSheetMissing(order)
+            ? <NoSheetSection order={order} sheetLink={sheetLink} />
+            : <SheetSection order={order} sheetLink={sheetLink} />)}
 
           {/* ① 기본정보 */}
           <Section icon={ClipboardList} title="기본정보">
@@ -1254,13 +1292,36 @@ const OrderDetailBody = ({
                   onCommit={commitOrderNumber}
                 />
               </Field>
-              <Field label="구분">
-                <Segment
-                  options={ORDER_TYPES}
-                  value={order.type}
-                  colorOf={k => TYPE_CLS[k] || TYPE_CLS.main}
-                  onChange={k => setField('type', k)}
-                />
+              {/* 구분 — 새 줄만 고름, 저장된 오더는 [구분 바꾸기](사유)로만 (대표님 요청 2026-10-19) */}
+              <Field
+                label="구분"
+                hint={isDraft
+                  ? (ORDER_KINDS.find(k => k.key === getOrderKind(order))?.desc || '') + ' — order#를 넣어 저장하면 잠겨요'
+                  : unknownKind
+                    ? '예전에 만든 샘플 — 신제품인지 재샘플인지 한 번 골라 주세요'
+                    : '오더를 만들 때 정해요 — 잘못 골랐으면 [구분 바꾸기] (사유는 변경 이력에)'}
+              >
+                {isDraft ? (
+                  <Segment
+                    options={ORDER_KINDS}
+                    value={getOrderKind(order)}
+                    colorOf={k => ORDER_KINDS.find(o => o.key === k)?.chip || ''}
+                    onChange={k => actions.setDraftKind?.(order.id, k)}
+                  />
+                ) : (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <OrderKindChip
+                      order={order}
+                      size="md"
+                      onPickKind={actions.requestKindChange ? () => actions.requestKindChange(order.id) : undefined}
+                    />
+                    {actions.requestKindChange && (
+                      <button type="button" onClick={() => actions.requestKindChange(order.id)} className={BTN_SUB}>
+                        <Tags className="w-3 h-3" /> {unknownKind ? '종류 정하기' : '구분 바꾸기'}
+                      </button>
+                    )}
+                  </div>
+                )}
               </Field>
               <Field
                 label="염색 방식"
@@ -1275,7 +1336,12 @@ const OrderDetailBody = ({
                 />
               </Field>
 
-              <Field label="article#">
+              <Field
+                label="article#"
+                hint={itemMissing
+                  ? <span className="text-red-600 font-bold">재샘플 — 원단 관리의 기존 아이템을 골라 주세요 (고르기 전에는 완료할 수 없어요)</span>
+                  : undefined}
+              >
                 <ArticleInput
                   value={order.articleNo}
                   linked={!!order.linkedFabricId}

@@ -1,27 +1,25 @@
-import { Plus, ChevronRight, Package } from 'lucide-react';
-import { COLOR_STAGES, ORDER_TYPES, ORDER_STATUSES, ORDER_STATUS_COLORS } from '../../constants/production';
+import { Plus, ChevronRight, ChevronDown, Package } from 'lucide-react';
+import { COLOR_STAGES, ORDER_STATUSES, ORDER_STATUS_COLORS } from '../../constants/production';
 import { getWorkKg, getLossRate, getColorStage, isClosingPending } from '../../utils/orderModel';
 import { fmtKg } from '../../utils/orderCalculations';
 import { DdayBadge } from './OrderDetailModal';
 import { SheetLinkChips } from './common/SheetLinkChips';
+import { OrderKindChip } from './common/OrderKindChip';
+import { AddOrderMenu } from './common/AddOrderMenu';
 
 // GRUBIG ERP - 생산 현황 모바일 목록 (v8)
 // ------------------------------------------------------------
 // - 좁은 화면에서는 엑셀형 표 대신 오더 카드 목록을 보여주고, 편집은 상세창(OrderDetailModal)에서 한다
 // - 카드: order#·구분·D-day / article#·buyer / detail(1줄) / 컬러마다 한 줄(컬러명, 오더kg→생지kg, 현재 단계)
-// - 카드를 누르면 onOpen(orderId). 맨 위 [+ 오더 추가] → onAdd()
+// - 카드를 누르면 onOpen(orderId). 맨 위 [+ 오더 추가 ▾] → 구분(메인 · 신제품 · 재샘플)을 고르면 onAdd(kind)
 // - 설계서 샘플 오더는 '설계서' 표시 (누르면 설계서 창 — sheetLink.open)
-// props: { orders, drafts, onOpen(orderId), onAdd(), sheetLink? }
+// - 구분 표시는 보기만 (구분 바꾸기 · 설계서 붙이기는 상세창에서 — 2026-10-19)
+// props: { orders, drafts, onOpen(orderId), onAdd(kind), sheetLink? }
 
 // ============================================================
 // 0. 표시 상수
 // ============================================================
 const MAX_COLOR_LINES = 6;   // 컬러가 많으면 카드가 너무 길어지므로 6줄까지만, 나머지는 "외 n개"
-
-const TYPE_CLS = {
-  main:   'bg-blue-100 text-blue-700',
-  sample: 'bg-amber-100 text-amber-700',
-};
 
 const kgText = (n) => fmtKg(n) || '-';
 
@@ -34,7 +32,6 @@ const OrderCard = ({ order, isDraft = false, onOpen, sheetLink = null }) => {
   const shownColors = colors.slice(0, MAX_COLOR_LINES);
   const hiddenCount = colors.length - shownColors.length;
   const anyColorInput = colors.some(c => c.name || (c.orderKg ?? null) !== null);
-  const typeLabel = ORDER_TYPES.find(t => t.key === order.type)?.label || '메인';
   const statusMeta = ORDER_STATUS_COLORS[order.status] || ORDER_STATUS_COLORS.active;
   const statusLabel = ORDER_STATUSES.find(s => s.key === order.status)?.label || '';
 
@@ -63,8 +60,8 @@ const OrderCard = ({ order, isDraft = false, onOpen, sheetLink = null }) => {
         ) : (
           <span className="font-mono text-sm font-extrabold text-teal-700 truncate">{order.orderNumber}</span>
         )}
-        <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${TYPE_CLS[order.type] || TYPE_CLS.main}`}>
-          {typeLabel}
+        <span className="shrink-0 inline-flex items-center gap-1">
+          <OrderKindChip order={order} isDraft={isDraft} size="md" />
         </span>
         {order.dyeMethod && (
           <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${order.dyeMethod === 'piece' ? 'bg-sky-50 text-sky-700' : 'bg-pink-50 text-pink-700'}`}>
@@ -146,13 +143,12 @@ export const MobileOrderList = ({ orders = [], drafts = [], onOpen, onAdd, sheet
 
   return (
     <div className="space-y-2">
-      <button
-        type="button"
-        onClick={() => onAdd?.()}
+      <AddOrderMenu
+        onPick={kind => onAdd?.(kind)}
         className="w-full flex items-center justify-center gap-1.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white py-2.5 rounded-xl text-sm font-bold shadow-sm active:scale-[0.99] transition-transform"
       >
-        <Plus className="w-4 h-4" /> 오더 추가
-      </button>
+        <Plus className="w-4 h-4" /> 오더 추가 <ChevronDown className="w-4 h-4 opacity-80" />
+      </AddOrderMenu>
 
       {total === 0 ? (
         <div className="bg-white border border-dashed border-slate-300 rounded-xl py-10 px-4 text-center">

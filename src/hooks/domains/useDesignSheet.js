@@ -941,6 +941,24 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     }
   };
 
+  // 생산 현황 신제품 샘플 오더 → 새 설계서 (⋯ 메뉴 [새 설계서 작성] — 대표님 요청 2026-10-19
+  //  '개발/설계 현황을 거치지 않더라도 설계서 작성해서 아이템화')
+  //  EZ-TEX O/D NO. = order# · 원단명 = detail · 납기 = 오더 납기 · Article = 오더 article#(원단 관리와 연결 안 된 것만)
+  //  편직처·염색처는 목록에서 고르는 칸이라 채우지 않음. 저장하면 EZ-TEX 등록과 같이 '샘플 진행' + 이 오더와 연결 (handleSaveSheet)
+  const initFromOrder = (order) => {
+    if (!order) return;
+    const initial = getInitialSheetInput();
+    setSheetInput({
+      ...initial,
+      eztexOrderNo: String(order.orderNumber || '').trim().toUpperCase(),
+      fabricName: String(order.detail || '').trim(),
+      deadline: order.finalDueDate || '',
+      articleNo: order.linkedFabricId ? '' : String(order.articleNo || '').trim(),
+    });
+    setEditingSheetId(null);
+    loadedLinksRef.current = null;
+  };
+
   // [D3] generateSelfDevOrderNo 제거됨 — 자체 설계서는 빈칸 유지 정책 (데드코드 정리)
 
   // 아이템화 시 원단 자동 등록 (savedFabrics에 변환 저장)
@@ -1200,7 +1218,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     handleSaveSheet, handleEditSheet, handleDeleteSheet,
     resetSheetForm, setStage, registerEztexOrderNo, syncEztexFromOrder,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
-    getDesignCost, initFromDevRequest, dropDesignSheet, restoreFromDrop,
+    getDesignCost, initFromDevRequest, initFromOrder, dropDesignSheet, restoreFromDrop,
     saveSheetAndRegisterFabric,
     getBlankSheetInput: getInitialSheetInput, // 저장 안 한 변경 확인용 빈 양식 (새 설계서 기준)
   };
