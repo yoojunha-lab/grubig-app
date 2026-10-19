@@ -159,9 +159,17 @@ export const useCollection = (collections, savedFabrics, saveDocToCloud, deleteD
   };
 
   // ── 아티클(원단) 빼기 ──────────────────────────────────────
+  //  메모를 적어 둔 아티클만 '빼시겠어요?' 확인 (대표님 결정 2026-10-19 — 메모는 다시 담아도 안 돌아와서). 메모 없으면 바로 뺌
   const removeArticleFromCollection = async (collectionId, fabricId) => {
     const col = findCollection(collectionId);
     if (!col) return;
+    const target = (col.items || []).find(it => String(it.fabricId) === String(fabricId));
+    if (!target) return;
+    const memo = String(target.memo || '').trim();
+    if (memo) {
+      const article = withLiveSnapshot(target).article || '이 아티클';
+      if (!window.confirm(`'${article}'을(를) 컬렉션에서 빼시겠어요?\n적어 둔 메모 '${memo}'도 같이 사라져요.`)) return;
+    }
     const items = (col.items || []).filter(it => String(it.fabricId) !== String(fabricId));
     if (await saveItems(col, items)) showToast('아티클을 컬렉션에서 제외했습니다.', 'success');
   };
