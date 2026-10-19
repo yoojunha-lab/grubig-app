@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import {
   Boxes, Plus, Edit2, Trash2, X, Calendar, Tag, Package, Users, FolderPlus, ChevronRight, AlertTriangle,
   FileSpreadsheet, Printer, ChevronUp, ChevronDown, StickyNote, ArrowDownAZ,
@@ -72,11 +72,20 @@ export const CollectionPage = ({
     [selectedCol]
   );
 
+  // 담긴 아티클 → 원단 관리의 지금 원단 (없으면 원단이 지워진 것)
+  const fabricById = useMemo(
+    () => new Map((savedFabrics || []).map(f => [String(f.id), f])),
+    [savedFabrics]
+  );
+  const fabricOf = useCallback((item) => fabricById.get(String(item?.fabricId)), [fabricById]);
+  // Article은 원단 관리 지금 값 (원단 관리에서 고쳐도 따라감 — 엑셀·PDF와 같게), 원단이 지워졌으면 담을 때 적어 둔 값
+  const articleOf = useCallback((item) => fabricOf(item)?.article || item?.article || '', [fabricOf]);
+
   // 선택 컬렉션 아티클이 이미 ART 순서인지 (그러면 [ART 순서] 버튼을 흐리게)
   const articlesInOrder = useMemo(() => {
     const items = selectedCol?.items || [];
-    return items.every((it, i) => i === 0 || compareArticle(items[i - 1].article, it.article) <= 0);
-  }, [selectedCol]);
+    return items.every((it, i) => i === 0 || compareArticle(articleOf(items[i - 1]), articleOf(it)) <= 0);
+  }, [selectedCol, articleOf]);
 
   // 새 컬렉션 만들기
   const openCreateForm = () => {
@@ -92,11 +101,19 @@ export const CollectionPage = ({
     setIsFormOpen(false);
     resetCollectionForm();
   };
-  const submitForm = () => {
-    const savedId = handleSaveCollection();
-    if (savedId) {
-      setSelectedId(savedId);   // 저장된(또는 수정된) 컬렉션 자동 선택
-      setIsFormOpen(false);
+  // 저장이 끝나고 성공했을 때만 창을 닫음 (실패하면 입력값 그대로) — 처리 중 잠금은 useRef (빠른 두 번 누름에 컬렉션 두 개 방지)
+  const savingRef = useRef(false);
+  const submitForm = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    try {
+      const savedId = await handleSaveCollection();
+      if (savedId) {
+        setSelectedId(savedId);   // 저장된(또는 수정된) 컬렉션 자동 선택
+        setIsFormOpen(false);
+      }
+    } finally {
+      savingRef.current = false;
     }
   };
 
@@ -119,10 +136,10 @@ export const CollectionPage = ({
     }
 
     const rows = items.map((item, idx) => {
-      const fabric = (savedFabrics || []).find(f => String(f.id) === String(item.fabricId));
+      const fabric = fabricOf(item);
       return {
         'No': idx + 1,
-        'Article': (fabric?.article) || item.article || '',
+        'Article': articleOf(item),
         '아이템명': (fabric?.itemName) || item.itemName || '',
         '조성': fabric ? getComposition(fabric) : '',
         '전폭(inch)': fabric?.widthFull ?? '',
@@ -268,9 +285,10 @@ export const CollectionPage = ({
           ) : (
             <div className="flex flex-col h-full">
               {/* 상세 헤더 */}
+              {/* 칸이 좁으면 버튼이 제목 아래 줄로 (모바일에서 제목이 세로로 찌그러지고 버튼이 칸 밖으로 나가던 것 — 2026-10-19) */}
               <div className="p-5 border-b border-slate-100">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-[14rem] flex-1">
                     <div className="flex items-center gap-2 mb-1.5">
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getTypeCls(selectedCol.type)}`}>{selectedCol.type || '기타'}</span>
                       {selectedCol.eventName && <span className="text-[11px] text-slate-500 flex items-center gap-1"><Tag className="w-3 h-3" /> {selectedCol.eventName}</span>}
@@ -285,7 +303,7 @@ export const CollectionPage = ({
                       <p className="text-xs text-slate-500 mt-2 bg-slate-50 border border-slate-100 rounded-lg p-2 leading-relaxed">{selectedCol.description}</p>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => sortCollectionArticles(selectedCol.id)}
                       disabled={(selectedCol.items || []).length < 2 || articlesInOrder}
@@ -320,80 +338,95 @@ export const CollectionPage = ({
                 </div>
               </div>
 
-              {/* 아티클 목록 */}
-              <div className="p-4 space-y-2 flex-1">
-                {(selectedCol.items || []).length === 0 && (
+              {/* 아티클 목록 — 한 아티클 = 한 줄 (대표님 요청 2026-10-19 '칸을 작게 — 한 화면에 더 많이')
+                   No · Article · 아이템명/조성 · 메모 · 폭/중량 · ↑↓🗑 칸을 맞춰 위아래로 훑어보기 쉽게. 모바일은 메모가 아래 줄 */}
+              <div className="p-3 flex-1">
+                {(selectedCol.items || []).length === 0 ? (
                   <div className="text-center py-16 text-slate-400">
                     <Package className="w-12 h-12 mx-auto mb-3 text-slate-200" />
                     <p className="text-sm font-bold text-slate-500 mb-1">담긴 아티클이 없습니다.</p>
                     <p className="text-[11px]">[아티클 추가]를 눌러 원단 리스트에서 선택하세요.</p>
                   </div>
+                ) : (
+                  <div className="hidden sm:flex items-center gap-2 px-2.5 pb-1 border-x border-transparent text-[10px] font-bold text-slate-400">
+                    <span className="w-6 shrink-0 text-center">No</span>
+                    <span className="w-28 shrink-0">ARTICLE</span>
+                    <span className="flex-1 min-w-0">아이템명 · 조성</span>
+                    <span className="w-[30%] shrink-0">메모</span>
+                    <span className="w-[5.5rem] shrink-0 text-right">폭 · 중량</span>
+                    <span className="w-[4.5rem] shrink-0" />
+                  </div>
                 )}
 
-                {(selectedCol.items || []).map((item, idx) => {
-                  // 라이브 원단 참조 (스펙 최신 반영). 없으면 저장된 스냅샷 + 삭제 표시
-                  const fabric = (savedFabrics || []).find(f => String(f.id) === String(item.fabricId));
-                  const composition = fabric ? getComposition(fabric) : '';
-                  const isMissing = !fabric;
-                  const isLast = idx === (selectedCol.items || []).length - 1;
-                  return (
-                    <div
-                      key={item.fabricId || idx}
-                      className={`p-3 rounded-xl border transition-colors ${
-                        isMissing ? 'bg-amber-50/50 border-amber-200' : 'bg-white border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="w-6 text-center text-xs font-bold text-slate-300 shrink-0">{idx + 1}</span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-extrabold text-slate-800 uppercase tracking-tight truncate">{item.article || '(번호없음)'}</span>
+                <div className="space-y-1">
+                  {(selectedCol.items || []).map((item, idx) => {
+                    // 라이브 원단 참조 (스펙 최신 반영). 없으면 저장된 스냅샷 + 삭제 표시
+                    const fabric = fabricOf(item);
+                    const article = articleOf(item);
+                    const itemName = (fabric?.itemName) || item.itemName || '';
+                    const composition = fabric ? getComposition(fabric) : '';
+                    const isMissing = !fabric;
+                    const isLast = idx === (selectedCol.items || []).length - 1;
+                    return (
+                      // key에 컬렉션 id — 같은 원단이 든 다른 컬렉션으로 바꿀 때 앞 컬렉션 메모 칸이 그대로 남던 문제 (2026-10-19 검토)
+                      <div
+                        key={`${selectedCol.id}:${item.fabricId || idx}`}
+                        className={`flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-1 px-2.5 py-1.5 rounded-lg border transition-colors ${
+                          isMissing ? 'bg-amber-50/50 border-amber-200' : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/60'
+                        }`}
+                      >
+                        <span className="w-6 shrink-0 text-center text-[11px] font-bold text-slate-300">{idx + 1}</span>
+                        <span title={article} className="max-w-[40%] sm:max-w-none sm:w-28 shrink-0 text-sm font-extrabold text-slate-800 uppercase tracking-tight truncate">{article || '(번호없음)'}</span>
+                        <div className="flex-1 min-w-0 leading-tight">
+                          <div className="flex items-center gap-1.5 min-w-0">
                             {isMissing && (
-                              <span title="원단 리스트에서 삭제된 아티클입니다" className="text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded shrink-0 flex items-center gap-1">
+                              <span title="원단 리스트에서 삭제된 아티클입니다" className="text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-200 px-1 rounded shrink-0 flex items-center gap-0.5">
                                 <AlertTriangle className="w-3 h-3" /> 원단 삭제됨
                               </span>
                             )}
+                            <span title={itemName} className="text-xs text-slate-600 truncate">{itemName || '-'}</span>
                           </div>
-                          <div className="text-xs text-slate-500 truncate">{(fabric?.itemName) || item.itemName || '-'}</div>
                           {composition && (
-                            <div className="text-[11px] text-indigo-600/80 font-medium truncate mt-0.5">{composition}</div>
+                            <div title={composition} className="text-[11px] text-indigo-600/80 font-medium truncate">{composition}</div>
                           )}
                         </div>
-                        {fabric && (
-                          <div className="text-right shrink-0 font-mono text-[11px] text-slate-400 hidden sm:block">
-                            <div>{fabric.widthCut}/{fabric.widthFull}"</div>
-                            <div>{fabric.gsm}g</div>
-                          </div>
-                        )}
-                        {/* 순서 이동 + 삭제 */}
-                        <div className="flex items-center gap-0.5 shrink-0">
-                          <div className="flex flex-col">
-                            <button onClick={() => moveArticle(selectedCol.id, item.fabricId, 'up')} disabled={idx === 0} title="위로" className="p-0.5 text-slate-400 hover:text-indigo-600 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"><ChevronUp className="w-4 h-4" /></button>
-                            <button onClick={() => moveArticle(selectedCol.id, item.fabricId, 'down')} disabled={isLast} title="아래로" className="p-0.5 text-slate-400 hover:text-indigo-600 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"><ChevronDown className="w-4 h-4" /></button>
-                          </div>
+                        {/* 메모 (칸을 떠나거나 Enter면 저장) — key에 저장된 메모: 다른 PC에서 고친 메모도 바로 보이게 */}
+                        <div className="order-last sm:order-none w-full sm:w-[30%] sm:shrink-0 pl-8 sm:pl-0 flex items-center gap-1 min-w-0">
+                          <StickyNote className="w-3 h-3 text-slate-300 shrink-0" />
+                          <input
+                            key={item.memo || ''}
+                            type="text"
+                            defaultValue={item.memo || ''}
+                            onBlur={(e) => updateArticleMemo(selectedCol.id, item.fabricId, e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.currentTarget.blur(); }}
+                            placeholder="메모 (예: 베스트셀러)"
+                            className="w-full min-w-0 text-xs bg-transparent border-b border-dashed border-slate-200 focus:border-indigo-400 outline-none py-0.5 text-slate-600 placeholder:text-slate-300 transition-colors"
+                          />
+                        </div>
+                        <div className="hidden sm:block w-[5.5rem] shrink-0 text-right font-mono text-[11px] text-slate-400 leading-tight">
+                          {fabric && (
+                            <>
+                              <div>{fabric.widthCut}/{fabric.widthFull}"</div>
+                              <div>{fabric.gsm}g</div>
+                            </>
+                          )}
+                        </div>
+                        {/* 순서 이동 + 빼기 */}
+                        <div className="sm:w-[4.5rem] shrink-0 ml-auto sm:ml-0 flex items-center justify-end">
+                          <button onClick={() => moveArticle(selectedCol.id, item.fabricId, 'up')} disabled={idx === 0} title="위로" className="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"><ChevronUp className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => moveArticle(selectedCol.id, item.fabricId, 'down')} disabled={isLast} title="아래로" className="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"><ChevronDown className="w-3.5 h-3.5" /></button>
                           <button
                             onClick={() => removeArticleFromCollection(selectedCol.id, item.fabricId)}
                             title="컬렉션에서 빼기"
-                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            className="ml-0.5 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
-                      {/* 메모 입력 (blur 시 저장) */}
-                      <div className="flex items-center gap-1.5 mt-2 pl-9">
-                        <StickyNote className="w-3.5 h-3.5 text-slate-300 shrink-0" />
-                        <input
-                          type="text"
-                          defaultValue={item.memo || ''}
-                          onBlur={(e) => updateArticleMemo(selectedCol.id, item.fabricId, e.target.value)}
-                          placeholder="메모 (예: 베스트셀러, 바이어 요청 컬러)"
-                          className="w-full text-xs bg-transparent border-b border-dashed border-slate-200 focus:border-indigo-400 outline-none py-0.5 text-slate-600 placeholder:text-slate-300 transition-colors"
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}
