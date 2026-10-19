@@ -4,6 +4,7 @@ import { ORDER_STATUSES, ORDER_STATUS_COLORS, DYEING_STEP, getStepDefs, withSubS
 import {
   normalizeOrder, getLossRate, getWorkKg, getOrderTotals, isDropClosed,
   getRoundStatus, getRoundDoneDate, getRoundStartedDate, getYarnOrderStatus, getYarnOrderEventDate,
+  isKnitStock, isStepSkippedByStock, isInspectionSkipped,
 } from '../utils/orderModel';
 import { diffDaysYmd, todayYmd, isYmd, round1, fmtKg } from '../utils/orderCalculations';
 
@@ -242,7 +243,10 @@ export const ReportPage = ({ orders = [], stepDefs = DEFAULT_STEP_DEFS }) => {
     const byKey = new Map(rows.map(r => [r.key, r]));
 
     list.forEach(o => {
-      if (!o.yarnStock) {
+      // 편직 [재고 사용](생지 재고)이면 원사 · 사가공 · 원사염색 · 편직은 안 한 것 / 외관검사 '안 함'이면 외관검사 빼요 (2026-10-19)
+      const knitStock = isKnitStock(o);
+      const skipInspection = isInspectionSkipped(o);
+      if (!o.yarnStock && !knitStock) {
         (o.yarnOrders || []).forEach(y => {
           const status = getYarnOrderStatus(y);
           if (status === 'stopped') return;
@@ -254,6 +258,7 @@ export const ReportPage = ({ orders = [], stepDefs = DEFAULT_STEP_DEFS }) => {
         });
       }
       metas.forEach(meta => {
+        if (isStepSkippedByStock(o, meta.key)) return;
         const step = o.steps?.[meta.key];
         if (!step) return;
         const row = byKey.get(meta.key);
@@ -267,6 +272,7 @@ export const ReportPage = ({ orders = [], stepDefs = DEFAULT_STEP_DEFS }) => {
           const planned = spanDays(l.startDate, l.endDate);
           if (planned !== null) dyeRow.planned.push(planned);
           // 외관검사 차수: 예상 = 예상 시작일~예상 종료일, 실제 = (검사 시작한 날 또는 예상 시작일)~출고준비완료·출고완료를 고른 날
+          if (skipInspection) return;
           (l.inspections || []).forEach(r => {
             const p = spanDays(r.startDate, r.endDate);
             if (p !== null) inspRow.planned.push(p);

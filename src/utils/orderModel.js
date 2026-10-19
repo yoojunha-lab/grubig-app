@@ -17,6 +17,8 @@
 //     closing: { yarnStock, eztexStock, eztexClosed } 각 { done, date, memo }  (오더 마무리 체크 — 2026-10-14)
 //     closingAuto: 마무리 3개를 다 체크해서 자동으로 '완료'가 된 오더 { prevStatus, at } — 체크를 풀면 prevStatus 로 (없으면 null)
 //     yarnStock: 원사 [재고 사용] (오더 전체 — 체크하면 원사 발주는 끝난 것으로 봄, 2026-10-14 v11)
+//     skipConfirm: 컨펌 · 성적서 '안 함' (오더 전체 — 브랜드 컨펌 · 시험성적서 둘 다, 2026-10-19 v12)
+//     skipInspection: 외관검사 '안 함' (오더 전체, 2026-10-19 v12) — 둘 다 이미 넣은 기록은 지우지 않고 진행 계산에서만 뺌
 //     yarnOrders: [{ id, name(사종), vendor(원사처), expectedDate(입고 예정일), events: [{ id, status, date }], notes }]
 //       (원사 사종 줄 — 상태 발주대기·발주완료·입고완료·중지, 드롭다운을 바꿀 때마다 그날 날짜로 기록. 기록이 없으면 발주대기)
 //     steps: { yarn(예전 원사 일정 — v11 부터 화면에서 안 씀, 읽을 때 사종 한 줄로 옮김), yarn_dyeing(원사염색 — 선염, 원사 칸에서),
@@ -24,6 +26,7 @@
 //            각 { vendor, startDate(예상 시작일), endDate(예상 종료일), status, doneDate, notes,
 //                 endHistory: [{ date: 예전 예상 종료일, at: 바꾼 날 }] (오래된 것이 앞 — [0] = 최초 예상 종료일) }
 //            + knitting.machines: [{ id, name('1호기'), dailyKg }] (기계별 일일 생산량), knitting.dailyKg = 기계 합계
+//            + knitting.stock: 편직 [재고 사용] — 생지 재고로 진행 (편직 · 원사 모두 건너뜀, 2026-10-19 v12)
 //            presetting 은 공정 칸이 아니라 염가공 LOT 창에서 (오더 공통 — 2026-10-14)
 //     colors: [{ id, name, orderKg, workKg(null=자동),
 //                greigeOuts: [{ id, date, kind('full'|'partial'), memo, done, kg }]  (생지 출고 — 선염·안 고른 오더, 여러 번, 전체/부분)
@@ -55,7 +58,7 @@ import {
   ORDER_KINDS, SAMPLE_KIND_KEYS, UNKNOWN_ORDER_KIND,
   PROVISIONAL_DUE_STEPS, PROVISIONAL_DUE_KEYS, PROCESS_THEME, isCustomStepKey,
   TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES, INSPECTION_STATUSES, YARN_ORDER_STATUSES, findStatusMeta,
-  DEFAULT_DYE_METHOD, DYE_METHODS, CLOSING_ITEMS, CLOSING_KEYS, KG_CONVERSION_COEFFICIENT, PRESETTING_KEY, YARN_DYEING_KEY,
+  DEFAULT_DYE_METHOD, DYE_METHODS, CLOSING_ITEMS, CLOSING_KEYS, CLOSING_SINCE, KG_CONVERSION_COEFFICIENT, PRESETTING_KEY, YARN_DYEING_KEY,
 } from '../constants/production';
 import { addDaysYmd, diffDaysYmd, todayYmd, toYmd, round1, calcKgFromYd, shortDate, fmtKg } from './orderCalculations';
 
@@ -65,6 +68,8 @@ import { addDaysYmd, diffDaysYmd, todayYmd, toYmd, round1, calcKgFromYd, shortDa
 // v11 (2026-10-14): 원사 = 사종 줄(발주대기·발주완료·입고완료·중지) + 재고 사용 + 원사염색(선염) — 예전 원사 일정은 사종 한 줄로
 // v12 (2026-10-19): 샘플 종류 sampleKind (신제품 · 재샘플) — 구분(메인 · 신제품 · 재샘플)은 만들 때 정하고 잠김
 //                   예전 샘플은 읽을 때: 설계서 연결 = 신제품 / 원단 연결 = 재샘플 / 둘 다 없음 = 종류 미정
+//                   + 편직 재고 사용(knitting.stock) · 컨펌 · 성적서 / 외관검사 '안 함'(skipConfirm · skipInspection)
+//                     (같은 날 두 번째 요청 — 배포 전이라 같은 버전에 넣음)
 //  예전 문서는 읽을 때 자동으로 맞춤 (오더 단위 외관검사 → 컬러별 → LOT별, 예전 컨펌 라운드 → 상태 기록)
 export const ORDER_SCHEMA_VERSION = 12;
 
@@ -81,7 +86,7 @@ const STEP_DEFAULTS = { vendor: '', startDate: '', endDate: '', status: 'pending
 // 배열 칸은 공정마다 새로 만듦 (같은 배열을 여러 공정이 나눠 쓰지 않게)
 export const createStep = (key) => (
   key === 'knitting'
-    ? { ...STEP_DEFAULTS, endHistory: [], dailyKg: null, machines: [] }
+    ? { ...STEP_DEFAULTS, endHistory: [], dailyKg: null, machines: [], stock: false }
     : { ...STEP_DEFAULTS, endHistory: [] }
 );
 
@@ -180,6 +185,8 @@ export const createEmptyOrder = (userEmail = '', kind = 'main') => {
     closing: createClosing(),
     closingAuto: null,
     yarnStock: false,
+    skipConfirm: false,
+    skipInspection: false,
     yarnOrders: [],
     steps: createSteps(),
     colors: [createColor('')],
@@ -270,6 +277,7 @@ const normalizeStep = (key, raw, idBase = key) => {
     }
     out.machines = machines;
     out.dailyKg = sumMachinesKg(machines);
+    out.stock = !!s.stock; // 편직 [재고 사용] — 생지 재고 (2026-10-19)
   }
   return out;
 };
@@ -618,6 +626,9 @@ const normalizeV8 = (raw) => {
     closingAuto: normalizeClosingAuto(raw.closingAuto, status),
     // 원사 (v11) — v11 전 오더는 예전 원사 일정을 사종 한 줄로
     yarnStock: !!raw.yarnStock,
+    // 컨펌 · 성적서 / 외관검사 '안 함' (오더 전체 — 2026-10-19)
+    skipConfirm: !!raw.skipConfirm,
+    skipInspection: !!raw.skipInspection,
     yarnOrders: Array.isArray(raw.yarnOrders) || schema >= 11
       ? normalizeYarnOrders(raw.yarnOrders, id)
       : legacyYarnOrders(steps.yarn, id),
@@ -841,9 +852,9 @@ export const getOrderTotals = (order) => {
   return { orderKg: round1(orderKg), workKg: round1(workKg) };
 };
 
-// 공정 칸에 뭐라도 입력돼 있으면 "사용하는 공정"
+// 공정 칸에 뭐라도 입력돼 있으면 "사용하는 공정" (편직 [재고 사용] 체크도 — 2026-10-19)
 export const isStepUsed = (step) => !!(step && (
-  step.vendor || step.startDate || step.endDate || step.notes || step.dailyKg ||
+  step.vendor || step.startDate || step.endDate || step.notes || step.dailyKg || step.stock ||
   (step.machines || []).some(m => m?.name || m?.dailyKg) ||
   normalizeStatus(step.status) !== 'pending'
 ));
@@ -888,6 +899,25 @@ export const getStepEnd = (order, key) => {
   if (step.endDate) return step.endDate;
   if (key === 'knitting') return getKnittingEstimatedEnd(order);
   return '';
+};
+
+// ---------- 편직 재고 사용 · 컨펌 / 외관검사 '안 함' (대표님 요청 2026-10-19) ----------
+
+// 편직 [재고 사용] — 생지 재고로 진행: 편직 · 원사(사종 · 사가공 · 원사염색) 모두 건너뜀 (오더 전체)
+export const isKnitStock = (order) => !!order?.steps?.knitting?.stock;
+// 생지 재고로 건너뛰는 오더 공정 (진행 계산 · 가납기 · 남은 일 · 간트 · 리포트에서 뺌)
+export const KNIT_STOCK_SKIPPED_STEPS = ['knitting', 'yarn_processing', YARN_DYEING_KEY];
+export const isStepSkippedByStock = (order, key) => isKnitStock(order) && KNIT_STOCK_SKIPPED_STEPS.includes(key);
+// 컨펌 · 성적서 '안 함' (브랜드 컨펌 · 시험성적서 둘 다) / 외관검사 '안 함' — 오더 전체, 기록은 남기고 진행 계산에서만 뺌
+export const isConfirmSkipped = (order) => !!order?.skipConfirm;
+export const isInspectionSkipped = (order) => !!order?.skipInspection;
+
+// '안 함' 켜고 끄기 — patch: { confirm?: boolean, inspection?: boolean } (주는 것만)
+export const applySkip = (order, patch) => {
+  const next = { ...order };
+  if (patch && 'confirm' in patch) next.skipConfirm = !!patch.confirm;
+  if (patch && 'inspection' in patch) next.skipInspection = !!patch.inspection;
+  return next;
 };
 
 // ---------- 원사 (사종 줄 · 재고 사용 · 원사염색 — 대표님 요청 2026-10-14 v11) ----------
@@ -936,21 +966,24 @@ export const getYarnRowInfo = (order, y, today = todayYmd()) => {
  *  · 아직이면: 안 들어온 사종 입고 예정일 · (안 끝난) 원사염색 예상 종료일 중 가장 늦은 날
  */
 export const getYarnState = (order) => {
-  const stock = !!order?.yarnStock;
+  // 편직 [재고 사용](생지 재고)이면 원사가 필요 없음 → 재고 사용처럼 끝난 것으로 (원사염색도 건너뜀 — 2026-10-19)
+  const greige = isKnitStock(order);
+  const stock = !!order?.yarnStock || greige;
   const items = order?.yarnOrders || [];
   const counts = { waiting: 0, ordered: 0, arrived: 0, stopped: 0 };
   items.forEach(y => { counts[getYarnOrderStatus(y)] = (counts[getYarnOrderStatus(y)] || 0) + 1; });
   const active = items.filter(y => getYarnOrderStatus(y) !== 'stopped');
   const dyeStep = order?.steps?.[YARN_DYEING_KEY] || null;
   const dyeUsed = isStepUsed(dyeStep);
-  const dyeDone = !dyeUsed || normalizeStatus(dyeStep.status) === 'done';
+  const dyeDone = greige || !dyeUsed || normalizeStatus(dyeStep.status) === 'done';
   const orderingDone = stock || (active.length > 0 && active.every(y => getYarnOrderStatus(y) === 'arrived'));
   const used = stock || items.length > 0 || dyeUsed;
   const done = used && orderingDone && dyeDone;
-  const dyeEnd = dyeUsed ? str(dyeDone ? (dyeStep.doneDate || dyeStep.endDate) : dyeStep.endDate) : '';
+  const dyeEnd = dyeUsed && !greige ? str(dyeDone ? (dyeStep.doneDate || dyeStep.endDate) : dyeStep.endDate) : '';
   let currentEnd = { date: '', done: false, by: '' };
   if (done) {
-    currentEnd = { date: maxYmd([...(stock ? [] : active.map(y => yarnEventDate(y, 'arrived'))), dyeEnd]), done: true, by: 'done' };
+    // by: 'stock' = 재고 사용 · 생지 재고 (가납기 칸에 '재고 사용')
+    currentEnd = { date: maxYmd([...(stock ? [] : active.map(y => yarnEventDate(y, 'arrived'))), dyeEnd]), done: true, by: stock ? 'stock' : 'done' };
   } else if (used) {
     const waitingRows = stock ? [] : active.filter(y => getYarnOrderStatus(y) !== 'arrived');
     const arrival = maxYmd(waitingRows.map(y => y.expectedDate));
@@ -958,7 +991,8 @@ export const getYarnState = (order) => {
     const date = maxYmd([arrival, dyePending]);
     currentEnd = { date, done: false, by: date && date === dyePending && date !== arrival ? 'dyeing' : 'arrival' };
   }
-  return { stock, items, active, counts, dyeStep, dyeUsed, dyeDone, used, orderingDone, done, currentEnd };
+  // greige: 편직 재고 사용(생지 재고) 때문에 원사가 필요 없음 (원사 칸에 '생지 재고')
+  return { stock, greige, items, active, counts, dyeStep, dyeUsed, dyeDone, used, orderingDone, done, currentEnd };
 };
 
 // ---------- LOT ----------
@@ -1190,11 +1224,13 @@ export const getColorStage = (order, color) => {
   const st = (k) => normalizeStatus(steps[k]?.status);
   const lots = color.lots || [];
   const lotSt = lots.map(l => normalizeStatus(l.status));
-  const insp = getColorInspection(color);
-  const brand = getTrackStatus(color, 'brandConfirm');
-  const testNeeded = !!color.testReport?.needed;
+  // '안 함' (오더 전체 — 2026-10-19): 외관검사 안 함 = 검사 기록이 없는 것처럼 / 컨펌 안 함 = 브랜드 컨펌 · 시험성적서 둘 다 없는 것처럼
+  const insp = isInspectionSkipped(order) ? getColorInspection(null) : getColorInspection(color);
+  const skipConfirm = isConfirmSkipped(order);
+  const brand = skipConfirm ? '' : getTrackStatus(color, 'brandConfirm');
+  const testNeeded = !skipConfirm && !!color.testReport?.needed;
   const test = testNeeded ? getTrackStatus(color, 'testReport') : '';
-  const testPassed = isTestReportPassed(color);
+  const testPassed = skipConfirm || isTestReportPassed(color);
   const confirmActive = brand === 'sent' || test === 'issuing' || test === 'resubmit'; // 컨펌·성적서 진행 중
 
   // 대표님이 추가한 공정(cs_…)이 '문제'면 그 오더 컬러 모두 문제 (언제든)
@@ -1231,6 +1267,8 @@ export const getColorStage = (order, color) => {
   if (st(PRESETTING_KEY) === 'in_progress') return 'presetting';
   const greige = getGreigeStateFor(order, color);
   if (greige.fullDone) return 'dye_wait';
+  // 편직 [재고 사용] — 생지 재고라 원사 · 편직을 건너뛰고 바로 생지 출고 (2026-10-19)
+  if (isKnitStock(order)) return greige.partialDone ? 'greige_partial' : 'greige_wait';
 
   if ([YARN_DYEING_KEY, 'yarn_processing', 'knitting'].some(k => st(k) === 'issue')) return 'issue';
   if (st('knitting') === 'in_progress') return 'knitting';
@@ -1289,6 +1327,8 @@ export const getStepCurrentEnd = (order, key) => {
     return { date: y.currentEnd.date, done: y.currentEnd.done, estimated: false, by: y.currentEnd.by };
   }
   if (key === 'visual_inspection') {
+    // 외관검사 '안 함'(오더 전체 — 2026-10-19)이면 끝난 것으로 (가납기 칸에 '안 함')
+    if (isInspectionSkipped(order)) return { date: '', done: true, estimated: false, by: 'skip' };
     // 외관검사 (LOT별) — 컬러가 모두 끝나야(LOT 모두 출고준비완료·출고완료 또는 출고) 완료: 가장 늦게 끝난 날
     //  아직이면 안 끝난 LOT 지금 차수의 가장 늦은 예상 종료일 (일정이 없으면 '일정 미입력')
     const colors = (order?.colors || []).filter(colorHasData);
@@ -1313,6 +1353,8 @@ export const getStepCurrentEnd = (order, key) => {
     const redyeDates = redyeing.map(r => (r.status === 'redye' ? '' : str(r.round?.startDate)));
     return { date: maxYmd([...lots.map(l => l.endDate), ...redyeDates]), done, estimated: false };
   }
+  // 편직 [재고 사용] (생지 재고 — 2026-10-19)이면 편직 · 사가공 · 원사염색은 끝난 것으로 (가납기 칸에 '재고 사용')
+  if (isStepSkippedByStock(order, key)) return { date: '', done: true, estimated: false, by: 'stock' };
   const step = order?.steps?.[key];
   if (!step) return { date: '', done: false, estimated: false };
   if (normalizeStatus(step.status) === 'done') {
@@ -1357,7 +1399,8 @@ export const describeProvisionalDue = (info) => {
     case 'ok':        return { text: d < 0 ? `${-d}일 여유` : '맞음', short: '' };
     case 'late':      return { text: `${d}일 늦음`, short: `+${d}` };
     case 'overdue':   return { text: `${d}일 지남`, short: '지남' };
-    case 'done':      return { text: '완료', short: '✓' };
+    // 재고 사용(원사 · 편직 생지 재고) · 외관검사 '안 함'으로 끝난 것은 그 말로 (2026-10-19)
+    case 'done':      return { text: info.by === 'stock' ? '재고 사용' : info.by === 'skip' ? '안 함' : '완료', short: '✓' };
     case 'done_late': return { text: `${d}일 늦게 완료`, short: `+${d}` };
     case 'unplanned': return { text: '일정 미입력', short: '' };
     default:          return { text: '', short: '' };
@@ -1366,6 +1409,8 @@ export const describeProvisionalDue = (info) => {
 
 // 가납기와 비교한 "현재" 설명 (예: '예상 종료 10/28', '예상 종료 10/28 (생산량 계산)', 'LOT 완료예정 11/5', '완료 10/20', '일정 없음')
 export const describeStepCurrent = (info) => {
+  if (info?.done && info.by === 'stock') return '재고 사용';
+  if (info?.done && info.by === 'skip') return '안 함';
   if (!info?.current) return info?.done ? '완료' : '일정 없음';
   const d = shortDate(info.current);
   if (info.done) return `완료 ${d}`;
@@ -1516,12 +1561,12 @@ const lotInspectionBars = (lot, today) => {
   return bars;
 };
 
-// 원사 사종 줄 → 막대 (오더 줄 — 대표님 요청 2026-10-14 v11). 재고 사용이면 막대 없음, 중지한 사종도 없음
+// 원사 사종 줄 → 막대 (오더 줄 — 대표님 요청 2026-10-14 v11). 재고 사용 · 편직 재고 사용(생지 재고)이면 막대 없음, 중지한 사종도 없음
 //  입고완료: 발주완료한 날(없으면 입고한 날) ~ 입고한 날
 //  발주완료: 발주완료한 날 ~ 입고 예정일 (없으면 오늘까지 — '입고 전'). 입고 예정일이 지났으면 '입고 지연'(빨간 테두리)
 //  발주대기: 입고 예정일만 있으면 그 날 하루 점선 (계획)
 const yarnOrderBars = (order, today) => {
-  if (order?.yarnStock) return [];
+  if (order?.yarnStock || isKnitStock(order)) return [];
   return (order?.yarnOrders || []).flatMap(y => {
     const { status, late } = getYarnRowInfo(order, y, today);
     const name = y.name || '원사';
@@ -1550,11 +1595,15 @@ const yarnOrderBars = (order, today) => {
 
 export const getOrderTimeline = (order, stepDefs = DEFAULT_STEP_DEFS) => {
   const orderBars = [];
+  // 편직 [재고 사용](생지 재고)이면 원사 · 원사염색 · 사가공 · 편직 막대 없음 / 컨펌 · 외관검사 '안 함'이면 그 막대 없음 (2026-10-19)
+  const skipConfirm = isConfirmSkipped(order);
+  const skipInspection = isInspectionSkipped(order);
   // 원사 (사종마다) + 원사염색 (원사 칸 · 원사 창에서 관리 — 오더 공통, 2026-10-14 v11)
   orderBars.push(...yarnOrderBars(order, todayYmd()));
-  const yarnDyeBar = stepBar(order, getStepMeta(YARN_DYEING_KEY));
+  const yarnDyeBar = isStepSkippedByStock(order, YARN_DYEING_KEY) ? null : stepBar(order, getStepMeta(YARN_DYEING_KEY));
   if (yarnDyeBar) orderBars.push(yarnDyeBar);
   stepDefs.forEach(meta => {
+    if (isStepSkippedByStock(order, meta.key)) return;
     const bar = stepBar(order, meta);
     if (bar) orderBars.push(bar);
   });
@@ -1580,8 +1629,8 @@ export const getOrderTimeline = (order, stepDefs = DEFAULT_STEP_DEFS) => {
           ...range,
         });
       }
-      // 외관검사 (LOT별 차수)
-      bars.push(...lotInspectionBars(lot, today));
+      // 외관검사 (LOT별 차수) — '안 함'이면 없음
+      if (!skipInspection) bars.push(...lotInspectionBars(lot, today));
     });
     // 브랜드 컨펌 · 시험성적서 — 차수마다 막대 (시작 ~ 결과, 결과 전이면 오늘까지)
     const trackBars = (track, kind, theme, name) => {
@@ -1602,8 +1651,9 @@ export const getOrderTimeline = (order, stepDefs = DEFAULT_STEP_DEFS) => {
         });
       });
     };
-    trackBars('brandConfirm', 'confirm', 'confirm', '브랜드');
-    if (color.testReport?.needed) {
+    // 컨펌 · 성적서 '안 함'이면 브랜드 · 성적서 막대 없음
+    if (!skipConfirm) trackBars('brandConfirm', 'confirm', 'confirm', '브랜드');
+    if (!skipConfirm && color.testReport?.needed) {
       trackBars('testReport', 'test', 'test', '성적서');
       // 발행 예상일 (아직 합격 전이면 점선 하루짜리)
       if (color.testReport.expectedDate && !isTestReportPassed(color)) {
@@ -1757,6 +1807,29 @@ export const isShippingDone = (order) => {
 // '마무리 대기' — 출고는 다 끝났는데 마무리 체크가 남은 진행 중 오더
 export const isClosingPending = (order) => !!order && order.status !== 'completed'
   && isShippingDone(order) && !getClosingState(order).complete;
+
+// 오더를 '완료'로 바꾼 날 ('YYYY-MM-DD', 모르면 '') — 변경 이력의 가장 최근 '오더상태 …→완료' 줄
+//  손으로 완료 · 마무리 자동 완료 · [체크 없이 완료] · 설계서 아이템화 · Drop 모두 이 글자로 남음
+const COMPLETED_LOG = /오더상태 \S+→완료/;
+export const getCompletedAt = (order) => {
+  if (order?.status !== 'completed') return '';
+  const hit = (order.changeLog || []).find(e => COMPLETED_LOG.test(str(e?.summary)));
+  return hit ? str(hit.ts).slice(0, 10) : '';
+};
+
+/**
+ * '마무리 안 됨' — 출고가 다 끝났거나 '완료'된 오더 중 마무리 3개(원사재고정리 · EZTEX 재고정리 · EZTEX 종결)가 남은 것
+ *  (대표님 요청 2026-10-19 — 모아서 나중에 처리. 생산 현황 [마무리 안 됨] 버튼 · 나중에 대시보드 공용)
+ *  · 진행 중 · 보류: 입력 있는 컬러가 모두 출고 끝 (= '마무리 대기')
+ *  · 완료: 마무리 체크가 생긴 날(CLOSING_SINCE) 뒤에 완료한 오더만 — 예전에 완료한 오더는 뺌
+ *    ([체크 없이 완료] · 아이템화 · Drop 샘플 포함 — EZ-TEX 번호가 있어 종결이 필요할 수 있어서)
+ */
+export const isClosingOutstanding = (order) => {
+  if (!order || getClosingState(order).complete) return false;
+  if (order.status !== 'completed') return isShippingDone(order);
+  const at = getCompletedAt(order);
+  return !!at && at >= CLOSING_SINCE;
+};
 
 /**
  * 마무리 체크 바꾸기 — patchByKey: { yarnStock: { done?, date?, memo? }, … } (주는 칸만)
@@ -2171,6 +2244,8 @@ const diffStep = (a, b, label, out) => {
   const labels = mA !== mB ? { ...STEP_FIELD_LABELS, dailyKg: undefined } : STEP_FIELD_LABELS; // 기계가 바뀌면 합계는 따로 안 적음
   diffFields(a, b, Object.fromEntries(Object.entries(labels).filter(([, v]) => v)), `${label} `, out);
   if (mA !== mB) out.push(`${label} 기계 ${mB || '없음'}`);
+  // 편직 [재고 사용] (생지 재고 — 2026-10-19)
+  if (!!a?.stock !== !!b?.stock) out.push(`${label} ${b?.stock ? '재고 사용 체크 (생지 재고)' : '재고 사용 해제'}`);
   // 예전 예상 종료일 기록을 지웠으면 (다른 칸을 같이 바꿨어도) 따로 남김
   const histKey = (h) => `${h.date}|${h.at}`;
   const kept = new Set((b?.endHistory || []).map(histKey));
@@ -2305,6 +2380,9 @@ export const summarizeOrderChange = (prev, next, stepDefs = DEFAULT_STEP_DEFS) =
 
   // 원사 (재고 사용 · 사종 줄 — v11)
   if (!!prev.yarnStock !== !!next.yarnStock) out.push(next.yarnStock ? '원사 재고 사용 체크' : '원사 재고 사용 해제');
+  // 컨펌 · 성적서 / 외관검사 '안 함' (오더 전체 — 2026-10-19)
+  if (!!prev.skipConfirm !== !!next.skipConfirm) out.push(next.skipConfirm ? '컨펌 · 성적서 안 함' : '컨펌 · 성적서 다시 진행');
+  if (!!prev.skipInspection !== !!next.skipInspection) out.push(next.skipInspection ? '외관검사 안 함' : '외관검사 다시 진행');
   diffYarnOrders(prev, next, out);
 
   // 원단 보관함 연결 (article# 글자가 이미 같아도 연결·해제는 변경으로 기록)
@@ -2505,7 +2583,9 @@ export const getOpenWork = (order, stepDefs = DEFAULT_STEP_DEFS) => {
     if (open) out.push(`원사 입고 전 ${open}건`);
   }
   // 공정 + 원사염색(원사 칸) · 프리세팅(LOT 창) — 오더 공통 공정, 흐름 순서로
+  //  편직 [재고 사용](생지 재고)이면 편직 · 사가공 · 원사염색은 빼요 (2026-10-19)
   withSubSteps(stepDefs).forEach(meta => {
+    if (isStepSkippedByStock(order, meta.key)) return;
     const step = order.steps?.[meta.key];
     if (!step) return;
     const st = normalizeStatus(step.status);
@@ -2519,14 +2599,16 @@ export const getOpenWork = (order, stepDefs = DEFAULT_STEP_DEFS) => {
     return st !== 'done' && (st !== 'pending' || l.startDate || l.endDate);
   });
   if (openLots.length) out.push(`염가공 LOT ${openLots.length}개`);
-  const testOpen = colors.filter(c => c.testReport?.needed && !isTestReportPassed(c)).length;
+  // 컨펌 · 성적서 / 외관검사 '안 함'(오더 전체 — 2026-10-19)이면 빼요
+  const skipConfirm = isConfirmSkipped(order);
+  const testOpen = skipConfirm ? 0 : colors.filter(c => c.testReport?.needed && !isTestReportPassed(c)).length;
   if (testOpen) out.push(`시험성적서 ${testOpen}건`);
-  const brandOpen = colors.filter(c => {
+  const brandOpen = skipConfirm ? 0 : colors.filter(c => {
     const st = getTrackStatus(c, 'brandConfirm');
     return st && st !== 'confirmed';
   }).length;
   if (brandOpen) out.push(`브랜드 컨펌 ${brandOpen}건`);
-  const inspOpen = colors
+  const inspOpen = isInspectionSkipped(order) ? 0 : colors
     .filter(c => !c.shipDone)
     .flatMap(c => (c.lots || []).filter(l => isLotInspectionUsed(l) && !isLotInspectionDone(l))).length;
   if (inspOpen) out.push(`외관검사 LOT ${inspOpen}개`);

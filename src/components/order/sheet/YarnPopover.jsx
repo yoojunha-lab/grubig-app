@@ -9,6 +9,7 @@ import {
 } from '../../../constants/production';
 import {
   createYarnOrder, createStatusEvent, getYarnOrderStatus, getYarnRowInfo, isStepUsed, canUseYarnDyeing, getEndShift,
+  isKnitStock,
 } from '../../../utils/orderModel';
 import { shortDate, todayYmd } from '../../../utils/orderCalculations';
 
@@ -257,6 +258,14 @@ export const YarnPopover = ({
         <datalist id={nameListId}>{yarnNameOptions.map(n => <option key={n} value={n} />)}</datalist>
         <datalist id={vendorListId}>{vendorOptions.map(v => <option key={v} value={v} />)}</datalist>
         <datalist id={dyeVendorListId}>{dyeVendorOptions.map(v => <option key={v} value={v} />)}</datalist>
+
+        {/* 편직 [재고 사용](생지 재고)이면 원사가 필요 없음 (대표님 요청 2026-10-19) — 여기 값은 참고만 */}
+        {isKnitStock(order) && (
+          <p className="px-2.5 py-2 rounded-lg border border-slate-300 bg-slate-100 text-[11px] font-bold text-slate-700 leading-snug">
+            편직 재고 사용(생지 재고) 오더예요 — 원사가 필요 없어서 원사 · 원사염색은 진행 계산에서 빠져요.
+            <span className="block font-normal text-[10px] text-slate-500">풀려면 편직 칸을 눌러 [재고 사용] 체크를 해제해 주세요. 아래 값은 참고로 남아요.</span>
+          </p>
+        )}
 
         {/* ===== 재고 사용 (오더 전체) ===== */}
         <label className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 cursor-pointer select-none ${stock ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>

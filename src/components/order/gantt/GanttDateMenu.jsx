@@ -4,6 +4,7 @@ import { INSPECTION_STATUSES, PROCESS_THEME, YARN_DYEING_KEY, findStatusMeta, wi
 import {
   getStepEnd, getLotOverview, getGreigeStateFor, isPieceDyed, getLotCurrentRound, getRoundStatus, getLotRounds,
   getYarnState, getYarnOrderStatus, getYarnOrderStatusDate, canUseYarnDyeing,
+  isStepSkippedByStock, isConfirmSkipped, isInspectionSkipped,
 } from '../../../utils/orderModel';
 import { shortDate } from '../../../utils/orderCalculations';
 import { fmtDayLabel } from './ganttLayout';
@@ -19,6 +20,7 @@ import { fmtDayLabel } from './ganttLayout';
 // - 고르면 그 날짜가 들어간 입력 창이 열림 → [저장]해야 반영 (현황표와 같은 값 — 같은 저장 함수)
 // - 앞 공정보다 빠른 날이면 노란 안내 (막지는 않음)
 // - 맨 아래 '이 날 메모' (예전 날짜 메모 — 대표님 결정: 메뉴 맨 아래로)
+// - 진행 안 함 (대표님 요청 2026-10-19): 편직 재고 사용이면 편직 · 사가공 · 원사염색 없음 / 컨펌 · 외관검사 '안 함'이면 그 항목 없음
 // props: order, color(null = 오더 줄), date, stepDefs, anchorRect, onPick(kind, extra), onClose, canOpenLots, hasNote
 // ============================================================
 
@@ -62,7 +64,11 @@ export const GanttDateMenu = ({
 
   // 공정 흐름 (앞 공정 비교용) — 원사 입고가 맨 앞, 원사염색(선염 오더만)은 그 다음, 프리세팅은 편직 다음,
   //  염가공 LOT 는 후가공(또는 염가공 다음에 둔 추가 공정) 앞
-  const metas = withSubSteps(stepDefs).filter(m => m.key !== YARN_DYEING_KEY || canUseYarnDyeing(order));
+  const metas = withSubSteps(stepDefs)
+    .filter(m => m.key !== YARN_DYEING_KEY || canUseYarnDyeing(order))
+    .filter(m => !isStepSkippedByStock(order, m.key)); // 편직 재고 사용(생지 재고)이면 편직 · 사가공 · 원사염색 없음
+  const skipConfirm = isConfirmSkipped(order);
+  const skipInspection = isInspectionSkipped(order);
   const lotsEnd = (o) => maxDate((o.colors || []).map(c => getLotOverview(c.lots || []).end));
   const lotsItem = { key: '#lots', label: '염가공 LOT', end: lotsEnd };
   const dyeAt = metas.findIndex(m => m.key === 'finishing' || m.after === '#dyeing');
@@ -157,8 +163,8 @@ export const GanttDateMenu = ({
               </>
             )}
 
-            <div className={SECTION}>외관검사 (LOT · 지금 차수)</div>
-            {lots.length === 0 ? (
+            {!skipInspection && <div className={SECTION}>외관검사 (LOT · 지금 차수)</div>}
+            {skipInspection ? null : lots.length === 0 ? (
               <div className="px-2.5 pb-1 text-[11px] text-slate-400">LOT가 없어요 — 먼저 새 염가공 LOT를 넣어 주세요.</div>
             ) : lots.map(lot => {
               const round = getLotCurrentRound(lot);
@@ -182,16 +188,20 @@ export const GanttDateMenu = ({
             })}
 
             <div className="my-1 border-t border-slate-100" />
-            <button type="button" onClick={() => onPick('confirm', { brandSent: true })} className={ITEM}>
-              <span className={`w-2 h-2 rounded-full shrink-0 ${PROCESS_THEME.confirm.dot}`} />
-              <BadgeCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              브랜드 컨펌 전달 (이 날)
-            </button>
-            <button type="button" onClick={() => onPick('confirm', { testExpected: true })} className={ITEM}>
-              <span className={`w-2 h-2 rounded-full shrink-0 ${PROCESS_THEME.test.dot}`} />
-              <FileCheck2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              시험성적서 발행 예상일
-            </button>
+            {!skipConfirm && (
+              <>
+                <button type="button" onClick={() => onPick('confirm', { brandSent: true })} className={ITEM}>
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${PROCESS_THEME.confirm.dot}`} />
+                  <BadgeCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  브랜드 컨펌 전달 (이 날)
+                </button>
+                <button type="button" onClick={() => onPick('confirm', { testExpected: true })} className={ITEM}>
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${PROCESS_THEME.test.dot}`} />
+                  <FileCheck2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  시험성적서 발행 예상일
+                </button>
+              </>
+            )}
             <button type="button" onClick={() => onPick('ship')} className={ITEM}>
               <span className={`w-2 h-2 rounded-full shrink-0 ${PROCESS_THEME.ship.dot}`} />
               <Truck className="w-3.5 h-3.5 text-slate-400 shrink-0" />

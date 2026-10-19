@@ -15,6 +15,7 @@ import {
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState, collectVendorOptions,
   isPieceDyed, getClosingState, isClosingPending, isShippingDone,
   getYarnState, getYarnRowInfo, canUseYarnDyeing,
+  isStepSkippedByStock, isConfirmSkipped, isInspectionSkipped,
 } from '../../../utils/orderModel';
 import { shortDate, fmtKg, todayYmd } from '../../../utils/orderCalculations';
 import { CellText, CellNumber, CellDate, CellCheck, CellAction } from './SheetCells';
@@ -86,8 +87,11 @@ const COLOR_COLS = {
 };
 const TAIL_COLS = [
   { key: 'stage', label: '상태', width: 84 },
-  { key: 'memo',  label: '메모', width: 180 },
 ];
+// 메모 (오더 단위) — color 다음 · 오더kg 바로 앞 (대표님 요청 2026-10-19 — 예전엔 맨 끝). 칸 보이기/숨기기는 그대로
+const MEMO_COL = { key: 'memo', label: '메모', width: 180 };
+// '마무리 안 됨' 보기 (대표님 요청 2026-10-19)에서는 공정 칸을 접고 이 칸만, color 바로 옆으로 — 가로로 안 넘겨도 바로 체크
+const CLOSING_VIEW_COLS = ['ship', 'closing', 'stage'];
 
 const buildFlowCols = (customSteps, stepDefs) => [
   ...buildFlowOrder(customSteps).map(tok => {
@@ -161,6 +165,17 @@ const stickyStyle = (key) => ({ '--sl': `${LEFT_OFFSET[key]}px` });
 
 // 클릭하면 팝오버가 열리는 칸
 const CLICKABLE = 'cursor-pointer hover:ring-2 hover:ring-inset hover:ring-teal-300 focus-within:ring-2 focus-within:ring-inset focus-within:ring-teal-400';
+
+// '재고 사용' · '생지 재고' · '안 함' 표시 (편직 재고 사용 · 컨펌 · 성적서 / 외관검사 안 함 — 대표님 요청 2026-10-19)
+//  진행하지 않는 칸 = 끝난 것처럼 회색 (칸을 누르면 입력 창에서 다시 진행)
+const SkipChip = ({ label, title }) => (
+  <span
+    className={`inline-flex items-center px-1.5 py-px rounded-full border text-[10px] font-extrabold whitespace-nowrap ${DONE_TONE.chip}`}
+    title={title}
+  >
+    {label}
+  </span>
+);
 
 const TH = 'sticky top-0 z-20 bg-slate-100 border-b border-b-slate-300 px-1.5 py-1.5 text-left text-[11px] font-extrabold text-slate-600 whitespace-nowrap';
 
@@ -285,14 +300,24 @@ const StepCell = ({ order, stepKey, span, bg, ctx }) => {
   const label = meta?.label || '';
   const theme = PROCESS_THEME[stepKey] || PROCESS_THEME.custom;
   const open = (el) => ctx.openProcess(order.id, stepKey, el);
+  // 편직 [재고 사용](생지 재고 — 2026-10-19)이면 편직 = '재고 사용', 사가공 = '생지 재고' (회색 — 진행 안 함)
+  const stockSkipped = isStepSkippedByStock(order, stepKey);
+  const tone = stockSkipped ? DONE_TONE.cell : used ? doneTone(order, step.status === 'done', theme.cell) : bg;
   return (
     <td
       rowSpan={span}
       onClick={e => open(e.currentTarget)}
-      className={cellCls({ thick: true, extra: `${CLICKABLE} ${used ? doneTone(order, step.status === 'done', theme.cell) : bg}` })}
+      className={cellCls({ thick: true, extra: `${CLICKABLE} ${tone}` })}
     >
       <CellAction navKey={`step_${stepKey}`} onActivate={open} title={`${label} 일정 입력 (클릭 또는 Enter)`}>
-        {used
+        {stockSkipped ? (
+          <SkipChip
+            label={stepKey === 'knitting' ? '재고 사용' : '생지 재고'}
+            title={stepKey === 'knitting'
+              ? '편직 재고 사용 — 생지 재고로 진행해요 (편직 · 원사 안 함). 풀려면 칸을 눌러 [재고 사용] 체크 해제'
+              : '편직 재고 사용(생지 재고) — 이 공정은 안 해요'}
+          />
+        ) : used
           ? <StepSummary order={order} stepKey={stepKey} step={step} onStatus={s => ctx.actions.setStep(order.id, stepKey, { status: s })} />
           : <span className="text-slate-300">+ 입력</span>}
       </CellAction>
@@ -476,6 +501,16 @@ const TEST_OPTIONS = TEST_REPORT_STATUSES;
 const BRAND_OPTIONS = BRAND_CONFIRM_STATUSES;
 const ConfirmCell = ({ order, color, last, bg, ctx }) => {
   const open = (el) => ctx.openConfirm(order.id, color.id, el);
+  // 컨펌 · 성적서 '안 함' (오더 전체 — 2026-10-19) — 회색 '안 함', 누르면 입력 창에서 [다시 진행]
+  if (isConfirmSkipped(order)) {
+    return (
+      <td onClick={e => open(e.currentTarget)} className={cellCls({ thick: last, extra: `${CLICKABLE} ${DONE_TONE.cell}` })}>
+        <CellAction navKey="confirm" onActivate={open} title="컨펌 · 성적서 안 함 (이 오더 전체) — 누르면 [다시 진행]">
+          <SkipChip label="안 함" title="이 오더는 브랜드 컨펌 · 시험성적서를 안 해요" />
+        </CellAction>
+      </td>
+    );
+  }
   const needed = !!color.testReport?.needed;
   const testEv = getTrackEvent(color, 'testReport');
   const brandEv = getTrackEvent(color, 'brandConfirm');
@@ -553,6 +588,16 @@ const InspectionCell = ({ order, color, last, bg, ctx }) => {
   const insp = getColorInspection(color);
   const lots = color.lots || [];
   const open = (el) => ctx.openInspection(order.id, color.id, el);
+  // 외관검사 '안 함' (오더 전체 — 2026-10-19) — 회색 '안 함', 누르면 입력 창에서 [다시 진행]
+  if (isInspectionSkipped(order)) {
+    return (
+      <td onClick={e => open(e.currentTarget)} className={cellCls({ thick: last, extra: `${CLICKABLE} ${DONE_TONE.cell}` })}>
+        <CellAction navKey="inspection" onActivate={open} title="외관검사 안 함 (이 오더 전체) — 누르면 [다시 진행]">
+          <SkipChip label="안 함" title="이 오더는 외관검사를 안 해요" />
+        </CellAction>
+      </td>
+    );
+  }
   // 끝 = LOT 모두 출고완료 · 또는 그 컬러 출고 완료 → 회색 (불량컨펌중 · 재가공은 먼저)
   const tone = insp.anyDefect ? 'bg-rose-50' : insp.anyRedye ? 'bg-orange-50'
     : doneTone(order, insp.allShipped || (insp.used && color.shipDone), insp.used ? PROCESS_THEME.inspection.cell : bg);
@@ -620,7 +665,10 @@ const YarnCell = ({ order, span, bg, ctx }) => {
     <td rowSpan={span} onClick={e => open(e.currentTarget)} className={cellCls({ thick: true, extra: `${CLICKABLE} ${tone}` })}>
       <CellAction navKey="yarn" onActivate={open} title="원사 — 사종마다 발주대기·발주완료·입고완료·중지 · 재고 사용 · 원사염색 (클릭 또는 Enter · 드롭다운은 바로 저장)">
         <div className="space-y-0.5">
-          {y.stock ? (
+          {y.greige ? (
+            // 편직 [재고 사용] — 생지 재고라 원사가 필요 없음 (2026-10-19)
+            <SkipChip label="생지 재고" title="편직 재고 사용(생지 재고) — 원사가 필요 없어요 (사종 줄은 참고만)" />
+          ) : y.stock ? (
             <div className={`inline-flex items-center gap-1 px-1.5 py-px rounded-full border text-[10px] font-extrabold ${DONE_TONE.chip}`} title="재고 원사 사용 — 원사 발주는 끝난 것으로 봐요">
               재고 사용
             </div>
@@ -655,7 +703,7 @@ const YarnCell = ({ order, span, bg, ctx }) => {
             );
           })}
           {!y.stock && y.items.length > shown.length && <div className="text-[9px] opacity-70">+사종 {y.items.length - shown.length}개 더</div>}
-          <YarnDyeChip order={order} />
+          {!y.greige && <YarnDyeChip order={order} />}
           {!y.used && (
             <span className="text-slate-300">{canUseYarnDyeing(order) ? '+ 원사 · 원사염색' : '+ 원사'}</span>
           )}
@@ -1028,6 +1076,12 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
               </div>
             </td>
 
+            {/* '마무리 안 됨' 보기 — 출고 · 마무리 · 상태 칸을 color 바로 옆에 (2026-10-19) */}
+            {ctx.flowFirst && visibleFlow.map(col => renderFlowCell(col, color, first, last))}
+
+            {/* ---------- 메모 (오더 단위 — color 다음 · 오더kg 바로 앞, 대표님 요청 2026-10-19) ---------- */}
+            {ctx.memoShown && renderFlowCell(MEMO_COL, color, first, last)}
+
             {/* ---------- 오더kg ---------- */}
             <td onClick={focusInside} className={cellCls({ thick: last, extra: plainBg })}>
               <CellNumber
@@ -1114,7 +1168,7 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
             {/* ---------- 가납기 (원사·편직·염가공·외관검사) ---------- */}
             {first && <ProvisionalCell order={order} span={span} bg={plainBg} ctx={ctx} />}
 
-            {visibleFlow.map(col => renderFlowCell(col, color, first, last))}
+            {!ctx.flowFirst && visibleFlow.map(col => renderFlowCell(col, color, first, last))}
           </tr>
         );
       })}
@@ -1143,10 +1197,13 @@ export const ProductionSheet = ({
   onSaveCustomSteps,        // 추가 공정 저장 (list) => Promise<boolean> — 없으면 [공정 추가] 버튼 숨김
   yieldSpecOf,              // (order) => 예상 YD 환산 원단 스펙 { gsm, widthFull, source } | null (OrderListPage)
   yarnHelpers = null,       // 원사 창 { popoverProps(order) — 제안 목록 · 원단 원사 } (OrderListPage)
+  closingView = false,      // '마무리 안 됨' 보기 — 공정 칸을 접고 출고 · 마무리 · 상태 칸만 (OrderListPage, 2026-10-19)
 }) => {
   const scrollRef = useRef(null);
   const stepDefs = useMemo(() => stepDefsProp || getStepDefs(customSteps), [stepDefsProp, customSteps]);
   const flowCols = useMemo(() => buildFlowCols(customSteps, stepDefs), [customSteps, stepDefs]);
+  // 칸 보이기/숨기기 목록 = 메모(앞쪽 — 2026-10-19) + 공정/컬러 칸
+  const panelCols = useMemo(() => [MEMO_COL, ...flowCols], [flowCols]);
   const [stepManagerRect, setStepManagerRect] = useState(null); // [공정 추가] 창 (버튼 위치)
   const [hiddenCols, setHiddenCols] = useState(loadHiddenCols);
   const [showColPanel, setShowColPanel] = useState(false);
@@ -1182,9 +1239,17 @@ export const ProductionSheet = ({
     return count;
   }, [orders, stepDefs]);
 
-  const visibleFlow = flowCols.filter(c => !hiddenCols.includes(c.key));
-  const hiddenCount = flowCols.filter(c => hiddenCols.includes(c.key)).length;
-  const columns = [...LEFT_COLS, ...QTY_COLS, ...visibleFlow];
+  // '마무리 안 됨' 보기에서는 숨김 설정과 상관없이 출고 · 마무리 · 상태 칸만 (보기를 끄면 원래대로)
+  const visibleFlow = closingView
+    ? flowCols.filter(c => CLOSING_VIEW_COLS.includes(c.key))
+    : flowCols.filter(c => !hiddenCols.includes(c.key));
+  const memoShown = !hiddenCols.includes(MEMO_COL.key);
+  const hiddenCount = panelCols.filter(c => hiddenCols.includes(c.key)).length;
+  // 칸 순서: color → 메모 → 오더kg … 가납기 → 공정/컬러 칸 ('마무리 안 됨' 보기는 출고 · 마무리 · 상태를 color 바로 옆으로)
+  const memoCols = memoShown ? [MEMO_COL] : [];
+  const columns = closingView
+    ? [...LEFT_COLS, ...visibleFlow, ...memoCols, ...QTY_COLS]
+    : [...LEFT_COLS, ...memoCols, ...QTY_COLS, ...visibleFlow];
   const tableWidth = columns.reduce((s, c) => s + c.width, 0);
 
   // ---------- 컬럼 보이기/숨기기 ----------
@@ -1326,7 +1391,22 @@ export const ProductionSheet = ({
     addColorAfter,
     sheetInfoOf: (order) => sheetLink?.infoOf?.(order) || null,
     openSheet: sheetLink?.open || null,
+    memoShown, // 메모 칸 (color 다음 · 오더kg 앞 — 2026-10-19)
+    flowFirst: closingView, // '마무리 안 됨' 보기 — 출고 · 마무리 · 상태 칸을 color 바로 옆에
   };
+
+  // 공정/컬러 칸 머리글 (보통은 가납기 뒤, '마무리 안 됨' 보기는 color 바로 옆)
+  const flowHeads = visibleFlow.map(c => {
+    const theme = PROCESS_THEME[c.key] || (c.custom ? PROCESS_THEME.custom : null);
+    return (
+      <th key={c.key} className={`${TH} border-r border-r-slate-200`}>
+        <span className="inline-flex items-center gap-1">
+          {theme && <span className={`w-2 h-2 rounded-full ${theme.dot}`} />}
+          {c.label}
+        </span>
+      </th>
+    );
+  });
 
   // ---------- 오더가 하나도 없을 때 ----------
   if (rows.length === 0) {
@@ -1374,13 +1454,21 @@ export const ProductionSheet = ({
         <span className="text-[11px] text-slate-500">
           오더 {orders.length}건{draftRows.length > 0 ? ` · 저장 전 새 줄 ${draftRows.length}개` : ''}
         </span>
+        {closingView && (
+          <span
+            className="px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-[10px] font-extrabold text-amber-800"
+            title="마무리 안 됨 보기 — 공정 칸은 접고 출고 · 마무리 · 상태 칸만 보여요 (보기를 끄면 원래대로)"
+          >
+            마무리 안 됨 보기 — 출고 · 마무리 · 상태 칸만
+          </span>
+        )}
         <span className="ml-auto hidden lg:inline text-[10px] text-slate-400">
           Tab 다음 칸 · Enter 확정 후 아래 칸 · Esc 취소 · Alt+Enter 줄바꿈(detail·메모)
         </span>
 
         {showColPanel && (
           <div className="w-full flex items-center gap-1.5 flex-wrap pt-1">
-            {flowCols.map(col => {
+            {panelCols.map(col => {
               const off = hiddenCols.includes(col.key);
               const n = usage[col.key] || 0;
               const theme = PROCESS_THEME[col.key] || (col.custom ? PROCESS_THEME.custom : null);
@@ -1448,22 +1536,17 @@ export const ProductionSheet = ({
                   {c.label}
                 </th>
               ))}
+              {/* '마무리 안 됨' 보기 — 출고 · 마무리 · 상태 머리글을 color 바로 옆에 (줄 칸 순서와 같게) */}
+              {closingView && flowHeads}
+              {memoShown && (
+                <th key={MEMO_COL.key} className={`${TH} border-r border-r-slate-200`}>{MEMO_COL.label}</th>
+              )}
               {QTY_COLS.map(c => (
                 <th key={c.key} title={c.title} className={`${TH} border-r border-r-slate-200 ${c.align === 'right' ? 'text-right' : ''}`}>
                   {c.label}
                 </th>
               ))}
-              {visibleFlow.map(c => {
-                const theme = PROCESS_THEME[c.key] || (c.custom ? PROCESS_THEME.custom : null);
-                return (
-                  <th key={c.key} className={`${TH} border-r border-r-slate-200`}>
-                    <span className="inline-flex items-center gap-1">
-                      {theme && <span className={`w-2 h-2 rounded-full ${theme.dot}`} />}
-                      {c.label}
-                    </span>
-                  </th>
-                );
-              })}
+              {!closingView && flowHeads}
             </tr>
           </thead>
 
@@ -1529,6 +1612,7 @@ export const ProductionSheet = ({
           anchorRect={popover.anchorRect}
           onClose={closePopover}
           onSave={patch => actions.setColorTracks(popOrder.id, popColor.id, patch)}
+          onSetSkip={actions.setSkip ? (skip => actions.setSkip(popOrder.id, { confirm: skip })) : undefined}
         />
       )}
       {popover?.kind === 'greige' && popOrder && (popColor || !popover.colorId) && (
@@ -1555,6 +1639,7 @@ export const ProductionSheet = ({
           onSaveVendor={v => actions.setOrderField(popOrder.id, 'inspectVendor', v)}
           vendorOptions={collectVendorOptions([], optionSource, o => o.inspectVendor)}
           onOpenLots={onOpenLots ? () => onOpenLots(popOrder.id, popColor.id, popover.anchorRect) : undefined}
+          onSetSkip={actions.setSkip ? (skip => actions.setSkip(popOrder.id, { inspection: skip })) : undefined}
         />
       )}
       {popover?.kind === 'closing' && popOrder && (

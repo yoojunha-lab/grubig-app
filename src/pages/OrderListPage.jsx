@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { PackageCheck, Search, Plus, X, FileSpreadsheet, ChartGantt, ChevronDown } from 'lucide-react';
+import { PackageCheck, Search, Plus, X, FileSpreadsheet, ChartGantt, ChevronDown, ClipboardCheck } from 'lucide-react';
 import { ProductionSheet } from '../components/order/sheet/ProductionSheet';
 import { LotEditor } from '../components/order/sheet/LotEditor';
 import { OrderGantt } from '../components/order/gantt/OrderGantt';
@@ -13,7 +13,7 @@ import { ClosingPopover } from '../components/order/sheet/ClosingPopover';
 import { DevDropModal } from '../components/dashboard/DevDropModal';
 import {
   getDday, isDropClosed, getOpenWork, collectVendorOptions, resolveYieldSpec, getClosingState, isClosingPending,
-  getOrderKindMeta, getOrderKindTodo, isItemMissing, isSheetMissing,
+  getOrderKindMeta, getOrderKindTodo, isItemMissing, isSheetMissing, isClosingOutstanding,
 } from '../utils/orderModel';
 import { PRESETTING_KEY, YARN_DYEING_KEY, ORDER_KINDS, ORDER_KIND_TODOS } from '../constants/production';
 import { todayYmd } from '../utils/orderCalculations';
@@ -46,6 +46,9 @@ import { DESIGN_STAGES } from '../constants/common';
 //   · 신제품 = 설계서 → 아이템화 또는 Drop. 설계서가 없으면 ⋯ 메뉴 [새 설계서 작성] · [작성 중인 설계서 연결] (LinkSheetDialog)
 //   · 재샘플 = 기존 아이템을 한 번 더 — article# 에서 아이템을 골라야 '완료'
 //   · 예전 샘플 중 종류를 모르는 것 = '종류 미정' (눌러서 한 번 고름)
+// - [마무리 안 됨 N] (대표님 요청 2026-10-19 '마무리 안 된 것만 모아서 나중에 처리'): 출고가 다 끝났거나 완료된 오더 중
+//   마무리 3개가 남은 것만 (orderModel.isClosingOutstanding — 나중에 대시보드도 같은 규칙). 켜면 상태 탭 대신 이 목록,
+//   현황표는 공정 칸을 접고 출고 · 마무리 · 상태 칸만 (구분 · 검색은 그대로 걸림, 상태 탭을 누르면 꺼짐)
 // ============================================================
 
 // 메인 / 샘플 (샘플 = 신제품 + 재샘플 — 구분은 오더를 만들 때 정하고 잠김) — 마지막 선택을 기억
@@ -137,6 +140,7 @@ export const OrderListPage = ({
   const [statusTab, setStatusTab] = useState(() => (focusRequest ? 'all' : 'open'));
   const [typeFilter, setTypeFilter] = useState(() => (focusRequest ? 'all' : loadTypeFilter()));
   const [sortKey, setSortKey] = useState('created');
+  const [closingView, setClosingView] = useState(false); // [마무리 안 됨] 보기 (2026-10-19)
   const [detailOrderId, setDetailOrderId] = useState(null);
   const [lotTarget, setLotTarget] = useState(null);          // { orderId, colorId, rect }
   const [pendingFocusOrderId, setPendingFocusOrderId] = useState(null);
@@ -418,12 +422,23 @@ export const OrderListPage = ({
     TYPE_TABS.map(t => [t.key, orders.filter(o => statusTabMeta.match(o, isAwaiting(o)) && t.match(o)).length])
   ), [orders, statusTabMeta, isAwaiting]);
 
+  // [마무리 안 됨] 보기면 상태 탭 대신 '마무리 안 됨' 오더만 (구분 · 검색은 그대로)
   const visibleOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const list = orders.filter(o => statusTabMeta.match(o, isAwaiting(o)) && typeTab.match(o)
+    const list = orders.filter(o => (closingView ? isClosingOutstanding(o) : statusTabMeta.match(o, isAwaiting(o)))
+      && typeTab.match(o)
       && (!term || searchText(o, sheetInfoOf(o)).includes(term)));
     return sortOrders(list, sortKey);
-  }, [orders, statusTabMeta, typeTab, search, sortKey, sheetInfoOf, isAwaiting]);
+  }, [orders, closingView, statusTabMeta, typeTab, search, sortKey, sheetInfoOf, isAwaiting]);
+  // [마무리 안 됨 N] 버튼 숫자 (고른 구분 안에서)
+  const closingOutstandingCount = useMemo(
+    () => orders.filter(o => typeTab.match(o) && isClosingOutstanding(o)).length,
+    [orders, typeTab]
+  );
+  const pickStatusTab = (key) => {
+    setClosingView(false);
+    setStatusTab(key);
+  };
 
   // 상단 요약: 진행/보류/납기 임박/지남 (완료 제외, 고른 구분 안에서) + 아이템화 대기 (완료한 샘플 중 설계서가 아직 안 끝난 것)
   //  + 마무리 대기 (출고는 다 끝났는데 원사재고정리 · EZTEX 체크가 남은 진행 중 오더 — 2026-10-14)
@@ -461,6 +476,7 @@ export const OrderListPage = ({
   // (order# 를 넣어 저장되는 순간 그 구분 버튼에 걸려 줄이 사라지지 않게)
   const revealNewRow = (kind = 'main') => {
     setSearch('');
+    setClosingView(false);
     if (statusTab === 'completed') setStatusTab('open');
     const kindType = ORDER_KINDS.find(k => k.key === kind)?.type || 'main';
     if (typeFilter !== 'all' && typeFilter !== kindType) changeType('all');
@@ -626,15 +642,33 @@ export const OrderListPage = ({
             {STATUS_TABS.map(t => (
               <button
                 key={t.key}
-                onClick={() => setStatusTab(t.key)}
+                onClick={() => pickStatusTab(t.key)}
                 className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
-                  statusTab === t.key ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  !closingView && statusTab === t.key ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
                 {t.label} <span className="font-mono text-[10px] opacity-70">{counts[t.key] ?? 0}</span>
               </button>
             ))}
           </div>
+          {/* 마무리 안 됨 — 출고 끝 · 완료 오더 중 마무리 3개가 남은 것만 모아 보기 (2026-10-19) */}
+          <button
+            type="button"
+            onClick={() => setClosingView(v => !v)}
+            aria-pressed={closingView}
+            title={'출고가 다 끝났거나 완료된 오더 중 마무리(원사재고정리 · EZTEX 재고정리 · EZTEX 종결)가 남은 것만 모아 봐요'
+              + ' — 현황표는 출고 · 마무리 · 상태 칸만 (10/14 전에 완료한 예전 오더는 빼요)'}
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
+              closingView
+                ? 'bg-amber-500 border-amber-500 text-white shadow-sm'
+                : closingOutstandingCount > 0
+                  ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
+                  : 'bg-white border-slate-200 text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <ClipboardCheck className="w-3.5 h-3.5" />
+            마무리 안 됨 <span className="font-mono text-[10px] opacity-80">{closingOutstandingCount}</span>
+          </button>
           <select
             value={sortKey}
             onChange={e => setSortKey(e.target.value)}
@@ -686,10 +720,14 @@ export const OrderListPage = ({
             sheetLink={sheetLink}
             yieldSpecOf={yieldSpecOf}
             yarnHelpers={yarnHelpers}
+            closingView={closingView}
           />
         )}
         {search && visibleOrders.length === 0 && orders.length > 0 && (
           <p className="text-center text-xs text-slate-400 mt-3">'{search}' 검색 결과가 없어요.</p>
+        )}
+        {closingView && !search && visibleOrders.length === 0 && (
+          <p className="text-center text-xs text-slate-400 mt-3">마무리가 남은 오더가 없어요.</p>
         )}
       </div>
 

@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { FileCheck2, BadgeCheck } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
 import { TrackEditor } from '../common/TrackEditor';
+import { SkipBar } from '../common/SkipBar';
 import { usePopoverSave } from '../common/usePopoverSave';
 import { BRAND_CONFIRM_STATUSES, TEST_REPORT_STATUSES } from '../../../constants/production';
-import { createStatusEvent } from '../../../utils/orderModel';
+import { createStatusEvent, isConfirmSkipped } from '../../../utils/orderModel';
 import { shortDate, todayYmd } from '../../../utils/orderCalculations';
 
 // ============================================================
@@ -19,7 +20,10 @@ import { shortDate, todayYmd } from '../../../utils/orderCalculations';
 // - Enter = 저장, ESC / 바깥 클릭 = 닫기 — 저장 안 한 변경이 있으면 '변경사항이 있습니다' 창 (PopoverShell)
 // - prefill (간트에서 날짜를 눌러 연 경우): { brandSent: 날짜 } = 그 날 브랜드 '전달' 기록 / { testExpected: 날짜 } = 성적서 발행 예상일
 //   (넣은 채로 열림 — [저장]해야 반영)
-// props: order, color, anchorRect(null=화면 가운데), onClose, onSave(patch) => Promise<boolean>, prefill
+// - 맨 위 [이 오더는 컨펌 · 성적서 안 함] (대표님 요청 2026-10-19) — 오더 전체 '안 함'으로 바로 저장하고 창 닫힘
+//   '안 함'인 오더는 안내 + [다시 진행]만 (기록은 지우지 않음 — 다시 진행하면 그대로)
+// props: order, color, anchorRect(null=화면 가운데), onClose, onSave(patch) => Promise<boolean>, prefill,
+//        onSetSkip(skip: boolean) => Promise<boolean> ('안 함' 켜고 끄기 — 없으면 버튼 숨김)
 // ============================================================
 
 const INPUT_CLS = 'w-full min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-400/60 focus:border-teal-400';
@@ -45,7 +49,7 @@ const isSubmitEnter = (e) => {
   return tag === 'INPUT' && e.target.type !== 'checkbox';
 };
 
-export const ConfirmPopover = ({ order, color, anchorRect = null, onClose, onSave, prefill = null }) => {
+export const ConfirmPopover = ({ order, color, anchorRect = null, onClose, onSave, prefill = null, onSetSkip = null }) => {
   // 열 때 값과 비교해 바뀐 칸만 저장 (열어둔 사이 다른 칸의 변경을 덮어쓰지 않도록)
   const [initial] = useState(() => toDraft(color));
   const [draft, setDraft] = useState(() => {
@@ -57,9 +61,56 @@ export const ConfirmPopover = ({ order, color, anchorRect = null, onClose, onSav
     if (prefill?.testExpected) d.testReport = { ...d.testReport, needed: true, expectedDate: prefill.testExpected };
     return d;
   });
+  const [resuming, setResuming] = useState(false); // [다시 진행] 처리 중
   const { saving, close, run } = usePopoverSave(onClose);
 
   if (!order || !color) return null;
+
+  // ---------- '안 함' (오더 전체 — 2026-10-19) ----------
+  const skipped = isConfirmSkipped(order);
+  const recordCount = (color.testReport?.events || []).length + (color.brandConfirm?.events || []).length;
+  // 저장되면 창 닫힘 — 이 창에서 고친 내용은 저장하지 않으니, 고친 게 있으면 먼저 물음
+  const requestSkip = () => {
+    if (!onSetSkip || saving) return;
+    const dirtyNow = JSON.stringify(draft) !== JSON.stringify(initial);
+    if (dirtyNow && !window.confirm('이 창에서 고친 내용은 저장하지 않고 이 오더를 \'컨펌 · 성적서 안 함\'으로 바꿀까요?')) return;
+    run(() => onSetSkip(true));
+  };
+  const resume = async () => {
+    if (!onSetSkip || resuming) return;
+    setResuming(true);
+    try {
+      await onSetSkip(false); // 창은 그대로 — 이어서 입력
+    } finally {
+      setResuming(false);
+    }
+  };
+  if (skipped) {
+    return (
+      <PopoverShell
+        anchorRect={anchorRect}
+        width={420}
+        title={`${order.orderNumber || '새 오더'} · ${color.name || '컬러'} 컨펌`}
+        subtitle="컨펌 · 성적서 안 함 (이 오더 전체)"
+        onClose={close}
+        footer={(
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={close}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-[11px] font-bold text-slate-600 hover:bg-slate-50"
+            >
+              닫기
+            </button>
+          </div>
+        )}
+      >
+        <div className="p-3 outline-none" tabIndex={-1} data-autofocus>
+          <SkipBar label="컨펌 · 성적서" skipped recordCount={recordCount} busy={resuming} onResume={onSetSkip ? resume : undefined} />
+        </div>
+      </PopoverShell>
+    );
+  }
 
   // 바뀐 칸만 (시험성적서는 체크 · 발행 예상일 · 기록 따로)
   const patch = {};
@@ -135,6 +186,8 @@ export const ConfirmPopover = ({ order, color, anchorRect = null, onClose, onSav
     >
       {/* 열리면 이 영역에 포커스(data-autofocus) → Tab 으로 칸 이동, 날짜 칸에서 Enter = 저장 */}
       <div className="p-3 space-y-3 outline-none" tabIndex={-1} data-autofocus onKeyDown={onKeyDown}>
+        {/* [이 오더는 컨펌 · 성적서 안 함] — 오더 전체 (2026-10-19) */}
+        <SkipBar label="컨펌 · 성적서" skipped={false} busy={saving} onSkip={onSetSkip ? requestSkip : undefined} />
         {prefill && isDirty && (
           <p className="px-2 py-1.5 rounded-lg border border-teal-200 bg-teal-50 text-[11px] font-bold text-teal-800 leading-snug">
             간트에서 고른 날짜({shortDate(prefill.brandSent || prefill.testExpected)})를

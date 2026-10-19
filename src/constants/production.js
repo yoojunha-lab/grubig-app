@@ -397,6 +397,8 @@ export const CLOSING_ITEMS = [
   { key: 'eztexClosed', label: 'EZTEX 종결',     short: 'EZTEX 종결' },
 ];
 export const CLOSING_KEYS = CLOSING_ITEMS.map(i => i.key);
+// '마무리 안 됨' 모아 보기 기준일 (대표님 요청 2026-10-19) — 마무리 체크가 생긴 날. 이 날 전에 완료된 예전 오더는 빼요
+export const CLOSING_SINCE = '2026-10-14';
 
 // ============================================================
 // 7-B. 상태 기록 드롭다운 (컬러별 — 대표님 요청 2026-10-11)

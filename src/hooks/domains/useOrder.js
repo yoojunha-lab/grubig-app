@@ -7,7 +7,7 @@ import {
   applyColorTracks, addColorTrackEvent,
   applyDyeMethod, applyOrderGreigeOuts, applyOrderSpec, applyLotInspections, addLotInspectionEvent, applyClosing,
   applyYarn, addYarnOrderEvent,
-  applyOrderKind, getOrderKind, getOrderKindMeta, isItemMissing, isSheetMissing,
+  applyOrderKind, getOrderKind, getOrderKindMeta, isItemMissing, isSheetMissing, applySkip,
   summarizeOrderChange, isSameOrderContent, ORDER_SCHEMA_VERSION,
 } from '../../utils/orderModel';
 import { makeChangeLogEntry, appendChangeLog } from '../../utils/auditLog';
@@ -453,6 +453,10 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     return ok;
   };
 
+  // 컨펌 · 성적서 / 외관검사 '안 함' (오더 전체 — 대표님 요청 2026-10-19) { confirm?, inspection? } — 바로 저장
+  //  편직 [재고 사용](생지 재고)은 편직 공정 칸 값 → setStep(id, 'knitting', { stock })
+  const setSkip = (id, patch) => updateOrder(id, o => applySkip(o, patch));
+
   // ---------- v11 원사 (대표님 요청 2026-10-14) ----------
   // 원사 창 { yarnStock?, yarnOrders?, yarnOrdersBase? } (base 를 주면 지금 저장된 사종 줄과 합침) — 원사염색은 setStep('yarn_dyeing')
   const setYarn = (id, patch) => updateOrder(id, o => applyYarn(o, patch));
@@ -550,7 +554,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       setStep, setLots, setGreigeOuts, setGreigeOutDone, setDailyNote, setProvisionalDue,
       setColorTracks, addTrackEvent,
       setDyeMethod, setOrderGreigeOuts, setOrderGreigeOutDone, setOrderSpec,
-      setLotInspections, addLotInspection, setClosing,
+      setLotInspections, addLotInspection, setClosing, setSkip,
       setYarn, addYarnEvent,
       addDraftOrder, setDraftKind, changeOrderKind, discardDraft, deleteOrder,
     },

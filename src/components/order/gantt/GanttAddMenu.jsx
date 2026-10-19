@@ -1,7 +1,10 @@
 import { Flag, Truck, PackageOpen, Droplets, BadgeCheck, ScanSearch, CalendarClock, ClipboardCheck, Layers } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
 import { PROCESS_THEME, YARN_DYEING_KEY, withSubSteps } from '../../../constants/production';
-import { isStepUsed, isPieceDyed, getClosingState, getYarnState, canUseYarnDyeing } from '../../../utils/orderModel';
+import {
+  isStepUsed, isPieceDyed, getClosingState, getYarnState, canUseYarnDyeing,
+  isKnitStock, isStepSkippedByStock, isConfirmSkipped, isInspectionSkipped,
+} from '../../../utils/orderModel';
 
 // ============================================================
 // 간트 줄 이름 옆 [+] 메뉴 — 아직 막대가 없는 일정도 간트에서 바로 시작 (대표님 요청 2026-10-11 '간트에서도 수정 및 진행')
@@ -11,6 +14,8 @@ import { isStepUsed, isPieceDyed, getClosingState, getYarnState, canUseYarnDyein
 // - 컬러 줄: (선염) 생지 출고 · 염가공 LOT · 컨펌·시험성적서 · 외관검사(LOT별) · 출고
 // - 고르면 onPick(kind, extra) → OrderGantt 가 그 입력 창을 같은 자리에 띄움
 // - 날짜가 정해진 입력은 빈 날짜 칸을 누르면 (GanttDateMenu)
+// - 진행 안 함 (대표님 요청 2026-10-19): 컨펌 · 외관검사 '안 함'이면 그 항목 없음 / 편직 재고 사용이면 사가공 · 원사염색 없음
+//   (편직은 '재고' 표시로 남김 — 눌러서 재고 사용을 풀 수 있게)
 // props: order, color(null = 오더 줄), stepDefs, anchorRect, onPick(kind, { stepKey?, order? }), onClose, canOpenLots
 // ============================================================
 
@@ -30,9 +35,14 @@ export const GanttAddMenu = ({ order, color = null, stepDefs = [], anchorRect, o
   const piece = isPieceDyed(order);
   // 프리세팅은 편직 다음 (공정 칸에서는 빠졌지만 간트에서는 오더 줄 막대 — 염가공 LOT 창과 같은 값)
   // 원사염색은 맨 앞 — 선염 오더(또는 이미 넣은 오더)만
-  const steps = withSubSteps(stepDefs).filter(m => m.key !== YARN_DYEING_KEY || canUseYarnDyeing(order));
+  const knitStock = isKnitStock(order);
+  const steps = withSubSteps(stepDefs)
+    .filter(m => m.key !== YARN_DYEING_KEY || canUseYarnDyeing(order))
+    .filter(m => m.key === 'knitting' || !isStepSkippedByStock(order, m.key));
   const closing = getClosingState(order);
   const yarn = getYarnState(order);
+  const skipConfirm = isConfirmSkipped(order);
+  const skipInspection = isInspectionSkipped(order);
 
   return (
     <PopoverShell
@@ -46,6 +56,7 @@ export const GanttAddMenu = ({ order, color = null, stepDefs = [], anchorRect, o
         {color ? (
           COLOR_ITEMS
             .filter(it => (it.kind !== 'lots' || canOpenLots) && (it.kind !== 'greige' || !piece))
+            .filter(it => (it.kind !== 'confirm' || !skipConfirm) && (it.kind !== 'inspection' || !skipInspection))
             .map(({ kind, label, Icon, theme }) => (
               <button key={kind} type="button" onClick={() => onPick(kind)} className={ITEM}>
                 <span className={`w-2 h-2 rounded-full shrink-0 ${PROCESS_THEME[theme]?.dot || 'bg-slate-400'}`} />
@@ -60,7 +71,7 @@ export const GanttAddMenu = ({ order, color = null, stepDefs = [], anchorRect, o
               <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               <span className="flex-1 min-w-0 truncate">원사 (사종 · 재고 사용)</span>
               <span className="text-[10px] font-normal text-slate-400">
-                {yarn.stock ? '재고' : yarn.items.length ? `사종 ${yarn.items.length}` : '입력'}
+                {yarn.greige ? '생지 재고' : yarn.stock ? '재고' : yarn.items.length ? `사종 ${yarn.items.length}` : '입력'}
               </span>
             </button>
             <div className="px-2.5 pt-1 pb-0.5 text-[10px] font-bold text-slate-400 flex items-center gap-1">
@@ -77,7 +88,9 @@ export const GanttAddMenu = ({ order, color = null, stepDefs = [], anchorRect, o
                     {meta.inLot && <span className="ml-1 text-[10px] font-normal text-slate-400">염색 전</span>}
                     {meta.inYarn && <span className="ml-1 text-[10px] font-normal text-slate-400">선염</span>}
                   </span>
-                  <span className="text-[10px] font-normal text-slate-400">{used ? '수정' : '입력'}</span>
+                  <span className="text-[10px] font-normal text-slate-400">
+                    {meta.key === 'knitting' && knitStock ? '재고' : used ? '수정' : '입력'}
+                  </span>
                 </button>
               );
             })}

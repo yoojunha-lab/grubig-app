@@ -14,6 +14,7 @@ import { diffDaysYmd, fmtKg, shortDate, todayYmd, toNumberOrNull } from '../../.
 // - 예상 종료일을 바꿔 저장하면 예전 날짜가 '예상 종료일 기록'에 남음 (1차·2차… — 최초 예상과 비교)
 //   잘못 남은 기록은 🗑 로 지울 수 있음
 // - 편직: 기계별 일일 생산량 (1호기·2호기…) → 하루 합계로 며칠 걸리는지 + 예상 종료일 계산
+//   + [재고 사용] (생지 재고 — 대표님 요청 2026-10-19): 체크하면 편직 · 원사를 안 함 (일정은 참고로 남김) — 편직 칸 stock
 // - 로컬 draft 로 편집 → [저장] 누르면 "바뀐 필드만" patch 로 onSave(patch)
 // - Enter = 저장 (메모 칸 제외), ESC / 바깥 클릭 = 닫기 — 저장 안 한 변경이 있으면 '변경사항이 있습니다' 창 (PopoverShell)
 // - anchorRect 가 있으면 클릭한 칸 옆에, null 이면 화면 가운데 모달로 뜸
@@ -42,6 +43,7 @@ const toForm = (step) => ({
   notes: step.notes || '',
   machines: (step.machines || []).map(m => ({ id: m.id, name: m.name || '', kg: numText(m.dailyKg) })),
   endHistory: step.endHistory || [],
+  stock: !!step.stock, // 편직 [재고 사용] (생지 재고)
 });
 
 // 기계 칸 검사: 빈칸 = 괜찮음, 글자·0 이하 = 잘못
@@ -66,6 +68,7 @@ const fromForm = (form) => ({
       return { id: m.id, name: m.name.trim(), dailyKg: kg !== null && kg > 0 ? kg : null };
     })
     .filter(m => m.name || m.dailyKg !== null),
+  stock: !!form.stock,
 });
 
 const machinesKey = (list) => JSON.stringify(list.map(m => [m.name, m.dailyKg]));
@@ -151,6 +154,7 @@ export const ProcessPopover = ({
     if (base[f] !== values[f]) patch[f] = values[f];
   });
   if (isKnitting && machinesKey(base.machines) !== machinesKey(values.machines)) patch.machines = values.machines;
+  if (isKnitting && base.stock !== values.stock) patch.stock = values.stock;
   // 기록을 지웠으면 기록 목록을 통째로 (예상 종료일도 바꿨으면 예전 날짜를 붙여서) — 안 지웠으면 저장할 때 자동으로 남음
   if (historyEdited) patch.endHistory = historyAfterSave;
   const isDirty = Object.keys(patch).length > 0;
@@ -205,10 +209,13 @@ export const ProcessPopover = ({
   // [비우기] 공정 칸을 처음 상태로 (확인 후 바로 저장 — 예상 종료일 기록도 지움)
   const handleClear = () => {
     if (saving) return;
-    const ok = window.confirm(`'${meta.label}' 공정에 입력한 내용을 모두 비울까요?\n외주처·일정·상태·메모·예상 종료일 기록${isKnitting ? '·기계별 생산량' : ''}이 지워져요.`);
+    const ok = window.confirm(`'${meta.label}' 공정에 입력한 내용을 모두 비울까요?\n외주처·일정·상태·메모·예상 종료일 기록${isKnitting ? '·기계별 생산량·재고 사용' : ''}이 지워져요.`);
     if (!ok) return;
     const clearPatch = { vendor: '', startDate: '', endDate: '', status: 'pending', doneDate: '', notes: '', endHistory: [] };
-    if (isKnitting) clearPatch.machines = [];
+    if (isKnitting) {
+      clearPatch.machines = [];
+      clearPatch.stock = false;
+    }
     submit(clearPatch);
   };
 
@@ -272,6 +279,32 @@ export const ProcessPopover = ({
             간트에서 고른 날짜({shortDate(prefill.startDate || prefill.endDate)})를 {prefill.startDate ? '예상 시작일' : '예상 종료일'}로 넣었어요 —
             [저장]하면 현황표에도 반영돼요.
           </p>
+        )}
+        {/* 편직 [재고 사용] — 생지 재고로 진행 (대표님 요청 2026-10-19). 체크하면 편직 · 원사를 안 함 */}
+        {isKnitting && (
+          <label
+            className={`flex items-start gap-2 rounded-lg border p-2 cursor-pointer select-none ${
+              form.stock ? 'border-slate-400 bg-slate-100' : 'border-dashed border-slate-300 bg-white hover:bg-slate-50'
+            }`}
+          >
+            <input
+              type="checkbox"
+              checked={form.stock}
+              onChange={e => {
+                const checked = e.target.checked;
+                setForm(f => ({ ...f, stock: checked }));
+              }}
+              className="mt-0.5 w-4 h-4 accent-emerald-600"
+            />
+            <span className="min-w-0">
+              <span className="block text-xs font-extrabold text-slate-700">재고 사용 (생지 재고)</span>
+              <span className="block text-[10px] text-slate-500 leading-snug">
+                {form.stock
+                  ? '편직 · 원사를 안 해요 — 컬러는 바로 생지 출고로 가요. 아래 일정은 참고로만 남아요.'
+                  : '생지 재고로 진행하면 체크 — 편직 · 원사를 안 해도 돼요 (오더 전체)'}
+              </span>
+            </span>
+          </label>
         )}
         {simple ? (
           <p className="text-[10px] text-slate-500 leading-snug">

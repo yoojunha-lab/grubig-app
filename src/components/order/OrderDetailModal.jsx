@@ -18,6 +18,7 @@ import {
   getColorInspection, getRoundStatusDate, getDyeYield, isPieceDyed, getClosingState, isClosingPending,
   getYarnState, getYarnRowInfo, canUseYarnDyeing,
   getOrderKind, getOrderKindMeta, isItemMissing, isSheetMissing,
+  isStepSkippedByStock, isConfirmSkipped, isInspectionSkipped,
 } from '../../utils/orderModel';
 import { PresettingChip } from './common/PresettingChip';
 import { YarnDyeChip } from './common/YarnDyeChip';
@@ -438,6 +439,35 @@ const StepRow = ({ meta, step, order, onOpen, onStatus }) => {
   const endText = step.endDate ? shortDate(step.endDate) : est ? `${shortDate(est)} 계산` : '';
   const rangeText = step.startDate || endText ? `${shortDate(step.startDate)}~${endText}` : '';
 
+  // 편직 [재고 사용](생지 재고 — 2026-10-19)이면 편직 = '재고 사용', 사가공 = '생지 재고' (회색 — 진행 안 함, 줄을 누르면 공정 창)
+  if (isStepSkippedByStock(order, meta.key)) {
+    return (
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onOpen}
+        onKeyDown={e => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onOpen();
+          }
+        }}
+        className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-300 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${DONE_TONE.cell}`}
+      >
+        <span className="text-xs font-extrabold shrink-0 w-14 truncate">{meta.label}</span>
+        <span className="min-w-0 flex-1 text-[11px]">
+          <span className={`inline-flex items-center px-1.5 py-px rounded-full border text-[10px] font-extrabold ${DONE_TONE.chip}`}>
+            {meta.key === 'knitting' ? '재고 사용' : '생지 재고'}
+          </span>
+          <span className="ml-1.5 text-[10px] text-slate-400">
+            {meta.key === 'knitting' ? '생지 재고로 진행 — 편직 · 원사 안 함 (눌러서 풀기)' : '편직 재고 사용 — 이 공정은 안 해요'}
+          </span>
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div
       role="button"
@@ -498,21 +528,26 @@ const YarnBox = ({ order, onOpen, onStock, onStatus }) => {
     <div className={`rounded-xl border px-3 py-2 space-y-1.5 ${y.done || order.status === 'completed' ? `${DONE_TONE.cell} border-slate-300` : y.used ? `${PROCESS_THEME.yarn.cell} border-green-200` : 'bg-white border-dashed border-slate-200'}`}>
       <div className="flex items-center gap-2">
         <span className="text-xs font-extrabold text-green-800 shrink-0">원사</span>
-        <label className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={y.stock}
-            onChange={e => onStock(e.target.checked)}
-            className="w-4 h-4 accent-emerald-600"
-          />
-          재고 사용
-        </label>
+        {!y.greige && (
+          <label className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!order.yarnStock}
+              onChange={e => onStock(e.target.checked)}
+              className="w-4 h-4 accent-emerald-600"
+            />
+            재고 사용
+          </label>
+        )}
         <span className="flex-1" />
         <button type="button" onClick={onOpen} className={BTN_SUB}>
           <Pencil className="w-3 h-3" /> 원사 편집
         </button>
       </div>
-      {y.stock ? (
+      {y.greige ? (
+        // 편직 [재고 사용](생지 재고)이면 원사가 필요 없음 (2026-10-19)
+        <div className="text-[11px] font-bold text-slate-600">생지 재고 — 편직 재고 사용이라 원사가 필요 없어요</div>
+      ) : y.stock ? (
         <div className="text-[11px] font-bold text-emerald-700">재고 원사 사용 — 원사 발주는 끝난 것으로 봐요</div>
       ) : y.items.length ? (
         <div className="space-y-1">
@@ -546,10 +581,19 @@ const YarnBox = ({ order, onOpen, onStock, onStatus }) => {
           사종이 없어요 — [원사 편집]에서 사종마다 발주대기 · 발주완료 · 입고완료 · 중지{canUseYarnDyeing(order) ? ' · 원사염색(선염)' : ''}
         </div>
       )}
-      <YarnDyeChip order={order} />
+      {!y.greige && <YarnDyeChip order={order} />}
     </div>
   );
 };
+
+// '안 함' 회색 한 줄 (컬러 카드의 컨펌 · 외관검사 — 대표님 요청 2026-10-19)
+const SkippedBox = ({ label }) => (
+  <div className={`col-span-2 rounded-lg border border-slate-300 px-2.5 py-2 ${DONE_TONE.cell}`}>
+    <span className="text-[11px] font-bold">{label}</span>
+    <span className={`ml-1.5 inline-flex items-center px-1.5 py-px rounded-full border text-[10px] font-extrabold ${DONE_TONE.chip}`}>안 함</span>
+    <span className="ml-1.5 text-[10px] text-slate-400">이 오더 전체 · 컬러 목록 위 '진행 안 함'에서 풀어요</span>
+  </div>
+);
 
 // ============================================================
 // 3. 컬러 카드 (컬러명 · kg · 생지출고 · LOT · 컨펌 · 출고 · 현재 단계)
@@ -742,7 +786,11 @@ const ColorCard = ({
           )}
         </div>
 
-        {/* 컨펌 — 시험성적서(체크 + 상태) · 브랜드 컨펌(상태). 드롭다운 = 바로 저장(그날 날짜로 기록), 날짜·기록은 [기록 편집] */}
+        {/* 컨펌 — 시험성적서(체크 + 상태) · 브랜드 컨펌(상태). 드롭다운 = 바로 저장(그날 날짜로 기록), 날짜·기록은 [기록 편집]
+            '안 함'(오더 전체 — 2026-10-19)이면 회색 한 줄 (컬러 목록 위 '진행 안 함'에서 풀어요) */}
+        {isConfirmSkipped(order) ? (
+          <SkippedBox label="컨펌 · 시험성적서" />
+        ) : (
         <div className={`col-span-2 rounded-lg border px-2.5 py-2 space-y-1.5 ${testNeeded || brandEv ? 'bg-sky-50/50 border-sky-200' : 'border-dashed border-slate-200'}`}>
           <div className="flex items-center justify-between gap-2">
             <div className="text-[11px] font-bold text-slate-500">컨펌 · 시험성적서</div>
@@ -793,8 +841,13 @@ const ColorCard = ({
           </div>
           <p className="text-[10px] text-slate-400">상태를 바꾸면 오늘 날짜로 기록돼요. 날짜·발행 예상일은 [기록 편집].</p>
         </div>
+        )}
 
-        {/* 외관검사 (LOT별 · 1차·2차) — 상태 드롭다운 = 바로 저장(지금 차수에 그날 날짜로 기록, 재가공이면 다음 차수, 모두 출고완료면 출고도 완료) */}
+        {/* 외관검사 (LOT별 · 1차·2차) — 상태 드롭다운 = 바로 저장(지금 차수에 그날 날짜로 기록, 재가공이면 다음 차수, 모두 출고완료면 출고도 완료)
+            '안 함'(오더 전체 — 2026-10-19)이면 회색 한 줄 */}
+        {isInspectionSkipped(order) ? (
+          <SkippedBox label="외관검사" />
+        ) : (
         <div className={`col-span-2 rounded-lg border px-2.5 py-2 space-y-1 ${insp.anyDefect ? 'bg-rose-50 border-rose-200' : insp.anyRedye ? 'bg-orange-50 border-orange-200' : insp.used ? `${PROCESS_THEME.inspection.cell} border-violet-200` : 'border-dashed border-slate-200'}`}>
           <div className="flex items-center justify-between gap-2">
             <div className="text-[11px] font-bold text-slate-500 min-w-0 truncate">
@@ -835,6 +888,7 @@ const ColorCard = ({
             </div>
           )}
         </div>
+        )}
 
         {/* 출고 */}
         <Field label="출고" className="col-span-2">
@@ -1493,6 +1547,30 @@ const OrderDetailBody = ({
                 onDone={(entryId, done) => actions.setOrderGreigeOutDone(order.id, entryId, done)}
               />
             )}
+            {/* 진행 안 함 (오더 전체 — 대표님 요청 2026-10-19): 컨펌 · 성적서 / 외관검사. 체크 = 바로 저장 */}
+            {!isDraft && actions.setSkip && (
+              <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 flex items-center gap-x-4 gap-y-1.5 flex-wrap">
+                <span className="text-[11px] font-bold text-slate-500">진행 안 함 (모든 컬러)</span>
+                <label className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={isConfirmSkipped(order)}
+                    onChange={e => actions.setSkip(order.id, { confirm: e.target.checked })}
+                    className="w-4 h-4 accent-slate-600"
+                  />
+                  컨펌 · 성적서 안 함
+                </label>
+                <label className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={isInspectionSkipped(order)}
+                    onChange={e => actions.setSkip(order.id, { inspection: e.target.checked })}
+                    className="w-4 h-4 accent-slate-600"
+                  />
+                  외관검사 안 함
+                </label>
+              </div>
+            )}
             <div className="space-y-3">
               {colors.map((c, i) => (
                 <ColorCard
@@ -1565,6 +1643,7 @@ const OrderDetailBody = ({
           anchorRect={null}
           onClose={() => setConfirmColorId(null)}
           onSave={patch => actions.setColorTracks(order.id, confirmColor.id, patch)}
+          onSetSkip={actions.setSkip ? (skip => actions.setSkip(order.id, { confirm: skip })) : undefined}
         />
       )}
       {inspectionColor && (
@@ -1578,6 +1657,7 @@ const OrderDetailBody = ({
           onSaveVendor={v => actions.setOrderField(order.id, 'inspectVendor', v)}
           vendorOptions={inspectVendorOptions}
           onOpenLots={onOpenLots ? () => onOpenLots(order.id, inspectionColor.id, null) : undefined}
+          onSetSkip={actions.setSkip ? (skip => actions.setSkip(order.id, { inspection: skip })) : undefined}
         />
       )}
       {greigeOpen && (

@@ -1039,6 +1039,7 @@ export const OrderGantt = ({
           onClose={closePopover}
           onSave={patch => actions.setColorTracks(popOrder.id, popColor.id, patch)}
           prefill={popover.prefill || null}
+          onSetSkip={actions.setSkip ? (skip => actions.setSkip(popOrder.id, { confirm: skip })) : undefined}
         />
       )}
       {popover?.kind === 'greige' && popOrder && (popColor || !popover.colorId) && (
@@ -1090,6 +1091,7 @@ export const OrderGantt = ({
           vendorOptions={inspectVendorOptions || collectVendorOptions([], orders, o => o.inspectVendor)}
           onOpenLots={onOpenLots ? () => onOpenLots(popOrder.id, popColor.id, popover.anchorRect) : undefined}
           prefill={popover.prefill || null}
+          onSetSkip={actions.setSkip ? (skip => actions.setSkip(popOrder.id, { inspection: skip })) : undefined}
         />
       )}
       {popover?.kind === 'closing' && popOrder && (

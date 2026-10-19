@@ -440,6 +440,69 @@ export const DEV_SAMPLE_ORDERS = [
     dailyNotes: [],
     changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-10-16T00:00:00.000Z', updatedAt: '2026-10-16T00:00:00.000Z',
   },
+  // (v12 — 2026-10-19 두 번째 요청) 진행 안 함 · 마무리 안 됨 확인용
+  //  F-26M050: 편직 [재고 사용](생지 재고) — 원사 · 편직 칸 회색, 컬러는 바로 '생지출고대기' (편직처·사종 줄은 참고로 남음)
+  //  F-26M051: 컨펌 · 성적서 / 외관검사 '안 함' — LOT 끝 → 바로 '출고대기' (예전에 넣은 브랜드 '전달' 기록은 남아 있음)
+  //  F-26M052: 10/16 [체크 없이 완료] — 마무리 3개 중 1개만 → '마무리 안 됨'에 나옴
+  //  F-26M009: 10/5 완료 (마무리 기능 전) — '마무리 안 됨'에서 빠짐
+  {
+    id: 'ord_dev_m050', schemaVersion: 12, orderNumber: 'F-26M050', articleNo: 'GB-2405', detail: 'Cotton Single 러닝 생지',
+    customer: '케일', type: 'main', sampleKind: '', finalDueDate: '2026-11-08', lossRate: 10, status: 'active',
+    notes: '러닝 생지 재고 400kg 사용', linkedFabricId: 'fab_dev_5', linkedFabricArticle: 'GB-2405', dyeVendor: '킹텍스',
+    yarnOrders: [{ id: 'yo_m050_1', name: 'CM 30s', vendor: '대한방직', expectedDate: '2026-10-22', notes: '', events: [] }],
+    steps: devSteps({
+      knitting: { ...devStep({ vendor: '대성니트', startDate: '2026-10-20', endDate: '2026-10-27' }), dailyKg: null, stock: true },
+    }),
+    provisionalDue: { yarn: '2026-10-20', knitting: '2026-10-25', dyeing: '2026-11-01', visual_inspection: '' },
+    colors: [devColor('c_m050_1', 'NAVY', 180), devColor('c_m050_2', 'IVORY', 150)],
+    dailyNotes: [],
+    changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-10-17T00:00:00.000Z', updatedAt: '2026-10-17T00:00:00.000Z',
+  },
+  {
+    id: 'ord_dev_m051', schemaVersion: 12, orderNumber: 'F-26M051', articleNo: 'GB-2403', detail: 'Poly Interlock 컨펌 · 검사 없음',
+    customer: '세웅상사', type: 'main', sampleKind: '', finalDueDate: '2026-10-30', lossRate: 10, status: 'active',
+    notes: '', linkedFabricId: 'fab_dev_3', linkedFabricArticle: 'GB-2403', dyeVendor: '킹텍스', dyeMethod: 'piece',
+    skipConfirm: true, skipInspection: true,
+    greigeOuts: [{ id: 'go_m051_1', date: '2026-10-08', kind: 'full', memo: '', done: true, kg: 220 }],
+    steps: devSteps({
+      knitting: { ...devStep({ vendor: '대성니트', startDate: '2026-10-01', endDate: '2026-10-07', status: 'done', doneDate: '2026-10-07' }), dailyKg: null },
+    }),
+    provisionalDue: { yarn: '', knitting: '', dyeing: '', visual_inspection: '2026-10-25' },
+    colors: [
+      devColor('c_m051_1', 'BLACK', 200, {
+        lots: [devLot('l_m051_1', 1, 220, 200, '2026-10-09', '2026-10-15', 'done')],
+        brandConfirm: { events: [{ id: 'bc_m051_1', status: 'sent', date: '2026-10-16' }] },
+      }),
+    ],
+    dailyNotes: [],
+    changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-16T00:00:00.000Z',
+  },
+  {
+    id: 'ord_dev_m052', schemaVersion: 12, orderNumber: 'F-26M052', articleNo: 'GB-2401', detail: 'Wool Jersey (체크 없이 완료)',
+    customer: '네셔널 지오그래픽', type: 'main', sampleKind: '', finalDueDate: '2026-10-15', lossRate: 10, status: 'completed',
+    notes: '', linkedFabricId: 'fab_dev_1', linkedFabricArticle: 'GB-2401', dyeVendor: '킹텍스',
+    closing: { yarnStock: { done: true, date: '2026-10-16', memo: '' }, eztexStock: { done: false, date: '', memo: '' }, eztexClosed: { done: false, date: '', memo: '' } },
+    steps: devSteps({}),
+    colors: [devColor('c_m052_1', 'CHARCOAL', 120, { shipDate: '2026-10-14', shipDone: true })],
+    dailyNotes: [],
+    changeLog: [
+      { id: 'cl_m052_2', ts: '2026-10-16T05:00:00.000Z', userEmail: 'dev@grubig.kr', action: 'order_update', summary: '오더상태 진행중→완료' },
+      { id: 'cl_m052_1', ts: '2026-10-16T04:59:00.000Z', userEmail: 'dev@grubig.kr', action: 'order_update', summary: '마무리 원사재고정리 체크' },
+    ],
+    createdBy: 'dev@grubig.kr', createdAt: '2026-09-20T00:00:00.000Z', updatedAt: '2026-10-16T05:00:00.000Z',
+  },
+  {
+    id: 'ord_dev_m009', schemaVersion: 12, orderNumber: 'F-26M009', articleNo: 'GB-2402', detail: 'Cotton Span Rib (예전 완료)',
+    customer: '케일', type: 'main', sampleKind: '', finalDueDate: '2026-10-01', lossRate: 10, status: 'completed',
+    notes: '', linkedFabricId: 'fab_dev_2', linkedFabricArticle: 'GB-2402', dyeVendor: '킹텍스',
+    steps: devSteps({}),
+    colors: [devColor('c_m009_1', 'BLACK', 90, { shipDate: '2026-10-03', shipDone: true })],
+    dailyNotes: [],
+    changeLog: [
+      { id: 'cl_m009_1', ts: '2026-10-05T02:00:00.000Z', userEmail: 'dev@grubig.kr', action: 'order_update', summary: '오더상태 진행중→완료' },
+    ],
+    createdBy: 'dev@grubig.kr', createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-10-05T02:00:00.000Z',
+  },
   // v7 옛 형식 (차수 구조) — 자동 변환 확인용. schemaVersion 없음
   {
     id: 'O-LEGACY-01', orderNumber: 'O-LEGACY-01', articleNo: 'GB-2402', customer: '세웅상사', type: 'main',

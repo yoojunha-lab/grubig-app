@@ -3,10 +3,11 @@ import { AlertCircle, ChevronDown, Droplets, History, Info, Plus, Trash2 } from 
 import { PopoverShell } from '../common/PopoverShell';
 import { StatusSelect } from '../common/StatusSelect';
 import { TrackEditor } from '../common/TrackEditor';
+import { SkipBar } from '../common/SkipBar';
 import { usePopoverSave } from '../common/usePopoverSave';
 import { INSPECTION_STATUSES, PROGRESS_STATUS_COLORS, getStatusLabel, normalizeStatus } from '../../../constants/production';
 import {
-  createInspectionRound, createStatusEvent, getColorInspection, getRoundStatus, roundHasData,
+  createInspectionRound, createStatusEvent, getColorInspection, getRoundStatus, roundHasData, isInspectionSkipped,
 } from '../../../utils/orderModel';
 import { fmtKg, shortDate } from '../../../utils/orderCalculations';
 
@@ -22,8 +23,11 @@ import { fmtKg, shortDate } from '../../../utils/orderCalculations';
 // - LOT 가 없는 컬러는 [LOT 만들기] (onOpenLots)
 // - 로컬 draft 로 편집 → [저장] 시 바뀐 LOT 만 onSave({ [lotId]: { rounds, base } }) — base(열 때 차수)와 같이 보내서
 //   지금 저장된 값과 합침 (열어 둔 사이 현황표에서 고른 상태가 지워지지 않게). Enter = 저장, 닫을 때 저장 안 한 변경이 있으면 묻기
+// - 맨 위 [이 오더는 외관검사 안 함] (대표님 요청 2026-10-19) — 오더 전체 '안 함'으로 바로 저장하고 창 닫힘
+//   '안 함'인 오더는 안내 + [다시 진행]만 (검사 기록은 지우지 않음 — 다시 진행하면 그대로)
 // props: order, color, anchorRect(null = 화면 가운데), onClose, onSave(patchByLot) => Promise<boolean>,
-//        onSaveVendor(vendor) => Promise<boolean>, vendorOptions, onOpenLots(), prefill({ lotId, field, date } — 간트에서 고른 날)
+//        onSaveVendor(vendor) => Promise<boolean>, vendorOptions, onOpenLots(), prefill({ lotId, field, date } — 간트에서 고른 날),
+//        onSetSkip(skip: boolean) => Promise<boolean> ('안 함' 켜고 끄기 — 없으면 버튼 숨김)
 // ============================================================
 
 const INPUT_CLS = 'w-full min-w-0 px-2 py-1 bg-white border rounded-md text-[11px] text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-400/60 focus:border-teal-400';
@@ -62,6 +66,7 @@ const isSubmitEnter = (e) => {
 
 export const InspectionPopover = ({
   order, color, anchorRect = null, onClose, onSave, onSaveVendor, vendorOptions = [], onOpenLots, prefill = null,
+  onSetSkip = null,
 }) => {
   const listId = useId();
   const [init] = useState(() => makeInitial(color, prefill));
@@ -70,9 +75,49 @@ export const InspectionPopover = ({
   const [initialVendor] = useState(() => order?.inspectVendor || '');
   const [vendor, setVendor] = useState(initialVendor);
   const [error, setError] = useState('');
+  const [resuming, setResuming] = useState(false); // [다시 진행] 처리 중
   const { saving, close, run } = usePopoverSave(onClose);
 
   if (!order || !color) return null;
+
+  // ---------- '안 함' (오더 전체 — 2026-10-19) ----------
+  const skipped = isInspectionSkipped(order);
+  const resume = async () => {
+    if (!onSetSkip || resuming) return;
+    setResuming(true);
+    try {
+      await onSetSkip(false); // 창은 그대로 — 이어서 입력
+    } finally {
+      setResuming(false);
+    }
+  };
+  if (skipped) {
+    const recordCount = (color.lots || []).reduce((n, l) => n + (l.inspections || []).length, 0);
+    return (
+      <PopoverShell
+        anchorRect={anchorRect}
+        width={420}
+        title={`${order.orderNumber || '새 오더'} · ${color.name || '컬러'} 외관검사`}
+        subtitle="외관검사 안 함 (이 오더 전체)"
+        onClose={close}
+        footer={(
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={close}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-[11px] font-bold text-slate-600 hover:bg-slate-50"
+            >
+              닫기
+            </button>
+          </div>
+        )}
+      >
+        <div className="p-3 outline-none" tabIndex={-1} data-autofocus>
+          <SkipBar label="외관검사" skipped recordCount={recordCount} busy={resuming} onResume={onSetSkip ? resume : undefined} />
+        </div>
+      </PopoverShell>
+    );
+  }
 
   const lots = color.lots || [];
   // 바뀐 LOT 만 (열 때 차수와 비교)
@@ -152,6 +197,13 @@ export const InspectionPopover = ({
     });
   };
 
+  // [이 오더는 외관검사 안 함] — 저장되면 창 닫힘 (이 창에서 고친 내용은 저장하지 않으니, 고친 게 있으면 먼저 물음)
+  const requestSkip = () => {
+    if (!onSetSkip || saving) return;
+    if (isDirty && !window.confirm('이 창에서 고친 내용은 저장하지 않고 이 오더를 \'외관검사 안 함\'으로 바꿀까요?')) return;
+    run(() => onSetSkip(true));
+  };
+
   const onKeyDown = (e) => {
     if (!isSubmitEnter(e)) return;
     e.preventDefault();
@@ -201,6 +253,8 @@ export const InspectionPopover = ({
       footer={footer}
     >
       <div className="p-3 space-y-3 outline-none" tabIndex={-1} data-autofocus onKeyDown={onKeyDown}>
+        {/* [이 오더는 외관검사 안 함] — 오더 전체 (2026-10-19) */}
+        <SkipBar label="외관검사" skipped={false} busy={saving} onSkip={onSetSkip ? requestSkip : undefined} />
         {/* 검사처 (오더 공통) */}
         <label className="block">
           <span className={LABEL_CLS}>검사처 <span className="font-normal text-slate-400">(오더 전체 공통)</span></span>
