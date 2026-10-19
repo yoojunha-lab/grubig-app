@@ -302,10 +302,6 @@ export const ORDER_STATUS_COLORS = {
 //    order# 의 S/M 은 새 줄을 저장할 때 고른 구분과 다르면 한 번 묻는 데만 씀 (예전처럼 저절로 바꾸지 않음)
 //    예) F-26S046 → 샘플, F-26M020 → 메인 (접두 영문 + 연도 2자리 뒤의 S/M)
 // ============================================================
-export const ORDER_TYPES = [
-  { key: 'main',   label: '메인' },
-  { key: 'sample', label: '샘플' },
-];
 
 // 구분 3가지 (오더 추가 메뉴 · 구분 표시 · 구분 바꾸기 창)
 //  menuLabel: 오더 추가 메뉴 글자 / desc: 메뉴·창 설명 / chip: 구분 표시 색
@@ -335,14 +331,14 @@ export const UNKNOWN_ORDER_KIND = {
   chip: 'bg-amber-50 text-amber-800 border-amber-300',
 };
 
-// 구분 때문에 남은 할 일 꼬리표 (진행 중 오더만 — orderModel.getOrderKindTodo)
+// 구분 때문에 남은 할 일 꼬리표 (orderModel.getOrderKindTodo — 진행 중 오더, 재샘플 '아이템 선택'은 완료된 오더도)
 //  sheet: 신제품인데 설계서 없음 / item: 재샘플인데 아이템(원단 관리 원단) 안 고름 — 고르기 전에는 '완료' 못 함
 //  (종류 미정은 구분 표시 자체가 노란 '종류 미정')
 export const ORDER_KIND_TODOS = {
   sheet: {
     label: '설계서 없음',
     cls: 'bg-amber-50 text-amber-800 border-amber-300',
-    title: '신제품 샘플인데 설계서가 아직 없어요 — ⋯ 메뉴에서 [새 설계서 작성] 또는 [작성 중인 설계서 연결] (설계서가 있어야 아이템화)',
+    title: '신제품 샘플인데 설계서가 아직 없어요 — ⋯ 메뉴(또는 상세창)에서 [새 설계서 작성] 또는 [작성 중인 설계서 연결] (설계서가 있어야 아이템화)',
   },
   item: {
     label: '아이템 선택',
@@ -350,6 +346,16 @@ export const ORDER_KIND_TODOS = {
     title: '재샘플은 article# 칸에서 기존 아이템(원단 관리)을 골라야 해요 — 고르기 전에는 완료할 수 없어요',
   },
 };
+
+// 진행 안 함 (오더 전체 — 대표님 요청 2026-10-19): ⋯ 메뉴 · 상세창 체크 목록 (orderModel.isSkipOn · useOrder.setSkipItem)
+//  knit = 편직 [재고 사용] — 생지 재고로 진행 (원사 · 사가공 · 원사염색 · 편직 앞 추가 공정까지 건너뜀)
+//  confirm = 브랜드 컨펌 · 시험성적서 둘 다 / inspection = 외관검사
+//  이미 넣은 기록은 지우지 않고 진행 계산 · 가납기 · 남은 일에서만 빼요 (체크를 풀면 그대로 다시)
+export const SKIP_ITEMS = [
+  { key: 'knit',       label: '편직 재고 사용 (생지 재고)', title: '생지 재고로 진행 — 원사 · 사가공 · 원사염색 · 편직을 안 해요' },
+  { key: 'confirm',    label: '컨펌 · 성적서 안 함',        title: '이 오더는 브랜드 컨펌 · 시험성적서를 안 해요 (모든 컬러)' },
+  { key: 'inspection', label: '외관검사 안 함',             title: '이 오더는 외관검사를 안 해요 (모든 컬러)' },
+];
 
 export const detectOrderType = (orderNumber) => {
   const m = String(orderNumber || '').trim().toUpperCase().match(/^[A-Z]+-?\d{2}([SM])/);

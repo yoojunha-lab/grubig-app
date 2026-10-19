@@ -36,7 +36,7 @@ export const SampleCloseDialog = ({ order, stepDefs, sheetLabel, onItemize, onDr
         <div className="p-4 space-y-2">
           <p className="text-[11px] text-slate-500 leading-relaxed">
             샘플은 <b className="text-slate-700">아이템화</b> 아니면 <b className="text-slate-700">Drop</b>으로 끝나요.
-            아직 정하지 못했으면 오더만 완료해 두고 나중에 ⋯ 메뉴에서 골라도 돼요.
+            아직 정하지 못했으면 오더만 완료해 두고 나중에 ⋯ 메뉴(또는 상세창)에서 골라도 돼요.
           </p>
           {openWork.length > 0 && (
             <p className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 leading-snug">

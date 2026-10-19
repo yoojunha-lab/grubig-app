@@ -1488,8 +1488,9 @@ const App = () => {
               syncEztex: syncEztexFromOrder, // 샘플 오더 order# 를 고치면 설계서 EZ-TEX O/D NO.도 같이
               // 설계서 없는 신제품 샘플 (대표님 요청 2026-10-19): 새 설계서 작성 / 작성 중인 설계서 연결
               //  연결 = 그 설계서에 이 오더 번호를 EZ-TEX O/D NO.로 [등록] (개발/설계 현황 [등록]과 같은 함수 → '샘플 진행' + 연결)
+              //  strict: 샘플 오더 연결까지 돼야 성공 — 실패하면 연결 창이 닫히지 않고 그대로 (2026-10-19 검토)
               create: openNewSheetForOrder,
-              link: (sheetId, orderNumber) => registerEztexOrderNo(sheetId, orderNumber),
+              link: (sheetId, orderNumber) => registerEztexOrderNo(sheetId, orderNumber, { strict: true }),
             }}
             focusRequest={productionFocus}
             onFocusHandled={() => setProductionFocus(null)}

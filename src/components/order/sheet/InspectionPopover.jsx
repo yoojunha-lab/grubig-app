@@ -3,7 +3,7 @@ import { AlertCircle, ChevronDown, Droplets, History, Info, Plus, Trash2 } from 
 import { PopoverShell } from '../common/PopoverShell';
 import { StatusSelect } from '../common/StatusSelect';
 import { TrackEditor } from '../common/TrackEditor';
-import { SkipBar } from '../common/SkipBar';
+import { SkipBar, SkippedPopover } from '../common/SkipBar';
 import { usePopoverSave } from '../common/usePopoverSave';
 import { INSPECTION_STATUSES, PROGRESS_STATUS_COLORS, getStatusLabel, normalizeStatus } from '../../../constants/production';
 import {
@@ -75,47 +75,21 @@ export const InspectionPopover = ({
   const [initialVendor] = useState(() => order?.inspectVendor || '');
   const [vendor, setVendor] = useState(initialVendor);
   const [error, setError] = useState('');
-  const [resuming, setResuming] = useState(false); // [다시 진행] 처리 중
   const { saving, close, run } = usePopoverSave(onClose);
 
   if (!order || !color) return null;
 
-  // ---------- '안 함' (오더 전체 — 2026-10-19) ----------
-  const skipped = isInspectionSkipped(order);
-  const resume = async () => {
-    if (!onSetSkip || resuming) return;
-    setResuming(true);
-    try {
-      await onSetSkip(false); // 창은 그대로 — 이어서 입력
-    } finally {
-      setResuming(false);
-    }
-  };
-  if (skipped) {
-    const recordCount = (color.lots || []).reduce((n, l) => n + (l.inspections || []).length, 0);
+  // ---------- '안 함' (오더 전체 — 2026-10-19) — 안내 + [다시 진행]만 (컨펌 창과 같은 화면) ----------
+  if (isInspectionSkipped(order)) {
     return (
-      <PopoverShell
-        anchorRect={anchorRect}
-        width={420}
+      <SkippedPopover
+        kind="inspection"
+        order={order}
         title={`${order.orderNumber || '새 오더'} · ${color.name || '컬러'} 외관검사`}
-        subtitle="외관검사 안 함 (이 오더 전체)"
+        anchorRect={anchorRect}
         onClose={close}
-        footer={(
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={close}
-              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-[11px] font-bold text-slate-600 hover:bg-slate-50"
-            >
-              닫기
-            </button>
-          </div>
-        )}
-      >
-        <div className="p-3 outline-none" tabIndex={-1} data-autofocus>
-          <SkipBar label="외관검사" skipped recordCount={recordCount} busy={resuming} onResume={onSetSkip ? resume : undefined} />
-        </div>
-      </PopoverShell>
+        onSetSkip={onSetSkip}
+      />
     );
   }
 
@@ -254,7 +228,7 @@ export const InspectionPopover = ({
     >
       <div className="p-3 space-y-3 outline-none" tabIndex={-1} data-autofocus onKeyDown={onKeyDown}>
         {/* [이 오더는 외관검사 안 함] — 오더 전체 (2026-10-19) */}
-        <SkipBar label="외관검사" skipped={false} busy={saving} onSkip={onSetSkip ? requestSkip : undefined} />
+        <SkipBar kind="inspection" skipped={false} busy={saving} onSkip={onSetSkip ? requestSkip : undefined} />
         {/* 검사처 (오더 공통) */}
         <label className="block">
           <span className={LABEL_CLS}>검사처 <span className="font-normal text-slate-400">(오더 전체 공통)</span></span>

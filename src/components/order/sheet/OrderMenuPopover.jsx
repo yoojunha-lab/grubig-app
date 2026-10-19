@@ -2,10 +2,8 @@ import { useRef, useState } from 'react';
 import { Award, FilePlus2, FileText, Link2, PanelRightOpen, RotateCcw, Tags, Trash2, XCircle } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
 import { OrderKindChip } from '../common/OrderKindChip';
-import { ORDER_STATUSES, ORDER_STATUS_COLORS } from '../../../constants/production';
-import {
-  getOrderKind, isSheetMissing, isKnitStock, isConfirmSkipped, isInspectionSkipped,
-} from '../../../utils/orderModel';
+import { ORDER_STATUSES, ORDER_STATUS_COLORS, SKIP_ITEMS } from '../../../constants/production';
+import { getOrderKind, isSheetMissing, isSkipOn, formatSheetLabel } from '../../../utils/orderModel';
 
 // ============================================================
 // 현황표 order# 칸의 `⋯` 메뉴
@@ -76,9 +74,7 @@ export const OrderMenuPopover = ({
 
   // ---------- 설계서 (샘플 오더) ----------
   const sheet = sheetInfo?.sheet || null;
-  const sheetLabel = sheet
-    ? [sheetInfo.devOrderNo || '자체개발', sheet.fabricName].filter(Boolean).join(' · ')
-    : '';
+  const sheetLabel = sheet ? formatSheetLabel(sheet, { devOrderNo: sheetInfo.devOrderNo }) : '';
 
   // 설계서 함수 실행 → 해냈으면 메뉴 닫기 (취소·막힘이면 그대로 — 알림은 설계서 훅이 띄움)
   const runSheet = async (fn) => {
@@ -110,24 +106,7 @@ export const OrderMenuPopover = ({
     onClose?.();
   };
 
-  // ---------- 진행 안 함 (오더 전체 — 바로 저장, 메뉴는 그대로) ----------
-  const skipItems = [
-    {
-      key: 'knit', label: '편직 재고 사용 (생지 재고)', checked: isKnitStock(order),
-      title: '생지 재고로 진행 — 편직 · 원사를 안 해요',
-      toggle: (on) => actions.setStep?.(order.id, 'knitting', { stock: on }),
-    },
-    {
-      key: 'confirm', label: '컨펌 · 성적서 안 함', checked: isConfirmSkipped(order),
-      title: '이 오더는 브랜드 컨펌 · 시험성적서를 안 해요 (모든 컬러)',
-      toggle: (on) => actions.setSkip?.(order.id, { confirm: on }),
-    },
-    {
-      key: 'inspection', label: '외관검사 안 함', checked: isInspectionSkipped(order),
-      title: '이 오더는 외관검사를 안 해요 (모든 컬러)',
-      toggle: (on) => actions.setSkip?.(order.id, { inspection: on }),
-    },
-  ];
+  // ---------- 진행 안 함 (오더 전체 — 바로 저장, 메뉴는 그대로) — 상세창과 같은 목록 (constants SKIP_ITEMS) ----------
 
   return (
     <PopoverShell
@@ -169,20 +148,25 @@ export const OrderMenuPopover = ({
             </div>
 
             {/* 진행 안 함 — 편직 재고 사용 · 컨펌 · 성적서 안 함 · 외관검사 안 함 (오더 전체, 체크 = 바로 저장) */}
-            <div className="mt-1 pt-1.5 px-2.5 pb-1 border-t border-slate-100 space-y-1">
-              <div className="text-[10px] font-bold text-slate-400">진행 안 함 (오더 전체)</div>
-              {skipItems.map(it => (
-                <label key={it.key} className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer select-none" title={it.title}>
-                  <input
-                    type="checkbox"
-                    checked={it.checked}
-                    onChange={e => it.toggle(e.target.checked)}
-                    className="w-3.5 h-3.5 accent-slate-600"
-                  />
-                  <span className={it.checked ? 'text-slate-500' : ''}>{it.label}</span>
-                </label>
-              ))}
-            </div>
+            {actions.setSkipItem && (
+              <div className="mt-1 pt-1.5 px-2.5 pb-1 border-t border-slate-100 space-y-1">
+                <div className="text-[10px] font-bold text-slate-400">진행 안 함 (오더 전체)</div>
+                {SKIP_ITEMS.map(it => {
+                  const checked = isSkipOn(order, it.key);
+                  return (
+                    <label key={it.key} className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer select-none" title={it.title}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={e => actions.setSkipItem(order.id, it.key, e.target.checked)}
+                        className="w-3.5 h-3.5 accent-slate-600"
+                      />
+                      <span className={checked ? 'text-slate-500' : ''}>{it.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
 
             {/* 설계서 샘플 오더 — 설계서 열기 · 아이템화 · Drop · 복원 */}
             {sheet && sheetActions && (

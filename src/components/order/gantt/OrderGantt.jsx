@@ -9,7 +9,7 @@ import {
   describeProvisionalDue, describeStepCurrent,
   findDailyNote, getColorStage, getDday, getEndShift, getKnittingEstimatedEnd, getLossRate, getStepEnd, getWorkKg, isDropClosed,
   collectVendorOptions, isPieceDyed, getRoundStatus, isClosingPending, getColorDyeRemain, describeDyeRemain,
-  getYarnOrderStatus,
+  getYarnOrderStatus, greigeRoute,
 } from '../../../utils/orderModel';
 import { addDaysYmd, diffDaysYmd, fmtKg, shortDate, toDate, todayYmd } from '../../../utils/orderCalculations';
 import { ProcessPopover } from '../sheet/ProcessPopover';
@@ -361,12 +361,11 @@ const describeBar = (order, color, bar, metaOf = getStepMeta) => {
   if (bar.kind === 'greige') {
     const list = bar.scope === 'order' ? order.greigeOuts : color?.greigeOuts;
     const g = (list || []).find(x => x.id === bar.greigeId) || {};
-    const route = `${order.steps?.knitting?.vendor || '편직처'} → ${order.dyeVendor || '염색소'}`;
     return {
       ...base,
       status: `${g.kind === 'partial' ? '부분' : '전체'} ${bar.status === 'done' ? '출고 완료' : '출고 예정'}${g.kg ? ` · ${fmtKg(g.kg)}kg` : ''}${bar.scope === 'order' ? ' (후염 · 오더 전체)' : ''}`,
       vendorLabel: '경로',
-      vendor: route,
+      vendor: greigeRoute(order), // 편직 재고 사용이면 '생지 재고 → 염색소'
       extra: g.memo ? `메모: ${g.memo}` : '',
       hint: '누르면 생지 출고 수정',
     };
@@ -1028,6 +1027,7 @@ export const OrderGantt = ({
           vendorOptions={vendorOptionsFor(popover.stepKey, popOrder.id)}
           simple={popover.stepKey === PRESETTING_KEY}
           prefill={popover.prefill || null}
+          stepDefs={stepDefs}
         />
       )}
       {popover?.kind === 'confirm' && popOrder && popColor && (

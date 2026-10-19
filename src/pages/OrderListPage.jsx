@@ -12,10 +12,10 @@ import { LinkSheetDialog } from '../components/order/common/LinkSheetDialog';
 import { ClosingPopover } from '../components/order/sheet/ClosingPopover';
 import { DevDropModal } from '../components/dashboard/DevDropModal';
 import {
-  getDday, isDropClosed, getOpenWork, collectVendorOptions, resolveYieldSpec, getClosingState, isClosingPending,
-  getOrderKindMeta, getOrderKindTodo, isItemMissing, isSheetMissing, isClosingOutstanding,
+  getDday, isDropClosed, getOpenWork, collectVendorOptions, resolveYieldSpec, isClosingPending,
+  getOrderKindMeta, getOrderKindTodo, getCompleteCheck, isClosingOutstanding, formatSheetLabel,
 } from '../utils/orderModel';
-import { PRESETTING_KEY, YARN_DYEING_KEY, ORDER_KINDS, ORDER_KIND_TODOS } from '../constants/production';
+import { PRESETTING_KEY, YARN_DYEING_KEY, ORDER_KIND_TODOS } from '../constants/production';
 import { todayYmd } from '../utils/orderCalculations';
 import { isYarnRatioComplete, sumYarnRatio } from '../utils/costModel';
 import { fabricYarnOptions } from '../utils/yarnDyeCalc';
@@ -48,7 +48,8 @@ import { DESIGN_STAGES } from '../constants/common';
 //   · 예전 샘플 중 종류를 모르는 것 = '종류 미정' (눌러서 한 번 고름)
 // - [마무리 안 됨 N] (대표님 요청 2026-10-19 '마무리 안 된 것만 모아서 나중에 처리'): 출고가 다 끝났거나 완료된 오더 중
 //   마무리 3개가 남은 것만 (orderModel.isClosingOutstanding — 나중에 대시보드도 같은 규칙). 켜면 상태 탭 대신 이 목록,
-//   현황표는 공정 칸을 접고 출고 · 마무리 · 상태 칸만 (구분 · 검색은 그대로 걸림, 상태 탭을 누르면 꺼짐)
+//   현황표는 공정 칸을 접고 출고 · 마무리 · 상태 칸을 color 바로 옆에 (구분 · 검색은 그대로 걸림 — [메인 · 샘플] 숫자도
+//   이 목록 기준, 버튼을 다시 누르거나 상태 탭을 누르면 꺼짐)
 // ============================================================
 
 // 메인 / 샘플 (샘플 = 신제품 + 재샘플 — 구분은 오더를 만들 때 정하고 잠김) — 마지막 선택을 기억
@@ -175,7 +176,7 @@ export const OrderListPage = ({
     };
   }, [sheetById, devById]);
   const isAwaiting = useCallback((o) => !!sheetInfoOf(o)?.awaiting, [sheetInfoOf]);
-  const sheetLabelOf = (sheet) => [sheet?.devOrderNo || '자체개발', sheet?.fabricName].filter(Boolean).join(' · ');
+  const sheetLabelOf = (sheet) => formatSheetLabel(sheet);
 
   // ---------- 배색량 → 예상 YD 환산 원단 스펙 (gsm · 전폭) ----------
   //  ① 연결된 원단 → ② 오더에 저장된 값 → ③ 같은 Article 원단(대소문자·띄어쓰기 무시) → ④ 설계서 최종 스펙(샘플 오더)
@@ -345,18 +346,26 @@ export const OrderListPage = ({
   const [kindTarget, setKindTarget] = useState(null); // { orderId }
   const kindOrder = kindTarget ? orders.find(o => o.id === kindTarget.orderId) || null : null;
 
-  // ---------- 오더 '완료' (재샘플 아이템 → 마무리 체크 → 샘플 끝내기 → 완료) ----------
-  //  0) 재샘플인데 아이템을 안 골랐으면 막음 (알림은 useOrder — 대표님 결정 2026-10-19)
-  //  1) 마무리 체크(원사재고정리 · EZTEX 재고정리 · EZTEX 종결)가 남았으면 마무리 창 (체크하고 저장 = 자동 완료 / [체크 없이 완료] → 2)
-  //  2) 설계서가 아직 아이템화·Drop 전인 샘플이면 샘플 끝내기 창
-  //     설계서가 없는 신제품이면 한 번 묻기 (설계서가 없으면 아이템화를 못 함 — 나중에 붙이면 '아이템화 대기')
-  //  3) 그 밖은 바로 완료
+  // ---------- 오더 '완료' (재샘플 아이템 → 설계서 없음 확인 → 마무리 체크 → 샘플 끝내기 → 완료) ----------
+  //  판단은 orderModel.getCompleteCheck 한 곳에서 (useOrder 저장 · 마무리 자동 완료와 같은 규칙 — 2026-10-19 검토)
+  //  0) 완료할 수 없으면(재샘플인데 아이템을 안 고름) 막음 (알림은 useOrder — 대표님 결정 2026-10-19)
+  //  1) 설계서가 없는 신제품이면 먼저 한 번 묻기 (설계서가 없으면 아이템화를 못 함 — 나중에 붙이면 '아이템화 대기')
+  //     마무리 창을 열기 전에 물음 — 마무리 창에서 체크해 자동 완료되는 길도 같은 확인을 거치게 (2026-10-19 검토)
+  //  2) 마무리 체크(원사재고정리 · EZTEX 재고정리 · EZTEX 종결)가 남았으면 마무리 창 (체크하고 저장 = 자동 완료 / [체크 없이 완료] → 3)
+  //  3) 설계서가 아직 아이템화·Drop 전인 샘플이면 샘플 끝내기 창
+  //  4) 그 밖은 바로 완료
+  //  opts.skipClosing: 마무리 창 [체크 없이 완료] / opts.noSheetOk: 설계서 없음 확인을 이미 받음 (마무리 창을 거쳐 온 경우)
   const [closingTarget, setClosingTarget] = useState(null); // { orderId } — '완료'로 바꾸려는데 마무리 체크가 남은 오더
-  const completeOrder = async (id, { skipClosing = false } = {}) => {
+  const completeOrder = async (id, { skipClosing = false, noSheetOk = false } = {}) => {
     const order = orders.find(o => o.id === id);
     if (!order) return actions.setOrderField(id, 'status', 'completed');
-    if (isItemMissing(order)) return actions.setOrderField(id, 'status', 'completed'); // useOrder 가 막고 알림
-    if (!skipClosing && !getClosingState(order).complete) {
+    const check = getCompleteCheck(order);
+    if (check.block) return actions.setOrderField(id, 'status', 'completed'); // useOrder 가 막고 알림
+    if (check.noSheet && !noSheetOk && !window.confirm(
+      `'${order.orderNumber}'는 신제품 샘플인데 설계서가 없어요. 설계서가 없으면 아이템화(원단 등록)를 할 수 없어요.\n\n`
+      + "설계서 없이 완료할까요? (나중에 ⋯ 메뉴(또는 상세창)에서 설계서를 붙이면 '아이템화 대기'로 보여요)"
+    )) return false;
+    if (!skipClosing && check.closing) {
       setClosingTarget({ orderId: id });
       return true;
     }
@@ -365,10 +374,6 @@ export const OrderListPage = ({
       setCloseTarget({ orderId: id, sheetId: info.sheet.id });
       return true;
     }
-    if (isSheetMissing(order) && !window.confirm(
-      `'${order.orderNumber}'는 신제품 샘플인데 설계서가 없어요. 설계서가 없으면 아이템화(원단 등록)를 할 수 없어요.\n\n`
-      + "설계서 없이 완료할까요? (나중에 ⋯ 메뉴에서 설계서를 붙이면 '아이템화 대기'로 보여요)"
-    )) return false;
     return actions.setOrderField(id, 'status', 'completed');
   };
   const closingOrder = closingTarget ? orders.find(o => o.id === closingTarget.orderId) || null : null;
@@ -405,31 +410,58 @@ export const OrderListPage = ({
     const note = (info.dropped || info.articled)
       ? `설계서(${label})와 연결된 샘플 오더예요. 설계서는 그대로 남고 연결만 없어져요.`
       : `설계서(${label})와 연결된 샘플 오더예요. 지우면 설계서는 개발/설계 현황으로 돌아가요 (EZ-TEX 번호로 다시 올릴 수 있어요).\n`
-        + '샘플을 그만두는 거라면 지우지 말고 ⋯ 메뉴의 Drop을 써 주세요.';
+        + '샘플을 그만두는 거라면 지우지 말고 ⋯ 메뉴(또는 상세창)의 Drop을 써 주세요.';
     return actions.deleteOrder(id, { note });
   };
+  // 툴바 [전체 · 메인 · 샘플] (마지막 선택을 기억)
+  const changeType = (k) => {
+    setTypeFilter(k);
+    try { localStorage.setItem(LS_TYPE, k); } catch { /* 저장 불가 환경은 무시 */ }
+  };
+  // 새 줄의 구분이 툴바 [메인 · 샘플]과 다르면 '전체'로 — order# 를 넣어 저장되는 순간 그 구분 버튼에 걸려 줄이 사라지지 않게
+  //  (새 줄을 만들 때 · 새 줄 구분을 바꿀 때 — 2026-10-19 검토)
+  const showKindType = (kind) => {
+    const kindType = getOrderKindMeta(kind).type || 'main';
+    if (typeFilter !== 'all' && typeFilter !== kindType) changeType('all');
+  };
+
   // requestKindChange(id): [구분 바꾸기] · '종류 미정' 고르기 창 열기 (표·간트·상세창·모바일 공용)
-  const pageActions = { ...actions, setOrderField, deleteOrder, requestKindChange: (id) => setKindTarget({ orderId: id }) };
+  //  setDraftKind: 새 줄 구분을 바꾸면 툴바 [메인 · 샘플]도 맞춤 (showKindType)
+  const pageActions = {
+    ...actions,
+    setOrderField,
+    deleteOrder,
+    requestKindChange: (id) => setKindTarget({ orderId: id }),
+    setDraftKind: (id, kind) => {
+      showKindType(kind);
+      return actions.setDraftKind(id, kind);
+    },
+  };
 
   // ---------- 필터 / 정렬 ----------
-  // 상태 탭 숫자는 고른 구분(메인/샘플) 안에서, 구분 숫자는 고른 상태 탭 안에서
+  // 상태 탭 숫자는 고른 구분(메인/샘플) 안에서, 구분 숫자는 지금 보는 목록 안에서 (상태 탭 — [마무리 안 됨] 보기면 그 목록)
   const typeTab = TYPE_TABS.find(t => t.key === typeFilter) || TYPE_TABS[0];
   const statusTabMeta = STATUS_TABS.find(t => t.key === statusTab) || STATUS_TABS[0];
+  // 지금 보는 목록에 드는 오더인지 — [마무리 안 됨] 보기면 상태 탭 대신 '마무리 안 됨' 오더만
+  const inListScope = useCallback(
+    (o) => (closingView ? isClosingOutstanding(o) : statusTabMeta.match(o, isAwaiting(o))),
+    [closingView, statusTabMeta, isAwaiting]
+  );
   const counts = useMemo(() => Object.fromEntries(
     STATUS_TABS.map(t => [t.key, orders.filter(o => typeTab.match(o) && t.match(o, isAwaiting(o))).length])
   ), [orders, typeTab, isAwaiting]);
   const typeCounts = useMemo(() => Object.fromEntries(
-    TYPE_TABS.map(t => [t.key, orders.filter(o => statusTabMeta.match(o, isAwaiting(o)) && t.match(o)).length])
-  ), [orders, statusTabMeta, isAwaiting]);
+    TYPE_TABS.map(t => [t.key, orders.filter(o => inListScope(o) && t.match(o)).length])
+  ), [orders, inListScope]);
 
-  // [마무리 안 됨] 보기면 상태 탭 대신 '마무리 안 됨' 오더만 (구분 · 검색은 그대로)
+  // 구분 · 검색은 [마무리 안 됨] 보기에서도 그대로
   const visibleOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const list = orders.filter(o => (closingView ? isClosingOutstanding(o) : statusTabMeta.match(o, isAwaiting(o)))
+    const list = orders.filter(o => inListScope(o)
       && typeTab.match(o)
       && (!term || searchText(o, sheetInfoOf(o)).includes(term)));
     return sortOrders(list, sortKey);
-  }, [orders, closingView, statusTabMeta, typeTab, search, sortKey, sheetInfoOf, isAwaiting]);
+  }, [orders, inListScope, typeTab, search, sortKey, sheetInfoOf]);
   // [마무리 안 됨 N] 버튼 숫자 (고른 구분 안에서)
   const closingOutstandingCount = useMemo(
     () => orders.filter(o => typeTab.match(o) && isClosingOutstanding(o)).length,
@@ -442,19 +474,20 @@ export const OrderListPage = ({
 
   // 상단 요약: 진행/보류/납기 임박/지남 (완료 제외, 고른 구분 안에서) + 아이템화 대기 (완료한 샘플 중 설계서가 아직 안 끝난 것)
   //  + 마무리 대기 (출고는 다 끝났는데 원사재고정리 · EZTEX 체크가 남은 진행 중 오더 — 2026-10-14)
-  //  + 구분 할 일 (진행 중 오더 — 2026-10-19): 종류 미정 · 설계서 없음(신제품) · 아이템 선택(재샘플)
+  //  + 구분 할 일 (2026-10-19): 종류 미정 · 설계서 없음(신제품) — 진행 중 오더 / 아이템 선택(재샘플) — 완료된 오더도
+  //    (getOrderKindTodo — 대표님 결정 2026-10-19 검토 ②)
   const stats = useMemo(() => {
     let active = 0, onHold = 0, dueSoon = 0, overdue = 0, awaiting = 0, closing = 0;
     const kindTodo = { unknown: 0, sheet: 0, item: 0 };
     orders.forEach(o => {
       if (!typeTab.match(o)) return;
+      const todo = getOrderKindTodo(o);
+      if (todo) kindTodo[todo] += 1;
       if (o.status === 'completed') {
         if (isAwaiting(o)) awaiting += 1;
         return;
       }
       if (isClosingPending(o)) closing += 1;
-      const todo = getOrderKindTodo(o);
-      if (todo) kindTodo[todo] += 1;
       if (o.status === 'on_hold') onHold += 1; else active += 1;
       const d = getDday(o.finalDueDate);
       if (d === null) return;
@@ -473,21 +506,16 @@ export const OrderListPage = ({
 
   // ---------- 오더 추가 ([+ 오더 추가 ▾] 에서 고른 구분 kind: 'main' | 'new' | 'resample') ----------
   // 새 줄이 필터에 가려지지 않도록 검색어를 비우고 '진행 중' 탭으로, 고른 구분이 툴바 [메인 · 샘플]과 다르면 '전체'로
-  // (order# 를 넣어 저장되는 순간 그 구분 버튼에 걸려 줄이 사라지지 않게)
+  // (order# 를 넣어 저장되는 순간 그 구분 버튼에 걸려 줄이 사라지지 않게 — showKindType)
   const revealNewRow = (kind = 'main') => {
     setSearch('');
     setClosingView(false);
     if (statusTab === 'completed') setStatusTab('open');
-    const kindType = ORDER_KINDS.find(k => k.key === kind)?.type || 'main';
-    if (typeFilter !== 'all' && typeFilter !== kindType) changeType('all');
+    showKindType(kind);
   };
   const changeView = (v) => {
     setView(v);
     try { localStorage.setItem(LS_VIEW, v); } catch { /* 저장 불가 환경은 무시 */ }
-  };
-  const changeType = (k) => {
-    setTypeFilter(k);
-    try { localStorage.setItem(LS_TYPE, k); } catch { /* 저장 불가 환경은 무시 */ }
   };
   // 간트에는 새 줄(초안)이 안 보이므로 현황표로 돌아가서 추가
   const handleAddDesktop = (kind = 'main') => {
@@ -551,7 +579,7 @@ export const OrderListPage = ({
               label="아이템화 대기"
               value={stats.awaiting}
               cls="bg-amber-50 text-amber-800 border-amber-300"
-              title="오더는 완료했지만 설계서가 아직 아이템화·Drop 전인 샘플 — ⋯ 메뉴에서 아이템화 또는 Drop"
+              title="오더는 완료했지만 설계서가 아직 아이템화·Drop 전인 샘플 — ⋯ 메뉴(또는 상세창)에서 아이템화 또는 Drop"
             />
           )}
           {stats.closing > 0 && (
@@ -559,16 +587,16 @@ export const OrderListPage = ({
               label="마무리 대기"
               value={stats.closing}
               cls="bg-emerald-50 text-emerald-800 border-emerald-300"
-              title="출고는 다 끝났는데 원사재고정리 · EZTEX 재고정리 · EZTEX 종결 체크가 남은 오더 — 현황표 '마무리' 칸에서 체크"
+              title="출고는 다 끝났는데 원사재고정리 · EZTEX 재고정리 · EZTEX 종결 체크가 남은 진행 중 오더 — 현황표 '마무리' 칸(또는 상세창)에서 체크 (완료된 오더까지 모아 보려면 [마무리 안 됨])"
             />
           )}
-          {/* 구분 할 일 (진행 중 오더 — 2026-10-19). 검색창에 같은 글자를 넣으면 그 오더만 모임 */}
+          {/* 구분 할 일 (2026-10-19 — 아이템 선택은 완료된 재샘플도). 검색창에 같은 글자를 넣으면 그 오더만 모임 */}
           {stats.kindTodo.unknown > 0 && (
             <StatChip
               label="종류 미정"
               value={stats.kindTodo.unknown}
               cls="bg-amber-50 text-amber-800 border-amber-300"
-              title="예전에 만든 샘플이라 신제품인지 재샘플인지 몰라요 — order# 칸의 '종류 미정'을 눌러 한 번 골라 주세요 (검색창에 '종류 미정')"
+              title="예전에 만든 샘플이라 신제품인지 재샘플인지 몰라요 — '종류 미정' 표시(또는 ⋯ 메뉴 · 상세창 [샘플 종류 정하기])를 눌러 한 번 골라 주세요 (검색창에 '종류 미정')"
             />
           )}
           {stats.kindTodo.sheet > 0 && (
@@ -576,7 +604,7 @@ export const OrderListPage = ({
               label="설계서 없음"
               value={stats.kindTodo.sheet}
               cls="bg-amber-50 text-amber-800 border-amber-300"
-              title="설계서가 아직 없는 신제품 샘플 — ⋯ 메뉴 [새 설계서 작성] · [작성 중인 설계서 연결] (검색창에 '설계서 없음')"
+              title="설계서가 아직 없는 신제품 샘플 — ⋯ 메뉴(또는 상세창) [새 설계서 작성] · [작성 중인 설계서 연결] (검색창에 '설계서 없음')"
             />
           )}
           {stats.kindTodo.item > 0 && (
@@ -584,7 +612,7 @@ export const OrderListPage = ({
               label="아이템 선택"
               value={stats.kindTodo.item}
               cls="bg-red-50 text-red-700 border-red-300"
-              title="아이템을 아직 안 고른 재샘플 — article# 칸에서 원단 관리 아이템을 골라야 완료돼요 (검색창에 '아이템 선택')"
+              title="아이템을 아직 안 고른 재샘플 — article# 칸에서 원단 관리 아이템을 골라 주세요. 진행 중이면 골라야 완료돼요 (검색창에 '아이템 선택' — 완료된 오더는 [전체] 탭에서)"
             />
           )}
         </div>
@@ -657,7 +685,7 @@ export const OrderListPage = ({
             onClick={() => setClosingView(v => !v)}
             aria-pressed={closingView}
             title={'출고가 다 끝났거나 완료된 오더 중 마무리(원사재고정리 · EZTEX 재고정리 · EZTEX 종결)가 남은 것만 모아 봐요'
-              + ' — 현황표는 출고 · 마무리 · 상태 칸만 (10/14 전에 완료한 예전 오더는 빼요)'}
+              + ' — 현황표는 공정 칸을 접고 출고 · 마무리 · 상태 칸을 앞으로 (10/14 전에 완료한 예전 오더는 빼요 · 다시 누르면 원래대로)'}
             className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
               closingView
                 ? 'bg-amber-500 border-amber-500 text-white shadow-sm'
@@ -723,11 +751,9 @@ export const OrderListPage = ({
             closingView={closingView}
           />
         )}
+        {/* 빈 목록 안내는 현황표가 (마무리 안 됨 보기도 — 2026-10-19 검토: 한 곳으로) */}
         {search && visibleOrders.length === 0 && orders.length > 0 && (
           <p className="text-center text-xs text-slate-400 mt-3">'{search}' 검색 결과가 없어요.</p>
-        )}
-        {closingView && !search && visibleOrders.length === 0 && (
-          <p className="text-center text-xs text-slate-400 mt-3">마무리가 남은 오더가 없어요.</p>
         )}
       </div>
 
@@ -739,6 +765,7 @@ export const OrderListPage = ({
           onOpen={setDetailOrderId}
           onAdd={handleAddMobile}
           sheetLink={sheetLink}
+          closingView={closingView}
         />
       </div>
 
@@ -788,7 +815,7 @@ export const OrderListPage = ({
           mode="complete"
           onClose={() => setClosingTarget(null)}
           onSave={(patch) => actions.setClosing(closingOrder.id, patch)}
-          onForceComplete={() => completeOrder(closingOrder.id, { skipClosing: true })}
+          onForceComplete={() => completeOrder(closingOrder.id, { skipClosing: true, noSheetOk: true })}
         />
       )}
 

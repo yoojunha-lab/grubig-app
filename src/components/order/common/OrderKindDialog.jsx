@@ -4,14 +4,15 @@ import { ModalBackdrop } from '../../common/ModalBackdrop';
 import { UnsavedChangesDialog } from '../../common/UnsavedChangesDialog';
 import { useUnsavedGuard } from '../../../hooks/useUnsavedGuard';
 import { ORDER_KINDS, detectOrderType } from '../../../constants/production';
-import { getOrderKind, getOrderKindMeta } from '../../../utils/orderModel';
+import { getOrderKind, getOrderKindMeta, isKindLocked } from '../../../utils/orderModel';
 
 // ============================================================
 // 구분 바꾸기 / 샘플 종류 정하기 (대표님 요청 2026-10-19 '샘플/메인을 함부로 바꿀 수 있으면 안 됨')
 // ------------------------------------------------------------
 // - 구분은 오더를 만들 때 정하고 잠김 → 잘못 고른 경우에만 이 창에서 바꿈 (⋯ 메뉴 · 상세창 [구분 바꾸기])
 //   · 사유를 꼭 적어야 저장 — 변경 이력에 '구분 변경 (사유: …) — 구분 신제품→재샘플'
-//   · 종류 미정(예전 샘플)에 처음 고르는 것은 사유 없이도 ('샘플 종류 정하기')
+//   · 종류 미정(예전 샘플)에 신제품 · 재샘플을 처음 고르는 것은 사유 없이도 ('샘플 종류 정하기')
+//     메인을 고르면 샘플을 메인으로 바꾸는 것이라 사유 필수 (대표님 결정 2026-10-19 검토 ⑥ — useOrder 도 막음)
 // - 설계서와 연결된 신제품은 못 바꿈 (안내만 — 샘플을 그만두려면 Drop)
 // - 고른 구분 · 적은 사유가 있는데 닫으면 '변경사항이 있습니다' (팝업 창 규약 — terminology §4)
 // - 저장은 onSave(kind, reason) → 성공(true)하면 이 창이 닫음 (막히면 알림은 useOrder 가 띄움)
@@ -31,10 +32,12 @@ export const OrderKindDialog = ({ order, onSave, onClose }) => {
 
   const current = getOrderKind(order);
   const currentMeta = getOrderKindMeta(current);
-  const first = current === 'unknown';             // 종류 미정 → 처음 고르기 (사유 선택)
-  const locked = !!order?.linkedSheetId;            // 설계서와 연결된 신제품
+  const first = current === 'unknown';             // 종류 미정 → 처음 고르기 ('샘플 종류 정하기')
+  const locked = isKindLocked(order);               // 설계서와 연결된 신제품
   const target = ORDER_KINDS.find(k => k.key === draft.kind) || null;
-  const reasonMissing = !first && !draft.reason.trim();
+  // 사유: 종류 미정에 신제품 · 재샘플을 고를 때만 선택 — 메인은 샘플을 메인으로 바꾸는 것이라 필수 (⑥)
+  const reasonOptional = first && target?.key !== 'main';
+  const reasonMissing = !reasonOptional && !draft.reason.trim();
 
   // 고른 구분에 따라 알려 줄 것
   const notes = [];
@@ -43,7 +46,10 @@ export const OrderKindDialog = ({ order, onSave, onClose }) => {
       notes.push('재샘플은 article# 칸에서 기존 아이템(원단 관리)을 골라야 완료할 수 있어요.');
     }
     if (target.key === 'new' && !order?.linkedSheetId) {
-      notes.push('신제품은 ⋯ 메뉴에서 [새 설계서 작성] 또는 [작성 중인 설계서 연결]을 하면 아이템화할 수 있어요.');
+      notes.push('신제품은 ⋯ 메뉴(또는 상세창)에서 [새 설계서 작성] 또는 [작성 중인 설계서 연결]을 하면 아이템화할 수 있어요.');
+    }
+    if (target.key === 'main' && first) {
+      notes.push('종류 미정 샘플을 메인으로 바꾸는 것이라 사유를 꼭 적어 주세요 (변경 이력에 남아요).');
     }
     if (target.key === 'main' && current !== 'main') {
       notes.push("메인이 되면 [샘플] 목록 · 리포트 샘플 통계에서 빠지고 메인으로 셈해요.");
@@ -114,13 +120,13 @@ export const OrderKindDialog = ({ order, onSave, onClose }) => {
               <div className="px-3 py-2.5 rounded-lg border border-indigo-200 bg-indigo-50 text-[11px] text-indigo-800 leading-relaxed">
                 <div className="font-extrabold flex items-center gap-1"><Lock className="w-3 h-3" /> 설계서와 연결된 신제품 샘플은 구분을 바꿀 수 없어요.</div>
                 설계서 아이템화 · Drop 때 이 오더가 같이 닫히기 때문이에요.
-                샘플을 그만두려면 ⋯ 메뉴의 <b>설계서 Drop</b>을 써 주세요.
+                샘플을 그만두려면 ⋯ 메뉴(또는 상세창)의 <b>설계서 Drop</b>을 써 주세요.
               </div>
             ) : (
               <>
                 <p className="text-[11px] text-slate-500 leading-relaxed">
                   {first
-                    ? '예전에 만든 샘플이라 종류를 몰라요. 한 번 고르면 잠겨요 (그 뒤엔 사유를 적어야 바꿀 수 있어요).'
+                    ? '예전에 만든 샘플이라 종류를 몰라요. 한 번 고르면 잠겨요 (그 뒤엔 사유를 적어야 바꿀 수 있어요). 메인으로 바꿀 때는 사유가 꼭 필요해요.'
                     : '구분은 오더를 만들 때 정해요. 잘못 골랐을 때만 바꾸고, 사유는 변경 이력에 남아요.'}
                 </p>
                 {needKind && !target && (
@@ -159,14 +165,14 @@ export const OrderKindDialog = ({ order, onSave, onClose }) => {
 
                 <div>
                   <label className={`block text-[11px] font-bold mb-1 ${needReason && reasonMissing ? 'text-red-600' : 'text-slate-600'}`}>
-                    사유 {first ? '(선택)' : <span className="text-red-500">*</span>}
+                    사유 {reasonOptional ? '(선택)' : <span className="text-red-500">*</span>}
                     {needReason && reasonMissing && <span className="ml-1 font-extrabold">— 사유를 적어 주세요</span>}
                   </label>
                   <textarea
                     value={draft.reason}
                     onChange={e => setDraft(prev => ({ ...prev, reason: e.target.value }))}
                     rows={2}
-                    placeholder={first ? '예: 기존 PW1060 재샘플' : '예: 오더 추가할 때 메인으로 잘못 골랐음'}
+                    placeholder={reasonOptional ? '예: 기존 PW1060 재샘플' : first ? '예: 사실 메인 오더였음' : '예: 오더 추가할 때 메인으로 잘못 골랐음'}
                     className="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-xs outline-none focus:ring-2 ring-teal-200 resize-none"
                   />
                 </div>

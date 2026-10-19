@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { FileCheck2, BadgeCheck } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
 import { TrackEditor } from '../common/TrackEditor';
-import { SkipBar } from '../common/SkipBar';
+import { SkipBar, SkippedPopover } from '../common/SkipBar';
 import { usePopoverSave } from '../common/usePopoverSave';
 import { BRAND_CONFIRM_STATUSES, TEST_REPORT_STATUSES } from '../../../constants/production';
 import { createStatusEvent, isConfirmSkipped } from '../../../utils/orderModel';
@@ -61,54 +61,21 @@ export const ConfirmPopover = ({ order, color, anchorRect = null, onClose, onSav
     if (prefill?.testExpected) d.testReport = { ...d.testReport, needed: true, expectedDate: prefill.testExpected };
     return d;
   });
-  const [resuming, setResuming] = useState(false); // [다시 진행] 처리 중
   const { saving, close, run } = usePopoverSave(onClose);
 
   if (!order || !color) return null;
 
-  // ---------- '안 함' (오더 전체 — 2026-10-19) ----------
-  const skipped = isConfirmSkipped(order);
-  const recordCount = (color.testReport?.events || []).length + (color.brandConfirm?.events || []).length;
-  // 저장되면 창 닫힘 — 이 창에서 고친 내용은 저장하지 않으니, 고친 게 있으면 먼저 물음
-  const requestSkip = () => {
-    if (!onSetSkip || saving) return;
-    const dirtyNow = JSON.stringify(draft) !== JSON.stringify(initial);
-    if (dirtyNow && !window.confirm('이 창에서 고친 내용은 저장하지 않고 이 오더를 \'컨펌 · 성적서 안 함\'으로 바꿀까요?')) return;
-    run(() => onSetSkip(true));
-  };
-  const resume = async () => {
-    if (!onSetSkip || resuming) return;
-    setResuming(true);
-    try {
-      await onSetSkip(false); // 창은 그대로 — 이어서 입력
-    } finally {
-      setResuming(false);
-    }
-  };
-  if (skipped) {
+  // ---------- '안 함' (오더 전체 — 2026-10-19) — 안내 + [다시 진행]만 (외관검사 창과 같은 화면) ----------
+  if (isConfirmSkipped(order)) {
     return (
-      <PopoverShell
-        anchorRect={anchorRect}
-        width={420}
+      <SkippedPopover
+        kind="confirm"
+        order={order}
         title={`${order.orderNumber || '새 오더'} · ${color.name || '컬러'} 컨펌`}
-        subtitle="컨펌 · 성적서 안 함 (이 오더 전체)"
+        anchorRect={anchorRect}
         onClose={close}
-        footer={(
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={close}
-              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-[11px] font-bold text-slate-600 hover:bg-slate-50"
-            >
-              닫기
-            </button>
-          </div>
-        )}
-      >
-        <div className="p-3 outline-none" tabIndex={-1} data-autofocus>
-          <SkipBar label="컨펌 · 성적서" skipped recordCount={recordCount} busy={resuming} onResume={onSetSkip ? resume : undefined} />
-        </div>
-      </PopoverShell>
+        onSetSkip={onSetSkip}
+      />
     );
   }
 
@@ -125,6 +92,13 @@ export const ConfirmPopover = ({ order, color, anchorRect = null, onClose, onSav
     patch.brandConfirm = { events: draft.brandConfirm.events, eventsBase: initial.brandConfirm.events };
   }
   const isDirty = Object.keys(patch).length > 0;
+
+  // [이 오더는 컨펌 · 성적서 안 함] — 저장되면 창 닫힘. 이 창에서 고친 내용은 저장하지 않으니, 고친 게 있으면 먼저 물음
+  const requestSkip = () => {
+    if (!onSetSkip || saving) return;
+    if (isDirty && !window.confirm('이 창에서 고친 내용은 저장하지 않고 이 오더를 \'컨펌 · 성적서 안 함\'으로 바꿀까요?')) return;
+    run(() => onSetSkip(true));
+  };
 
   const t = draft.testReport;
   const testDone = ['pass', 'repass'].includes(t.events[t.events.length - 1]?.status);
@@ -187,7 +161,7 @@ export const ConfirmPopover = ({ order, color, anchorRect = null, onClose, onSav
       {/* 열리면 이 영역에 포커스(data-autofocus) → Tab 으로 칸 이동, 날짜 칸에서 Enter = 저장 */}
       <div className="p-3 space-y-3 outline-none" tabIndex={-1} data-autofocus onKeyDown={onKeyDown}>
         {/* [이 오더는 컨펌 · 성적서 안 함] — 오더 전체 (2026-10-19) */}
-        <SkipBar label="컨펌 · 성적서" skipped={false} busy={saving} onSkip={onSetSkip ? requestSkip : undefined} />
+        <SkipBar kind="confirm" skipped={false} busy={saving} onSkip={onSetSkip ? requestSkip : undefined} />
         {prefill && isDirty && (
           <p className="px-2 py-1.5 rounded-lg border border-teal-200 bg-teal-50 text-[11px] font-bold text-teal-800 leading-snug">
             간트에서 고른 날짜({shortDate(prefill.brandSent || prefill.testExpected)})를

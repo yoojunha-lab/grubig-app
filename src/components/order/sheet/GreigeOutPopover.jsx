@@ -3,7 +3,7 @@ import { Info, Plus, Trash2 } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
 import { usePopoverSave } from '../common/usePopoverSave';
 import { GREIGE_OUT_KINDS, DYE_METHODS } from '../../../constants/production';
-import { createGreigeOut, getGreigeState, isPieceDyed, getOrderTotals, getWorkKg, getLossRate } from '../../../utils/orderModel';
+import { createGreigeOut, getGreigeState, isPieceDyed, getOrderTotals, getWorkKg, getLossRate, greigeRoute } from '../../../utils/orderModel';
 import { fmtKg, shortDate, todayYmd, toNumberOrNull } from '../../../utils/orderCalculations';
 
 // ============================================================
@@ -99,7 +99,7 @@ export const GreigeOutPopover = ({ order, color = null, anchorRect = null, onClo
   const isDirty = JSON.stringify(clean(rows)) !== JSON.stringify(clean(initial));
   const badKg = rows.some(r => kgBad(r.kg));
   const st = getGreigeState({ greigeOuts: clean(rows) });
-  const route = `${order.steps?.knitting?.vendor || '편직처'} → ${order.dyeVendor || '염색소'}`;
+  const route = greigeRoute(order); // 편직 재고 사용이면 '생지 재고 → 염색소'
   const piece = scope === 'order';
   const needKg = piece
     ? getOrderTotals(order).workKg

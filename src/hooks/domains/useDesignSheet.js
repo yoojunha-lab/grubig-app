@@ -384,8 +384,10 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   //  번호가 그대로면 설계서는 저장하지 않고 샘플 오더만 확인 (예전에 등록해 오더가 없는 설계서 → 이걸로 생산 현황에 올림)
   //  단계 칸에서 '샘플 진행'을 골라도 이 함수 (setStage)
   //  opts.base: 방금 저장한 설계서 (목록에 아직 안 들어왔을 때)
-  //  반환: 처리했으면 true (빈 번호·Drop된 설계서·저장 실패면 false)
-  const registerEztexOrderNo = async (sheetId, rawValue, { base = null } = {}) => {
+  //  opts.strict: 생산 현황 샘플 오더 연결까지 돼야 true — 생산 현황 [작성 중인 설계서 연결] 창 (실패하면 창을 그대로 둬서
+  //    다시 고를 수 있게 — 2026-10-19 검토)
+  //  반환: 처리했으면 true (빈 번호·Drop된 설계서·저장 실패면 false. strict 면 샘플 오더 연결 실패도 false)
+  const registerEztexOrderNo = async (sheetId, rawValue, { base = null, strict = false } = {}) => {
     const sheet = base || designSheets.find(s => s.id === sheetId);
     if (!sheet) return false;
     if (sheet.status === 'dropped') {
@@ -425,7 +427,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     const head = `EZ-TEX O/D NO. ${value}${changed ? ' 등록' : ''}`;
     const rest = [toSampling ? `'샘플 진행'으로 넘겼어요.` : '', eztexOrderNote(res).trim()].filter(Boolean).join(' ');
     showToast(rest ? `${head} — ${rest}` : head, res && !res.ok ? 'error' : 'success');
-    return true;
+    return strict ? !!res?.ok : true;
   };
 
   // 생산 현황에서 샘플 오더 order# 를 고치면 설계서 EZ-TEX O/D NO.도 같이 (2026-10-10 — 번호가 어긋나지 않게)

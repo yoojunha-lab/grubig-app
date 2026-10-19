@@ -1,5 +1,6 @@
 import React from 'react';
 import { FileText } from 'lucide-react';
+import { formatSheetLabel } from '../../../utils/orderModel';
 
 // ============================================================
 // 설계서 연결 표시 (대표님 요청 2026-10-10 — 설계서 EZ-TEX O/D NO. 등록으로 만든 생산 현황 샘플 오더)
@@ -16,7 +17,7 @@ export const SheetLinkChips = ({ info, onOpen, size = 'sm' }) => {
   const s = info.sheet;
   const title = [
     onOpen ? '설계서 열기' : '설계서와 연결된 샘플 오더',
-    [info.devOrderNo || '자체개발', s.fabricName, info.buyerName].filter(Boolean).join(' · '),
+    [formatSheetLabel(s, { devOrderNo: info.devOrderNo }), info.buyerName].filter(Boolean).join(' · '),
     info.dropped ? 'Drop됨 — 복원하려면 ⋯ 메뉴 / 상세창' : info.stageLabel ? `설계서 단계: ${info.stageLabel}` : '',
   ].filter(Boolean).join('\n');
   const text = size === 'sm' ? 'text-[9px] px-1' : 'text-[10px] px-1.5';

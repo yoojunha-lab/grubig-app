@@ -64,9 +64,10 @@ export const GanttDateMenu = ({
 
   // 공정 흐름 (앞 공정 비교용) — 원사 입고가 맨 앞, 원사염색(선염 오더만)은 그 다음, 프리세팅은 편직 다음,
   //  염가공 LOT 는 후가공(또는 염가공 다음에 둔 추가 공정) 앞
-  const metas = withSubSteps(stepDefs)
+  const flow = withSubSteps(stepDefs);
+  const metas = flow
     .filter(m => m.key !== YARN_DYEING_KEY || canUseYarnDyeing(order))
-    .filter(m => !isStepSkippedByStock(order, m.key)); // 편직 재고 사용(생지 재고)이면 편직 · 사가공 · 원사염색 없음
+    .filter(m => !isStepSkippedByStock(order, m.key, flow)); // 편직 재고 사용(생지 재고)이면 편직 · 사가공 · 원사염색 · 편직 앞 추가 공정 없음
   const skipConfirm = isConfirmSkipped(order);
   const skipInspection = isInspectionSkipped(order);
   const lotsEnd = (o) => maxDate((o.colors || []).map(c => getLotOverview(c.lots || []).end));

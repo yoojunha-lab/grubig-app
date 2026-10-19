@@ -35,10 +35,12 @@ export const GanttAddMenu = ({ order, color = null, stepDefs = [], anchorRect, o
   const piece = isPieceDyed(order);
   // 프리세팅은 편직 다음 (공정 칸에서는 빠졌지만 간트에서는 오더 줄 막대 — 염가공 LOT 창과 같은 값)
   // 원사염색은 맨 앞 — 선염 오더(또는 이미 넣은 오더)만
+  //  편직 재고 사용(생지 재고)이면 사가공 · 원사염색 · 편직 앞 추가 공정은 빼요 (편직은 [재고 사용]을 풀 수 있게 남김)
   const knitStock = isKnitStock(order);
-  const steps = withSubSteps(stepDefs)
+  const flow = withSubSteps(stepDefs);
+  const steps = flow
     .filter(m => m.key !== YARN_DYEING_KEY || canUseYarnDyeing(order))
-    .filter(m => m.key === 'knitting' || !isStepSkippedByStock(order, m.key));
+    .filter(m => m.key === 'knitting' || !isStepSkippedByStock(order, m.key, flow));
   const closing = getClosingState(order);
   const yarn = getYarnState(order);
   const skipConfirm = isConfirmSkipped(order);

@@ -14,7 +14,8 @@ import { AddOrderMenu } from './common/AddOrderMenu';
 // - 카드를 누르면 onOpen(orderId). 맨 위 [+ 오더 추가 ▾] → 구분(메인 · 신제품 · 재샘플)을 고르면 onAdd(kind)
 // - 설계서 샘플 오더는 '설계서' 표시 (누르면 설계서 창 — sheetLink.open)
 // - 구분 표시는 보기만 (구분 바꾸기 · 설계서 붙이기는 상세창에서 — 2026-10-19)
-// props: { orders, drafts, onOpen(orderId), onAdd(kind), sheetLink? }
+// - closingView: [마무리 안 됨] 보기 — 목록이 비면 '마무리가 남은 오더가 없어요' (새 오더 안내 대신 — 2026-10-19 검토)
+// props: { orders, drafts, onOpen(orderId), onAdd(kind), sheetLink?, closingView? }
 
 // ============================================================
 // 0. 표시 상수
@@ -136,7 +137,7 @@ const OrderCard = ({ order, isDraft = false, onOpen, sheetLink = null }) => {
 // ============================================================
 // 2. 목록 (입력 중인 새 오더를 맨 위에 → 추가 직후 바로 보이도록)
 // ============================================================
-export const MobileOrderList = ({ orders = [], drafts = [], onOpen, onAdd, sheetLink = null }) => {
+export const MobileOrderList = ({ orders = [], drafts = [], onOpen, onAdd, sheetLink = null, closingView = false }) => {
   const savedList = orders || [];
   const draftList = drafts || [];
   const total = savedList.length + draftList.length;
@@ -153,8 +154,12 @@ export const MobileOrderList = ({ orders = [], drafts = [], onOpen, onAdd, sheet
       {total === 0 ? (
         <div className="bg-white border border-dashed border-slate-300 rounded-xl py-10 px-4 text-center">
           <Package className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-          <div className="text-sm font-bold text-slate-500">표시할 오더가 없어요</div>
-          <div className="text-xs text-slate-400 mt-1">위 [+ 오더 추가] 버튼으로 새 오더를 등록하세요.</div>
+          <div className="text-sm font-bold text-slate-500">{closingView ? '마무리가 남은 오더가 없어요' : '표시할 오더가 없어요'}</div>
+          <div className="text-xs text-slate-400 mt-1">
+            {closingView
+              ? '출고가 다 끝났거나 완료된 오더 중 원사재고정리 · EZTEX 재고정리 · EZTEX 종결이 남은 오더가 여기에 모여요.'
+              : '위 [+ 오더 추가] 버튼으로 새 오더를 등록하세요.'}
+          </div>
         </div>
       ) : (
         <>

@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { X, Link2, Search, FilePlus2, FileText } from 'lucide-react';
 import { ModalBackdrop } from '../../common/ModalBackdrop';
+import { formatSheetLabel } from '../../../utils/orderModel';
 
 // ============================================================
 // 작성 중인 설계서 연결 (대표님 요청 2026-10-19 — 생산 현황에서 만든 신제품 샘플에 설계서 붙이기)
@@ -9,12 +10,13 @@ import { ModalBackdrop } from '../../common/ModalBackdrop';
 //   · EZ-TEX O/D NO.가 이 오더 order# 와 같은 설계서는 맨 위에 '번호 같음'
 // - [연결] → 확인 창 → onLink(sheetId): 그 설계서에 이 오더 번호를 EZ-TEX O/D NO.로 [등록]
 //   (개발/설계 현황 [등록]과 같은 함수 — 설계서는 '샘플 진행', 이 오더는 신제품 + 설계서 연결)
+//   연결에 실패하면(onLink → false) 창은 그대로 — 다시 고르거나 다시 누를 수 있게 (2026-10-19 검토)
 // - 고르는 칸만 있는 창이라 '저장할까요?'는 없음 (연결은 [연결] 누를 때 바로)
 // props: order, candidates [{ sheet, devOrderNo, buyerName, stageLabel, sameNumber }], onLink(sheetId) => Promise<boolean>,
 //        onCreate()(새 설계서 작성 — 없으면 버튼 숨김), onClose
 // ============================================================
 
-const sheetLabelOf = (c) => [c.devOrderNo || '자체개발', c.sheet?.fabricName || '원단명 미입력'].join(' · ');
+const sheetLabelOf = (c) => formatSheetLabel(c.sheet, { devOrderNo: c.devOrderNo, emptyName: '원단명 미입력' });
 
 export const LinkSheetDialog = ({ order, candidates = [], onLink, onCreate, onClose }) => {
   const [search, setSearch] = useState('');
@@ -47,6 +49,8 @@ export const LinkSheetDialog = ({ order, candidates = [], onLink, onCreate, onCl
     let done = false;
     try {
       done = (await onLink?.(s.id)) !== false;
+    } catch {
+      done = false;
     } finally {
       busyRef.current = false;
       setBusyId('');

@@ -4,7 +4,7 @@ import { PopoverShell } from '../common/PopoverShell';
 import { StatusSelect } from '../common/StatusSelect';
 import { usePopoverSave } from '../common/usePopoverSave';
 import { getStepMeta, normalizeStatus, PROGRESS_STATUS_OPTIONS } from '../../../constants/production';
-import { createMachine, createStep, getKnittingPlan, isStepUsed } from '../../../utils/orderModel';
+import { createMachine, createStep, getKnittingPlan, isStepUsed, isStepSkippedByStock } from '../../../utils/orderModel';
 import { diffDaysYmd, fmtKg, shortDate, todayYmd, toNumberOrNull } from '../../../utils/orderCalculations';
 
 // ============================================================
@@ -15,13 +15,15 @@ import { diffDaysYmd, fmtKg, shortDate, todayYmd, toNumberOrNull } from '../../.
 //   잘못 남은 기록은 🗑 로 지울 수 있음
 // - 편직: 기계별 일일 생산량 (1호기·2호기…) → 하루 합계로 며칠 걸리는지 + 예상 종료일 계산
 //   + [재고 사용] (생지 재고 — 대표님 요청 2026-10-19): 체크하면 편직 · 원사를 안 함 (일정은 참고로 남김) — 편직 칸 stock
+//   편직 재고 사용으로 건너뛰는 공정(사가공 · 원사염색 · 편직 앞 추가 공정)을 열면 '생지 재고라 안 해요' 안내 (2026-10-19 검토)
+//   (stepDefs 를 주면 추가 공정 위치까지 봄)
 // - 로컬 draft 로 편집 → [저장] 누르면 "바뀐 필드만" patch 로 onSave(patch)
 // - Enter = 저장 (메모 칸 제외), ESC / 바깥 클릭 = 닫기 — 저장 안 한 변경이 있으면 '변경사항이 있습니다' 창 (PopoverShell)
 // - anchorRect 가 있으면 클릭한 칸 옆에, null 이면 화면 가운데 모달로 뜸
 // - simple: 외주처 칸 없이 (프리세팅 — 염가공 LOT 창에서 관리하는 오더 공통 공정, 간트 막대를 누를 때)
 // - prefill: 간트에서 날짜를 눌러 연 경우 { startDate } 또는 { endDate } — 그 값을 넣은 채로 열림 ([저장]해야 반영)
 // props: order, stepKey, meta?(추가 공정처럼 기본 목록에 없는 공정 — { label, vendorLabel }),
-//        anchorRect, onClose, onSave(patch) => Promise<boolean>, vendorOptions: string[], simple, prefill
+//        anchorRect, onClose, onSave(patch) => Promise<boolean>, vendorOptions: string[], simple, prefill, stepDefs?
 // ============================================================
 
 const INPUT_CLS = 'min-w-0 px-2 py-1.5 bg-white border rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-400/60 focus:border-teal-400';
@@ -105,10 +107,13 @@ const shiftText = (diff) => {
 
 export const ProcessPopover = ({
   order, stepKey, meta: metaProp = null, anchorRect = null, onClose, onSave, vendorOptions = [], simple = false, prefill = null,
+  stepDefs = null,
 }) => {
   const meta = metaProp || getStepMeta(stepKey);
   const step = { ...createStep(stepKey), ...(order?.steps?.[stepKey] || {}) };
   const isKnitting = stepKey === 'knitting';
+  // 편직 [재고 사용](생지 재고)이라 이 공정은 안 함 — 사가공 · 원사염색 · 편직 앞 추가 공정 (편직 칸은 아래 체크 칸으로)
+  const stockSkipped = !isKnitting && isStepSkippedByStock(order, stepKey, stepDefs);
   const listId = useId();
 
   const [initialForm] = useState(() => toForm(step));
@@ -305,6 +310,12 @@ export const ProcessPopover = ({
               </span>
             </span>
           </label>
+        )}
+        {stockSkipped && (
+          <p className="px-2 py-1.5 rounded-lg border border-slate-300 bg-slate-100 text-[11px] font-bold text-slate-600 leading-snug">
+            편직 [재고 사용](생지 재고)이라 이 공정은 안 해요 — 진행 · 가납기 · 간트에서 빠져요. 아래 일정은 참고로만 남아요.
+            (편직 칸에서 [재고 사용]을 풀면 다시 진행)
+          </p>
         )}
         {simple ? (
           <p className="text-[10px] text-slate-500 leading-snug">

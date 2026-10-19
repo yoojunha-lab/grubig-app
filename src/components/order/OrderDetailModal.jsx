@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import {
   ORDER_STEPS, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, PROCESS_THEME,
-  COLOR_STAGES, ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_KINDS,
+  COLOR_STAGES, ORDER_STATUSES, ORDER_STATUS_COLORS, ORDER_KINDS, SKIP_ITEMS,
   PROVISIONAL_DUE_STEPS, PROVISIONAL_STATES, GREIGE_OUT_KINDS, TEST_REPORT_STATUSES, BRAND_CONFIRM_STATUSES,
   INSPECTION_STATUSES, DYE_METHODS, CLOSING_ITEMS, DYE_REMAIN_STATES, YARN_ORDER_STATUSES, YARN_DYEING_KEY, DONE_TONE, getStepDefs,
 } from '../../constants/production';
@@ -15,14 +15,16 @@ import {
   getLotOverview, getLotsStatus, getTrackEvent, isTestReportPassed, getDyeRemain, describeDyeRemain,
   getColorStage, getDday, colorHasData, collectVendorOptions,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState,
-  getColorInspection, getRoundStatusDate, getDyeYield, isPieceDyed, getClosingState, isClosingPending,
+  getEffectiveInspection, getRoundStatusDate, getDyeYield, isPieceDyed, getClosingState, isClosingPending,
+  isClosingOutstanding, getCompleteCheck,
   getYarnState, getYarnRowInfo, canUseYarnDyeing,
   getOrderKind, getOrderKindMeta, isItemMissing, isSheetMissing,
-  isStepSkippedByStock, isConfirmSkipped, isInspectionSkipped,
+  isStepSkippedByStock, isConfirmSkipped, isInspectionSkipped, isSkipOn,
 } from '../../utils/orderModel';
 import { PresettingChip } from './common/PresettingChip';
 import { YarnDyeChip } from './common/YarnDyeChip';
 import { OrderKindChip } from './common/OrderKindChip';
+import { SkipChip, StockSkipChip } from './common/SkipChip';
 import { YarnPopover } from './sheet/YarnPopover';
 import { shortDate, isYmd, toNumberOrNull, fmtKg, todayYmd } from '../../utils/orderCalculations';
 import { CHANGE_ACTIONS } from '../../utils/auditLog';
@@ -428,7 +430,7 @@ const ArticleInput = ({ value, linked, savedFabrics, onCommitText, onPickFabric 
 //    줄을 누르면 현황표·간트와 같은 공정 입력 창 (예상 시작/종료일 · 기록 · 상태 · 기계별 생산량)
 //    상태는 줄 안 드롭다운으로 바로 바꿈
 // ============================================================
-const StepRow = ({ meta, step, order, onOpen, onStatus }) => {
+const StepRow = ({ meta, step, order, stepDefs = null, onOpen, onStatus }) => {
   const theme = PROCESS_THEME[meta.key] || PROCESS_THEME.custom;
   const used = isStepUsed(step);
   const status = step.status || 'pending';
@@ -439,8 +441,9 @@ const StepRow = ({ meta, step, order, onOpen, onStatus }) => {
   const endText = step.endDate ? shortDate(step.endDate) : est ? `${shortDate(est)} 계산` : '';
   const rangeText = step.startDate || endText ? `${shortDate(step.startDate)}~${endText}` : '';
 
-  // 편직 [재고 사용](생지 재고 — 2026-10-19)이면 편직 = '재고 사용', 사가공 = '생지 재고' (회색 — 진행 안 함, 줄을 누르면 공정 창)
-  if (isStepSkippedByStock(order, meta.key)) {
+  // 편직 [재고 사용](생지 재고 — 2026-10-19)이면 편직 = '재고 사용', 사가공 · 편직 앞 추가 공정 = '생지 재고'
+  //  (회색 — 진행 안 함, 줄을 누르면 공정 창)
+  if (isStepSkippedByStock(order, meta.key, stepDefs)) {
     return (
       <div
         role="button"
@@ -457,11 +460,9 @@ const StepRow = ({ meta, step, order, onOpen, onStatus }) => {
       >
         <span className="text-xs font-extrabold shrink-0 w-14 truncate">{meta.label}</span>
         <span className="min-w-0 flex-1 text-[11px]">
-          <span className={`inline-flex items-center px-1.5 py-px rounded-full border text-[10px] font-extrabold ${DONE_TONE.chip}`}>
-            {meta.key === 'knitting' ? '재고 사용' : '생지 재고'}
-          </span>
+          <StockSkipChip stepKey={meta.key} />
           <span className="ml-1.5 text-[10px] text-slate-400">
-            {meta.key === 'knitting' ? '생지 재고로 진행 — 편직 · 원사 안 함 (눌러서 풀기)' : '편직 재고 사용 — 이 공정은 안 해요'}
+            {meta.key === 'knitting' ? '생지 재고로 진행 — 원사 · 편직 안 함 (눌러서 풀기)' : '편직 재고 사용 — 이 공정은 안 해요'}
           </span>
         </span>
       </div>
@@ -546,7 +547,10 @@ const YarnBox = ({ order, onOpen, onStock, onStatus }) => {
       </div>
       {y.greige ? (
         // 편직 [재고 사용](생지 재고)이면 원사가 필요 없음 (2026-10-19)
-        <div className="text-[11px] font-bold text-slate-600">생지 재고 — 편직 재고 사용이라 원사가 필요 없어요</div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <StockSkipChip stepKey="yarn" />
+          <span className="text-[11px] font-bold text-slate-600">편직 재고 사용이라 원사가 필요 없어요</span>
+        </div>
       ) : y.stock ? (
         <div className="text-[11px] font-bold text-emerald-700">재고 원사 사용 — 원사 발주는 끝난 것으로 봐요</div>
       ) : y.items.length ? (
@@ -590,8 +594,8 @@ const YarnBox = ({ order, onOpen, onStock, onStatus }) => {
 const SkippedBox = ({ label }) => (
   <div className={`col-span-2 rounded-lg border border-slate-300 px-2.5 py-2 ${DONE_TONE.cell}`}>
     <span className="text-[11px] font-bold">{label}</span>
-    <span className={`ml-1.5 inline-flex items-center px-1.5 py-px rounded-full border text-[10px] font-extrabold ${DONE_TONE.chip}`}>안 함</span>
-    <span className="ml-1.5 text-[10px] text-slate-400">이 오더 전체 · 컬러 목록 위 '진행 안 함'에서 풀어요</span>
+    <SkipChip label="안 함" className="ml-1.5" />
+    <span className="ml-1.5 text-[10px] text-slate-400">이 오더 전체 · 컬러 목록 위 '진행 안 함 (오더 전체)'에서 풀어요</span>
   </div>
 );
 
@@ -619,7 +623,7 @@ const ColorCard = ({
   const brandEv = getTrackEvent(color, 'brandConfirm');
   const expected = color.testReport?.expectedDate || '';
   const expectedLate = testNeeded && expected && !isTestReportPassed(color) && expected < todayYmd();
-  const insp = getColorInspection(color);
+  const insp = getEffectiveInspection(order, color); // 외관검사 '안 함'이면 검사 기록이 없는 것처럼
 
   // 생지kg (예전 이름 '작지kg'): 자동값 그대로면 저장 안 함, 비우면 자동으로 되돌림
   const commitWorkKg = (n) => {
@@ -789,7 +793,7 @@ const ColorCard = ({
         {/* 컨펌 — 시험성적서(체크 + 상태) · 브랜드 컨펌(상태). 드롭다운 = 바로 저장(그날 날짜로 기록), 날짜·기록은 [기록 편집]
             '안 함'(오더 전체 — 2026-10-19)이면 회색 한 줄 (컬러 목록 위 '진행 안 함'에서 풀어요) */}
         {isConfirmSkipped(order) ? (
-          <SkippedBox label="컨펌 · 시험성적서" />
+          <SkippedBox label="컨펌 · 성적서" />
         ) : (
         <div className={`col-span-2 rounded-lg border px-2.5 py-2 space-y-1.5 ${testNeeded || brandEv ? 'bg-sky-50/50 border-sky-200' : 'border-dashed border-slate-200'}`}>
           <div className="flex items-center justify-between gap-2">
@@ -952,12 +956,20 @@ const OrderGreigeCard = ({ order, onOpen, onDone }) => {
 const ClosingSection = ({ order, onSet }) => {
   const cs = getClosingState(order);
   const pending = isClosingPending(order);
+  // 완료된 오더인데 마무리가 남음 ('마무리 안 됨' — 현황표 마무리 칸 노랑과 같게, 2026-10-19 검토 ④)
+  const leftover = order.status === 'completed' && isClosingOutstanding(order);
+  // 재샘플인데 아이템을 안 고름 → 3개를 다 체크해도 완료는 아이템을 고를 때
+  const heldForItem = order.status !== 'completed' && !!getCompleteCheck(order).block;
   return (
     <Section
       icon={ClipboardCheck}
       title={`마무리 (${cs.done}/${cs.total})`}
-      right={pending
-        ? <span className="px-1.5 py-0.5 rounded border border-amber-300 bg-amber-50 text-[10px] font-extrabold text-amber-800">마무리 대기</span>
+      right={pending || leftover
+        ? (
+          <span className="px-1.5 py-0.5 rounded border border-amber-300 bg-amber-50 text-[10px] font-extrabold text-amber-800">
+            {pending ? '마무리 대기' : '마무리 안 됨'}
+          </span>
+        )
         : cs.complete ? <span className="text-[11px] font-bold text-emerald-700">마무리 끝</span> : null}
     >
       <div className={`rounded-xl border divide-y ${cs.complete ? 'border-emerald-200 divide-emerald-100' : 'border-slate-200 divide-slate-100'}`}>
@@ -986,7 +998,9 @@ const ClosingSection = ({ order, onSet }) => {
         })}
       </div>
       <p className="text-[10px] text-slate-400 mt-1.5">
-        3개를 모두 체크하면 오더가 자동으로 '완료'돼요. 잘못 눌렀으면 체크를 풀면 다시 진행중으로 돌아가요.
+        {heldForItem
+          ? "재샘플은 3개를 모두 체크해도 article#에서 아이템(원단 관리)을 골라야 '완료'돼요 — 고르는 순간 자동으로 완료."
+          : "3개를 모두 체크하면 오더가 자동으로 '완료'돼요. 잘못 눌렀으면 체크를 풀면 다시 진행중으로 돌아가요."}
       </p>
     </Section>
   );
@@ -1350,7 +1364,7 @@ const OrderDetailBody = ({
               <Field
                 label="구분"
                 hint={isDraft
-                  ? (ORDER_KINDS.find(k => k.key === getOrderKind(order))?.desc || '') + ' — order#를 넣어 저장하면 잠겨요'
+                  ? `${kindMeta.desc} — order#를 넣어 저장하면 잠겨요`
                   : unknownKind
                     ? '예전에 만든 샘플 — 신제품인지 재샘플인지 한 번 골라 주세요'
                     : '오더를 만들 때 정해요 — 잘못 골랐으면 [구분 바꾸기] (사유는 변경 이력에)'}
@@ -1359,7 +1373,7 @@ const OrderDetailBody = ({
                   <Segment
                     options={ORDER_KINDS}
                     value={getOrderKind(order)}
-                    colorOf={k => ORDER_KINDS.find(o => o.key === k)?.chip || ''}
+                    colorOf={k => getOrderKindMeta(k).chip}
                     onChange={k => actions.setDraftKind?.(order.id, k)}
                   />
                 ) : (
@@ -1371,7 +1385,7 @@ const OrderDetailBody = ({
                     />
                     {actions.requestKindChange && (
                       <button type="button" onClick={() => actions.requestKindChange(order.id)} className={BTN_SUB}>
-                        <Tags className="w-3 h-3" /> {unknownKind ? '종류 정하기' : '구분 바꾸기'}
+                        <Tags className="w-3 h-3" /> {unknownKind ? '샘플 종류 정하기' : '구분 바꾸기'}
                       </button>
                     )}
                   </div>
@@ -1438,13 +1452,17 @@ const OrderDetailBody = ({
                 <NumberInput value={order.lossRate} suffix="%" placeholder="10" onCommit={n => setField('lossRate', n)} />
               </Field>
 
-              <Field
-                label="오더 상태"
-                className="sm:col-span-2"
-                hint={dropClosed ? <span className="text-rose-600 font-bold">샘플 Drop으로 닫힌 오더예요 — 다시 진행하려면 설계서를 복원해요</span> : undefined}
-              >
-                <Segment options={ORDER_STATUSES} value={order.status} colorOf={orderStatusCls} onChange={k => setField('status', k)} />
-              </Field>
+              {/* 오더 상태 — 새 줄(order# 입력 전)에는 없음: 등록한 뒤에 바꿔요 (2026-10-19 검토 — 새 줄에서 '완료'로 바꾸면
+                  재샘플 아이템 · 마무리 확인을 건너뛰었음. useOrder 도 막음) */}
+              {!isDraft && (
+                <Field
+                  label="오더 상태"
+                  className="sm:col-span-2"
+                  hint={dropClosed ? <span className="text-rose-600 font-bold">샘플 Drop으로 닫힌 오더예요 — 다시 진행하려면 설계서를 복원해요</span> : undefined}
+                >
+                  <Segment options={ORDER_STATUSES} value={order.status} colorOf={orderStatusCls} onChange={k => setField('status', k)} />
+                </Field>
+              )}
 
               <Field label="메모" className="sm:col-span-2">
                 <TextInput multiline rows={3} value={order.notes} placeholder="오더 메모" onCommit={commitText('notes')} />
@@ -1520,6 +1538,7 @@ const OrderDetailBody = ({
                   meta={meta}
                   step={order.steps?.[meta.key] || {}}
                   order={order}
+                  stepDefs={stepDefs}
                   onOpen={() => setProcessKey(meta.key)}
                   onStatus={s => actions.setStep(order.id, meta.key, { status: s })}
                 />
@@ -1547,28 +1566,22 @@ const OrderDetailBody = ({
                 onDone={(entryId, done) => actions.setOrderGreigeOutDone(order.id, entryId, done)}
               />
             )}
-            {/* 진행 안 함 (오더 전체 — 대표님 요청 2026-10-19): 컨펌 · 성적서 / 외관검사. 체크 = 바로 저장 */}
-            {!isDraft && actions.setSkip && (
+            {/* 진행 안 함 (오더 전체 — 대표님 요청 2026-10-19): 편직 재고 사용 · 컨펌 · 성적서 · 외관검사 — ⋯ 메뉴와 같은 목록
+                (constants SKIP_ITEMS). 체크 = 바로 저장 */}
+            {!isDraft && actions.setSkipItem && (
               <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 flex items-center gap-x-4 gap-y-1.5 flex-wrap">
-                <span className="text-[11px] font-bold text-slate-500">진행 안 함 (모든 컬러)</span>
-                <label className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={isConfirmSkipped(order)}
-                    onChange={e => actions.setSkip(order.id, { confirm: e.target.checked })}
-                    className="w-4 h-4 accent-slate-600"
-                  />
-                  컨펌 · 성적서 안 함
-                </label>
-                <label className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={isInspectionSkipped(order)}
-                    onChange={e => actions.setSkip(order.id, { inspection: e.target.checked })}
-                    className="w-4 h-4 accent-slate-600"
-                  />
-                  외관검사 안 함
-                </label>
+                <span className="text-[11px] font-bold text-slate-500">진행 안 함 (오더 전체)</span>
+                {SKIP_ITEMS.map(it => (
+                  <label key={it.key} className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer select-none" title={it.title}>
+                    <input
+                      type="checkbox"
+                      checked={isSkipOn(order, it.key)}
+                      onChange={e => actions.setSkipItem(order.id, it.key, e.target.checked)}
+                      className="w-4 h-4 accent-slate-600"
+                    />
+                    {it.label}
+                  </label>
+                ))}
               </div>
             )}
             <div className="space-y-3">
@@ -1706,6 +1719,7 @@ const OrderDetailBody = ({
           onClose={() => setProcessKey(null)}
           onSave={patch => actions.setStep(order.id, processMeta.key, patch)}
           vendorOptions={collectVendorOptions(processMeta.vendorMaster ? masters?.[processMeta.vendorMaster] : [])}
+          stepDefs={stepDefs}
         />
       )}
     </ModalBackdrop>

@@ -4,7 +4,7 @@ import { ORDER_STATUSES, ORDER_STATUS_COLORS, DYEING_STEP, getStepDefs, withSubS
 import {
   normalizeOrder, getLossRate, getWorkKg, getOrderTotals, isDropClosed,
   getRoundStatus, getRoundDoneDate, getRoundStartedDate, getYarnOrderStatus, getYarnOrderEventDate,
-  isKnitStock, isStepSkippedByStock, isInspectionSkipped,
+  isYarnFromStock, isStepSkippedByStock, isInspectionSkipped,
 } from '../utils/orderModel';
 import { diffDaysYmd, todayYmd, isYmd, round1, fmtKg } from '../utils/orderCalculations';
 
@@ -243,10 +243,10 @@ export const ReportPage = ({ orders = [], stepDefs = DEFAULT_STEP_DEFS }) => {
     const byKey = new Map(rows.map(r => [r.key, r]));
 
     list.forEach(o => {
-      // 편직 [재고 사용](생지 재고)이면 원사 · 사가공 · 원사염색 · 편직은 안 한 것 / 외관검사 '안 함'이면 외관검사 빼요 (2026-10-19)
-      const knitStock = isKnitStock(o);
+      // 편직 [재고 사용](생지 재고)이면 원사 · 사가공 · 원사염색 · 편직 · 편직 앞 추가 공정은 안 한 것 / 외관검사 '안 함'이면 외관검사 빼요 (2026-10-19)
+      //  원사 재고 사용 · 편직 재고 사용 = 원사를 새로 안 들임 (isYarnFromStock — 원사 칸 · 간트와 같은 규칙)
       const skipInspection = isInspectionSkipped(o);
-      if (!o.yarnStock && !knitStock) {
+      if (!isYarnFromStock(o)) {
         (o.yarnOrders || []).forEach(y => {
           const status = getYarnOrderStatus(y);
           if (status === 'stopped') return;
@@ -258,7 +258,7 @@ export const ReportPage = ({ orders = [], stepDefs = DEFAULT_STEP_DEFS }) => {
         });
       }
       metas.forEach(meta => {
-        if (isStepSkippedByStock(o, meta.key)) return;
+        if (isStepSkippedByStock(o, meta.key, metas)) return;
         const step = o.steps?.[meta.key];
         if (!step) return;
         const row = byKey.get(meta.key);

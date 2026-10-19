@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  Plus, Trash2, Search, Link2, RotateCcw, MoreHorizontal, Eye, EyeOff, ChevronDown, FileSpreadsheet, ListPlus,
+  Plus, Trash2, Search, Link2, RotateCcw, MoreHorizontal, Eye, EyeOff, ChevronDown, FileSpreadsheet, ListPlus, ClipboardCheck,
 } from 'lucide-react';
 import {
   PROCESS_THEME, PROGRESS_STATUS_COLORS, PROGRESS_STATUS_OPTIONS, getStatusLabel, COLOR_STAGES,
@@ -11,9 +11,9 @@ import {
 import {
   getWorkKg, isWorkKgManual, getLossRate, isStepUsed, getKnittingEstimatedEnd, getEndShift, colorHasData,
   getLotOverview, getLotsStatus, getColorStage, getDday, getTrackEvent, isTestReportPassed,
-  isInspectionUsed, getColorInspection, getRoundStatusDate, getDyeYield, getColorDyeRemain, describeDyeRemain,
+  isInspectionUsed, getColorInspection, getEffectiveInspection, getRoundStatusDate, getDyeYield, getColorDyeRemain, describeDyeRemain,
   getProvisionalDueInfo, describeProvisionalDue, describeStepCurrent, isDropClosed, getGreigeState, collectVendorOptions,
-  isPieceDyed, getClosingState, isClosingPending, isShippingDone,
+  isPieceDyed, getClosingState, isClosingPending, isClosingOutstanding, isShippingDone,
   getYarnState, getYarnRowInfo, canUseYarnDyeing,
   isStepSkippedByStock, isConfirmSkipped, isInspectionSkipped,
 } from '../../../utils/orderModel';
@@ -32,6 +32,7 @@ import { YarnDyeChip } from '../common/YarnDyeChip';
 import { SheetLinkChips } from '../common/SheetLinkChips';
 import { StatusSelect } from '../common/StatusSelect';
 import { OrderKindChip, OrderKindTodoChip } from '../common/OrderKindChip';
+import { SkipChip, StockSkipChip } from '../common/SkipChip';
 import { AddOrderMenu } from '../common/AddOrderMenu';
 import { StepManagerPopover } from './StepManagerPopover';
 import { PartnerPickerModal } from '../../common/PartnerPickerModal';
@@ -166,17 +167,6 @@ const stickyStyle = (key) => ({ '--sl': `${LEFT_OFFSET[key]}px` });
 // 클릭하면 팝오버가 열리는 칸
 const CLICKABLE = 'cursor-pointer hover:ring-2 hover:ring-inset hover:ring-teal-300 focus-within:ring-2 focus-within:ring-inset focus-within:ring-teal-400';
 
-// '재고 사용' · '생지 재고' · '안 함' 표시 (편직 재고 사용 · 컨펌 · 성적서 / 외관검사 안 함 — 대표님 요청 2026-10-19)
-//  진행하지 않는 칸 = 끝난 것처럼 회색 (칸을 누르면 입력 창에서 다시 진행)
-const SkipChip = ({ label, title }) => (
-  <span
-    className={`inline-flex items-center px-1.5 py-px rounded-full border text-[10px] font-extrabold whitespace-nowrap ${DONE_TONE.chip}`}
-    title={title}
-  >
-    {label}
-  </span>
-);
-
 const TH = 'sticky top-0 z-20 bg-slate-100 border-b border-b-slate-300 px-1.5 py-1.5 text-left text-[11px] font-extrabold text-slate-600 whitespace-nowrap';
 
 const BADGE = 'inline-flex items-center px-1.5 py-px rounded-full border text-[10px] font-bold whitespace-nowrap';
@@ -300,8 +290,8 @@ const StepCell = ({ order, stepKey, span, bg, ctx }) => {
   const label = meta?.label || '';
   const theme = PROCESS_THEME[stepKey] || PROCESS_THEME.custom;
   const open = (el) => ctx.openProcess(order.id, stepKey, el);
-  // 편직 [재고 사용](생지 재고 — 2026-10-19)이면 편직 = '재고 사용', 사가공 = '생지 재고' (회색 — 진행 안 함)
-  const stockSkipped = isStepSkippedByStock(order, stepKey);
+  // 편직 [재고 사용](생지 재고 — 2026-10-19)이면 편직 = '재고 사용', 사가공 · 편직 앞 추가 공정 = '생지 재고' (회색 — 진행 안 함)
+  const stockSkipped = isStepSkippedByStock(order, stepKey, ctx.stepDefs);
   const tone = stockSkipped ? DONE_TONE.cell : used ? doneTone(order, step.status === 'done', theme.cell) : bg;
   return (
     <td
@@ -311,12 +301,7 @@ const StepCell = ({ order, stepKey, span, bg, ctx }) => {
     >
       <CellAction navKey={`step_${stepKey}`} onActivate={open} title={`${label} 일정 입력 (클릭 또는 Enter)`}>
         {stockSkipped ? (
-          <SkipChip
-            label={stepKey === 'knitting' ? '재고 사용' : '생지 재고'}
-            title={stepKey === 'knitting'
-              ? '편직 재고 사용 — 생지 재고로 진행해요 (편직 · 원사 안 함). 풀려면 칸을 눌러 [재고 사용] 체크 해제'
-              : '편직 재고 사용(생지 재고) — 이 공정은 안 해요'}
-          />
+          <StockSkipChip stepKey={stepKey} />
         ) : used
           ? <StepSummary order={order} stepKey={stepKey} step={step} onStatus={s => ctx.actions.setStep(order.id, stepKey, { status: s })} />
           : <span className="text-slate-300">+ 입력</span>}
@@ -441,8 +426,8 @@ const LotCell = ({ order, color, last, bg, ctx }) => {
   const range = fmtRange(ov.start, ov.end);
   const y = ov.dyeKg ? getDyeYield(ov.dyeKg, getLossRate(order), ctx.yieldSpecOf?.(order) || null) : null;
   const remain = getColorDyeRemain(order, color);
-  // 끝 = LOT 모두 완료(재가공 중이면 아님) · 또는 그 컬러 출고 완료 → 회색
-  const lotsDone = status === 'done' && !getColorInspection(color).anyRedye;
+  // 끝 = LOT 모두 완료(재가공 중이면 아님 — 외관검사 '안 함'이면 남은 재가공 기록은 안 봄) · 또는 그 컬러 출고 완료 → 회색
+  const lotsDone = status === 'done' && !getEffectiveInspection(order, color).anyRedye;
   const tooltip = has
     ? lots.map(l => `LOT${l.no} · ${getStatusLabel(l.status)}${l.startDate || l.endDate ? ` · ${fmtRange(l.startDate, l.endDate)}` : ''}${l.dyeKg ? ` · 배색 ${fmtKg(l.dyeKg)}kg` : ''}${l.notes ? ` · ${l.notes}` : ''}`).join('\n')
     : (canOpen ? '염가공 LOT 계획 입력' : undefined);
@@ -667,11 +652,9 @@ const YarnCell = ({ order, span, bg, ctx }) => {
         <div className="space-y-0.5">
           {y.greige ? (
             // 편직 [재고 사용] — 생지 재고라 원사가 필요 없음 (2026-10-19)
-            <SkipChip label="생지 재고" title="편직 재고 사용(생지 재고) — 원사가 필요 없어요 (사종 줄은 참고만)" />
+            <StockSkipChip stepKey="yarn" />
           ) : y.stock ? (
-            <div className={`inline-flex items-center gap-1 px-1.5 py-px rounded-full border text-[10px] font-extrabold ${DONE_TONE.chip}`} title="재고 원사 사용 — 원사 발주는 끝난 것으로 봐요">
-              재고 사용
-            </div>
+            <SkipChip label="재고 사용" title="재고 원사 사용 — 원사 발주는 끝난 것으로 봐요" />
           ) : shown.map(row => {
             const { status, statusDate, late, stopped, arrived } = getYarnRowInfo(order, row, today);
             return (
@@ -716,17 +699,27 @@ const YarnCell = ({ order, span, bg, ctx }) => {
 // 마무리 칸 (오더 단위, rowSpan — 대표님 요청 2026-10-14) — 원사재고정리 · EZTEX 재고정리 · EZTEX 종결
 //  체크 = 바로 저장 (3개 모두 → 오더 자동 '완료', 자동 완료를 체크 해제 → 다시 진행중) / 칸을 누르면 메모·날짜 창
 //  출고는 다 끝났는데 체크가 남으면 '마무리 대기'
+//  완료된 오더라도 마무리가 남았으면('마무리 안 됨') 이 칸만 노랑 — 할 일 표시 (대표님 결정 2026-10-19 검토 ④ —
+//  끝난 건 회색 규칙의 예외. 줄 전체 회색(tbody grayscale)도 이 칸은 빼요)
 const ClosingCell = ({ order, span, bg, ctx }) => {
   const cs = getClosingState(order);
   const pending = isClosingPending(order);
+  const leftover = isClosedOrder(order) && isClosingOutstanding(order);
   const open = (el) => ctx.openClosing(order.id, el);
-  const tone = doneTone(order, cs.complete, pending ? 'bg-amber-50' : bg); // 마무리 3개 끝 = 회색
+  const tone = leftover
+    ? 'bg-amber-50 [&>*]:!grayscale-0'
+    : doneTone(order, cs.complete, pending ? 'bg-amber-50' : bg); // 마무리 3개 끝 = 회색
   return (
     <td rowSpan={span} onClick={e => open(e.currentTarget)} className={cellCls({ thick: true, extra: `${CLICKABLE} ${tone}` })}>
       <CellAction navKey="closing" onActivate={open} title="오더 마무리 — 원사재고정리 · EZTEX 재고정리 · EZTEX 종결 (체크는 바로 저장 · 칸을 누르면 메모)">
         <div className="space-y-0.5">
           {pending && (
             <div className="text-[9px] font-extrabold text-amber-700" title="출고는 다 끝났는데 마무리 체크가 남았어요">마무리 대기</div>
+          )}
+          {leftover && (
+            <div className="text-[9px] font-extrabold text-amber-700" title="완료된 오더인데 마무리 체크가 남았어요 — 위 [마무리 안 됨]에서 모아 볼 수 있어요">
+              마무리 안 됨
+            </div>
           )}
           {CLOSING_ITEMS.map(it => {
             const item = cs.items[it.key];
@@ -977,8 +970,9 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
                       <Link2 className="w-3 h-3" /> 보관함 연결
                     </div>
                   )}
-                  {/* 재샘플인데 아이템을 안 골랐으면 — 위 칸에 품번을 넣고 목록에서 고르기 (고르기 전에는 완료 못 함) */}
-                  <div className="px-1">
+                  {/* 재샘플인데 아이템을 안 골랐으면 — 위 칸에 품번을 넣고 목록에서 고르기 (고르기 전에는 완료 못 함)
+                      완료된 재샘플도 빨간 '아이템 선택' — 줄 전체 회색(tbody grayscale)에서 이것만 빼요 (2026-10-19 검토 ②) */}
+                  <div className="px-1 !grayscale-0">
                     <OrderKindTodoChip order={order} only="item" />
                   </div>
                 </td>
@@ -1197,7 +1191,7 @@ export const ProductionSheet = ({
   onSaveCustomSteps,        // 추가 공정 저장 (list) => Promise<boolean> — 없으면 [공정 추가] 버튼 숨김
   yieldSpecOf,              // (order) => 예상 YD 환산 원단 스펙 { gsm, widthFull, source } | null (OrderListPage)
   yarnHelpers = null,       // 원사 창 { popoverProps(order) — 제안 목록 · 원단 원사 } (OrderListPage)
-  closingView = false,      // '마무리 안 됨' 보기 — 공정 칸을 접고 출고 · 마무리 · 상태 칸만 (OrderListPage, 2026-10-19)
+  closingView = false,      // '마무리 안 됨' 보기 — 공정 칸을 접고 출고 · 마무리 · 상태 칸을 color 바로 옆에 (OrderListPage, 2026-10-19)
 }) => {
   const scrollRef = useRef(null);
   const stepDefs = useMemo(() => stepDefsProp || getStepDefs(customSteps), [stepDefsProp, customSteps]);
@@ -1354,6 +1348,7 @@ export const ProductionSheet = ({
 
   const ctx = {
     actions,
+    stepDefs, // 공정 흐름 순서 — 편직 재고 사용 때 편직 앞 추가 공정도 건너뛰는지 보려고 (isStepSkippedByStock)
     stepMetaOf: (key) => findStepMeta(stepDefs, key),
     focusOrderId,
     onOrderFocusDone: handleOrderFocusDone,
@@ -1409,6 +1404,18 @@ export const ProductionSheet = ({
   });
 
   // ---------- 오더가 하나도 없을 때 ----------
+  //  '마무리 안 됨' 보기는 안내 한 줄만 — 새 오더를 넣는 곳이 아니라서 [첫 오더 추가]는 빼요 (2026-10-19 검토)
+  if (rows.length === 0 && closingView) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-xl p-10 text-center">
+        <ClipboardCheck className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+        <p className="text-sm font-bold text-slate-600">마무리가 남은 오더가 없어요</p>
+        <p className="text-xs text-slate-400 mt-1">
+          출고가 다 끝났거나 완료된 오더 중 원사재고정리 · EZTEX 재고정리 · EZTEX 종결이 남은 오더가 여기에 모여요.
+        </p>
+      </div>
+    );
+  }
   if (rows.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-xl p-10 text-center">
@@ -1457,9 +1464,9 @@ export const ProductionSheet = ({
         {closingView && (
           <span
             className="px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-[10px] font-extrabold text-amber-800"
-            title="마무리 안 됨 보기 — 공정 칸은 접고 출고 · 마무리 · 상태 칸만 보여요 (보기를 끄면 원래대로)"
+            title="마무리 안 됨 보기 — 공정 칸은 접고 출고 · 마무리 · 상태 칸을 color 바로 옆에 보여요 ([마무리 안 됨]을 다시 누르거나 상태 탭을 누르면 원래대로)"
           >
-            마무리 안 됨 보기 — 출고 · 마무리 · 상태 칸만
+            마무리 안 됨 보기 — 공정 칸 접음 · 출고 · 마무리 · 상태를 앞으로
           </span>
         )}
         <span className="ml-auto hidden lg:inline text-[10px] text-slate-400">
@@ -1602,6 +1609,7 @@ export const ProductionSheet = ({
           onClose={closePopover}
           onSave={patch => actions.setStep(popOrder.id, popover.stepKey, patch)}
           vendorOptions={vendorOptionsFor(popover.stepKey, popOrder.id)}
+          stepDefs={stepDefs}
         />
       )}
       {popover?.kind === 'confirm' && popOrder && popColor && (

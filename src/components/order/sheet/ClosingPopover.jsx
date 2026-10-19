@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, Info } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
 import { usePopoverSave } from '../common/usePopoverSave';
 import { CLOSING_ITEMS } from '../../../constants/production';
-import { getClosingState, colorHasData } from '../../../utils/orderModel';
+import { getClosingState, getCompleteCheck, colorHasData } from '../../../utils/orderModel';
 import { todayYmd } from '../../../utils/orderCalculations';
 
 // ============================================================
@@ -11,6 +11,7 @@ import { todayYmd } from '../../../utils/orderCalculations';
 // ------------------------------------------------------------
 // - 3개 체크(체크한 날) + 각각 메모. 3개를 모두 끝내야 오더가 최종 마무리 → 모두 체크하면 오더 자동 '완료'
 //   (자동으로 완료된 오더는 체크를 풀면 다시 진행중 — orderModel.applyClosing)
+//   재샘플인데 아이템을 안 골랐으면 체크만 저장되고 완료는 아이템을 고르는 순간 (getCompleteCheck — 안내도 그렇게, 2026-10-19 검토)
 // - mode 'complete': 마무리 체크가 남았는데 오더를 '완료'로 바꾸려 할 때 (OrderListPage) — 위에 안내 +
 //   [체크 없이 완료] (onForceComplete — 예전에 끝난 오더처럼 체크 없이 닫을 때)
 // - 로컬 draft 로 편집 → [저장] 시 바뀐 칸만 onSave({ yarnStock: { done?, date?, memo? }, … }). Enter = 저장
@@ -54,7 +55,9 @@ export const ClosingPopover = ({ order, anchorRect = null, onClose, onSave, mode
   const allDone = doneCount === CLOSING_ITEMS.length;
   const wasAll = CLOSING_ITEMS.every(i => initial[i.key].done);
   const completed = order.status === 'completed';
-  const willComplete = allDone && !wasAll && !completed;
+  // 재샘플인데 아이템을 안 고름 → 체크는 저장되지만 완료는 아이템을 고를 때 (useOrder.setClosing · completeHeldResample)
+  const heldForItem = !completed && !!getCompleteCheck(order).block;
+  const willComplete = allDone && !wasAll && !completed && !heldForItem;
   const willReopen = !allDone && wasAll && completed && !!order.closingAuto;
   const unshipped = (order.colors || []).filter(c => colorHasData(c) && !c.shipDone);
 
@@ -97,6 +100,9 @@ export const ClosingPopover = ({ order, anchorRect = null, onClose, onSave, mode
     <div className="flex items-center justify-between gap-2">
       <div className="min-w-0 flex-1 text-[10px] leading-snug">
         {willComplete ? <span className="font-bold text-emerald-700">저장하면 오더가 '완료'로 바뀌어요.</span>
+          : allDone && heldForItem ? (
+            <span className="font-bold text-amber-700">재샘플이라 article# 칸에서 아이템(원단 관리)을 골라야 완료돼요 — 고르는 순간 자동으로 완료.</span>
+          )
           : willReopen ? <span className="font-bold text-amber-700">저장하면 자동 완료가 풀리고 다시 진행중이 돼요.</span>
             : mode === 'complete' && onForceComplete ? (
               <button
@@ -108,6 +114,8 @@ export const ClosingPopover = ({ order, anchorRect = null, onClose, onSave, mode
               >
                 {isDirty ? '저장하고 완료' : '체크 없이 완료'}
               </button>
+            ) : heldForItem ? (
+              <span className="text-slate-500">3개를 모두 체크해도 재샘플은 아이템을 고른 뒤에 '완료'돼요.</span>
             ) : <span className="text-slate-500">3개를 모두 체크하면 오더가 자동으로 '완료'돼요.</span>}
       </div>
       <div className="flex items-center gap-1.5 shrink-0">

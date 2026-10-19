@@ -10,7 +10,7 @@ import { StatusSelect } from './StatusSelect';
 // - 새 줄(isDraft): 드롭다운 — order# 를 넣어 저장되기 전까지만 바꿀 수 있음 (onDraftKind)
 // - 저장된 오더: 구분 글자만 (눌러도 안 바뀜 — 바꾸려면 ⋯ 메뉴 [구분 바꾸기])
 //   · 종류 미정(예전 샘플)은 노란 '종류 미정' — onPickKind 가 있으면 눌러서 한 번 고름 (구분 창)
-// - 할 일 꼬리표 (진행 중 오더만 — orderModel.getOrderKindTodo · constants ORDER_KIND_TODOS):
+// - 할 일 꼬리표 (진행 중 오더 — 재샘플 '아이템 선택'은 완료된 오더도. orderModel.getOrderKindTodo · constants ORDER_KIND_TODOS):
 //   · 신제품 '설계서 없음' — onTodo 가 있으면 눌러서 ⋯ 메뉴 ([새 설계서 작성] · [작성 중인 설계서 연결])
 //   · 재샘플 '아이템 선택' — article# 칸에서 원단 관리 아이템을 골라야 '완료'
 //   현황표는 '설계서 없음'은 order# 칸, '아이템 선택'은 article# 칸에 따로 (OrderKindTodoChip only)
@@ -68,16 +68,16 @@ export const OrderKindChip = ({
         placeholder="구분"
         size={size === 'md' ? 'md' : 'sm'}
         tabIndex={-1}
-        title="구분 — order#를 넣어 저장하면 잠겨요 (그 뒤엔 ⋯ 메뉴 [구분 바꾸기])"
+        title="구분 — order#를 넣어 저장하면 잠겨요 (그 뒤엔 ⋯ 메뉴(또는 상세창) [구분 바꾸기])"
       />
     );
   }
 
   const title = kind === 'unknown'
-    ? `${meta.desc}${onPickKind ? ' — 눌러서 고르기' : ' (⋯ 메뉴 [샘플 종류 정하기])'}`
+    ? `${meta.desc}${onPickKind ? ' — 눌러서 고르기' : ' (⋯ 메뉴(또는 상세창) [샘플 종류 정하기])'}`
     : isDraft
       ? `${meta.label} — ${meta.desc}\norder#를 넣어 저장하면 잠겨요`
-      : `${meta.label} — ${meta.desc}\n구분은 오더를 만들 때 정해요 (바꾸려면 ⋯ 메뉴 [구분 바꾸기])`;
+      : `${meta.label} — ${meta.desc}\n구분은 오더를 만들 때 정해요 (바꾸려면 ⋯ 메뉴(또는 상세창) [구분 바꾸기])`;
 
   return (
     <>
