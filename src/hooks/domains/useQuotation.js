@@ -6,7 +6,7 @@ import {
   makeDefaultTierRates, makeDefaultTierAdds, toQuoteTierRate, toQuoteTierAdd, defaultTierRate, defaultTierAdd, computeBaseFromParts, partsFromCost,
   getBasePrice, getShownTiers, getCustomExclude, describeTierDefaults, getMarginAddCurrency, quoteMarket,
   normalizeRunning, customRowCostOpts, sumColorQtys, validateRunning, calcCustomQuotePrice,
-  ALL_QUOTE_TIER_KEYS, getQuoteTiers, getQuoteTierKeys, upgradeQuoteTiers, describeTierUpgrade, moveRetiredTierKeys,
+  ALL_QUOTE_TIER_KEYS, getQuoteTiers, getQuoteTierKeys, upgradeQuoteTiers, describeTierUpgrade, describeCustomRateChanges, moveRetiredTierKeys,
 } from '../../utils/quoteModel';
 import { devQuoteToFabric } from '../../utils/devQuoteModel';
 
@@ -53,6 +53,13 @@ const DELETED_NOTE = '원단(또는 개발 의뢰)이 삭제되어 기준원가�
 const LEGACY_DELETED_NOTE = '원단이 삭제되어 기준원가를 환율로만 환산함';
 const addNote = (warnings, note) => [...new Set([...(warnings || []).filter(w => w !== LEGACY_DELETED_NOTE), note])];
 const isBlank = (v) => v === undefined || v === null || v === '';
+
+// [800YD → 700YD — 2026-10-21] 예전 구간을 지금 구간으로 바꿀 때의 안내 말 (다시 계산·시장 구분 전환·복제 공용)
+//  tierUpgrade: describeTierUpgrade 결과 — '800YD → 700YD' (예전 구간 견적이 아니면 '')
+const tierUpgradeAsk = (tierUpgrade) => `예전 구간을 지금 구간으로 바꿔요: ${tierUpgrade} (이익율·정액·견적서 표시는 그대로 옮겨요)`;
+const tierUpgradeDone = (tierUpgrade) => (tierUpgrade ? ` 예전 구간을 바꿨어요: ${tierUpgrade}` : '');
+// 원단이 삭제된 기준 견적 품목은 다시 계산할 수 없어 새 구간(700YD) 단가가 없음 → 그 칸 '—' (itemsMissing: 그런 기준 견적 품목 수)
+const tierUpgradeMissing = (tierUpgrade, itemsMissing) => (tierUpgrade && itemsMissing > 0 ? '기준 견적 품목은 새 구간 단가가 없어 \'—\'' : '');
 
 // [견적 환율 원칙 — 대표님 결정 2026-10-03]
 //  · 견적 품목의 기준원가는 넣을 때의 원가·견적 환율(exchangeRate)로 저장하고, 환율이 바뀌어도 자동으로 다시 계산하지 않음
@@ -264,10 +271,12 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     // 원↔$ 환산(원단이 삭제된 품목·예전 $ 정액)은 '수출 쪽' 환율로 — 내수 → 수출은 새 수출 환율, 수출 → 내수는 그 $를 낸 견적 환율
     const convRate = toUsd ? rate : oldRate;
     const tierUpgrade = describeTierUpgrade(quoteInput);
+    const rateChanges = describeCustomRateChanges(quoteInput);   // 구간이 바뀌어 이익율이 달라지는 별도 견적 줄 (이익율 빈칸)
     if ((hasItems || hasAdd) && !window.confirm(
       `시장 구분을 ${toUsd ? '수출($)' : '내수(₩)'}로 바꿉니다.\n\n` +
       (hasItems ? `· 기준 견적·별도 견적 단가를 현재 원가로 다시 계산해요\n   적용 환율: ₩${num(oldRate)} → ₩${num(rate)} (지금 ${rateLabel(value)})\n` : '') +
-      (hasItems && tierUpgrade ? `· 예전 구간을 지금 구간으로 바꿔요: ${tierUpgrade} (이익율·정액·견적서 표시는 그대로 옮겨요)\n` : '') +
+      (tierUpgrade ? `· ${tierUpgradeAsk(tierUpgrade)}\n` : '') +
+      (rateChanges ? `· ${rateChanges}\n` : '') +
       (hasAdd ? `· 예전 수출 견적의 YD당 정액($)을 이 견적의 환율 ₩${num(convRate)}로 원화로 바꿔요\n` : '') +
       `\n계속할까요?`
     )) return;
@@ -289,8 +298,9 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       };
     });
     const missing = rebuilt.missing + rebuiltRows.missing;
-    if (missing > 0) showToast(`삭제된 원단 ${missing}개는 원가를 다시 계산하지 못해 환율로만 환산했어요.${tierUpgrade && rebuilt.missing > 0 ? ` (${tierUpgrade} — 기준 견적 품목은 새 구간 단가가 없어 '—')` : ''}`, 'error');
-    else if (tierUpgrade) showToast(`시장 구분을 바꾸고 예전 구간을 바꿨어요: ${tierUpgrade}`, 'success');
+    const noNewTier = tierUpgradeMissing(tierUpgrade, rebuilt.missing);
+    if (missing > 0) showToast(`삭제된 원단 ${missing}개는 원가를 다시 계산하지 못해 환율로만 환산했어요.${noNewTier ? ` (${noNewTier})` : ''}${tierUpgradeDone(tierUpgrade)}`, 'error');
+    else if (tierUpgrade) showToast(`시장 구분을 바꿨어요.${tierUpgradeDone(tierUpgrade)}`, 'success');
   };
 
   // [현재 원가로 다시 계산] — 견적 단가는 저장 당시 값 그대로가 원칙이라, 누를 때만 지금 원가·지금 환율로 다시 계산.
@@ -310,22 +320,23 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     const rate = currentRateFor(market);
     const oldRate = Number(quoteInput.exchangeRate) || null;
     const tierUpgrade = describeTierUpgrade(quoteInput);
+    const rateChanges = describeCustomRateChanges(quoteInput);   // 구간이 바뀌어 이익율이 달라지는 별도 견적 줄 (이익율 빈칸)
     if (!window.confirm(
       `기준 견적 ${items.length}개 · 별도 견적 ${rows.length}줄의 기준원가를 지금 원가(원가 설정·원사 단가)로 다시 계산합니다.\n` +
       `적용 환율: ${oldRate ? `₩${num(oldRate)}` : '기록 없음'} → ₩${num(rate)} (지금 ${rateLabel(market)})\n` +
-      (tierUpgrade ? `예전 구간을 지금 구간으로 바꿔요: ${tierUpgrade} (이익율·정액·견적서 표시는 그대로 옮겨요)\n` : '') +
-      `매출이익율과 YD당 정액은 그대로 둡니다.\n\n계속할까요?`
+      (tierUpgrade ? `${tierUpgradeAsk(tierUpgrade)}\n` : '') +
+      `매출이익율과 YD당 정액은 그대로 둡니다.${rateChanges ? `\n단, ${rateChanges}` : ''}\n\n계속할까요?`
     )) return;
     const src = upgradeQuoteTiers(quoteInput);
     const rebuilt = rebuildItems(src.items, rate, src.marketType, null, excludeOf(src));
     const rebuiltRows = rebuildCustomItems(rows, rate, src.marketType, null, getCustomExclude(src));
     setQuoteInput(prev => ({ ...upgradeQuoteTiers(prev), exchangeRate: rate, items: rebuilt.items, customItems: rebuiltRows.rows }));
     const missing = rebuilt.missing + rebuiltRows.missing;
-    const upgradeNote = tierUpgrade ? ` 예전 구간을 바꿨어요: ${tierUpgrade}` : '';
+    const noNewTier = tierUpgradeMissing(tierUpgrade, rebuilt.missing);
     showToast(
       missing > 0
-        ? `${total - missing}개를 다시 계산했어요. (삭제된 원단 ${missing}개는 그대로${tierUpgrade && rebuilt.missing > 0 ? ' — 기준 견적 품목은 새 구간 단가가 없어 \'—\'' : ''})${upgradeNote}`
-        : `${total}개를 지금 원가로 다시 계산했어요.${upgradeNote}`,
+        ? `${total - missing}개를 다시 계산했어요. (삭제된 원단 ${missing}개는 그대로${noNewTier ? ` — ${noNewTier}` : ''})${tierUpgradeDone(tierUpgrade)}`
+        : `${total}개를 지금 원가로 다시 계산했어요.${tierUpgradeDone(tierUpgrade)}`,
       missing > 0 ? 'error' : 'success'
     );
   };
@@ -845,6 +856,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     let missing = 0;
     let itemsMissing = 0;
     const tierUpgrade = describeTierUpgrade(duplicatedQuote);
+    const rateChanges = describeCustomRateChanges(duplicatedQuote);   // 다시 계산하면 이익율이 달라지는 별도 견적 줄 (이익율 빈칸)
     const hasRows = (duplicatedQuote.items || []).length > 0 || (duplicatedQuote.customItems || []).length > 0;
     if (isNewMarginModel(duplicatedQuote) && hasRows) {
       const market = quoteMarket(duplicatedQuote);
@@ -852,7 +864,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       const oldRate = Number(duplicatedQuote.exchangeRate) || null;
       if (window.confirm(
         `복제한 견적의 단가를 지금 원가로 다시 계산할까요?\n\n` +
-        `[확인] 지금 원가·지금 ${rateLabel(market)}(₩${num(rate)})로 다시 계산 (권장)${tierUpgrade ? `\n   — 예전 구간도 지금 구간으로: ${tierUpgrade}` : ''}\n` +
+        `[확인] 지금 원가·지금 ${rateLabel(market)}(₩${num(rate)})로 다시 계산 (권장)` +
+        `${tierUpgrade ? `\n   — 예전 구간도 지금 구간으로: ${tierUpgrade}` : ''}${rateChanges ? `\n   — ${rateChanges}` : ''}\n` +
         `[취소] 원본 견적 당시 단가 그대로${oldRate ? ` (원본 환율 ₩${num(oldRate)})` : ''}${tierUpgrade ? ' — 예전 구간도 그대로' : ''}`
       )) {
         const src = upgradeQuoteTiers(duplicatedQuote);
@@ -866,9 +879,10 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     }
     setQuoteInput(duplicatedQuote);
     if(navigateCallback) navigateCallback();
-    const upgradeNote = recalculated && tierUpgrade ? ` 예전 구간을 바꿨어요: ${tierUpgrade}` : '';
-    if (missing > 0) showToast(`복제했어요. 삭제된 원단 ${missing}개는 원본 단가 그대로예요.${upgradeNote && itemsMissing > 0 ? ' (기준 견적 품목은 새 구간 단가가 없어 \'—\')' : ''}${upgradeNote}`, 'error');
-    else showToast(recalculated ? `견적서를 복제하고 단가를 지금 원가로 다시 계산했어요.${upgradeNote}` : '견적서를 복제했어요. (단가는 원본 견적 그대로)', 'success');
+    const upgraded = recalculated ? tierUpgrade : '';   // 다시 계산했을 때만 예전 구간을 바꿈
+    const noNewTier = tierUpgradeMissing(upgraded, itemsMissing);
+    if (missing > 0) showToast(`복제했어요. 삭제된 원단 ${missing}개는 원본 단가 그대로예요.${noNewTier ? ` (${noNewTier})` : ''}${tierUpgradeDone(upgraded)}`, 'error');
+    else showToast(recalculated ? `견적서를 복제하고 단가를 지금 원가로 다시 계산했어요.${tierUpgradeDone(upgraded)}` : '견적서를 복제했어요. (단가는 원본 견적 그대로)', 'success');
   };
 
   return {

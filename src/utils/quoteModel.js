@@ -26,8 +26,11 @@ const clampRate = (n) => Math.min(99, Math.max(0, Number(n) || 0));
 const safeRate = (rate) => (Number(rate) > 0 ? Number(rate) : 1450);
 const hasOwn = (obj, key) => !!obj && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, key);
 
-// 지금 구간 + 예전 구간 — 예전 견적을 읽을 때도 구간 이름·기본값을 찾을 수 있게
-const ALL_QUOTE_TIERS = [...QUOTE_TIERS, ...RETIRED_QUOTE_TIERS];
+/**
+ * 지금 구간 + 예전 구간 (수량 순 — 300·500·700·800·1,000·3,000·5,000YD)
+ *  예전 견적을 읽을 때도 구간 이름·기본값을 찾고, 저장된 예상가(개발 의뢰 snapshot)를 저장 때 구간 그대로 보여 줄 때 씀
+ */
+export const ALL_QUOTE_TIERS = [...QUOTE_TIERS, ...RETIRED_QUOTE_TIERS].sort((a, b) => a.qty - b.qty);
 /** 지금 구간 + 예전 구간 키 — 품목에 남아 있는 구간 값을 빠짐없이 다룰 때 (원가 조각·통화 환산) */
 export const ALL_QUOTE_TIER_KEYS = ALL_QUOTE_TIERS.map(t => t.key);
 
@@ -193,6 +196,29 @@ export const upgradeQuoteTiers = (quote) => {
 export const describeTierUpgrade = (quote) => getRetiredTiersInUse(quote)
   .map(r => `${r.label.replace(' YD', 'YD')} → ${(findQuoteTier(r.replacedBy)?.label || r.replacedBy).replace(' YD', 'YD')}`)
   .join(', ');
+
+/**
+ * 예전 구간 견적을 지금 구간으로 바꾸면 이익율이 달라지는 별도 견적 줄 (확인 창·안내 띠에서 알려 주려고)
+ *  이익율을 비워 둔 줄은 수량이 속한 구간의 이익율을 따름 → 구간이 바뀌면 따르는 구간이 달라질 수 있음
+ *  (예: 750YD — 500YD 구간 25% → 700YD 구간 23%. 800~999YD 줄은 800 이익율이 700으로 옮겨 가서 그대로)
+ * @returns {{ qty: number, from: number, to: number }[]} 이익율이 달라지는 줄 (예전 구간 견적이 아니면 [])
+ */
+export const customRateChangesOnUpgrade = (quote) => {
+  if (!usesRetiredTiers(quote)) return [];
+  const upgraded = upgradeQuoteTiers(quote);
+  return (quote.customItems || [])
+    .filter(r => r && isBlank(r.marginRate))
+    .map(r => ({ qty: Number(r.qty) || 0, from: getCustomRowRate(r, quote), to: getCustomRowRate(r, upgraded) }))
+    .filter(c => c.from !== c.to);
+};
+
+/** 위 줄들을 안내 한 줄로 — 예: '별도 견적 2줄은 이익율을 비워 둬서 새 구간 이익율을 따라요: 750YD 25% → 23%, 720YD 25% → 23%' ('' = 없음) */
+export const describeCustomRateChanges = (quote) => {
+  const changes = customRateChangesOnUpgrade(quote);
+  if (changes.length === 0) return '';
+  const examples = changes.slice(0, 3).map(c => `${num(c.qty)}YD ${c.from}% → ${c.to}%`).join(', ');
+  return `별도 견적 ${changes.length}줄은 이익율을 비워 둬서 새 구간 이익율을 따라요: ${examples}${changes.length > 3 ? ' …' : ''}`;
+};
 
 /** 바이어 견적서에 보여줄 구간 (그 견적의 구간 순서). 저장값이 없으면 예전 견적 = 1,000/3,000/5,000 */
 export const getShownTiers = (quote) => {
@@ -450,7 +476,7 @@ export const validateQuoteForExport = (quote, kind = 'standard') => {
   const missing = [];
   items.forEach(it => tiers.forEach(t => { if (getBasePrice(it, t.key) === null) missing.push(`${it.article} ${t.label}`); }));
   if (missing.length) {
-    errors.push(`단가가 없는 칸이 있어요 (예전에 넣은 품목): ${listOf(missing, 6)}\n→ [현재 원가로 다시 계산]을 누르거나, 그 구간의 '견적서 표시'를 끄세요.`);
+    errors.push(`단가가 없는 칸이 있어요 (예전에 넣은 품목): ${listOf(missing, 6)}\n→ [현재 원가로 다시 계산]을 누르거나, 그 구간의 '견적서 표시'를 끄세요.\n   (원단이 삭제된 품목은 다시 계산해도 채워지지 않아요 — 그 품목을 빼거나 구간 표시를 끄세요)`);
   }
   const warned = items.filter(it => (it.costWarnings || []).length > 0);
   if (warned.length) warnings.push(`'원가 확인 필요' 품목 ${warned.length}개: ${listOf(warned.map(it => it.article))}`);

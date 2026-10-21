@@ -9,7 +9,7 @@ import { QUOTE_TIER_GROUPS } from '../constants/quote';
 import {
   calcQuotePrice, formatQuotePrice, getBasePrice, getItemTierRate, getShownTiers, isNewMarginModel,
   calcCustomQuotePrice, getCustomRowRate, getCustomRowAddRaw, getMarginAddCurrency, toQuoteCurrencyAdd, quoteMarket,
-  normalizeRunning, formatColorSplit, getQuoteTiers, describeTierUpgrade,
+  normalizeRunning, formatColorSplit, getQuoteTiers, describeTierUpgrade, describeCustomRateChanges,
 } from '../utils/quoteModel';
 import { FabricPickerModal } from '../components/quote/FabricPickerModal';
 import { RunningGreigeModal } from '../components/quote/RunningGreigeModal';
@@ -86,6 +86,8 @@ export const QuotationPage = ({
   // 이 견적의 구간 — 지금 구간, 예전 800YD 견적은 700YD 자리에 800YD (다시 계산하면 700YD로 바뀜)
   const quoteTiers = getQuoteTiers(quoteInput);
   const tierUpgrade = describeTierUpgrade(quoteInput);   // 예: '800YD → 700YD' (예전 구간 견적일 때만)
+  // 지금 구간으로 바꾸면 이익율이 달라지는 별도 견적 줄 (이익율 빈칸 — 예: 750YD 500YD 구간 → 700YD 구간)
+  const customRateChanges = tierUpgrade ? describeCustomRateChanges(quoteInput) : '';
   const shownTiers = getShownTiers(quoteInput);
   const shownKeys = shownTiers.map(t => t.key);
 
@@ -229,6 +231,7 @@ export const QuotationPage = ({
                 <span>
                   <b>예전 구간으로 만든 견적이에요 ({tierUpgrade}).</b> 바이어에게 보낸 그대로 보여요.
                   {' '}[현재 원가로 다시 계산]을 누르면 지금 구간으로 바뀌어요 — 이익율·정액·견적서 표시는 그대로 옮겨요.
+                  {customRateChanges && <> 단, {customRateChanges}.</>}
                 </span>
               </div>
             )}
@@ -395,7 +398,7 @@ export const QuotationPage = ({
                       return (
                         <td key={t.key} className={`p-2 align-top ${t.main ? 'bg-indigo-50/30' : 'bg-slate-50'}`}>
                           {base === null ? (
-                            <div className="text-right" title="예전에 넣은 품목이라 이 구간 단가가 없어요. [현재 원가로 다시 계산]을 누르면 채워져요.">
+                            <div className="text-right" title="예전에 넣은 품목이라 이 구간 단가가 없어요. [현재 원가로 다시 계산]을 누르면 채워져요. (원단이 삭제된 품목은 채워지지 않아요 — 품목을 빼거나 구간 표시를 끄세요)">
                               <div className="font-mono text-[13px] text-slate-300">—</div>
                               <div className="text-[9px] text-amber-600 mt-0.5">다시 계산 필요</div>
                             </div>

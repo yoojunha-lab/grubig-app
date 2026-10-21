@@ -10,13 +10,13 @@
 // ■ 설계 시작 때 이어받기: devQuoteToSheetFields — 직접 입력 원사는 설계서에서 라이브러리 원사를 골라야 함
 // ■ 설명 문서: docs/costing-model.md §5-C
 
-import { QUOTE_TIERS, QUOTE_TIER_KEYS, RETIRED_QUOTE_TIERS } from '../constants/quote';
+import { QUOTE_TIERS, QUOTE_TIER_KEYS } from '../constants/quote';
 import { makeInitialCostFields } from './costFields';
 import { sumYarnRatio, isYarnRatioComplete, buildMaterialLines } from './costModel';
 import {
   makeDefaultTierRates, makeDefaultTierAdds, toQuoteTierRate, toQuoteTierAdd, defaultTierAdd,
   calcQuotePrice, calcCustomQuotePrice, getBasePrice, getShownTiers, formatQuotePrice,
-  moveRetiredTierKeys, getQuoteTiers,
+  moveRetiredTierKeys, getQuoteTiers, ALL_QUOTE_TIERS,
 } from './quoteModel';
 import { num, formatMonthDay } from './helpers';
 
@@ -24,8 +24,6 @@ export const DEV_QUOTE_SOURCE = 'devRequest';  // 견적 품목 sourceType — �
 export const DEV_QUOTE_YARN_SLOTS = 4;         // 원사 칸 수 (설계서와 같게 — 설계 시작 때 그대로 이어받기)
 // 의뢰 목록 배지에 보여줄 구간 (견적서 기준 구간 — 3,000YD)
 export const DEV_QUOTE_MAIN_TIER = QUOTE_TIERS.find(t => t.main) || QUOTE_TIERS[0];
-// 저장된 예상가(snapshot)의 구간 — 지금 구간 + 예전 구간(800YD), 수량 순. 저장 때 있던 구간만 꺼내 씀 (예전 예상가는 800YD 그대로)
-const SNAPSHOT_TIERS = [...QUOTE_TIERS, ...RETIRED_QUOTE_TIERS].sort((a, b) => a.qty - b.qty);
 
 const isBlank = (v) => v === undefined || v === null || v === '';
 // 원가 엔진이 읽는 원가 칸 (예전 원가 칸 — 1K/3K/5K 편직료·LOSS 등은 원가 견적에 넣지 않음)
@@ -313,8 +311,8 @@ export const getDevQuoteBadge = (devReq, linkedQuotes = []) => {
     }
   }
   if (snap) {
-    // 저장 때 있던 구간만 (예전 예상가는 800YD, 2026-10-21 뒤에 저장한 예상가는 700YD)
-    const lines = SNAPSHOT_TIERS
+    // 저장 때 있던 구간만, 수량 순 (예전 예상가는 800YD, 2026-10-21 뒤에 저장한 예상가는 700YD)
+    const lines = ALL_QUOTE_TIERS
       .filter(t => Object.prototype.hasOwnProperty.call(snap.sellPrice, t.key))
       .map(t => `${t.label} ${formatQuotePrice(snap.sellPrice[t.key] ?? null, snapCur)}`);
     const warnings = Array.isArray(snap.costWarnings) ? snap.costWarnings : [];

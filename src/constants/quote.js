@@ -29,6 +29,8 @@ export const QUOTE_TIER_KEYS = QUOTE_TIERS.map(t => t.key);
 //     — 800YD의 이익율·정액·견적서 표시 체크는 700YD로 옮김 (utils/quoteModel.js upgradeQuoteTiers)
 //   · 원가 표에는 없는 수량이라, 예전 견적에 원단을 더 넣을 때는 같은 가정(2컬러)으로 수량 계산 (useQuotation.createQuoteItem)
 //   · key 는 다시 쓰지 말 것 (예전 견적 판별에 씀)
+//   · replacedBy 는 늘 지금 구간(QUOTE_TIERS)의 key — 구간을 또 바꾸면(예: 700 → 600) 바뀌는 구간을 여기로 옮기고,
+//     여기 있던 예전 구간들의 replacedBy 도 새 key 로 바꿀 것 (아니면 예전 견적의 그 구간 칸이 사라짐)
 export const RETIRED_QUOTE_TIERS = [
   { key: '800', costKey: 'tier800', label: '800 YD', qty: 800, group: 'small', colors: 2, defaultRate: 23, defaultAddKrw: 1500, replacedBy: '700' },
 ];

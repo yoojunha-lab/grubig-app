@@ -61,14 +61,21 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 개발 의뢰 원가 견적 | 판매가 미리보기 6구간 700YD. 저장된 원가 견적의 800YD 이익율·정액은 700YD로 이어받음 (창은 열 때마다 지금 원가·지금 구간) |
 | 가설계서 판매가 시뮬레이션 · 원단 목록 | 바뀐 것 없음 (원래 1K/3K/5K만) |
 
-- 700YD는 운임 구간(1,000YD 이하 50만)·이화학(2컬러)이 800YD와 같아서, 원가가 다른 이유는 수량(편직 정액·염색 최소 청구·운임 ÷ 수량)뿐.
+- 700YD와 800YD는 수량이 달라 원가가 다름: 편직 정액·운임·이화학의 YD당 몫(÷ 수량)과 염색 최소 청구뿐 아니라,
+  kg 구간으로 정하는 **편직 LOSS**(생지 kg 100/300/1,000)·**수입 원사 운반비**(원사 kg 300/1,000/2,000)·편직 kg단가 구간도 그 수량의 kg로 다시 정해짐
+  (예: 생지 300kg 경계 — 700YD 생지 269kg면 편직 LOSS 8%, 800YD 308kg면 5%). 운임·이화학은 기본 설정에서 둘 다 '1,000YD 이하'·2컬러 (원가 설정에서 경계를 바꾸면 달라짐).
 - **예전 견적은 보낸 그대로 보존** (대표님 결정): 800YD 값이 있고 700YD 값이 없는 견적(10/5~10/21에 만든 견적 대부분)은
   견적 목록·PDF·엑셀·**수정 화면 모두 800YD 그대로** (같은 판가 — 바꾸기 전 코드와 대조, 별도 견적 이익율 빈칸 규칙도 그 견적의 구간).
   수정 화면에 '예전 구간으로 만든 견적이에요 (800YD → 700YD)' 안내 띠. 예전 견적에 원단을 더 넣으면 800YD도 같은 가정(2컬러)으로 수량 계산.
 - **700YD로 바뀌는 때**: 그 견적을 [현재 원가로 다시 계산] · 시장 구분 전환 · 복제하면서 '다시 계산' — 확인 창에 '800YD → 700YD'.
   800YD의 이익율·정액·견적서 표시 체크·품목별 이익율은 700YD로 옮기고, 단가는 지금 원가로 700YD를 새로 계산.
   복제에서 '원본 단가 그대로'를 고르면 800YD 그대로. 원단이 삭제된 품목은 다시 계산할 수 없어 700YD 칸이 '—' (출력 전 확인이 막음 — 그 구간 표시를 끄거나 품목을 뺌).
+  - **이익율을 비워 둔 별도 견적 줄**은 수량 구간의 이익율을 따르므로, 바뀐 뒤 700~799YD 줄은 500YD 구간 → 700YD 구간 이익율이 됨
+    (800~999YD 줄은 800 이익율이 700으로 옮겨 가서 그대로). 그런 줄이 있으면 확인 창·안내 띠에 '별도 견적 N줄은 이익율을 비워 둬서
+    새 구간 이익율을 따라요: 750YD 25% → 23%'로 미리 알려 줌 (`quoteModel.customRateChangesOnUpgrade`·`describeCustomRateChanges`, 2026-10-22 검토).
 - 개발 의뢰 '예상'·'견적' 배지: 저장 때 값 그대로 (예전 예상가·예전 견적서는 800YD 줄).
+- 배포 뒤에는 열어 둔 ERP 창을 모두 새로고침 — 바꾸기 전 화면이 열린 채로 새 견적(700YD)을 고쳐 저장하면 700YD 값이 빠진 모양으로 저장될 수 있음
+  (그 견적은 [현재 원가로 다시 계산]한 뒤 700YD '견적서 표시' 체크를 다시 확인). 화면 파일은 캐시하지 않아서(firebase.json) 새로고침만 하면 새 화면.
 
 ### 1-C. 원가 논리 검토 후속 결정 (대표님, 2026-10-03)
 
@@ -479,7 +486,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 엑셀 업로드 칸 읽기 | `src/utils/excelIO.js` — `readFirstSheetRows`, `parseNumCell`, `parsePercentCell`, `parseYesCell`·`parseNoCell`, `parseCurrencyCell` |
 | 견적 구간·기본 마진 | `src/constants/quote.js` — `QUOTE_TIERS`(key·costKey·수량·묶음·기본 이익율/정액), `DEFAULT_SHOWN_TIERS`, `RETIRED_QUOTE_TIERS`(예전 구간 — 800YD, `replacedBy: '700'`) |
 | 견적 계산 (순수 함수) | `src/utils/quoteModel.js` — `calcQuotePrice`, `calcCustomQuotePrice`, `computeBaseFromParts`, `normalizeQuote`, `getShownTiers`, `tierForQty`, `validateQuoteForExport`(출력 전 확인), `buildQuoteTerms`·`quotePriceBasis`·`quoteValidUntilLine`·`quoteTermsLang`(견적서 문구 — 내수는 약관만 한글) 등 |
-| 견적마다 구간 (예전 800YD 견적 보존) | `quoteModel.js` 1-A — `getQuoteTiers`·`getQuoteTierKeys`(그 견적의 구간), `usesRetiredTiers`·`getRetiredTiersInUse`(예전 견적 판단 — 견적서 표시·구간 이익율·YD당 정액에 800 값이 있고 700 값이 없음), `upgradeQuoteTiers`(다시 계산 전에 800 → 700 옮기기), `describeTierUpgrade`(안내 문구), `moveRetiredTierKeys`(원가 견적 이어받기) / `useQuotation.js` — 다시 계산·시장 전환·복제에서 upgrade, 구간 칸·버튼·원단 추가는 그 견적의 구간 / `QuotationPage.jsx` 안내 띠 |
+| 견적마다 구간 (예전 800YD 견적 보존) | `quoteModel.js` 1-A — `ALL_QUOTE_TIERS`(지금 + 예전 구간, 수량 순), `getQuoteTiers`·`getQuoteTierKeys`(그 견적의 구간), `usesRetiredTiers`·`getRetiredTiersInUse`(예전 견적 판단 — 견적서 표시·구간 이익율·YD당 정액에 800 값이 있고 700 값이 없음), `upgradeQuoteTiers`(다시 계산 전에 800 → 700 옮기기), `describeTierUpgrade`(안내 문구), `customRateChangesOnUpgrade`·`describeCustomRateChanges`(이익율 빈칸 별도 견적 줄의 이익율 변화 안내), `moveRetiredTierKeys`(원가 견적 이어받기) / `useQuotation.js` — 다시 계산·시장 전환·복제에서 upgrade(안내 말 `tierUpgradeAsk`·`tierUpgradeDone`·`tierUpgradeMissing`), 구간 칸·버튼·원단 추가는 그 견적의 구간 / `QuotationPage.jsx` 안내 띠 |
 | 견적서 화면·출력 | `src/pages/QuotationPage.jsx`(기준/별도 칸) + `src/components/quote/QuoteParts.jsx`(공용 부품), `src/components/quote/PDFRenderer.jsx`(kind: standard/special), `src/hooks/domains/useQuoteExport.js` — `handleDownloadPDF`·`handleDownloadQuoteExcel(quote, kind)`(인쇄할 견적은 `pdfQuote`로 따로) |
 | 러닝 생지 견적 (계산) | `costModel.js` — `computeCostAtQty` 옵션 `greigeQty`(생지 짠 수량)·`colorQtys`(컬러별 수량), 결과 `running`(생지 짤 때 kg·편직비)·`dye.perColor`, `normalizeColorQtys` / `quoteModel.js` 4-A — `normalizeRunning`·`isRunningRow`·`customRowCostOpts`·`sumColorQtys`·`formatColorSplit`·`validateRunning`, 약관 `specialStated` |
 | 러닝 생지 견적 (창·줄) | `src/components/quote/RunningGreigeModal.jsx`(창), `QuoteParts.RunningGreigeBadge`(배지) / `useQuotation.js` — `previewRunningRow`(창 미리보기·비교·소량 추가분)·`handleSaveRunningRow`(넣기·고치기)·`handleReleaseRunningRow`(해제), `createCustomItem`(러닝 생지 조건 반영) / `QuotationPage.jsx` 버튼·줄 표시 / `QuoteHistoryPage.jsx` 목록 펼침 |
@@ -511,6 +518,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
   같은 묶음끼리는 붙여 둘 것. `tier1k/3k/5k` key는 견적·원단 목록이 읽으므로 없애지 말 것.
   **견적 구간까지 바꿀 때**(2026-10-21 800 → 700처럼): `QUOTE_TIERS`에 새 구간(새 key)을 넣고, 뺀 구간은 `RETIRED_QUOTE_TIERS`에
   `replacedBy`(대신하는 새 key)와 함께 옮겨 둠 → 예전 견적은 그대로 보이고, 다시 계산할 때 새 구간으로 바뀜 (§1-D). 뺀 key는 다시 쓰지 말 것.
+  이미 있던 예전 구간들의 `replacedBy`도 새 key로 바꿀 것 (`replacedBy`는 늘 지금 구간 key — 아니면 그 예전 견적의 구간 칸이 사라짐).
   화면 안내 문구(원가 설정 ④·원가 견적 창·원가 표 아래)는 구간에서 만들어지므로 따로 고칠 것 없음.
 - **같은 수입사 원사 kg 합산**: 지금은 원사마다 따로 구간을 정한다. 한 원단에 같은 수입사 원사가 2개 이상 들어가
   한 번에 실어 오는 경우 kg를 합쳐 구간을 정하려면 `costAtQty`의 `lineFreight`를 공급처별로 묶으면 된다 (대표님 결정 필요).
