@@ -8,6 +8,10 @@ import { COST_DISPLAY_TIERS, COST_TIER_GROUPS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PR
 import { buildNext, isBlank, checkBrackets, checkNames, nextGradeName } from './costSettingsForm';
 import { inCls, txtCls, Section, BracketEditor } from './CostSettingsParts';
 
+// ④ 염색 최소 청구 안내에 넣는 원가 표 구간 — 구간에서 바로 만듦 (구간이 바뀌어도 글자가 어긋나지 않게 — 2026-10-21 800 → 700YD)
+const SMALL_TIER_QTYS = COST_DISPLAY_TIERS.filter(t => t.group === 'small').map(t => num(t.qty)).join('·');
+const MCQ_FROM_QTY = num(Math.min(...COST_DISPLAY_TIERS.filter(t => t.group === 'mcq').map(t => t.qty)));
+
 // ============================================================
 // 원가 설정 모달 — 전 품목 공통 원가 기준값 편집
 //  · 편직 정액(난이도별) / 편직 LOSS(생지 kg 구간) / 가공 LOSS(가공 유형) / 염색 최소 청구(컬러당)
@@ -229,7 +233,7 @@ export const CostSettingsModal = ({
           </Section>
 
           {/* 4. 염색 최소 청구 (컬러당) */}
-          <Section no={4} title="염색 최소 청구 (컬러당)" hint="염색은 컬러마다 따로 하므로, 한 컬러를 이 kg보다 적게 염색해도 이 kg로 청구돼요. 기준은 염가공료와 같은 생지 kg (MCQ와 같은 기준). 원가 표의 2컬러 기준 구간(300·500·800YD)에 적용되고, MCQ 충족 기준 구간(1,000YD 이상)은 적용하지 않아요.">
+          <Section no={4} title="염색 최소 청구 (컬러당)" hint={`염색은 컬러마다 따로 하므로, 한 컬러를 이 kg보다 적게 염색해도 이 kg로 청구돼요. 기준은 염가공료와 같은 생지 kg (MCQ와 같은 기준). 원가 표의 2컬러 기준 구간(${SMALL_TIER_QTYS}YD)에 적용되고, MCQ 충족 기준 구간(${MCQ_FROM_QTY}YD 이상)은 적용하지 않아요.`}>
             <div className="flex items-center gap-2 flex-wrap">
               <input type="number" min="0" value={local.dyeMinKgPerColor} onChange={e => set('dyeMinKgPerColor', e.target.value)} className={`${inCls} w-36`} />
               <span className="text-xs text-slate-500">kg / 컬러 (0이면 최소 청구 없음)</span>

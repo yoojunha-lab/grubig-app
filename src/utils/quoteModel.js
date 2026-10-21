@@ -14,16 +14,24 @@
 //   (customExcludeVisual/customExcludeChem — 2026-10-05 대표님 요청으로 줄마다 → 칸 전체).
 //   원가 조각(costParts: 반올림·위험마진 전 YD당 순원가와 그중 이화학·외관검사 몫)을 같이 저장해 두고,
 //   버튼을 바꾸면 조각으로 기준원가를 다시 만듦 (다른 원가는 그대로)
+// ■ 견적마다 구간 (대표님 결정 2026-10-21 — 800YD → 700YD): 예전 800YD 견적은 보낸 그대로 800YD로 보고·출력하고,
+//   [현재 원가로 다시 계산]·시장 구분 전환·복제(다시 계산) 때 700YD로 바꿈 (1-A. getQuoteTiers · upgradeQuoteTiers)
 
 import { smartRound, roundUsd, applyGrossMargin, num, usd, getQuoteValidUntil } from './helpers';
 import { normalizeColorQtys } from './costModel';
-import { QUOTE_TIERS, QUOTE_TIER_KEYS, LEGACY_TIER_KEYS } from '../constants/quote';
+import { QUOTE_TIERS, QUOTE_TIER_KEYS, LEGACY_TIER_KEYS, RETIRED_QUOTE_TIERS } from '../constants/quote';
 
 const isBlank = (v) => v === undefined || v === null || v === '';
 const clampRate = (n) => Math.min(99, Math.max(0, Number(n) || 0));
 const safeRate = (rate) => (Number(rate) > 0 ? Number(rate) : 1450);
+const hasOwn = (obj, key) => !!obj && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, key);
 
-export const findQuoteTier = (key) => QUOTE_TIERS.find(t => t.key === key);
+// 지금 구간 + 예전 구간 — 예전 견적을 읽을 때도 구간 이름·기본값을 찾을 수 있게
+const ALL_QUOTE_TIERS = [...QUOTE_TIERS, ...RETIRED_QUOTE_TIERS];
+/** 지금 구간 + 예전 구간 키 — 품목에 남아 있는 구간 값을 빠짐없이 다룰 때 (원가 조각·통화 환산) */
+export const ALL_QUOTE_TIER_KEYS = ALL_QUOTE_TIERS.map(t => t.key);
+
+export const findQuoteTier = (key) => ALL_QUOTE_TIERS.find(t => t.key === key);
 
 // ----------------------------------------------------------------------
 // 1. 기본값 · 정규화
@@ -45,9 +53,11 @@ export const defaultTierAdd = (key, currency, rate) => {
   return currency === 'USD' ? convertAmount(krw, true, rate) : krw;
 };
 
-export const makeDefaultTierRates = () => Object.fromEntries(QUOTE_TIERS.map(t => [t.key, t.defaultRate]));
-export const makeDefaultTierAdds = (currency = 'KRW', rate) =>
-  Object.fromEntries(QUOTE_TIERS.map(t => [t.key, defaultTierAdd(t.key, currency, rate)]));
+/** 구간별 기본 매출이익율 { 구간: % } — keys: 그 견적의 구간 (기본: 지금 구간) */
+export const makeDefaultTierRates = (keys = QUOTE_TIER_KEYS) => Object.fromEntries(keys.map(k => [k, defaultTierRate(k)]));
+/** 구간별 기본 YD당 정액 { 구간: 금액 } — keys: 그 견적의 구간 (기본: 지금 구간) */
+export const makeDefaultTierAdds = (currency = 'KRW', rate, keys = QUOTE_TIER_KEYS) =>
+  Object.fromEntries(keys.map(k => [k, defaultTierAdd(k, currency, rate)]));
 
 // 구간별 값 하나 꺼내기: 객체면 그 구간 값, 숫자(아주 예전 단일값)면 예전 3구간(1k/3k/5k)에만 적용
 const pickTierValue = (val, key) => {
@@ -55,24 +65,39 @@ const pickTierValue = (val, key) => {
   return LEGACY_TIER_KEYS.includes(key) ? val : undefined;
 };
 
-/** 매출이익율 { 구간: % } 정규화 (0~99). 빈 구간은 fallback(key) — 기본: 구간 기본값 */
-export const toQuoteTierRate = (val, fallback = defaultTierRate) =>
-  Object.fromEntries(QUOTE_TIER_KEYS.map(k => {
+/** 매출이익율 { 구간: % } 정규화 (0~99). 빈 구간은 fallback(key) — 기본: 구간 기본값. keys: 그 견적의 구간 (기본: 지금 구간) */
+export const toQuoteTierRate = (val, fallback = defaultTierRate, keys = QUOTE_TIER_KEYS) =>
+  Object.fromEntries(keys.map(k => {
     const v = pickTierValue(val, k);
     return [k, clampRate(isBlank(v) ? fallback(k) : v)];
   }));
 
-/** YD당 정액 { 구간: 금액 } 정규화. 빈 구간은 fallback(key) */
-export const toQuoteTierAdd = (val, fallback) =>
-  Object.fromEntries(QUOTE_TIER_KEYS.map(k => {
+/** YD당 정액 { 구간: 금액 } 정규화. 빈 구간은 fallback(key). keys: 그 견적의 구간 (기본: 지금 구간) */
+export const toQuoteTierAdd = (val, fallback, keys = QUOTE_TIER_KEYS) =>
+  Object.fromEntries(keys.map(k => {
     const v = pickTierValue(val, k);
     return [k, Math.max(0, Number(isBlank(v) ? fallback(k) : v) || 0)];
   }));
 
-/** 구간 기본값 요약 (확인 창 문구용) — 예: '300·500YD 25% · 2,000원 / 800YD 23% · 1,500원 / …' */
-export const describeTierDefaults = () => {
+/**
+ * 예전 구간 키를 그 자리의 지금 구간 키로 옮김 (예: { '800': 22 } → { '700': 22 }) — 지금 구간 값이 이미 있으면 그 값 그대로.
+ * 개발 의뢰 원가 견적처럼 예전 값을 보존하지 않고 늘 지금 구간으로 계산하는 곳에서 씀 (예전 견적은 upgradeQuoteTiers)
+ */
+export const moveRetiredTierKeys = (obj) => {
+  if (!obj || typeof obj !== 'object') return obj;
+  const next = { ...obj };
+  RETIRED_QUOTE_TIERS.forEach(r => {
+    if (!hasOwn(next, r.key)) return;
+    if (isBlank(next[r.replacedBy])) next[r.replacedBy] = next[r.key];
+    delete next[r.key];
+  });
+  return next;
+};
+
+/** 구간 기본값 요약 (확인 창 문구용) — 예: '300·500YD 25% · 2,000원 / 700YD 23% · 1,500원 / …'. tiers: 그 견적의 구간 */
+export const describeTierDefaults = (tiers = QUOTE_TIERS) => {
   const groups = [];
-  QUOTE_TIERS.forEach(t => {
+  tiers.forEach(t => {
     const last = groups[groups.length - 1];
     const label = t.label.replace(' YD', '');
     if (last && last.rate === t.defaultRate && last.add === t.defaultAddKrw) last.labels.push(label);
@@ -113,15 +138,75 @@ export const isNewMarginModel = (quote) =>
   quote?.marginAdd !== undefined ||
   (quote?.items || []).some(it => it && it.marginRate !== undefined);
 
-/** 바이어 견적서에 보여줄 구간 (QUOTE_TIERS 순서). 저장값이 없으면 예전 견적 = 1,000/3,000/5,000 */
+// ----------------------------------------------------------------------
+// 1-A. 견적마다 구간 — 예전 800YD 견적 보존 (대표님 결정 2026-10-21)
+//  · 800YD → 700YD로 바뀜. 예전 견적(800YD 값이 있고 700YD 값은 없는 견적)은 바이어에게 보낸 그대로
+//    800YD로 보고·출력 (견적 목록·PDF·엑셀·수정 화면). 별도 견적 이익율 빈칸 규칙도 그 견적의 구간으로
+//  · [현재 원가로 다시 계산]·시장 구분 전환·복제(다시 계산) 때 upgradeQuoteTiers로 700YD로 바꿈
+//  · 판단은 견적 쪽 값(견적서 표시·구간 이익율·YD당 정액)으로 — 새 견적·바꾼 견적에는 늘 700YD 값이 있음
+// ----------------------------------------------------------------------
+
+/** 견적에 그 구간 값이 있는지 (견적서 표시 체크 · 구간 이익율 · YD당 정액) */
+const quoteHasTier = (quote, key) =>
+  (Array.isArray(quote?.shownTiers) && quote.shownTiers.includes(key))
+  || hasOwn(quote?.bulkMarginRate, key)
+  || hasOwn(quote?.marginAdd, key);
+
+/** 이 견적이 아직 쓰는 예전 구간 (예: 800YD로 만든 견적이면 [800YD]) — 바꿀 구간(700YD) 값이 이미 있으면 안 씀 */
+export const getRetiredTiersInUse = (quote) =>
+  RETIRED_QUOTE_TIERS.filter(r => quoteHasTier(quote, r.key) && !quoteHasTier(quote, r.replacedBy));
+
+/** 예전 구간(800YD)으로 만든 견적인지 */
+export const usesRetiredTiers = (quote) => getRetiredTiersInUse(quote).length > 0;
+
+/** 이 견적의 구간 (수량 순) — 지금 구간, 예전 견적은 그 자리에 예전 구간 (700YD 자리에 800YD) */
+export const getQuoteTiers = (quote) => {
+  const retired = getRetiredTiersInUse(quote);
+  if (retired.length === 0) return QUOTE_TIERS;
+  return QUOTE_TIERS.map(t => retired.find(r => r.replacedBy === t.key) || t);
+};
+
+/** 이 견적의 구간 키 */
+export const getQuoteTierKeys = (quote) => getQuoteTiers(quote).map(t => t.key);
+
+/**
+ * 예전 구간(800YD) 견적 → 지금 구간(700YD) — [현재 원가로 다시 계산]·시장 구분 전환·복제(다시 계산) 때, 다시 계산하기 전에
+ *  · 견적서 표시·구간 이익율·YD당 정액·품목별 이익율: 예전 구간 값을 그 자리의 지금 구간으로 옮김 (예전 구간 키는 뺌)
+ *  · 품목 기준원가는 옮기지 않음 (수량이 달라 원가가 다름) — 부르는 쪽이 지금 원가로 다시 계산.
+ *    원단이 삭제돼 다시 계산할 수 없는 품목은 지금 구간 단가가 없어 '—' (다시 계산 필요 표시)
+ *  예전 구간을 안 쓰는 견적은 그대로 돌려줌
+ */
+export const upgradeQuoteTiers = (quote) => {
+  const retired = getRetiredTiersInUse(quote);
+  if (retired.length === 0) return quote;
+  const swapKey = (k) => retired.find(r => r.key === k)?.replacedBy || k;
+  return {
+    ...quote,
+    bulkMarginRate: moveRetiredTierKeys(quote.bulkMarginRate),
+    marginAdd: moveRetiredTierKeys(quote.marginAdd),
+    ...(Array.isArray(quote.shownTiers) ? { shownTiers: [...new Set(quote.shownTiers.map(swapKey))] } : {}),
+    items: (quote.items || []).map(it => ({ ...it, marginRate: moveRetiredTierKeys(it.marginRate) })),
+  };
+};
+
+/** 바꿀 예전 구간 안내 문구 — 예: '800YD → 700YD' (예전 구간을 안 쓰는 견적은 '') */
+export const describeTierUpgrade = (quote) => getRetiredTiersInUse(quote)
+  .map(r => `${r.label.replace(' YD', 'YD')} → ${(findQuoteTier(r.replacedBy)?.label || r.replacedBy).replace(' YD', 'YD')}`)
+  .join(', ');
+
+/** 바이어 견적서에 보여줄 구간 (그 견적의 구간 순서). 저장값이 없으면 예전 견적 = 1,000/3,000/5,000 */
 export const getShownTiers = (quote) => {
   const saved = Array.isArray(quote?.shownTiers) && quote.shownTiers.length ? quote.shownTiers : LEGACY_TIER_KEYS;
-  return QUOTE_TIERS.filter(t => saved.includes(t.key));
+  const tiers = getQuoteTiers(quote);
+  const shown = tiers.filter(t => saved.includes(t.key));
+  // 안전장치: 표시 구간이 하나도 안 남으면(구간이 바뀐 뒤 남은 옛 키뿐) 예전 3구간 — 견적서에 단가 칸이 없어지지 않게
+  return shown.length ? shown : tiers.filter(t => LEGACY_TIER_KEYS.includes(t.key));
 };
 
 /**
  * 견적을 작성 화면으로 불러올 때 정규화 (작성·수정·복제).
- *  - 구간별 이익율·정액을 6구간 객체로 (빈 구간은 기본값 → 예전 견적에 새 구간을 켜도 이익율 0% 안 됨)
+ *  - 구간별 이익율·정액을 그 견적의 6구간 객체로 (빈 구간은 기본값 → 예전 견적에 새 구간을 켜도 이익율 0% 안 됨)
+ *    예전 800YD 견적은 800YD 그대로 (보낸 그대로 보존 — 다시 계산할 때 700YD로)
  *  - 표시 구간·외관검사/시험성적서 빼기·별도 견적 기본값
  *  - 아주 옛날 extraMargin 견적은 가격 보존을 위해 마진은 손대지 않음
  */
@@ -129,25 +214,26 @@ export const normalizeQuote = (quote) => {
   if (!quote) return quote;
   const base = { ...quote, customItems: Array.isArray(quote.customItems) ? quote.customItems : [] };
   if (!isNewMarginModel(quote)) return base;
+  const keys = getQuoteTierKeys(quote);
   const addBasis = getMarginAddCurrency(quote);
-  const bulk = toQuoteTierRate(quote.bulkMarginRate);
+  const bulk = toQuoteTierRate(quote.bulkMarginRate, defaultTierRate, keys);
   return {
     ...base,
     bulkMarginRate: bulk,
     marginAddCurrency: addBasis,
-    marginAdd: toQuoteTierAdd(quote.marginAdd, (k) => (LEGACY_TIER_KEYS.includes(k) ? 0 : defaultTierAdd(k, addBasis, quote.exchangeRate))),
+    marginAdd: toQuoteTierAdd(quote.marginAdd, (k) => (LEGACY_TIER_KEYS.includes(k) ? 0 : defaultTierAdd(k, addBasis, quote.exchangeRate)), keys),
     shownTiers: getShownTiers(quote).map(t => t.key),
     excludeVisual: quote.excludeVisual === true,
     excludeChem: quote.excludeChem === true,
     customExcludeVisual: quote.customExcludeVisual === true,
     customExcludeChem: quote.customExcludeChem === true,
-    items: (quote.items || []).map(it => ({ ...it, marginRate: toQuoteTierRate(it.marginRate, (k) => bulk[k]) })),
+    items: (quote.items || []).map(it => ({ ...it, marginRate: toQuoteTierRate(it.marginRate, (k) => bulk[k], keys) })),
   };
 };
 
-/** 견적 YD당 정액(모든 구간)을 통화가 바뀔 때 견적 환율로 환산 */
-export const convertMarginAdd = (marginAdd, toUsd, rate) =>
-  Object.fromEntries(QUOTE_TIER_KEYS.map(k => [k, convertAmount(marginAdd?.[k], toUsd, rate)]));
+/** 견적 YD당 정액(그 견적의 모든 구간)을 통화가 바뀔 때 견적 환율로 환산. keys: 그 견적의 구간 (기본: 지금 구간) */
+export const convertMarginAdd = (marginAdd, toUsd, rate, keys = QUOTE_TIER_KEYS) =>
+  Object.fromEntries(keys.map(k => [k, convertAmount(marginAdd?.[k], toUsd, rate)]));
 
 /** 기준원가 환산 (원가 조각이 없는 품목·줄) — 원 → $ 센트, $ → 원 100원 단위 */
 export const convertBasePrice = (value, toUsd, rate) => {
@@ -246,17 +332,20 @@ export const formatQuotePrice = (price, currency) => {
 // 4. 별도 견적
 // ----------------------------------------------------------------------
 
-/** 수량이 속한 기준 구간 (그 수량 이하 중 가장 큰 구간, 300YD 미만은 300YD 구간) */
-export const tierForQty = (qty) => {
+/**
+ * 수량이 속한 기준 구간 (그 수량 이하 중 가장 큰 구간, 300YD 미만은 300YD 구간)
+ *  tiers: 그 견적의 구간 (기본: 지금 구간 — 700~999YD는 700YD 구간. 예전 800YD 견적은 700~799YD가 500YD 구간 그대로)
+ */
+export const tierForQty = (qty, tiers = QUOTE_TIERS) => {
   const q = Number(qty) || 0;
-  let found = QUOTE_TIERS[0];
-  QUOTE_TIERS.forEach(t => { if (q >= t.qty) found = t; });
+  let found = tiers[0];
+  tiers.forEach(t => { if (q >= t.qty) found = t; });
   return found;
 };
 
-/** 별도 견적 줄 매출이익율 — 줄에 넣은 값, 비었으면 수량 구간의 견적 일괄값 */
+/** 별도 견적 줄 매출이익율 — 줄에 넣은 값, 비었으면 수량 구간(그 견적의 구간)의 견적 일괄값 */
 export const getCustomRowRate = (row, quote) =>
-  (isBlank(row?.marginRate) ? getItemTierRate(null, quote, tierForQty(row?.qty).key) : clampRate(row.marginRate));
+  (isBlank(row?.marginRate) ? getItemTierRate(null, quote, tierForQty(row?.qty, getQuoteTiers(quote)).key) : clampRate(row.marginRate));
 
 /** 별도 견적 줄 YD당 정액 — 적어 둔 값 (줄에 넣은 값, 비었으면 0 — 대표님 지정 2026-10-05). 원화 / 예전 수출 견적은 $ */
 export const getCustomRowAddRaw = (row, _quote) =>
@@ -430,7 +519,7 @@ export const quoteValidUntilLine = (quote) => {
     : { label: 'VALID UNTIL', date, suffix: '' };
 };
 
-/** 구간 이름 묶음 (예: '500 / 800 YD') */
+/** 구간 이름 묶음 (예: '500 / 700 YD') */
 export const tierLabels = (tiers) => `${tiers.map(t => t.label.replace(' YD', '')).join(' / ')} YD`;
 
 /**

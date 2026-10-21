@@ -37,7 +37,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 
 | 구간 (원가 표 ③) | 가정 | 염색비 | 이화학 |
 |---|---|---|---|
-| 300 · 500 · 800 YD (**2컬러 기준**) | 2컬러로 나눠 염색 | 컬러당 생지 kg가 **최소 청구 kg(기본 100kg) 미만이면 최소 kg로 청구** | 2컬러 |
+| 300 · 500 · 700 YD (**2컬러 기준**) | 2컬러로 나눠 염색 | 컬러당 생지 kg가 **최소 청구 kg(기본 100kg) 미만이면 최소 kg로 청구** | 2컬러 |
 | 1,000 · 3,000 · 5,000 YD (**MCQ 충족 기준**) | 컬러마다 MCQ를 맞춤 | 최소 청구 없음 (생지 kg 그대로) | 원가 설정 수량 구간 (2 / 4 / 6컬러) |
 
 - 대표님 원문: "염색비는 100kg 이하 염색시 100kg로 청구". 염색은 컬러마다 따로 하므로 **컬러당** 적용.
@@ -47,6 +47,28 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 - 예) 면스판 립 300YD: 컬러당 150YD = 생지 55kg → 100kg로 청구 × 2컬러 = 200kg → 염가공비 YD당 3,252원 → 5,867원.
 - **원단 목록·가설계서 판매가 시뮬레이션은 1K/3K/5K 그대로** (MCQ 충족 기준이라 최소 청구 없음 — 6구간 추가로 바뀐 값 없음).
   견적서는 2026-10-05부터 6구간 모두 (§5-B).
+- 처음(2026-10-02)에는 셋째 구간이 800YD였고, 2026-10-21에 **700YD**로 바꿈 (§1-D).
+
+### 1-D. 소량 구간 800YD → 700YD (대표님 결정, 2026-10-21)
+
+원가 표·견적서·개발 의뢰 원가 견적의 2컬러 기준 셋째 구간을 800YD에서 **700YD**로 바꿈.
+
+| 어디 | 바뀐 것 |
+|---|---|
+| 원가 표 (원단 등록·수정 · 설계서 · 가설계서 같은 표) · 원가 설정 미리보기 | 300·500·**700**·1,000·3,000·5,000YD (`COST_DISPLAY_TIERS` `tier700`) |
+| 견적서 기준 견적 | 구간 `700` — 기본 이익율·정액은 800YD 값 그대로 **23% · 1,500원** (대표님 지정). 견적서 표시 기본값 500·**700**·1,000·3,000YD |
+| 별도 견적·러닝 생지 이익율 빈칸 | 수량이 속한 구간 → **700~999YD는 700YD 구간**(예전: 700~799YD는 500YD 구간 25%) |
+| 개발 의뢰 원가 견적 | 판매가 미리보기 6구간 700YD. 저장된 원가 견적의 800YD 이익율·정액은 700YD로 이어받음 (창은 열 때마다 지금 원가·지금 구간) |
+| 가설계서 판매가 시뮬레이션 · 원단 목록 | 바뀐 것 없음 (원래 1K/3K/5K만) |
+
+- 700YD는 운임 구간(1,000YD 이하 50만)·이화학(2컬러)이 800YD와 같아서, 원가가 다른 이유는 수량(편직 정액·염색 최소 청구·운임 ÷ 수량)뿐.
+- **예전 견적은 보낸 그대로 보존** (대표님 결정): 800YD 값이 있고 700YD 값이 없는 견적(10/5~10/21에 만든 견적 대부분)은
+  견적 목록·PDF·엑셀·**수정 화면 모두 800YD 그대로** (같은 판가 — 바꾸기 전 코드와 대조, 별도 견적 이익율 빈칸 규칙도 그 견적의 구간).
+  수정 화면에 '예전 구간으로 만든 견적이에요 (800YD → 700YD)' 안내 띠. 예전 견적에 원단을 더 넣으면 800YD도 같은 가정(2컬러)으로 수량 계산.
+- **700YD로 바뀌는 때**: 그 견적을 [현재 원가로 다시 계산] · 시장 구분 전환 · 복제하면서 '다시 계산' — 확인 창에 '800YD → 700YD'.
+  800YD의 이익율·정액·견적서 표시 체크·품목별 이익율은 700YD로 옮기고, 단가는 지금 원가로 700YD를 새로 계산.
+  복제에서 '원본 단가 그대로'를 고르면 800YD 그대로. 원단이 삭제된 품목은 다시 계산할 수 없어 700YD 칸이 '—' (출력 전 확인이 막음 — 그 구간 표시를 끄거나 품목을 뺌).
+- 개발 의뢰 '예상'·'견적' 배지: 저장 때 값 그대로 (예전 예상가·예전 견적서는 800YD 줄).
 
 ### 1-C. 원가 논리 검토 후속 결정 (대표님, 2026-10-03)
 
@@ -225,7 +247,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 
 ## 5. 과거 견적·오더 보존
 
-- **견적서**: 품목을 넣을 때의 영업 기준원가를 `basePrice{구간}`(300·500·800·1k·3k·5k)으로 품목에 저장. 목록·PDF·엑셀은 저장값만 사용
+- **견적서**: 품목을 넣을 때의 영업 기준원가를 `basePrice{구간}`(300·500·700·1k·3k·5k — 2026-10-21 전 견적은 800)으로 품목에 저장. 목록·PDF·엑셀은 저장값만 사용
   → 원가 설정·계산식·공통 환율이 바뀌어도 저장된 견적 단가는 그대로. (견적서 구조는 §5-B)
 - **견적 환율** (`quote.exchangeRate`, 2026-10-03): 견적마다 계산에 쓴 환율을 저장. 공통 환율(§5-A)을 바꿔도
   **열려 있는 견적·저장된 견적 모두 그대로** (예전엔 공통 환율을 바꾸면 열려 있는 견적이 저절로 다시 계산됐음 → 없앰).
@@ -294,14 +316,14 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 
 | 칸 | 무엇 | 바이어 견적서 |
 |---|---|---|
-| **기준 견적** (`quote.items`) | 원가 표와 같은 6구간(300·500·800YD 2컬러 기준 / 1,000·3,000·5,000YD MCQ 충족 기준) 단가 | **기준 견적서** PDF·엑셀 — '견적서 표시' 체크한 구간만 (`quote.shownTiers`) |
+| **기준 견적** (`quote.items`) | 원가 표와 같은 6구간(300·500·700YD 2컬러 기준 / 1,000·3,000·5,000YD MCQ 충족 기준) 단가 | **기준 견적서** PDF·엑셀 — '견적서 표시' 체크한 구간만 (`quote.shownTiers`) |
 | **별도 견적** (`quote.customItems`) | 원단마다 수량·컬러수·제외 항목을 넣어 원가부터 다시 계산 (예: 300YD 3컬러) | **별도 견적서** PDF·엑셀 — 줄마다 '견적서' 체크한 줄만 (`row.show`) |
 
 - 두 견적서는 **따로 출력해서 따로 보냄** (견적서 화면 칸 머리줄, 견적 목록의 PDF·Excel / 별도 PDF·별도 버튼).
-- **표시 구간 기본값**: 500·800·1,000·3,000YD (대표님 지정). 1개 이상은 켜 둬야 함. 예전 견적(저장값 없음)은 1,000·3,000·5,000YD.
-- **기본 마진** (대표님 지정, `constants/quote.js` — 같은 날 800YD를 23% · 1,500원으로 조정):
+- **표시 구간 기본값**: 500·700·1,000·3,000YD (대표님 지정, 2026-10-21 800 → 700). 1개 이상은 켜 둬야 함. 예전 견적(저장값 없음)은 1,000·3,000·5,000YD.
+- **기본 마진** (대표님 지정, `constants/quote.js` — 같은 날 800YD를 23% · 1,500원으로 조정, 2026-10-21 800YD → 700YD 같은 값):
 
-  | | 300 | 500 | 800 | 1,000 | 3,000 | 5,000 |
+  | | 300 | 500 | 700 | 1,000 | 3,000 | 5,000 |
   |---|---|---|---|---|---|---|
   | 매출이익율 | 25% | 25% | 23% | 20% | 20% | 20% |
   | YD당 정액 (원) | 2,000 | 2,000 | 1,500 | 1,000 | 800 | 500 |
@@ -349,7 +371,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
     'WHERE QUANTITY PER COLOR IS STATED, THE PRICE IS BASED ON THAT SPLIT AND MAY BE ADJUSTED IF IT CHANGES'. 견적서에 나가는 줄이 **모두** 러닝 생지면
     '고르게 나눈 기준' 두 줄(specialSplit·specialUneven)은 뺌. 일반 줄만 있으면 예전 문구 그대로.
 - **바이어 견적서 문구** (영문 — 내수 견적서의 약관 줄은 한글, 아래 2026-10-07): 원화 = 'PRICE IN KRW · VAT EXCLUDED' + 'VAT EXCLUDED', 수출 = 'FOB PRICE'.
-  기준: 'PRICES ARE PER YARD, BASED ON TOTAL ORDER QUANTITY', '{300~800 중 표시 구간} YD: UP TO 2 COLORS (SMALL-LOT DYEING CHARGE INCLUDED)',
+  기준: 'PRICES ARE PER YARD, BASED ON TOTAL ORDER QUANTITY', '{300~700 중 표시 구간 — 예전 견적은 300~800} YD: UP TO 2 COLORS (SMALL-LOT DYEING CHARGE INCLUDED)',
   '{1,000 이상 표시 구간} YD: MCQ PER COLOR REQUIRED' + 기존 약관. 별도: 'PRICES APPLY ONLY TO THE QUANTITY (TOTAL PER ORDER) AND NUMBER OF COLORS STATED',
   'PRICES ASSUME THE QUANTITY IS SPLIT EVENLY ACROSS THE STATED COLORS', 'IF AN UNEVEN SPLIT LEAVES ANY COLOR BELOW MCQ (YD PER COLOR),
   THE PRICE MAY BE ADJUSTED' (대표님 결정 2026-10-06 — 별도 견적 단가는 컬러별로 고르게 나눈다고 보고 낸 값이라, 고르지 않게 나눠 어느 컬러가
@@ -365,7 +387,8 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
     MCQ·MOQ 미만 오더는 추가 비용 발생. 별도: 적힌 수량(오더 총수량)과 컬러 수에만 적용되는 단가입니다 / 수량을 적힌 컬러 수로 고르게 나눈
     기준의 단가입니다 / 컬러별 수량이 고르지 않아 어느 컬러가 MCQ(컬러당 YD)보다 적으면 단가가 조정될 수 있습니다 / 다른 수량·컬러는 새로 견적을 요청해 주세요.
   - 엑셀 맨 위 'Valid Until' 줄·열 이름은 영문 그대로 (약관 부분만 한글).
-- **예전 견적 호환** (`normalizeQuote`): 판가는 그대로. 새 구간(300·500·800)의 이익율·정액은 기본값으로 채움(0% 방지),
+- **예전 견적 호환** (`normalizeQuote`): 판가는 그대로. 새 구간(300·500·700 — 10/5 개편 때는 800)의 이익율·정액은 기본값으로 채움(0% 방지),
+  예전 800YD 견적은 800YD 그대로 둠 (§1-D),
   새 구간을 켜면 단가 '—' + [현재 원가로 다시 계산] 안내. 아주 옛날(extraMargin) 견적은 구간 설정·별도 견적을 막음.
 - 시장 구분 전환·[현재 원가로 다시 계산]·복제 때 별도 견적 줄도 같이 다시 계산 (줄에 직접 넣은 정액은 같은 환율로 환산).
 - 저장: 기준 견적이나 별도 견적 중 하나만 있어도 저장. 기준 견적은 Article 순 정렬, 별도 견적은 넣은 순서 그대로.
@@ -454,8 +477,9 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 원단 리스트 | `src/components/fabric/DesktopFabricRow.jsx`, `MobileFabricCard.jsx` (memo 비교에 `costSettings` 포함) |
 | 견적 MCQ | `src/hooks/domains/useQuotation.js` — 100kg ÷ (G/YD × (1 + 가공 LOSS%)), 100YD 단위 올림, 자동값은 최소 300YD (원가 계산기 화면도 같은 값) |
 | 엑셀 업로드 칸 읽기 | `src/utils/excelIO.js` — `readFirstSheetRows`, `parseNumCell`, `parsePercentCell`, `parseYesCell`·`parseNoCell`, `parseCurrencyCell` |
-| 견적 구간·기본 마진 | `src/constants/quote.js` — `QUOTE_TIERS`(key·costKey·수량·묶음·기본 이익율/정액), `DEFAULT_SHOWN_TIERS` |
+| 견적 구간·기본 마진 | `src/constants/quote.js` — `QUOTE_TIERS`(key·costKey·수량·묶음·기본 이익율/정액), `DEFAULT_SHOWN_TIERS`, `RETIRED_QUOTE_TIERS`(예전 구간 — 800YD, `replacedBy: '700'`) |
 | 견적 계산 (순수 함수) | `src/utils/quoteModel.js` — `calcQuotePrice`, `calcCustomQuotePrice`, `computeBaseFromParts`, `normalizeQuote`, `getShownTiers`, `tierForQty`, `validateQuoteForExport`(출력 전 확인), `buildQuoteTerms`·`quotePriceBasis`·`quoteValidUntilLine`·`quoteTermsLang`(견적서 문구 — 내수는 약관만 한글) 등 |
+| 견적마다 구간 (예전 800YD 견적 보존) | `quoteModel.js` 1-A — `getQuoteTiers`·`getQuoteTierKeys`(그 견적의 구간), `usesRetiredTiers`·`getRetiredTiersInUse`(예전 견적 판단 — 견적서 표시·구간 이익율·YD당 정액에 800 값이 있고 700 값이 없음), `upgradeQuoteTiers`(다시 계산 전에 800 → 700 옮기기), `describeTierUpgrade`(안내 문구), `moveRetiredTierKeys`(원가 견적 이어받기) / `useQuotation.js` — 다시 계산·시장 전환·복제에서 upgrade, 구간 칸·버튼·원단 추가는 그 견적의 구간 / `QuotationPage.jsx` 안내 띠 |
 | 견적서 화면·출력 | `src/pages/QuotationPage.jsx`(기준/별도 칸) + `src/components/quote/QuoteParts.jsx`(공용 부품), `src/components/quote/PDFRenderer.jsx`(kind: standard/special), `src/hooks/domains/useQuoteExport.js` — `handleDownloadPDF`·`handleDownloadQuoteExcel(quote, kind)`(인쇄할 견적은 `pdfQuote`로 따로) |
 | 러닝 생지 견적 (계산) | `costModel.js` — `computeCostAtQty` 옵션 `greigeQty`(생지 짠 수량)·`colorQtys`(컬러별 수량), 결과 `running`(생지 짤 때 kg·편직비)·`dye.perColor`, `normalizeColorQtys` / `quoteModel.js` 4-A — `normalizeRunning`·`isRunningRow`·`customRowCostOpts`·`sumColorQtys`·`formatColorSplit`·`validateRunning`, 약관 `specialStated` |
 | 러닝 생지 견적 (창·줄) | `src/components/quote/RunningGreigeModal.jsx`(창), `QuoteParts.RunningGreigeBadge`(배지) / `useQuotation.js` — `previewRunningRow`(창 미리보기·비교·소량 추가분)·`handleSaveRunningRow`(넣기·고치기)·`handleReleaseRunningRow`(해제), `createCustomItem`(러닝 생지 조건 반영) / `QuotationPage.jsx` 버튼·줄 표시 / `QuoteHistoryPage.jsx` 목록 펼침 |
@@ -485,13 +509,16 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
   수입 원사 운반비도 이 함수 안에서 그 수량의 원사 kg로 구간을 고르므로 따로 손댈 것 없음 (결과 `importFreight.lines`).
 - **원가 표 구간 바꾸기**: `COST_DISPLAY_TIERS`(수량·묶음·컬러수·MCQ 가정)만 고치면 표·설정 미리보기가 같이 바뀜.
   같은 묶음끼리는 붙여 둘 것. `tier1k/3k/5k` key는 견적·원단 목록이 읽으므로 없애지 말 것.
+  **견적 구간까지 바꿀 때**(2026-10-21 800 → 700처럼): `QUOTE_TIERS`에 새 구간(새 key)을 넣고, 뺀 구간은 `RETIRED_QUOTE_TIERS`에
+  `replacedBy`(대신하는 새 key)와 함께 옮겨 둠 → 예전 견적은 그대로 보이고, 다시 계산할 때 새 구간으로 바뀜 (§1-D). 뺀 key는 다시 쓰지 말 것.
+  화면 안내 문구(원가 설정 ④·원가 견적 창·원가 표 아래)는 구간에서 만들어지므로 따로 고칠 것 없음.
 - **같은 수입사 원사 kg 합산**: 지금은 원사마다 따로 구간을 정한다. 한 원단에 같은 수입사 원사가 2개 이상 들어가
   한 번에 실어 오는 경우 kg를 합쳐 구간을 정하려면 `costAtQty`의 `lineFreight`를 공급처별로 묶으면 된다 (대표님 결정 필요).
 - **구간 경계 계단 (그대로 두기로 함)**: 편직 LOSS 구간(생지 kg)·수입 운반비 구간(원사 kg) 경계를 넘으면
   오더 총액이 오히려 줄어드는 지점이 있다 (검토 때 편직 LOSS 경계에서 최대 약 40만원, 수입 운반비 경계에서 약 49만원).
   대표님 결정(§1-C 3번): 수량이 많으면 싸지는 게 맞아서 그대로. 편직비 kg단가 구간만 '구간하한'으로 막혀 있음.
   나중에 막으려면 편직비처럼 '직전 구간 끝 금액'을 하한으로 두면 된다.
-- **1,000YD 미만 · MCQ 미만 견적** → 2026-10-05 견적서 개편으로 해결 (§5-B): 기준 견적 300·500·800YD 구간 + 별도 견적(수량·컬러 입력).
+- **1,000YD 미만 · MCQ 미만 견적** → 2026-10-05 견적서 개편으로 해결 (§5-B): 기준 견적 300·500·700YD 구간(처음엔 800YD — §1-D) + 별도 견적(수량·컬러 입력).
 - 설계서 변경 이력에는 가공 유형이 id(`span` 등)로 남는다 — 화면 표시 개선 여지.
 - **러닝 생지 견적 확장 여지** (§5-B): 생지 짠 수량을 kg로도 넣기(편직처 기록이 kg일 때), 생지 재고(남은 양) 관리와 연결,
   같은 원단 일반 줄·러닝 생지 줄을 나란히 두고 비교하기 — 지금은 창 안의 '기준원가 비교'로 봄 (같은 원단은 한 줄만 규칙).

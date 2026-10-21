@@ -7,7 +7,7 @@ import { COST_DISPLAY_TIERS, COST_TIER_GROUPS, DEFAULT_KNIT_GRADE_ID, DEFAULT_PR
 import { COST_WARNING_TITLE } from './CostWarnings';
 
 /**
- * 원가 분해 표 — 300·500·800YD(2컬러 기준) + 1,000·3,000·5,000YD(MCQ 충족 기준) 6구간 동시 표시.
+ * 원가 분해 표 — 300·500·700YD(2컬러 기준) + 1,000·3,000·5,000YD(MCQ 충족 기준) 6구간 동시 표시.
  * 원단 계산기 / 설계서 / 가설계서 공유. 계산식은 utils/costModel.js (docs/costing-model.md):
  * · 생지 kg = 가공지 kg × (1 + 가공 LOSS%) → 편직 LOSS% = 생지 kg 구간 → 원사 kg = 생지 kg × (1 + 편직 LOSS%)
  * · 재료비 = 원사 kg × 원사 단가,  편직비 = max(난이도 정액, 생지 kg × kg단가)

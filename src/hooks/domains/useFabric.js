@@ -244,7 +244,7 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
   //  두 함수는 원사 라이브러리·공통 환율(내수·수출)·원가 설정이 바뀔 때만 새로 만듦 (useCallback)
   //  → 계산기 원가(useMemo)·모바일 카드 등이 그 사이엔 다시 계산하지 않음 (계산식은 그대로)
 
-  // 원가 표용 구간 — 300·500·800YD(2컬러 기준) + 1,000·3,000·5,000YD(MCQ 충족 기준, tier1k/tier3k/tier5k)
+  // 원가 표용 구간 — 300·500·700YD(2컬러 기준) + 1,000·3,000·5,000YD(MCQ 충족 기준, tier1k/tier3k/tier5k)
   const calculateCost = useCallback((fabricData, overrideExchangeRate = null) =>
     calculateCostTiers(fabricData, makeCostCtx(yarnLibrary, exchangeRates, costSettings, overrideExchangeRate)),
   [yarnLibrary, exchangeRates, costSettings]);

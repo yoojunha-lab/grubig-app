@@ -1,7 +1,7 @@
 // GRUBIG ERP - 원단 원가 모델 (순수 함수 — React/Firestore 의존 없음)
 //
 // ■ 핵심: 수량(YD)을 넣으면 그 수량으로 오더 1건을 만들 때의 원가를 계산한다 → computeCostAtQty()
-//   원가 표는 300·500·800YD(2컬러 기준) + 1,000·3,000·5,000YD(MCQ 충족 기준)를 넣은 결과를 보여준다
+//   원가 표는 300·500·700YD(2컬러 기준) + 1,000·3,000·5,000YD(MCQ 충족 기준)를 넣은 결과를 보여준다
 //   → calculateCostTiers() (구간 정의는 constants/costing.js의 COST_DISPLAY_TIERS)
 //   나중에 임의 수량(예: 15,000YD) 칸을 만들 때도 computeCostAtQty 만 부르면 된다 (컬러수·MCQ 가정은 옵션).
 //
@@ -620,9 +620,9 @@ export const computeCostAtQty = (fabric, qty, ctx = {}, opts = {}) => {
 };
 
 /**
- * 원가 표용 구간(COST_DISPLAY_TIERS — 300·500·800·1,000·3,000·5,000YD) 계산.
+ * 원가 표용 구간(COST_DISPLAY_TIERS — 300·500·700·1,000·3,000·5,000YD) 계산.
  * 반환 모양은 기존 calculateCost와 같음 (tier1k/tier3k/tier5k 의 domestic/export — 견적·원단 목록이 읽음)
- * + 소량 구간 tier300/tier500/tier800 + 새 정보(kg 흐름·편직비 방식·이화학 컬러수·염색 청구 등).
+ * + 소량 구간 tier300/tier500/tier700 + 새 정보(kg 흐름·편직비 방식·이화학 컬러수·염색 청구 등).
  */
 export const calculateCostTiers = (fabric, ctx = {}) => {
   if (!fabric || !fabric.yarns) {

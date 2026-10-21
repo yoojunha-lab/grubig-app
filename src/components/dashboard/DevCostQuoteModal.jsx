@@ -38,6 +38,10 @@ const groupEdge = (i) => (i > 0 && QUOTE_TIERS[i - 1].group !== QUOTE_TIERS[i].g
 const tierGroups = QUOTE_TIER_GROUPS
   .map(g => ({ ...g, count: QUOTE_TIERS.filter(t => t.group === g.key).length }))
   .filter(g => g.count > 0);
+// 묶음 안내 문구 — 구간에서 바로 만듦 (구간이 바뀌어도 글자가 어긋나지 않게 — 2026-10-21 800 → 700YD): '300~700YD' / '1,000YD'
+const SMALL_TIERS = QUOTE_TIERS.filter(t => t.group === 'small');
+const SMALL_RANGE = SMALL_TIERS.length ? `${num(SMALL_TIERS[0].qty)}~${num(SMALL_TIERS[SMALL_TIERS.length - 1].qty)}YD` : '';
+const MCQ_FROM = `${num(Math.min(...QUOTE_TIERS.filter(t => t.group === 'mcq').map(t => t.qty)))}YD`;
 
 export const DevCostQuoteModal = ({
   devReq,
@@ -497,7 +501,7 @@ const PricePreview = ({ item, preview, form, currency, sym, rate, isExport, targ
     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px]">
       <span className="text-slate-500">
         MCQ (컬러당) <b className="font-mono text-orange-600">{num(item?.mcqYd || 0)} YD</b>
-        <span className="text-slate-400"> · 300~800YD는 2컬러까지(소량 염색비 포함), 1,000YD 이상은 컬러마다 MCQ 기준</span>
+        <span className="text-slate-400"> · {SMALL_RANGE}는 2컬러까지(소량 염색비 포함), {MCQ_FROM} 이상은 컬러마다 MCQ 기준</span>
       </span>
       {targetPrice && (
         <span className="font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-0.5">

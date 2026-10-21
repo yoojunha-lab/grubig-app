@@ -75,14 +75,15 @@ export const DEFAULT_COST_SETTINGS = {
 
 // 원가 표에 보여주는 기준 수량 6구간 (대표님 지정, 2026-10-02). 계산 자체는 임의 수량 함수
 // (computeCostAtQty)라 수량·컬러 가정만 바꾸면 됨.
-//  · group 'small' (300·500·800YD): 2컬러로 나눠 염색한다고 봄 → 컬러당 염색 최소 청구 적용, 이화학도 2컬러
+//  · group 'small' (300·500·700YD): 2컬러로 나눠 염색한다고 봄 → 컬러당 염색 최소 청구 적용, 이화학도 2컬러
+//    (2026-10-21 대표님 지정: 800YD → 700YD. 견적 구간도 같이 — constants/quote.js)
 //  · group 'mcq'  (1,000·3,000·5,000YD): 컬러마다 MCQ를 맞췄다고 봄(assumeMcq) → 염색 최소 청구 없음,
 //    이화학은 원가 설정의 수량 구간 컬러수
 //  · key tier1k/3k/5k는 견적(basePrice1k/3k/5k)·원단 목록·설계서 화면이 읽는 기존 키 그대로 유지
 export const COST_DISPLAY_TIERS = [
   { key: 'tier300', label: '300 YD', qty: 300, group: 'small', colors: 2 },
   { key: 'tier500', label: '500 YD', qty: 500, group: 'small', colors: 2 },
-  { key: 'tier800', label: '800 YD', qty: 800, group: 'small', colors: 2 },
+  { key: 'tier700', label: '700 YD', qty: 700, group: 'small', colors: 2 },
   { key: 'tier1k', label: '1,000 YD', qty: 1000, group: 'mcq', assumeMcq: true },
   { key: 'tier3k', label: '3,000 YD', qty: 3000, group: 'mcq', assumeMcq: true, main: true },
   { key: 'tier5k', label: '5,000 YD', qty: 5000, group: 'mcq', assumeMcq: true },

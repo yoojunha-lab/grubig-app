@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import {
   FileText, Save, X, Plus, FilePlus, DollarSign, ArrowLeft, RefreshCw, Tags, Calculator, Copy, Trash2,
-  RotateCcw, AlertTriangle, Warehouse, Pencil,
+  RotateCcw, AlertTriangle, Warehouse, Pencil, Info,
 } from 'lucide-react';
 import { PartnerSelectField } from '../components/common/PartnerSelectField';
 import { num, usd, roundUsd, QUOTE_VALIDITY_OPTIONS, rateForMarket, rateLabel } from '../utils/helpers';
-import { QUOTE_TIERS, QUOTE_TIER_GROUPS } from '../constants/quote';
+import { QUOTE_TIER_GROUPS } from '../constants/quote';
 import {
   calcQuotePrice, formatQuotePrice, getBasePrice, getItemTierRate, getShownTiers, isNewMarginModel,
   calcCustomQuotePrice, getCustomRowRate, getCustomRowAddRaw, getMarginAddCurrency, toQuoteCurrencyAdd, quoteMarket,
-  normalizeRunning, formatColorSplit,
+  normalizeRunning, formatColorSplit, getQuoteTiers, describeTierUpgrade,
 } from '../utils/quoteModel';
 import { FabricPickerModal } from '../components/quote/FabricPickerModal';
 import { RunningGreigeModal } from '../components/quote/RunningGreigeModal';
@@ -30,6 +30,8 @@ import { DEV_QUOTE_SOURCE } from '../utils/devQuoteModel';
 //  · 원단 추가는 두 칸이 같은 방식: [원단 검색·추가] 팝업 + 표 아래 Article 입력(Enter)·엑셀 세로 복붙, 같은 원단은 한 줄만
 //  · 두 칸은 머리줄을 눌러 접고 펴기, PDF·엑셀은 칸마다 따로 (기준 견적서 / 별도 견적서)
 //  · 팝업(원단 검색·러닝 생지 견적)은 화면의 space-y 칸 밖에 둠 (팝업 규약 — 안에 두면 위 여백이 붙어 맨 위 띠가 안 덮임)
+//  · 구간은 그 견적의 구간 (2026-10-21 800YD → 700YD): 예전 800YD 견적은 800YD 그대로 보이고 안내 띠를 띄움 —
+//    [현재 원가로 다시 계산]하면 700YD로 바뀜 (utils/quoteModel.js getQuoteTiers · upgradeQuoteTiers)
 // ============================================================
 
 export const QuotationPage = ({
@@ -81,6 +83,9 @@ export const QuotationPage = ({
   const hasAnyRows = items.length > 0 || customItems.length > 0;
   // 아주 옛날(추가 마크업) 견적 — 가격 보존을 위해 구간 설정·별도 견적은 막음
   const isLegacy = items.length > 0 && !isNewMarginModel(quoteInput);
+  // 이 견적의 구간 — 지금 구간, 예전 800YD 견적은 700YD 자리에 800YD (다시 계산하면 700YD로 바뀜)
+  const quoteTiers = getQuoteTiers(quoteInput);
+  const tierUpgrade = describeTierUpgrade(quoteInput);   // 예: '800YD → 700YD' (예전 구간 견적일 때만)
   const shownTiers = getShownTiers(quoteInput);
   const shownKeys = shownTiers.map(t => t.key);
 
@@ -217,6 +222,16 @@ export const QuotationPage = ({
           </div>
         ) : (
           <>
+            {/* 예전 구간 견적 (2026-10-21 800YD → 700YD) — 보낸 그대로 보존, 다시 계산하면 지금 구간으로 */}
+            {tierUpgrade && (
+              <div className="flex items-start gap-2 bg-sky-50 border border-sky-200 text-sky-800 rounded-lg px-3 py-2 text-xs">
+                <Info className="w-4 h-4 shrink-0 mt-px" />
+                <span>
+                  <b>예전 구간으로 만든 견적이에요 ({tierUpgrade}).</b> 바이어에게 보낸 그대로 보여요.
+                  {' '}[현재 원가로 다시 계산]을 누르면 지금 구간으로 바뀌어요 — 이익율·정액·견적서 표시는 그대로 옮겨요.
+                </span>
+              </div>
+            )}
             {/* 구간 설정: 견적서 표시 · 매출이익율 · YD당 정액 */}
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
@@ -231,7 +246,7 @@ export const QuotationPage = ({
                     <tr className="bg-slate-50 text-[10px] font-bold">
                       <th className="w-32 border-b border-slate-200"></th>
                       {QUOTE_TIER_GROUPS.map(g => (
-                        <th key={g.key} colSpan={QUOTE_TIERS.filter(t => t.group === g.key).length} title={g.hint}
+                        <th key={g.key} colSpan={quoteTiers.filter(t => t.group === g.key).length} title={g.hint}
                           className={`py-1 border-b border-l border-slate-200 ${g.key === 'mcq' ? 'text-blue-600' : 'text-amber-700'}`}>
                           {g.label} <span className="font-medium text-slate-400">· {g.hint}</span>
                         </th>
@@ -239,18 +254,18 @@ export const QuotationPage = ({
                     </tr>
                     <tr className="bg-slate-50">
                       <th className="text-left px-3 py-1.5 text-slate-500 font-bold border-b border-slate-200">구간</th>
-                      {QUOTE_TIERS.map((t, i) => (
-                        <th key={t.key} className={`px-2 py-1.5 text-center font-extrabold border-b border-slate-200 ${i > 0 && QUOTE_TIERS[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${t.main ? 'text-indigo-700' : 'text-slate-700'}`}>{t.label}</th>
+                      {quoteTiers.map((t, i) => (
+                        <th key={t.key} className={`px-2 py-1.5 text-center font-extrabold border-b border-slate-200 ${i > 0 && quoteTiers[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${t.main ? 'text-indigo-700' : 'text-slate-700'}`}>{t.label}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     <tr>
                       <td className="px-3 py-1.5 font-bold text-slate-600 border-b border-slate-100">견적서 표시</td>
-                      {QUOTE_TIERS.map((t, i) => {
+                      {quoteTiers.map((t, i) => {
                         const on = shownKeys.includes(t.key);
                         return (
-                          <td key={t.key} className={`text-center py-1.5 border-b border-slate-100 ${i > 0 && QUOTE_TIERS[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${on ? 'bg-indigo-50/60' : ''}`}>
+                          <td key={t.key} className={`text-center py-1.5 border-b border-slate-100 ${i > 0 && quoteTiers[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${on ? 'bg-indigo-50/60' : ''}`}>
                             <label className="inline-flex items-center gap-1 cursor-pointer select-none">
                               <input type="checkbox" checked={on} onChange={() => handleToggleShownTier(t.key)} className="w-4 h-4 accent-indigo-600" />
                               <span className={`text-[10px] font-bold ${on ? 'text-indigo-700' : 'text-slate-400'}`}>{on ? '표시' : '숨김'}</span>
@@ -261,8 +276,8 @@ export const QuotationPage = ({
                     </tr>
                     <tr>
                       <td className="px-3 py-1.5 font-bold text-indigo-600 border-b border-slate-100">매출이익율 (%)</td>
-                      {QUOTE_TIERS.map((t, i) => (
-                        <td key={t.key} className={`px-1.5 py-1 border-b border-slate-100 ${i > 0 && QUOTE_TIERS[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${shownKeys.includes(t.key) ? 'bg-indigo-50/60' : ''}`}>
+                      {quoteTiers.map((t, i) => (
+                        <td key={t.key} className={`px-1.5 py-1 border-b border-slate-100 ${i > 0 && quoteTiers[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${shownKeys.includes(t.key) ? 'bg-indigo-50/60' : ''}`}>
                           <div className="relative">
                             <DraftNumberInput step="any" value={tierValue(quoteInput.bulkMarginRate, t.key)} onValue={(v) => handleBulkMarginRateChange(t.key, v)}
                               title="모든 품목의 이 구간 이익율을 한 번에 바꿔요 (품목마다 따로 바꾼 값도 덮어씀)"
@@ -278,8 +293,8 @@ export const QuotationPage = ({
                         {showAddUsd && <span className="block text-[9px] font-semibold text-slate-400">견적 환율 ￦{num(quoteRate)}로 $ 환산</span>}
                         {addBasis === 'USD' && <span className="block text-[9px] font-semibold text-amber-600">예전 수출 견적 — $로 적혀 있음</span>}
                       </td>
-                      {QUOTE_TIERS.map((t, i) => (
-                        <td key={t.key} className={`px-1.5 py-1 ${i > 0 && QUOTE_TIERS[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${shownKeys.includes(t.key) ? 'bg-indigo-50/60' : ''}`}>
+                      {quoteTiers.map((t, i) => (
+                        <td key={t.key} className={`px-1.5 py-1 ${i > 0 && quoteTiers[i - 1].group !== t.group ? 'border-l-2 border-l-slate-300' : 'border-l border-slate-100'} ${shownKeys.includes(t.key) ? 'bg-indigo-50/60' : ''}`}>
                           <DraftNumberInput step="any" value={tierValue(quoteInput.marginAdd, t.key)} onValue={(v) => handleQuoteMarginChange('add', t.key, v)}
                             className="w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-right text-xs font-bold text-slate-700 outline-none focus:border-indigo-400" placeholder="0" />
                           {showAddUsd && <div className="text-[9px] text-slate-400 text-right mt-0.5">{addInUsd(quoteInput.marginAdd?.[t.key])}</div>}
