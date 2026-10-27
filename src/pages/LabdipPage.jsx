@@ -7,7 +7,7 @@ import { StageChip, DueLine, NewLabdipMenu } from '../components/labdip/LabdipPa
 import { todayLocalISO, formatMonthDay } from '../utils/helpers';
 import {
   normalizeLabdip, labdipTabKeys, labdipTiming, labdipSearchText, realColors, colorStage, currentRound, isFinishedStage,
-  dueBadge, nextLdNo, buildBuyerSheet, buildFactorySheet, factoryPrintColorIds, isAllDropped,
+  dueBadge, nextLdNo, buildBuyerSheet, buildFactorySheet, factoryPrintColorIds, buyerReprint, isAllDropped,
   LD_TABS, LD_STAGES, LD_STAGE_ORDER, WAITING_WARN_DAYS,
 } from '../utils/labdipModel';
 
@@ -171,6 +171,11 @@ export const LabdipPage = ({
     onPrint(buildFactorySheet(doc, colorIds || factoryPrintColorIds(doc), { author: doc.authorName || userName }));
   };
   const printBuyer = (colorIds, date) => onPrint(buildBuyerSheet(labdipInput, colorIds, date));
+  // 바이어 시트 다시 인쇄 — 공장 번호가 있는 컬러 모두 (보낸 · 컨펌 · 예전 기록), 발송 기록은 안 바뀜
+  const reprintBuyer = () => {
+    const { colorIds, date } = buyerReprint(labdipInput, today);
+    printBuyer(colorIds, date);
+  };
 
   // ── 컬러 칸 진행 버튼 (확인 후 바로 저장) ──
   const askStepBack = (c, text) => {
@@ -332,7 +337,7 @@ export const LabdipPage = ({
                 savedFabrics={savedFabrics} yarnLibrary={yarnLibrary} dyeingFactories={dyeingFactories}
                 partners={partners} savePartner={savePartner} deletePartner={deletePartner} makeEmptyPartner={makeEmptyPartner}
                 onOpenFactoryMaster={onOpenFactoryMaster}
-                onSave={handleSave} onClose={backToList} onPrintFactory={() => printFactory()}
+                onSave={handleSave} onClose={backToList} onPrintFactory={() => printFactory()} onPrintBuyer={reprintBuyer}
                 onDuplicate={() => duplicate(editingLabdipId)} onDelete={() => remove(editingLabdipId)}
                 onArrival={() => setDialog('arrival')} onSend={() => setDialog('send')}
                 onResult={() => setDialog('result')} onRedip={() => setDialog('redip')}

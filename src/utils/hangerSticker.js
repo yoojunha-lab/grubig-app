@@ -1,4 +1,4 @@
-import { calculateGYd, compareArticle } from './helpers';
+import { calculateGYd, compareArticle, fabricYarnEntries } from './helpers';
 
 // ============================================================
 // GRUBIG ERP - 헹거 스티커 (기타 ▾ 헹거 스티커) — 칸 계산 · 저장 모양 (대표님 요청 2026-10-14)
@@ -155,13 +155,8 @@ export const stickerCellValues = (sticker, fabric) => {
 };
 
 /** 아이템 원사 혼용률 (CONTENT 칸 아래 참고용) — 예: 'MERINO 2/48 87% · NYLON 20D 13%' */
-export const fabricYarnHint = (fabric, yarnLibrary = []) => (fabric?.yarns || [])
-  .filter(y => y?.yarnId && Number(y.ratio) > 0)
-  .map(y => {
-    const realId = String(y.yarnId).split('::')[0];
-    const yarn = (yarnLibrary || []).find(yl => String(yl.id) === realId);
-    return `${yarn?.name || y.tempName || '미등록 원사'} ${y.ratio}%`;
-  })
+export const fabricYarnHint = (fabric, yarnLibrary = []) => fabricYarnEntries(fabric, yarnLibrary)
+  .map(e => `${e.yarn?.name || e.tempName || '미등록 원사'} ${e.ratio}%`)
   .join(' · ');
 
 /** QR 칸 — EZ-TEX 번호만 넣으면 주소로 (5542 → https://eztexerp.com/erp/qr/5542). 주소·다른 글자는 그대로 */

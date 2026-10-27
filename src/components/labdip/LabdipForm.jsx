@@ -13,7 +13,7 @@ import {
 
 // ============================================================
 // LAB-DIP 작성 화면 (오른쪽) — 대표님 요청 2026-10-27
-//  머리: L/D NO. · 의뢰 방식 · [공장 의뢰서] [복제] [삭제] [저장] [닫기]
+//  머리: L/D NO. · 의뢰 방식 · [공장 의뢰서] [바이어 시트](다시 인쇄) [복제] [삭제] [저장] [닫기]
 //  진행 상황 (저장된 L/D만): 공장 진행중 → [L/D 도착] / 도착 → [바이어 발송] / 컨펌대기 → [결과 넣기] / 리젝 → [2차 의뢰]
 //                          진행 버튼은 누르면 바로 저장
 //  기본 정보: L/D NO.(저장할 때 자동) · 의뢰 방식 · EZ-TEX 번호 · 바이어 · 공장 · 의뢰일 · 공장 납기 · 바이어 납기
@@ -46,7 +46,7 @@ export const LabdipForm = ({
   ld, setLd, isSaved, dirty, busy, nextNo, labdips = [], editingId,
   savedFabrics = [], yarnLibrary = [], dyeingFactories = [],
   partners = [], savePartner, deletePartner, makeEmptyPartner, onOpenFactoryMaster,
-  onSave, onClose, onPrintFactory, onDuplicate, onDelete,
+  onSave, onClose, onPrintFactory, onPrintBuyer, onDuplicate, onDelete,
   onArrival, onSend, onResult, onRedip, onStepBack, onDropColor, onDropOpen, onRestoreDropped, onReopenLegacy,
 }) => {
   const patch = (fields) => setLd(prev => ({ ...prev, ...fields }));
@@ -137,6 +137,12 @@ export const LabdipForm = ({
             <button type="button" onClick={onPrintFactory} disabled={busy} title="공장 진행중인 컬러로 의뢰서를 인쇄해요 (저장 안 한 변경은 먼저 저장)"
               className="bg-white border border-teal-300 text-teal-700 px-3 py-2 rounded-lg hover:bg-teal-50 flex items-center gap-1.5 text-sm font-bold disabled:opacity-50">
               <Printer className="w-4 h-4" /> 공장 의뢰서
+            </button>
+          )}
+          {isSaved && (
+            <button type="button" onClick={onPrintBuyer} title="공장 번호가 있는 컬러로 바이어 시트를 다시 인쇄해요 (보낸 · 컨펌 · 예전 기록 포함 — 발송 기록은 안 바뀜)"
+              className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-100 flex items-center gap-1.5 text-sm font-bold">
+              <Printer className="w-4 h-4" /> 바이어 시트
             </button>
           )}
           {isSaved && (

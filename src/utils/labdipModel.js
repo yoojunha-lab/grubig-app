@@ -1,4 +1,5 @@
-import { todayLocalISO } from './helpers';
+import { todayLocalISO, fabricYarnEntries } from './helpers';
+import { diffDaysYmd, isYmd } from './orderCalculations';
 import { DONE_TONE } from '../constants/production';
 
 // ============================================================
@@ -71,7 +72,6 @@ const clampInt = (v, min, max, fallback) => {
 };
 let localSeq = 0;
 const newLocalId = (prefix) => `${prefix}_${Date.now()}_${(localSeq++).toString(36)}${Math.floor(Math.random() * 1000)}`;
-export const newLabdipId = () => `labdip_${Date.now()}`;
 
 // ── 낱장 글자 ─────────────────────────────────────────────────
 /** 낱장 수 → 글자 (3 → A B C, 시작 3이면 D E F) */
@@ -283,16 +283,8 @@ export const roundRequestDate = (round, ld) => (round?.no > 1 ? str(round.reques
 export const roundFactoryDue = (round, ld) => (round?.no > 1 ? str(round.factoryDue) : str(round?.factoryDue) || str(ld?.factoryDue));
 
 // ── 날짜 · 납기 ───────────────────────────────────────────────
-const ymdToUtc = (ymd) => {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str(ymd));
-  return m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
-};
-/** from → to 며칠 ('YYYY-MM-DD' 둘 중 하나라도 없으면 null) */
-export const daysFromTo = (from, to) => {
-  const a = ymdToUtc(from);
-  const b = ymdToUtc(to);
-  return a === null || b === null ? null : Math.round((b - a) / 86400000);
-};
+/** from → to 며칠 ('YYYY-MM-DD' 둘 중 하나라도 없으면 null — 생산 현황과 같은 diffDaysYmd) */
+export const daysFromTo = (from, to) => (isYmd(from) && isYmd(to) ? diffDaysYmd(from, to) : null);
 
 /** 납기 배지 — { text: 'D-3' | 'D-day' | '2일 지남', tone: 'late' | 'soon' | 'ok' } (날짜가 없으면 null) */
 export const dueBadge = (due, today = todayLocalISO()) => {
@@ -320,7 +312,7 @@ export const labdipTiming = (ld, today = todayLocalISO()) => {
     factoryDue: factoryDues[0] || '',
     buyerDue: notSent ? str(ld?.buyerDue) : '',
     waitingSince: sent[0] || '',
-    waitingDays: sent[0] ? daysFromTo(sent[0], today) : null,
+    waitingDays: sent[0] ? Math.max(0, daysFromTo(sent[0], today) ?? 0) : null, // 발송일을 앞날로 적어도 '보낸 지 0일'
     doneDate: ends[ends.length - 1] || '',
   };
 };
@@ -357,13 +349,8 @@ const WOOL_CODE_RE = /(^|[^A-Z0-9])(W|WO)(?=[^A-Z0-9]|$)/i;  // ITEM NAME 혼용
 const WOOL_CATEGORIES = ['소모', '방모'];
 
 /** 원단의 원사 — [{ name, category, ratio }] (혼용률 있는 칸만) */
-export const fabricYarnList = (fabric, yarnLibrary = []) => (fabric?.yarns || [])
-  .filter(y => y?.yarnId && Number(y.ratio) > 0)
-  .map(y => {
-    const realId = String(y.yarnId).split('::')[0];
-    const yarn = (yarnLibrary || []).find(yl => String(yl.id) === realId);
-    return { name: str(yarn?.name || y.tempName).trim(), category: str(yarn?.category), ratio: Number(y.ratio) };
-  })
+export const fabricYarnList = (fabric, yarnLibrary = []) => fabricYarnEntries(fabric, yarnLibrary)
+  .map(e => ({ name: str(e.yarn?.name || e.tempName).trim(), category: str(e.yarn?.category), ratio: Number(e.ratio) }))
   .filter(y => y.name || y.category);
 
 /**
@@ -486,8 +473,14 @@ export const validateLabdip = (clean, { labdips = [], selfId = '' } = {}) => {
   if (!clean.colors.length) return '컬러를 하나 이상 넣어 주세요. (컬러명 또는 PANTONE)';
   const owner = clean.ldNo ? findLdNoOwner(labdips, clean.ldNo, selfId) : null;
   if (owner) return `이미 있는 L/D NO.예요: ${clean.ldNo} (${owner.buyerName || '바이어 미입력'} · ${owner.article || '-'}). 다른 번호를 넣어 주세요.`;
+  // [기록]에서 결과를 '컨펌'으로 고칠 때도 낱장은 꼭 (벌크 염색 기준이라 — 결과 넣기 창과 같은 규칙)
+  const noLetter = clean.colors.filter(c => c.rounds.some(r => r.result === 'confirm' && !r.confirmedLetter));
+  if (noLetter.length) return `컨펌한 낱장을 골라 주세요 — ${noLetter.map(c => c.name || c.pantone).join(', ')} (컬러 칸 [기록])`;
   return '';
 };
+
+/** 새 L/D 문서 id — L/D NO.로 만들어서, 두 PC가 같은 번호로 동시에 만들면 저장소에서 막힘 (createDocument) */
+export const ldDocId = (ldNo) => `labdip_${normalizeLdNo(ldNo).replace(/[^A-Z0-9_-]/g, '_')}`;
 
 // ── 진행 (도착 · 발송 · 결과 · 2차 의뢰 · Drop · 되돌리기) — 새 모양을 돌려줌 ──
 const patchCurrentRound = (c, fields) => {
@@ -625,6 +618,16 @@ export const buildBuyerSheet = (ld, colorIds, date) => ({
     return { id: c.id, name: str(c.name).trim(), comment: str(c.comment).trim(), factoryNo: str(r.factoryNo).trim(), letters: roundLetters(r) };
   }),
 });
+
+/**
+ * 바이어 시트 다시 인쇄 (머리 [바이어 시트]) — 공장 번호가 있는 컬러 모두 (보낸 · 컨펌 · 예전 기록 포함, Drop 빼고)
+ *  DATE = 그 컬러들 중 가장 늦은 발송일 (아직 안 보냈으면 오늘)
+ */
+export const buyerReprint = (ld, today = todayLocalISO()) => {
+  const colors = pickColors(ld, null).filter(c => str(currentRound(c).factoryNo).trim());
+  const sent = colors.map(c => str(currentRound(c).sentDate)).filter(Boolean).sort();
+  return { colorIds: colors.map(c => c.id), date: sent[sent.length - 1] || today };
+};
 
 /** 공장 의뢰서에 넣을 컬러 — 지금 공장 진행중인 컬러, 없으면 Drop 안 한 컬러 모두 (다시 인쇄) */
 export const factoryPrintColorIds = (ld) => {

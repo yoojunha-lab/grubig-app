@@ -7,7 +7,7 @@ import {
 import { onSnapshot, collection, doc, setDoc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { onAuthStateChanged, signOut, signInWithPopup, signInWithEmailAndPassword } from "firebase/auth";
 import { db, auth, googleProvider } from '../services/firebase';
-import { saveDocument, deleteDocument, saveBatchDocuments, updateYarnCategoryBatch } from '../services/db';
+import { saveDocument, createDocument, deleteDocument, saveBatchDocuments, updateYarnCategoryBatch } from '../services/db';
 
 // ⚙️ 공통 상수 & 유틸리티 연동
 import { ALLOWED_DOMAIN, DEFAULT_YARN_CATEGORIES } from '../constants/common';
@@ -358,6 +358,20 @@ const App = () => {
     try { await saveDocument(colName, item); setSyncStatus('saved'); return true; }
     catch (e) { setSyncStatus('error'); showToast(`저장 실패: ${e?.message || '네트워크 오류'}`, "error"); return false; }
   };
+  // 새 문서 만들기 — 같은 id가 이미 있으면 만들지 않고 'exists' (두 PC가 같은 L/D NO.로 동시에 저장할 때). 성공 true / 실패 false
+  const createDocInCloud = async (colName, item) => {
+    if (DEV_BYPASS) return saveDocToCloud(colName, item);
+    setSyncStatus('syncing');
+    try {
+      const created = await createDocument(colName, item);
+      setSyncStatus('saved');
+      return created ? true : 'exists';
+    } catch (e) {
+      setSyncStatus('error');
+      showToast(`저장 실패: ${e?.message || '네트워크 오류'}`, "error");
+      return false;
+    }
+  };
   // 성공 시 true / 실패 시 false 반환 — 호출자가 삭제 성공 여부에 따라 후처리(성공 토스트 등)를 분기할 수 있도록 함
   const deleteDocFromCloud = async (colName, id) => {
     if (DEV_BYPASS) {
@@ -643,7 +657,7 @@ const App = () => {
   } = useProformaInvoice(proformaInvoices, saveDocToCloud, deleteDocFromCloud, showToast, user);
 
   // ⚓️ 생산 ▾ LAB-DIP 훅 — 공장 의뢰 · L/D 도착 · 바이어 발송 · 결과 · 2차 의뢰 (LabdipPage에 통째로 넘김)
-  const labdipHook = useLabdip(labdips, saveDocToCloud, deleteDocFromCloud, showToast, user);
+  const labdipHook = useLabdip(labdips, saveDocToCloud, createDocInCloud, deleteDocFromCloud, showToast, user);
 
   // ⚓️ 생산 ▾ 계산기 — 선염 계산 (스트라이프 원사 배분 · 멜란지 수량 비율) 저장·불러오기
   const {

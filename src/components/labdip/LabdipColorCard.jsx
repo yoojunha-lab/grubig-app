@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { Trash2, History, Undo2, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
-import { StageChip } from './LabdipParts';
+import { StageChip, LettersSelect, StartLetterSelect, ldInputCls as inputCls, ldSmallCls } from './LabdipParts';
 import { formatMonthDay, todayLocalISO } from '../../utils/helpers';
 import {
-  currentRound, colorStage, isBlankColor, isFinishedStage, roundNoText, roundLetters, letterOf, letterRangeText,
+  currentRound, colorStage, isBlankColor, isFinishedStage, roundNoText, roundLetters, letterRangeText,
   arrivalStartIdx, roundRequestDate, roundFactoryDue, dueBadge, daysFromTo, stepBackText,
-  LD_LETTERS_PICK, SENT_METHODS, WAITING_WARN_DAYS,
+  SENT_METHODS, WAITING_WARN_DAYS,
 } from '../../utils/labdipModel';
 
 // ============================================================
@@ -17,8 +17,6 @@ import {
 //  ⚠️ 모듈 레벨 컴포넌트 — 화면 컴포넌트 안에 두면 글자 칠 때마다 다시 만들어져 입력 칸 포커스가 사라짐
 // ============================================================
 
-const inputCls = 'w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none bg-white';
-const miniCls = 'border border-slate-200 rounded-md px-1.5 py-1 text-[11px] focus:ring-2 focus:ring-teal-500 outline-none bg-white';
 const md = (ymd) => formatMonthDay(ymd) || '-';
 
 /** 지금 단계 설명 한 줄 */
@@ -68,44 +66,40 @@ const RoundEditor = ({ c, ld, r, idx, onPatchRound }) => {
           ? <span className="text-slate-500">{md(roundRequestDate(r, ld))} · 납기 {md(roundFactoryDue(r, ld))} <span className="text-slate-400">(1차는 위 '의뢰일 · 공장 납기')</span></span>
           : (
             <>
-              <input type="date" value={r.requestDate || ''} onChange={e => set({ requestDate: e.target.value })} className={miniCls} title="의뢰일" />
+              <input type="date" value={r.requestDate || ''} onChange={e => set({ requestDate: e.target.value })} className={ldSmallCls} title="의뢰일" />
               <span className="text-slate-400 font-bold">납기</span>
-              <input type="date" value={r.factoryDue || ''} onChange={e => set({ factoryDue: e.target.value })} className={miniCls} title="공장 납기" />
-              <input value={r.requestNote || ''} onChange={e => set({ requestNote: e.target.value })} placeholder="공장에 전할 말" className={`${miniCls} flex-1 min-w-[140px]`} />
+              <input type="date" value={r.factoryDue || ''} onChange={e => set({ factoryDue: e.target.value })} className={ldSmallCls} title="공장 납기" />
+              <input value={r.requestNote || ''} onChange={e => set({ requestNote: e.target.value })} placeholder="공장에 전할 말" className={`${ldSmallCls} flex-1 min-w-[140px]`} />
             </>
           )}
       </div>
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
         <span className="text-slate-400 font-bold">공장 번호</span>
-        <input value={r.factoryNo || ''} onChange={e => set({ factoryNo: e.target.value })} className={`${miniCls} w-24 font-mono font-bold uppercase`} />
-        <select value={r.letters} onChange={e => set({ letters: Number(e.target.value) })} className={miniCls} title="낱장 수">
-          {Array.from({ length: Math.max(LD_LETTERS_PICK, r.letters) }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}장</option>)}
-        </select>
-        <select value={r.startIdx} onChange={e => set({ startIdx: Number(e.target.value) })} className={miniCls} title="첫 낱장 글자">
-          {Array.from({ length: 26 }, (_, i) => i).map(i => <option key={i} value={i}>{letterOf(i)}부터</option>)}
-        </select>
+        <input value={r.factoryNo || ''} onChange={e => set({ factoryNo: e.target.value })} className={`${ldSmallCls} w-24 font-mono font-bold uppercase`} />
+        <LettersSelect value={r.letters} onChange={v => set({ letters: v })} className={ldSmallCls} label={n => `${n}장`} />
+        <StartLetterSelect value={r.startIdx} onChange={v => set({ startIdx: v })} className={ldSmallCls} />
         <span className="font-mono font-bold text-teal-700">{letterRangeText(r)}</span>
         <span className="text-slate-400 font-bold ml-2">도착</span>
-        <input type="date" value={r.receivedDate || ''} onChange={e => set({ receivedDate: e.target.value })} className={miniCls} />
+        <input type="date" value={r.receivedDate || ''} onChange={e => set({ receivedDate: e.target.value })} className={ldSmallCls} />
         <span className="text-slate-400 font-bold ml-2">발송</span>
-        <input type="date" value={r.sentDate || ''} onChange={e => set({ sentDate: e.target.value })} className={miniCls} />
-        <input value={r.sentMethod || ''} onChange={e => set({ sentMethod: e.target.value })} list="labdip-sent-methods-edit" placeholder="방법" className={`${miniCls} w-20`} />
+        <input type="date" value={r.sentDate || ''} onChange={e => set({ sentDate: e.target.value })} className={ldSmallCls} />
+        <input value={r.sentMethod || ''} onChange={e => set({ sentMethod: e.target.value })} list="labdip-sent-methods-edit" placeholder="방법" className={`${ldSmallCls} w-20`} />
       </div>
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
         <span className="text-slate-400 font-bold">결과</span>
-        <select value={r.result || ''} onChange={e => set({ result: e.target.value, ...(e.target.value ? {} : { confirmedLetter: '' }) })} className={miniCls}>
+        <select value={r.result || ''} onChange={e => set({ result: e.target.value, ...(e.target.value ? {} : { confirmedLetter: '' }) })} className={ldSmallCls}>
           <option value="">아직 없음</option>
           <option value="confirm">컨펌</option>
           <option value="reject">리젝</option>
         </select>
         {r.result === 'confirm' && (
-          <select value={r.confirmedLetter || ''} onChange={e => set({ confirmedLetter: e.target.value })} className={miniCls} title="컨펌한 낱장">
+          <select value={r.confirmedLetter || ''} onChange={e => set({ confirmedLetter: e.target.value })} className={ldSmallCls} title="컨펌한 낱장">
             <option value="">낱장?</option>
             {letters.map(L => <option key={L} value={L}>&quot;{L}&quot;</option>)}
           </select>
         )}
-        {r.result && <input type="date" value={r.resultDate || ''} onChange={e => set({ resultDate: e.target.value })} className={miniCls} title="결과일" />}
-        <input value={r.buyerComment || ''} onChange={e => set({ buyerComment: e.target.value })} placeholder="바이어 코멘트" className={`${miniCls} flex-1 min-w-[140px]`} />
+        {r.result && <input type="date" value={r.resultDate || ''} onChange={e => set({ resultDate: e.target.value })} className={ldSmallCls} title="결과일" />}
+        <input value={r.buyerComment || ''} onChange={e => set({ buyerComment: e.target.value })} placeholder="바이어 코멘트" className={`${ldSmallCls} flex-1 min-w-[140px]`} />
       </div>
     </div>
   );
@@ -126,7 +120,11 @@ export const LabdipColorCard = ({
   const preview = roundNoText(r);
 
   // 공장 번호를 칸에 바로 넣기 — 2차부터는 앞 차수와 같은 번호면 글자를 이어서
-  const changeNo = (value) => onPatchRound(c.id, rIdx, r.no > 1 ? { factoryNo: value, startIdx: arrivalStartIdx(c, value) } : { factoryNo: value });
+  //  (도착 창 · [기록]에서 첫 글자를 직접 골라 둔 경우 — 지금 첫 글자가 자동 값과 다르면 — 그대로 둠)
+  const changeNo = (value) => {
+    const autoStart = r.no > 1 && r.startIdx === arrivalStartIdx(c, r.factoryNo);
+    onPatchRound(c.id, rIdx, autoStart ? { factoryNo: value, startIdx: arrivalStartIdx(c, value) } : { factoryNo: value });
+  };
 
   return (
     <div className={`border rounded-xl p-3 ${stage === 'drop' ? 'border-slate-200 bg-slate-50/80' : 'border-slate-200 bg-slate-50/50'}`}>
@@ -151,10 +149,7 @@ export const LabdipColorCard = ({
         </label>
         <div className="col-span-4 sm:col-span-1">
           <label className="block text-[10px] font-bold text-slate-500 mb-1">낱장 수</label>
-          <select value={r.letters} onChange={e => onPatchRound(c.id, rIdx, { letters: Number(e.target.value) })}
-            className={`${inputCls} px-1.5`} title="몇 가지 안을 받을지 (A~)">
-            {Array.from({ length: Math.max(LD_LETTERS_PICK, r.letters) }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}장</option>)}
-          </select>
+          <LettersSelect value={r.letters} onChange={v => onPatchRound(c.id, rIdx, { letters: v })} className={`${inputCls} px-1.5`} label={n => `${n}장`} />
         </div>
         <div className="col-span-6 sm:col-span-2">
           <label className="block text-[10px] font-bold text-slate-500 mb-1">공장 번호{r.no > 1 ? ` (${r.no}차)` : ''}</label>

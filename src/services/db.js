@@ -1,4 +1,4 @@
-import { doc, setDoc, deleteDoc, writeBatch } from "firebase/firestore";
+import { doc, setDoc, deleteDoc, writeBatch, runTransaction } from "firebase/firestore";
 import { db } from "./firebase";
 
 // GRUBIG ERP - 공통 파이어베이스 CRUD 모듈
@@ -30,6 +30,25 @@ export const saveDocument = async (collectionName, item) => {
     return true;
   } catch (error) {
     console.error(`Error saving to ${collectionName}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * 새 문서를 만듭니다 — 같은 id 문서가 이미 있으면 만들지 않고 false (트랜잭션이라 두 PC가 동시에 만들어도 하나만 됨)
+ *  · LAB-DIP 새 L/D: id를 L/D NO.로 만들어 같은 번호가 두 번 생기지 않게 (2026-10-27)
+ */
+export const createDocument = async (collectionName, item) => {
+  const ref = doc(db, collectionName, String(item.id));
+  try {
+    return await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref);
+      if (snap.exists()) return false;
+      tx.set(ref, stripUndefinedDeep(item));
+      return true;
+    });
+  } catch (error) {
+    console.error(`Error creating in ${collectionName}:`, error);
     throw error;
   }
 };

@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo } from 'react';
 import { todayLocalISO } from '../../utils/helpers';
 import {
-  makeBlankLabdip, normalizeLabdip, cleanLabdipForSave, validateLabdip, nextLdNo, newLabdipId, duplicateLabdip,
+  makeBlankLabdip, normalizeLabdip, cleanLabdipForSave, validateLabdip, nextLdNo, ldDocId, duplicateLabdip,
   withArrival, withSend, withResults, withRedip, withColorDrop, withDropOpen, withRestoreDropped, withLegacyReopen, withStepBack,
 } from '../../utils/labdipModel';
 
@@ -11,6 +11,7 @@ import {
 //  - 작성 중인 의뢰는 이 훅(App)이 들고 있어서 다른 메뉴에 다녀와도 그대로
 //  - 저장 안 한 변경(labdipDirty): 저장될 모양(cleanLabdipForSave)으로 비교 — 빈 컬러 줄만 늘린 건 변경 아님
 //  - L/D NO.는 저장할 때 붙음 (비어 있으면 그해 다음 번호 — 26년은 GB26023부터. 직접 넣은 번호는 같은 번호가 있으면 막음)
+//    새 L/D는 문서 id = L/D NO.(ldDocId)로 '없을 때만 만들기'(createDocToCloud) — 두 PC가 동시에 저장해도 번호가 겹치지 않음
 //  - 진행 버튼(도착 · 발송 · 결과 · 2차 의뢰 · Drop · 되돌리기)은 누르면 바로 저장 — 그때 고쳐 둔 다른 칸도 같이 저장
 //  - 계산 규칙은 utils/labdipModel.js
 // ============================================================
@@ -18,7 +19,7 @@ import {
 const COLLECTION = 'labdips';
 const snapshotOf = (ld) => JSON.stringify(cleanLabdipForSave(ld));
 
-export const useLabdip = (labdips, saveDocToCloud, deleteDocFromCloud, showToast, user) => {
+export const useLabdip = (labdips, saveDocToCloud, createDocToCloud, deleteDocFromCloud, showToast, user) => {
   const [labdipInput, setLabdipInput] = useState(() => makeBlankLabdip('factory'));
   const [editingLabdipId, setEditingLabdipId] = useState(null);
   // 마지막으로 불러오거나 저장했을 때의 모양 — 지금 값과 다르면 '저장 안 한 변경'
@@ -78,17 +79,12 @@ export const useLabdip = (labdips, saveDocToCloud, deleteDocFromCloud, showToast
     if (problem) { showToast(problem, 'error'); return null; }
 
     const existing = selfId ? findDoc(selfId) : null;
-    const id = selfId || newLabdipId();
-    // 번호: 직접 넣은 번호 → 저장돼 있던 번호 → 그해 다음 번호 (예전 기록은 직접 넣을 때만)
-    const ldNo = clean.ldNo || String(existing?.ldNo || '') || (clean.legacy ? '' : nextLdNo(labdips, clean.requestDate));
     const now = new Date().toISOString();
     const who = userName();
-    const toSave = {
+    const base = {
       // 폼에 없는 칸(나중에 생길 칸)은 저장소 값 유지 — 예전 기록은 새 모양으로 바꿔 씀 (예전 칸은 normalize에서 옮김)
       ...(existing?.schemaVersion ? existing : {}),
       ...clean,
-      id,
-      ldNo,
       authorName: existing?.authorName || src.authorName || who,
       createdAt: existing?.createdAt || src.createdAt || now,
       updatedAt: now,
@@ -97,8 +93,33 @@ export const useLabdip = (labdips, saveDocToCloud, deleteDocFromCloud, showToast
 
     savingRef.current = true;
     try {
-      const ok = await saveDocToCloud(COLLECTION, toSave);
-      if (ok === false) return null; // 실패 알림은 saveDocToCloud가 띄움
+      let toSave;
+      let bumpedNote = '';
+      if (selfId) {
+        // 저장돼 있던 L/D (예전 기록 포함) — 번호: 넣은 번호 → 저장돼 있던 번호 → 그해 다음 번호 (예전 기록은 직접 넣을 때만)
+        const ldNo = clean.ldNo || String(existing?.ldNo || '') || (clean.legacy ? '' : nextLdNo(labdips, clean.requestDate));
+        toSave = { ...base, id: selfId, ldNo };
+        const ok = await saveDocToCloud(COLLECTION, toSave);
+        if (ok === false) return null; // 실패 알림은 saveDocToCloud가 띄움
+      } else {
+        // 새 L/D — 문서 id를 L/D NO.로 만들어 '없을 때만' 만듦. 다른 PC가 방금 그 번호를 썼으면 다음 번호로 (직접 넣은 번호면 멈춤)
+        const taken = [];
+        let ldNo = clean.ldNo || nextLdNo(labdips, clean.requestDate);
+        for (let tries = 0; ; tries += 1) {
+          toSave = { ...base, id: ldDocId(ldNo), ldNo };
+          const res = await createDocToCloud(COLLECTION, toSave);
+          if (res === true) break;
+          if (res === false) return null; // 실패 알림은 createDocToCloud가 띄움
+          if (clean.ldNo || tries >= 4) {
+            showToast(`L/D NO. ${ldNo} — 같은 번호로 만든 L/D가 이미 있어요 (다른 PC에서 방금 저장했거나 번호를 바꾼 L/D). 다른 번호를 넣어 주세요.`, 'error');
+            return null;
+          }
+          taken.push({ ldNo });
+          ldNo = nextLdNo([...(labdips || []), ...taken], clean.requestDate);
+          bumpedNote = ' (다른 곳에서 같은 번호를 먼저 써서 다음 번호를 붙였어요)';
+        }
+      }
+      const { id, ldNo } = toSave;
       const saved = normalizeLabdip(toSave);
       if (next) {
         show(saved, id);
@@ -108,7 +129,7 @@ export const useLabdip = (labdips, saveDocToCloud, deleteDocFromCloud, showToast
         setEditingLabdipId(id);
         setBaseline(snapshotOf(saved));
       }
-      showToast(message || (existing ? `${ldNo || 'L/D'} 저장했어요.` : `${ldNo || 'L/D'} 새 L/D를 저장했어요.`), 'success');
+      showToast(message || (selfId ? `${ldNo || 'L/D'} 저장했어요.` : `${ldNo} 새 L/D를 저장했어요.${bumpedNote}`), 'success');
       return toSave;
     } finally {
       savingRef.current = false;

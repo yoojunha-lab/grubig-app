@@ -1,21 +1,67 @@
-import React, { useRef, useState } from 'react';
-import { PackageCheck, Send, ClipboardCheck, RotateCcw, Printer, Info } from 'lucide-react';
-import { PopoverShell } from '../order/common/PopoverShell';
-import { StageChip } from './LabdipParts';
+import React, { useEffect, useRef, useState } from 'react';
+import { PackageCheck, Send, ClipboardCheck, RotateCcw, Printer, Info, X } from 'lucide-react';
+import { ModalBackdrop } from '../common/ModalBackdrop';
+import { UnsavedChangesDialog } from '../common/UnsavedChangesDialog';
+import { useUnsavedGuard } from '../../hooks/useUnsavedGuard';
+import { StageChip, LettersSelect, StartLetterSelect, ldSmallCls as smallInput } from './LabdipParts';
 import { todayLocalISO } from '../../utils/helpers';
 import {
-  realColors, colorStage, currentRound, prevRound, arrivalStartIdx, roundLetters, roundNoText, letterRangeText, letterOf,
-  LD_LETTERS_PICK, SENT_METHODS,
+  realColors, colorStage, currentRound, prevRound, arrivalStartIdx, roundLetters, roundNoText, letterRangeText, SENT_METHODS,
 } from '../../utils/labdipModel';
 
 // ============================================================
 // LAB-DIP 진행 창 4개 — L/D 도착 · 바이어 발송 · 바이어 결과 · 다음 차수 의뢰
-//  - 생산 현황 팝업 틀(PopoverShell, 화면 가운데) — 고친 내용이 있으면 닫기 전에 '저장할까요?' (팝업 규약)
+//  - 팝업 규약 (terminology §4): 배경 ModalBackdrop · 고친 내용은 useUnsavedGuard로 보고 닫기 전에 '저장할까요?'(UnsavedChangesDialog)
+//    [취소] · X · ESC · 배경 누르기 모두 같은 확인
 //  - [저장]을 누르면 그 의뢰를 바로 저장 (onSave가 저장본을 돌려주면 창을 닫음, 실패하면 그대로)
 //  - 처리 중 잠금은 useRef (빠르게 두 번 눌러도 한 번만)
 // ============================================================
 
-const smallInput = 'border border-slate-200 rounded-md px-2 py-1.5 text-xs focus:ring-2 focus:ring-teal-500 outline-none bg-white';
+/** 진행 창 틀 — 머리(제목 · X) · 내용 · 아래 버튼(footer(close) — close = 고친 게 있으면 묻고 닫기) */
+const DialogShell = ({ width, title, subtitle, onClose, dirty, onSaveDirty, dirtyMessage, footer, children }) => {
+  const [asking, setAsking] = useState(false);
+  const panelRef = useRef(null);
+  const requestClose = () => { if (dirty) setAsking(true); else onClose(); };
+  const closeRef = useRef(requestClose);
+  useEffect(() => { closeRef.current = requestClose; });
+  // 열리면 첫 칸(data-autofocus)에 커서 · ESC = 닫기 (묻는 창이 떠 있으면 그 창이 받음)
+  useEffect(() => {
+    panelRef.current?.querySelector('[data-autofocus]')?.focus({ preventScroll: true });
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.isComposing) return;
+      e.preventDefault();
+      closeRef.current();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
+  return (
+    <>
+      <ModalBackdrop className="fixed inset-0 z-[210] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClose={requestClose}>
+        <div ref={panelRef} role="dialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()}
+          className="bg-white rounded-2xl shadow-2xl w-full flex flex-col overflow-hidden max-h-[90vh]" style={{ maxWidth: `${width}px` }}>
+          <div className="flex items-start justify-between gap-2 px-4 py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white shrink-0">
+            <div className="min-w-0">
+              <div className="text-sm font-extrabold truncate">{title}</div>
+              {subtitle && <div className="text-[11px] text-teal-100 truncate">{subtitle}</div>}
+            </div>
+            <button type="button" onClick={requestClose} className="text-white/80 hover:text-white shrink-0" title="닫기 (ESC)"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="overflow-y-auto flex-1">{children}</div>
+          {footer && <div className="border-t border-slate-200 bg-slate-50 px-3 py-2 shrink-0">{footer(requestClose)}</div>}
+        </div>
+      </ModalBackdrop>
+      <UnsavedChangesDialog
+        open={asking}
+        message={dirtyMessage}
+        onSave={() => { setAsking(false); onSaveDirty?.(); }}
+        onDiscard={onClose}
+        onKeepEditing={() => setAsking(false)}
+      />
+    </>
+  );
+};
 
 /** 창 공통: 처음 값 · 지금 값 · 저장 중 잠금 · 알림 */
 const useDialogForm = (makeInitial) => {
@@ -24,7 +70,7 @@ const useDialogForm = (makeInitial) => {
   const [problem, setProblem] = useState('');
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
-  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const dirty = useUnsavedGuard(form, true, { initial }).isDirty();
   // 고치기 시작하면 빨간 알림은 지움
   const changeForm = (update) => { setProblem(''); setForm(update); };
   const patchRow = (colorId, fields) => changeForm(prev => ({
@@ -87,10 +133,10 @@ export const ArrivalDialog = ({ ld, onClose, onSave }) => {
   });
 
   return (
-    <PopoverShell width={720} title="L/D 도착 — 공장 번호 넣기" subtitle={`${ld.ldNo || '새 L/D'} · ${ld.factory || '공장 미정'}`}
+    <DialogShell width={720} title="L/D 도착 — 공장 번호 넣기" subtitle={`${ld.ldNo || '새 L/D'} · ${ld.factory || '공장 미정'}`}
       onClose={onClose} dirty={dirty} onSaveDirty={submit} dirtyMessage="넣은 공장 번호가 있어요. 저장할까요?"
-      footer={(
-        <FooterButtons onCancel={onClose}>
+      footer={close => (
+        <FooterButtons onCancel={close}>
           <button type="button" onClick={submit} disabled={busy} className={primaryBtn}><PackageCheck className="w-3.5 h-3.5" /> 도착 저장</button>
         </FooterButtons>
       )}>
@@ -120,13 +166,9 @@ export const ArrivalDialog = ({ ld, onClose, onSave }) => {
                     <input value={row.factoryNo} onChange={e => changeNo(row, e.target.value)} disabled={!row.on}
                       placeholder={prev?.factoryNo ? `${prev.no}차 ${prev.factoryNo}` : '공장 번호'}
                       className={`${smallInput} w-32 font-mono font-bold uppercase`} />
-                    <select value={row.letters} onChange={e => patchRow(row.colorId, { letters: Number(e.target.value) })} disabled={!row.on} className={smallInput} title="낱장 수">
-                      {Array.from({ length: Math.max(LD_LETTERS_PICK, row.letters) }, (_, i) => i + 1).map(n => <option key={n} value={n}>낱장 {n}장</option>)}
-                    </select>
+                    <LettersSelect value={row.letters} onChange={v => patchRow(row.colorId, { letters: v })} disabled={!row.on} />
                     {r.no > 1 && (
-                      <select value={row.startIdx} onChange={e => patchRow(row.colorId, { startIdx: Number(e.target.value), startTouched: true })} disabled={!row.on} className={smallInput} title="첫 낱장 글자">
-                        {Array.from({ length: 26 }, (_, i) => i).map(i => <option key={i} value={i}>{letterOf(i)}부터</option>)}
-                      </select>
+                      <StartLetterSelect value={row.startIdx} onChange={v => patchRow(row.colorId, { startIdx: v, startTouched: true })} disabled={!row.on} />
                     )}
                     <span className="text-[11px] font-mono font-bold text-teal-700">{preview}</span>
                   </div>
@@ -145,7 +187,7 @@ export const ArrivalDialog = ({ ld, onClose, onSave }) => {
         )}
       </div>
       <Problem text={problem} />
-    </PopoverShell>
+    </DialogShell>
   );
 };
 
@@ -174,10 +216,10 @@ export const SendDialog = ({ ld, onClose, onSave, onPrint }) => {
   });
 
   return (
-    <PopoverShell width={640} title="바이어 발송" subtitle={`${ld.ldNo || '새 L/D'} · ${ld.buyerName || '바이어 미입력'}`}
+    <DialogShell width={640} title="바이어 발송" subtitle={`${ld.ldNo || '새 L/D'} · ${ld.buyerName || '바이어 미입력'}`}
       onClose={onClose} dirty={dirty} onSaveDirty={submit} dirtyMessage="고른 발송 내용이 있어요. 발송 기록을 저장할까요?"
-      footer={(
-        <FooterButtons onCancel={onClose}>
+      footer={close => (
+        <FooterButtons onCancel={close}>
           <button type="button" onClick={print} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-teal-700 bg-white border border-teal-300 rounded-lg hover:bg-teal-50">
             <Printer className="w-3.5 h-3.5" /> 바이어 시트 PDF
           </button>
@@ -219,7 +261,7 @@ export const SendDialog = ({ ld, onClose, onSave, onPrint }) => {
         </p>
       </div>
       <Problem text={problem} />
-    </PopoverShell>
+    </DialogShell>
   );
 };
 
@@ -251,10 +293,10 @@ export const ResultDialog = ({ ld, onClose, onSave }) => {
   });
 
   return (
-    <PopoverShell width={680} title="바이어 결과 넣기" subtitle={`${ld.ldNo || '새 L/D'} · ${ld.buyerName || '바이어 미입력'}`}
+    <DialogShell width={680} title="바이어 결과 넣기" subtitle={`${ld.ldNo || '새 L/D'} · ${ld.buyerName || '바이어 미입력'}`}
       onClose={onClose} dirty={dirty} onSaveDirty={submit} dirtyMessage="고른 결과가 있어요. 저장할까요?"
-      footer={(
-        <FooterButtons onCancel={onClose}>
+      footer={close => (
+        <FooterButtons onCancel={close}>
           <button type="button" onClick={submit} disabled={busy} className={primaryBtn}><ClipboardCheck className="w-3.5 h-3.5" /> 결과 저장</button>
         </FooterButtons>
       )}>
@@ -309,7 +351,7 @@ export const ResultDialog = ({ ld, onClose, onSave }) => {
         )}
       </div>
       <Problem text={problem} />
-    </PopoverShell>
+    </DialogShell>
   );
 };
 
@@ -340,10 +382,10 @@ export const RedipDialog = ({ ld, onClose, onSave, canPrint = false }) => {
   });
 
   return (
-    <PopoverShell width={680} title={title} subtitle={`${ld.ldNo || '새 L/D'} · ${ld.factory || '공장 미정'} — 같은 L/D NO.로 다시 의뢰해요`}
+    <DialogShell width={680} title={title} subtitle={`${ld.ldNo || '새 L/D'} · ${ld.factory || '공장 미정'} — 같은 L/D NO.로 다시 의뢰해요`}
       onClose={onClose} dirty={dirty} onSaveDirty={() => submit(false)} dirtyMessage="다시 의뢰할 내용이 있어요. 저장할까요?"
-      footer={(
-        <FooterButtons onCancel={onClose}>
+      footer={close => (
+        <FooterButtons onCancel={close}>
           <button type="button" onClick={() => submit(false)} disabled={busy} className={canPrint ? 'flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-teal-700 bg-white border border-teal-300 rounded-lg hover:bg-teal-50 disabled:opacity-50' : primaryBtn}>
             <RotateCcw className="w-3.5 h-3.5" /> 의뢰 저장
           </button>
@@ -377,9 +419,7 @@ export const RedipDialog = ({ ld, onClose, onSave, canPrint = false }) => {
                       <span className="text-[10px] font-extrabold text-slate-500">→ {(c.rounds || []).length + 1}차</span>
                     </label>
                     <span className="text-[10px] text-slate-500">{r.no}차 {[r.factoryNo, letterRangeText(r)].filter(Boolean).join(' ')} 리젝</span>
-                    <select value={row.letters} onChange={e => patchRow(row.colorId, { letters: Number(e.target.value) })} disabled={!row.on} className={`${smallInput} ml-auto`} title="낱장 수">
-                      {Array.from({ length: Math.max(LD_LETTERS_PICK, row.letters) }, (_, i) => i + 1).map(n => <option key={n} value={n}>낱장 {n}장</option>)}
-                    </select>
+                    <LettersSelect value={row.letters} onChange={v => patchRow(row.colorId, { letters: v })} disabled={!row.on} className={`${smallInput} ml-auto`} />
                   </div>
                   {r.buyerComment && <div className="mt-1 text-[11px] text-slate-600">바이어 코멘트: <b>{r.buyerComment}</b> <span className="text-slate-400">— 의뢰서에 같이 찍혀요</span></div>}
                   <input value={row.requestNote} onChange={e => patchRow(row.colorId, { requestNote: e.target.value })} disabled={!row.on}
@@ -391,6 +431,6 @@ export const RedipDialog = ({ ld, onClose, onSave, canPrint = false }) => {
         )}
       </div>
       <Problem text={problem} />
-    </PopoverShell>
+    </DialogShell>
   );
 };

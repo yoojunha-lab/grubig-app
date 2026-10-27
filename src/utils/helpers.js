@@ -202,6 +202,18 @@ export const sortByArticle = (list, getArticle = (x) => x?.article) => [...(list
   compareArticle(getArticle(a), getArticle(b)) || String(a?.id ?? '').localeCompare(String(b?.id ?? '')));
 
 /**
+ * 원단의 원사 칸 (혼용률 있는 칸만) — [{ yarn, tempName, ratio }] (원단 목록 · 헹거 스티커 · LAB-DIP 공통)
+ *  · yarn = 원사 라이브러리의 원사 (yarnId 'id::공급처' 형식도 앞부분으로 찾음), 없으면 null
+ *  · tempName = 엑셀 일괄 등록 때 라이브러리에 없던 원사의 임시 이름
+ */
+export const fabricYarnEntries = (fabric, yarnLibrary = []) => (fabric?.yarns || [])
+  .filter(y => y?.yarnId && Number(y.ratio) > 0)
+  .map(y => {
+    const realId = String(y.yarnId).split('::')[0];
+    return { yarn: (yarnLibrary || []).find(yl => String(yl.id) === realId) || null, tempName: String(y.tempName || ''), ratio: y.ratio };
+  });
+
+/**
  * 견적서 날짜 표기 (유효기간)
  *  · 'en' — 'OCT 21, 2026' 영문 대문자 (수출 견적서)
  *  · 'ko' — '2026년 10월 21일' (내수 견적서 약관 — 대표님 요청 2026-10-07)
