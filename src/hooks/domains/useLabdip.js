@@ -1,194 +1,169 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { todayLocalISO } from '../../utils/helpers';
+import {
+  makeBlankLabdip, normalizeLabdip, cleanLabdipForSave, validateLabdip, nextLdNo, newLabdipId, duplicateLabdip,
+  withArrival, withSend, withResults, withRedip, withColorDrop, withDropOpen, withRestoreDropped, withLegacyReopen, withStepBack,
+} from '../../utils/labdipModel';
 
 // ============================================================
-// GRUBIG ERP - Lab-Dip(랩딥 발송) 도메인 로직 훅
-//  - Firestore 컬렉션: labdips
-//  - 랩딥 시트 작성 → A4 PDF 출력 → "언제/어떻게 보냈는지" 발송 기록 보관
-//  - 헤더: 바이어(거래처 공유) · ARTICLE · STYLE · 작성일
-//  - 컬러: 컬러명 + 베이스넘버 + 낱장 수(A~) + 컬러코멘트
-//         → 베이스넘버 '25S038' + 낱장수 3 이면  25S038 "A" / "B" / "C" 로 자동 전개
-//  - 발송기록(PDF 미표시, 기록용): 발송일 · 발송방법 · 특이사항
+// GRUBIG ERP - LAB-DIP (생산 ▾ LAB-DIP) 도메인 훅 — 2026-10-27 개편 (예전 '영업 ▾ Lab-Dip 발송')
+//  - Firestore 컬렉션: labdips (예전 발송 기록도 같은 곳 — 읽을 때 새 모양으로 바꿈, 저장하면 새 모양으로)
+//  - 작성 중인 의뢰는 이 훅(App)이 들고 있어서 다른 메뉴에 다녀와도 그대로
+//  - 저장 안 한 변경(labdipDirty): 저장될 모양(cleanLabdipForSave)으로 비교 — 빈 컬러 줄만 늘린 건 변경 아님
+//  - L/D NO.는 저장할 때 붙음 (비어 있으면 그해 다음 번호 — 26년은 GB26023부터. 직접 넣은 번호는 같은 번호가 있으면 막음)
+//  - 진행 버튼(도착 · 발송 · 결과 · 2차 의뢰 · Drop · 되돌리기)은 누르면 바로 저장 — 그때 고쳐 둔 다른 칸도 같이 저장
+//  - 계산 규칙은 utils/labdipModel.js
 // ============================================================
 
-// 낱장 수 → 레터 배열  (3 → ['A','B','C'])
-export const labdipLetters = (count) => {
-  const n = Math.max(0, Math.min(26, Number(count) || 0));
-  return Array.from({ length: n }, (_, i) => String.fromCharCode(65 + i));
-};
-
-// 컬러 1행 기본값 (id는 로컬 식별용 — Firestore 문서 id 아님)
-const makeColor = () => ({
-  id: `c_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
-  name: '',       // 컬러명 (예: CHARCOAL)
-  baseNo: '',     // 베이스넘버 (예: 25S038)
-  letters: 2,     // 낱장 수 (A~B = 2)
-  comment: '',    // 컬러 코멘트 (해당 컬러 스와치 위에 캡션으로 표시)
-});
-
-// 빈 Lab-Dip 기본값
-const makeBlankLabdip = () => ({
-  buyerName: '',                                   // 바이어 (거래처)
-  article: '',                                     // ARTICLE
-  style: '',                                       // STYLE
-  date: todayLocalISO(),    // 작성일 (헤더 DATE)
-  sentDate: '',                                    // 발송일 (기록용)
-  sentMethod: '',                                  // 발송 방법 (기록용)
-  remarks: '',                                     // 특이사항 (기록용)
-  colors: [makeColor()],
-});
+const COLLECTION = 'labdips';
+const snapshotOf = (ld) => JSON.stringify(cleanLabdipForSave(ld));
 
 export const useLabdip = (labdips, saveDocToCloud, deleteDocFromCloud, showToast, user) => {
-  const [labdipInput, setLabdipInput] = useState(makeBlankLabdip);
+  const [labdipInput, setLabdipInput] = useState(() => makeBlankLabdip('factory'));
   const [editingLabdipId, setEditingLabdipId] = useState(null);
-  const savingRef = useRef(false); // 빠른 더블클릭 중복 저장 가드
+  // 마지막으로 불러오거나 저장했을 때의 모양 — 지금 값과 다르면 '저장 안 한 변경'
+  const [baseline, setBaseline] = useState(() => snapshotOf(makeBlankLabdip('factory')));
+  const savingRef = useRef(false); // 저장 중 잠금 (빠르게 두 번 눌러도 한 번만)
 
-  const resetLabdipForm = () => {
-    setLabdipInput(makeBlankLabdip());
-    setEditingLabdipId(null);
-  };
+  const labdipDirty = useMemo(() => snapshotOf(labdipInput) !== baseline, [labdipInput, baseline]);
+  const userName = () => user?.displayName || user?.email?.split('@')[0] || 'Unknown';
+  const findDoc = (id) => (labdips || []).find(d => String(d.id) === String(id)) || null;
 
-  // 헤더/발송기록 단일 필드 변경 (field, value 직접 전달)
-  const handleLabdipChange = (field, value) => {
-    setLabdipInput(prev => ({ ...prev, [field]: value }));
-  };
-
-  // ── 컬러 행 CRUD ──────────────────────────────────────────
-  const addColor = () => {
-    setLabdipInput(prev => ({ ...prev, colors: [...(prev.colors || []), makeColor()] }));
-  };
-
-  const removeColor = (colorId) => {
-    setLabdipInput(prev => {
-      const next = (prev.colors || []).filter(c => c.id !== colorId);
-      // 최소 1행은 유지 (모두 지우면 빈 행 하나 남김)
-      return { ...prev, colors: next.length ? next : [makeColor()] };
-    });
-  };
-
-  const updateColor = (colorId, field, value) => {
-    setLabdipInput(prev => ({
-      ...prev,
-      colors: (prev.colors || []).map(c => {
-        if (c.id !== colorId) return c;
-        // letters 는 숫자로 정규화 (1~26 클램프)
-        const v = field === 'letters' ? Math.max(1, Math.min(26, Number(value) || 1)) : value;
-        return { ...c, [field]: v };
-      }),
-    }));
-  };
-
-  // ── 저장 (성공 시 id 반환 / 실패·검증실패 시 false) ──────────
-  const handleSaveLabdip = async () => {
-    if (savingRef.current) return false;
-
-    const buyerName = String(labdipInput.buyerName || '').trim();
-    if (!buyerName) { showToast('바이어(거래처)를 선택해주세요.', 'error'); return false; }
-
-    // 컬러명 또는 베이스넘버가 하나라도 있는 행만 유효 컬러로 저장 (빈 행 제거)
-    const cleanColors = (labdipInput.colors || [])
-      .map(c => ({
-        id: c.id,
-        name: String(c.name || '').trim(),
-        baseNo: String(c.baseNo || '').trim(),
-        letters: Math.max(1, Math.min(26, Number(c.letters) || 1)),
-        comment: String(c.comment || '').trim(),
-      }))
-      .filter(c => c.name || c.baseNo);
-
-    if (cleanColors.length === 0) {
-      showToast('컬러를 1개 이상 입력해주세요. (컬러명 또는 넘버)', 'error');
-      return false;
-    }
-
-    // 작성자 보존: 최초 저장자를 유지 (편집자가 바뀌어도 목록의 '작성자'는 원 작성자 — PI와 동일 규칙)
-    const authorName = labdipInput.authorName || user?.displayName || user?.email?.split('@')[0] || 'Unknown';
-    const id = labdipInput.id || editingLabdipId || `labdip_${Date.now()}`;
-    const existing = (labdips || []).find(x => String(x.id) === String(id));
-
-    const toSave = {
-      ...labdipInput,
-      id,
-      buyerName,
-      article: String(labdipInput.article || '').trim(),
-      style: String(labdipInput.style || '').trim(),
-      colors: cleanColors,
-      authorName,
-      createdAt: existing?.createdAt || labdipInput.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    // id/생성일 즉시 반영 → 다시 저장해도 같은 문서를 덮어써 중복 저장 방지
-    setLabdipInput(prev => ({ ...prev, id, createdAt: toSave.createdAt }));
+  // 화면에 의뢰를 띄우고 그 모양을 기준으로
+  const show = (ld, id) => {
+    setLabdipInput(ld);
     setEditingLabdipId(id);
+    setBaseline(snapshotOf(ld));
+  };
+
+  /** 새 L/D (mode: 'factory' 공장에 의뢰 | 'direct' 바이어 발송만) */
+  const newLabdip = (mode = 'factory') => show(makeBlankLabdip(mode), null);
+
+  /** 저장된 L/D 열기 — 반환: 열었으면 true */
+  const openLabdip = (id) => {
+    const found = findDoc(id);
+    if (!found) return false;
+    show(normalizeLabdip(found), found.id);
+    return true;
+  };
+
+  /** 복제 — 같은 바이어 · 원단 · 컬러로 새 의뢰 (번호 · 진행 기록 없이). 새 문서라 빈 양식 기준 → 저장 전에 나가면 물어봄 */
+  const duplicateLabdipById = (id) => {
+    const src = findDoc(id);
+    if (!src) return false;
+    const copy = duplicateLabdip(src);
+    setLabdipInput(copy);
+    setEditingLabdipId(null);
+    setBaseline(snapshotOf(makeBlankLabdip(copy.mode)));
+    showToast('복제했어요. 번호는 저장할 때 새로 붙어요.', 'success');
+    return true;
+  };
+
+  /** 저장 안 한 변경 버리기 ('저장할까요?'의 [저장 안 함]) — 저장된 의뢰면 저장된 모양으로, 새 의뢰면 빈 양식으로 */
+  const discardLabdip = () => {
+    if (editingLabdipId && openLabdip(editingLabdipId)) return;
+    newLabdip(labdipInput.mode);
+  };
+
+  /**
+   * 저장 — next가 있으면(진행 버튼) 그 모양으로 저장하고 화면도 저장본으로, 없으면 지금 입력값
+   * 반환: 저장된 문서 (확인에 막히거나 실패하면 null — 입력값은 그대로)
+   */
+  const saveLabdip = async (next = null, { message } = {}) => {
+    if (savingRef.current) return null;
+    const src = next || labdipInput;
+    const clean = cleanLabdipForSave(src);
+    const selfId = editingLabdipId || src.id || '';
+    const problem = validateLabdip(clean, { labdips, selfId });
+    if (problem) { showToast(problem, 'error'); return null; }
+
+    const existing = selfId ? findDoc(selfId) : null;
+    const id = selfId || newLabdipId();
+    // 번호: 직접 넣은 번호 → 저장돼 있던 번호 → 그해 다음 번호 (예전 기록은 직접 넣을 때만)
+    const ldNo = clean.ldNo || String(existing?.ldNo || '') || (clean.legacy ? '' : nextLdNo(labdips, clean.requestDate));
+    const now = new Date().toISOString();
+    const who = userName();
+    const toSave = {
+      // 폼에 없는 칸(나중에 생길 칸)은 저장소 값 유지 — 예전 기록은 새 모양으로 바꿔 씀 (예전 칸은 normalize에서 옮김)
+      ...(existing?.schemaVersion ? existing : {}),
+      ...clean,
+      id,
+      ldNo,
+      authorName: existing?.authorName || src.authorName || who,
+      createdAt: existing?.createdAt || src.createdAt || now,
+      updatedAt: now,
+      updatedBy: who,
+    };
 
     savingRef.current = true;
     try {
-      const ok = await saveDocToCloud('labdips', toSave);
-      if (ok === false) return false;
-      showToast(existing ? 'Lab-Dip 기록이 수정되었습니다.' : 'Lab-Dip 기록이 저장되었습니다.', 'success');
-      return id;
+      const ok = await saveDocToCloud(COLLECTION, toSave);
+      if (ok === false) return null; // 실패 알림은 saveDocToCloud가 띄움
+      const saved = normalizeLabdip(toSave);
+      if (next) {
+        show(saved, id);
+      } else {
+        // 화면 입력은 그대로 — 저장을 기다리는 동안 더 넣은 값이 사라지지 않게 (번호 · id · 작성자만 채움)
+        setLabdipInput(prev => ({ ...prev, id, ldNo, authorName: toSave.authorName, createdAt: toSave.createdAt }));
+        setEditingLabdipId(id);
+        setBaseline(snapshotOf(saved));
+      }
+      showToast(message || (existing ? `${ldNo || 'L/D'} 저장했어요.` : `${ldNo || 'L/D'} 새 L/D를 저장했어요.`), 'success');
+      return toSave;
     } finally {
       savingRef.current = false;
     }
   };
 
-  const handleEditLabdip = (id) => {
-    const found = (labdips || []).find(x => String(x.id) === String(id));
-    if (!found) return;
-    setLabdipInput({
-      ...makeBlankLabdip(),
-      ...found,
-      // 컬러 행에 로컬 id 보강 (레거시/누락 대비)
-      colors: (found.colors && found.colors.length)
-        ? found.colors.map(c => ({ ...makeColor(), ...c, id: c.id || `c_${Date.now()}_${Math.floor(Math.random() * 100000)}` }))
-        : [makeColor()],
-    });
-    setEditingLabdipId(id);
+  // ── 진행 버튼 — 지금 입력값에 진행을 얹어 바로 저장 ──
+  const act = (mutate, message) => saveLabdip(mutate(labdipInput), { message });
+
+  /** L/D 도착 — entries: [{ colorId, factoryNo, letters, startIdx }] */
+  const recordArrival = (entries, date) =>
+    act(ld => withArrival(ld, entries, date), `L/D 도착 — ${entries.length}컬러 공장 번호를 넣었어요.`);
+
+  /** 바이어 발송 — 고른 컬러 → 컨펌대기 */
+  const recordSend = (colorIds, date, method) =>
+    act(ld => withSend(ld, colorIds, date, method), `바이어 발송 — ${colorIds.length}컬러를 컨펌대기로 넘겼어요.`);
+
+  /** 바이어 결과 — entries: [{ colorId, result: 'confirm' | 'reject' | 'drop', letter, comment }] */
+  const recordResults = (entries, date) => {
+    const count = (k) => entries.filter(e => e.result === k).length;
+    const parts = [['confirm', '컨펌'], ['reject', '리젝'], ['drop', 'Drop']]
+      .filter(([k]) => count(k) > 0)
+      .map(([k, label]) => `${label} ${count(k)}`);
+    const tail = count('reject') > 0 ? ' — 리젝 컬러는 [2차 의뢰]로 공장에 다시 의뢰해 주세요.' : '';
+    return act(ld => withResults(ld, entries, date), `바이어 결과를 넣었어요 (${parts.join(' · ')})${tail}`);
   };
 
-  const handleDuplicateLabdip = (id, navigateCallback) => {
-    const src = (labdips || []).find(x => String(x.id) === String(id));
-    if (!src) return;
-    const now = new Date();
-    const copy = {
-      ...src,
-      id: `labdip_${Date.now()}`,
-      date: todayLocalISO(now),
-      sentDate: '',        // 복제본은 '미발송' 상태로 시작
-      sentMethod: '',
-      authorName: '',      // 복제본의 작성자는 (저장 시) 현재 사용자 — 원본 작성자를 물려받지 않음
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-      colors: (src.colors || []).map((c, i) => ({
-        ...makeColor(),
-        ...c,
-        id: `c_${Date.now()}_${i}`,
-      })),
-    };
-    setLabdipInput(copy);
-    setEditingLabdipId(null); // 아직 저장 전 신규 문서 (labdipInput.id 로 저장됨)
-    if (navigateCallback) navigateCallback();
-    showToast('Lab-Dip 기록을 복제했습니다. (미발송 상태)', 'success');
-  };
+  /** 다음 차수 의뢰 (리젝 → 2차) — entries: [{ colorId, requestNote, letters }], meta: { requestDate, factoryDue } */
+  const requestRedip = (entries, meta) =>
+    act(ld => withRedip(ld, entries, meta), `${entries.length}컬러를 공장에 다시 의뢰했어요 (공장 진행중).`);
 
-  const handleDeleteLabdip = async (id) => {
-    const t = (labdips || []).find(x => String(x.id) === String(id));
-    const label = t?.buyerName ? `${t.buyerName} · ${t.article || ''}` : 'Lab-Dip 기록';
-    if (!window.confirm(`이 Lab-Dip 발송 기록을 삭제하시겠습니까?\n(${label})`)) return;
-    try {
-      await deleteDocFromCloud('labdips', id);
-      if (String(editingLabdipId) === String(id) || String(labdipInput.id) === String(id)) resetLabdipForm();
-      showToast('Lab-Dip 기록이 삭제되었습니다.', 'success');
-    } catch {
-      // deleteDocFromCloud 내부에서 이미 에러 토스트 처리됨
-    }
+  const dropColor = (colorId) => act(ld => withColorDrop(ld, colorId, todayLocalISO()), '컬러를 Drop했어요.');
+  const dropOpenColors = () => act(ld => withDropOpen(ld, todayLocalISO()), '남은 컬러를 모두 Drop했어요.');
+  const restoreDropped = () => act(withRestoreDropped, 'Drop한 컬러를 모두 되돌렸어요.');
+  const reopenLegacy = () => act(withLegacyReopen, '예전 기록을 다시 진행해요 — 보낸 컬러는 컨펌대기로 넘어갔어요.');
+  const stepBackColor = (colorId) => act(ld => withStepBack(ld, colorId), '한 단계 되돌렸어요.');
+
+  /** 삭제 (복구 불가 확인) — 지금 열려 있는 의뢰면 빈 양식으로. 반환: 지웠으면 true */
+  const deleteLabdip = async (id) => {
+    const target = findDoc(id);
+    if (!target) return false;
+    const ld = normalizeLabdip(target);
+    const label = [ld.ldNo || '번호 없음', ld.buyerName, ld.article].filter(Boolean).join(' · ');
+    if (!window.confirm(`이 L/D를 지울까요?\n(${label})\n\n지우면 되돌릴 수 없어요. 그만둔 의뢰는 지우지 말고 [남은 컬러 Drop]으로 남겨 두세요.`)) return false;
+    const ok = await deleteDocFromCloud(COLLECTION, id);
+    if (ok === false) return false;
+    if (String(editingLabdipId) === String(id)) newLabdip(labdipInput.mode);
+    showToast('L/D를 지웠어요.', 'success');
+    return true;
   };
 
   return {
-    labdipInput, setLabdipInput, editingLabdipId,
-    resetLabdipForm, handleLabdipChange,
-    addColor, removeColor, updateColor,
-    handleSaveLabdip, handleEditLabdip, handleDuplicateLabdip, handleDeleteLabdip,
+    labdipInput, setLabdipInput, editingLabdipId, labdipDirty,
+    newLabdip, openLabdip, duplicateLabdip: duplicateLabdipById, discardLabdip, saveLabdip, deleteLabdip,
+    recordArrival, recordSend, recordResults, requestRedip,
+    dropColor, dropOpenColors, restoreDropped, reopenLegacy, stepBackColor,
   };
 };

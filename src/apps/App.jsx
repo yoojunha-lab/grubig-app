@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  FileSpreadsheet, X, Users, Upload, Download,
+  FileSpreadsheet, X, Users, Upload, Download, Droplets,
 } from 'lucide-react';
 
 // 🔥 Firebase 모듈 (서비스 레이어 연동)
@@ -12,7 +12,7 @@ import { saveDocument, deleteDocument, saveBatchDocuments, updateYarnCategoryBat
 // ⚙️ 공통 상수 & 유틸리티 연동
 import { ALLOWED_DOMAIN, DEFAULT_YARN_CATEGORIES } from '../constants/common';
 import { getStepDefs, normalizeCustomSteps } from '../constants/production';
-import { DEV_SAMPLE_FABRICS, DEV_SAMPLE_YARNS, DEV_SAMPLE_DEV_REQUESTS, DEV_SAMPLE_DESIGN_SHEETS, DEV_SAMPLE_ORDERS } from '../constants/devSamples';
+import { DEV_SAMPLE_FABRICS, DEV_SAMPLE_YARNS, DEV_SAMPLE_DEV_REQUESTS, DEV_SAMPLE_DESIGN_SHEETS, DEV_SAMPLE_ORDERS, DEV_SAMPLE_LABDIPS, DEV_SAMPLE_DYEING_FACTORIES } from '../constants/devSamples';
 import { useXLSX } from '../hooks/useExternalScripts';
 
 // ⚓️ 도메인 로직 훅 연동
@@ -67,6 +67,7 @@ import { PISettingsModal } from '../components/pi/PISettingsModal';
 import { CostSettingsModal } from '../components/cost/CostSettingsModal';
 import { LabdipPage } from '../pages/LabdipPage';
 import { LabdipPrintSheet } from '../components/labdip/LabdipPrintSheet';
+import { LabdipRequestSheet } from '../components/labdip/LabdipRequestSheet';
 
 // ── [DEV 검증 전용] 가짜 로그인 + 인메모리 데이터 모드 ─────────────────────
 // 개발 빌드(import.meta.env.DEV)이고 localStorage('grubig_dev_bypass')==='1'일 때만 활성.
@@ -137,7 +138,8 @@ const App = () => {
     setIsCostSettingsOpen(true);
   };
   const [labdips, setLabdips] = useState([]);
-  const [selectedLabdipForPrint, setSelectedLabdipForPrint] = useState(null);
+  // 인쇄할 L/D 시트 — labdipModel.buildBuyerSheet(바이어 시트) / buildFactorySheet(공장 의뢰서) 결과
+  const [labdipPrint, setLabdipPrint] = useState(null);
   const [yarnDyeCalcs, setYarnDyeCalcs] = useState([]); // 생산 ▾ 계산기 — 저장된 선염 계산 (yarnDyeCalcs)
   const [hangerStickers, setHangerStickers] = useState([]); // 기타 ▾ 헹거 스티커 (hangerStickers)
   // 헹거 스티커 설정 — CATEGORY · CARE 목록 (settings/general.hangerStickerOptions, null = 아직 저장 전 → 기본 목록)
@@ -223,6 +225,8 @@ const App = () => {
       setDevRequests(DEV_SAMPLE_DEV_REQUESTS);
       setDesignSheets(DEV_SAMPLE_DESIGN_SHEETS);
       setOrders(DEV_SAMPLE_ORDERS);            // 생산 현황 v8 샘플 (옛 형식 1건 포함)
+      setLabdips(DEV_SAMPLE_LABDIPS);          // LAB-DIP 샘플 (예전 기록 1건 포함)
+      setDyeingFactories(DEV_SAMPLE_DYEING_FACTORIES);
       setSyncStatus('saved');
       return; // 실제 Firestore 구독 건너뜀
     }
@@ -638,13 +642,8 @@ const App = () => {
     handleSavePI, handleEditPI, handleDuplicatePI, handleDeletePI,
   } = useProformaInvoice(proformaInvoices, saveDocToCloud, deleteDocFromCloud, showToast, user);
 
-  // ⚓️ Lab-Dip(랩딥 발송) 훅  (addColor 등은 기존 설계서 훅과 이름이 겹쳐 별칭 사용)
-  const {
-    labdipInput, setLabdipInput, editingLabdipId,
-    resetLabdipForm, handleLabdipChange,
-    addColor: addLabdipColor, removeColor: removeLabdipColor, updateColor: updateLabdipColor,
-    handleSaveLabdip, handleEditLabdip, handleDuplicateLabdip, handleDeleteLabdip,
-  } = useLabdip(labdips, saveDocToCloud, deleteDocFromCloud, showToast, user);
+  // ⚓️ 생산 ▾ LAB-DIP 훅 — 공장 의뢰 · L/D 도착 · 바이어 발송 · 결과 · 2차 의뢰 (LabdipPage에 통째로 넘김)
+  const labdipHook = useLabdip(labdips, saveDocToCloud, deleteDocFromCloud, showToast, user);
 
   // ⚓️ 생산 ▾ 계산기 — 선염 계산 (스트라이프 원사 배분 · 멜란지 수량 비율) 저장·불러오기
   const {
@@ -685,15 +684,19 @@ const App = () => {
     }, 200);
   };
 
-  // Lab-Dip 인쇄 (PI/컬렉션과 동일한 native window.print() 방식, body.printing-labdip 토글)
-  const handlePrintLabdip = (targetLabdip = null) => {
-    const t = (targetLabdip && (targetLabdip.id || targetLabdip.colors)) ? targetLabdip : labdipInput;
-    const hasColor = (t.colors || []).some(c => String(c.name || '').trim() || String(c.baseNo || '').trim());
-    if (!hasColor) { showToast('인쇄할 컬러가 없습니다.', 'error'); return; }
-    setSelectedLabdipForPrint(t); // 인쇄 대상 확정 (LabdipPrintSheet 렌더)
+  // L/D 인쇄 (PI/컬렉션과 동일한 native window.print() 방식, body.printing-labdip 토글)
+  //  sheet = buildBuyerSheet(바이어 시트 — 공장 안 찍힘) 또는 buildFactorySheet(공장 의뢰서 — 바이어 안 찍힘)
+  //  파일 이름도 같은 규칙: 바이어 시트엔 공장 이름, 공장 의뢰서엔 바이어 이름을 넣지 않음
+  const handlePrintLabdip = (sheet) => {
+    if (!sheet || !(sheet.rows || []).length) { showToast('인쇄할 컬러가 없어요.', 'error'); return; }
+    setLabdipPrint(sheet); // 인쇄 대상 확정 (LabdipPrintSheet / LabdipRequestSheet 렌더)
     showToast("인쇄 다이얼로그에서 '대상 = PDF로 저장'을 선택해 주세요.", 'info');
     const oldTitle = document.title;
-    const safeName = `LABDIP_${String(t.buyerName || '').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim()}_${String(t.article || '').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim()}`.replace(/_+$/,'') || 'LABDIP';
+    const part = (s) => String(s || '').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim();
+    const parts = sheet.kind === 'factory'
+      ? ['LD의뢰서', sheet.ldNo, sheet.factory, sheet.article]
+      : ['LABDIP', sheet.ldNo, sheet.buyerName, sheet.article];
+    const safeName = parts.map(part).filter(Boolean).join('_') || 'LABDIP';
     document.body.classList.add('printing-labdip');
     setTimeout(() => {
       try {
@@ -1248,23 +1251,18 @@ const App = () => {
           />
         )}
 
-        {/* TAB: Lab-Dip 발송 (영업) */}
+        {/* TAB: LAB-DIP (생산) — 공장 의뢰 + 바이어 발송 (예전 영업 ▾ Lab-Dip 발송) */}
         {activeTab === 'labdip' && (
           <LabdipPage
-            labdipInput={labdipInput}
-            setLabdipInput={setLabdipInput}
-            editingLabdipId={editingLabdipId}
-            handleLabdipChange={handleLabdipChange}
-            resetLabdipForm={resetLabdipForm}
-            addColor={addLabdipColor}
-            removeColor={removeLabdipColor}
-            updateColor={updateLabdipColor}
-            handleSaveLabdip={handleSaveLabdip}
-            handleEditLabdip={handleEditLabdip}
-            handleDuplicateLabdip={handleDuplicateLabdip}
-            handleDeleteLabdip={handleDeleteLabdip}
-            handlePrintLabdip={handlePrintLabdip}
+            {...labdipHook}
             labdips={labdips}
+            savedFabrics={savedFabrics}
+            yarnLibrary={yarnLibrary}
+            dyeingFactories={dyeingFactories}
+            onOpenFactoryMaster={() => setActiveMasterModal({ key: 'dyeingFactories', title: '염가공처 사전 등록 관리', description: '자주 거래하는 염색소 및 후가공 업체를 미리 등록해 관리할 수 있습니다. (LAB-DIP 공장 목록도 여기서)', icon: Droplets })}
+            onPrint={handlePrintLabdip}
+            navGuardRef={navGuardRef}
+            user={user}
             {...partnerBag}
           />
         )}
@@ -1624,8 +1622,9 @@ const App = () => {
           />
         )}
 
-        {/* Lab-Dip 인쇄 문서 (off-screen, body.printing-labdip 일 때만 노출) */}
-        <LabdipPrintSheet labdip={selectedLabdipForPrint} />
+        {/* L/D 인쇄 문서 (off-screen, body.printing-labdip 일 때만 노출) — 바이어 시트 / 공장 의뢰서 중 하나만 그려짐 */}
+        <LabdipPrintSheet sheet={labdipPrint} />
+        <LabdipRequestSheet sheet={labdipPrint} />
       </div>
     </div>
   );

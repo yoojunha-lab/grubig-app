@@ -34,7 +34,7 @@ export const LD_STAGES = {
   reject: { label: '리젝', tab: 'active', cls: 'bg-red-100 text-red-700 border-red-300' },
   waiting: { label: '컨펌대기', tab: 'waiting', cls: 'bg-amber-100 text-amber-800 border-amber-300' },
   confirm: { label: '컨펌', tab: 'done', cls: DONE_TONE.chip },
-  drop: { label: 'Drop', tab: 'done', cls: 'bg-white text-slate-400 border-slate-300 border-dashed line-through' },
+  drop: { label: 'Drop', tab: 'done', cls: 'bg-white text-slate-400 border-slate-300 border-dashed' },
   legacy: { label: '예전 기록', tab: 'done', cls: DONE_TONE.chip },
 };
 export const LD_STAGE_ORDER = ['factory', 'arrived', 'reject', 'waiting', 'confirm', 'drop', 'legacy'];
@@ -485,7 +485,7 @@ export const validateLabdip = (clean, { labdips = [], selfId = '' } = {}) => {
   if (!clean.buyerName) return '바이어(거래처)를 골라 주세요.';
   if (!clean.colors.length) return '컬러를 하나 이상 넣어 주세요. (컬러명 또는 PANTONE)';
   const owner = clean.ldNo ? findLdNoOwner(labdips, clean.ldNo, selfId) : null;
-  if (owner) return `L/D NO. ${clean.ldNo}는 이미 있어요 (${owner.buyerName || '바이어 미입력'} · ${owner.article || '-'}). 다른 번호를 넣어 주세요.`;
+  if (owner) return `이미 있는 L/D NO.예요: ${clean.ldNo} (${owner.buyerName || '바이어 미입력'} · ${owner.article || '-'}). 다른 번호를 넣어 주세요.`;
   return '';
 };
 

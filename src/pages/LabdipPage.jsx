@@ -1,329 +1,279 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { SwatchBook, FilePlus, Search, Copy, Trash2, ChevronDown, Plus } from 'lucide-react';
+import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
+import { LabdipForm } from '../components/labdip/LabdipForm';
+import { ArrivalDialog, SendDialog, ResultDialog, RedipDialog } from '../components/labdip/LabdipDialogs';
+import { StageChip, DueLine, NewLabdipMenu } from '../components/labdip/LabdipParts';
+import { todayLocalISO, formatMonthDay } from '../utils/helpers';
 import {
-  SwatchBook, Save, Download, FilePlus, Trash2, Plus, Copy, Pencil, X, Search,
-  Palette, Send, Info,
-} from 'lucide-react';
-import { PartnerSelectField } from '../components/common/PartnerSelectField';
-import { labdipLetters } from '../hooks/domains/useLabdip';
+  normalizeLabdip, labdipTabKeys, labdipTiming, labdipSearchText, realColors, colorStage, currentRound, isFinishedStage,
+  dueBadge, nextLdNo, buildBuyerSheet, buildFactorySheet, factoryPrintColorIds, isAllDropped,
+  LD_TABS, LD_STAGES, LD_STAGE_ORDER, WAITING_WARN_DAYS,
+} from '../utils/labdipModel';
 
-// 발송 방법 빠른 선택값 (자유 입력도 가능 — datalist)
-const SENT_METHODS = ['퀵서비스', '택배', '방문 수령', '직접 전달', 'DHL', 'EMS', '이메일(스캔)'];
+// ============================================================
+// GRUBIG ERP - 생산 ▾ LAB-DIP — 대표님 요청 2026-10-27 (예전 '영업 ▾ Lab-Dip 발송'을 옮겨 고도화)
+//  - 목록: [진행중 · 컨펌대기중 · 완료] 탭 — 의뢰 한 건(L/D NO.) 한 줄, 컬러는 단계 색 칩
+//          (한 의뢰에 단계가 섞이면 두 탭 모두에 나오고 그 탭 컬러만 진하게)
+//  - [+ 새 L/D ▾]: 공장에 의뢰 / 바이어 발송만 (EZ-TEX 의뢰)
+//  - 작성 화면(LabdipForm) + 진행 창 4개(LabdipDialogs) — 진행 버튼은 바로 저장
+//  - 인쇄: 공장 의뢰서(바이어 안 찍힘) / 바이어 시트(공장 안 찍힘) — App.handlePrintLabdip
+//  - 저장 안 한 변경이 있으면 다른 L/D · 목록 · 다른 메뉴로 갈 때 '저장할까요?' (navGuardRef)
+// ============================================================
 
-// ── 작은 입력 필드 (라벨 + input) ───────────────────────────
-const Field = ({ label, value, onChange, placeholder = '', type = 'text', className = '', list, upper = false }) => (
-  <div className={className}>
-    <label className="block text-[11px] font-bold text-slate-500 mb-1">{label}</label>
-    <input
-      type={type}
-      value={value ?? ''}
-      onChange={onChange}
-      placeholder={placeholder}
-      list={list}
-      className={`w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none ${upper ? 'uppercase font-bold' : ''}`}
-    />
-  </div>
-);
+/** 탭마다 줄 순서 — 진행중: 납기 급한 순 / 컨펌대기중: 오래 기다린 순 / 완료: 최근에 끝난 순 */
+const sortForTab = (list, tab) => {
+  const byNoDesc = (a, b) => String(b.ld.ldNo || '').localeCompare(String(a.ld.ldNo || '')) || String(b.ld.updatedAt || '').localeCompare(String(a.ld.updatedAt || ''));
+  if (tab === 'active') {
+    const urgent = (it) => [it.timing.factoryDue, it.timing.buyerDue].filter(Boolean).sort()[0] || '9999-99-99';
+    return [...list].sort((a, b) => urgent(a).localeCompare(urgent(b)) || byNoDesc(a, b));
+  }
+  if (tab === 'waiting') {
+    return [...list].sort((a, b) => String(a.timing.waitingSince || '9999').localeCompare(String(b.timing.waitingSince || '9999')) || byNoDesc(a, b));
+  }
+  return [...list].sort((a, b) => String(b.timing.doneDate || '').localeCompare(String(a.timing.doneDate || '')) || byNoDesc(a, b));
+};
 
-// 스와치(낱장) 총 개수
-const swatchCount = (labdip) =>
-  (labdip.colors || []).reduce((s, c) => s + (Math.max(1, Number(c.letters) || 1)), 0);
-
-// 발송 상태 뱃지
-const sentBadge = (labdip) =>
-  labdip.sentDate
-    ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700"><Send className="w-3 h-3" /> 발송 {labdip.sentDate}</span>
-    : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500">미발송</span>;
-
-// ── 컬러 한 행 (모듈 레벨 컴포넌트) ─────────────────────────
-//  ⚠️ 반드시 컴포넌트 밖(모듈 레벨)에 둘 것. LabdipPage 안에 정의하면
-//     렌더마다 새 함수가 되어 매 글자 입력 시 input이 리마운트→포커스 유실됨.
-const ColorRow = ({ c, updateColor, removeColor }) => {
-  const letters = labdipLetters(c.letters);
-  const preview = (c.baseNo || c.name)
-    ? `${c.baseNo || '(넘버)'} ${letters.map(L => `"${L}"`).join(', ')}`
-    : '';
+/** 목록의 컬러 칩들 — 컬러명 + 단계 색 (지금 탭 단계가 아닌 컬러는 흐리게) */
+const ColorChips = ({ ld, tab, max = 99 }) => {
+  const cs = realColors(ld);
   return (
-    <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/60">
-      <div className="grid grid-cols-12 gap-2 items-end">
-        <div className="col-span-6 sm:col-span-3">
-          <label className="block text-[10px] font-bold text-slate-500 mb-1">컬러명</label>
-          <input value={c.name ?? ''} onChange={e => updateColor(c.id, 'name', e.target.value)} placeholder="CHARCOAL"
-            className="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm font-bold uppercase focus:ring-2 focus:ring-indigo-500 outline-none" />
-        </div>
-        <div className="col-span-6 sm:col-span-3">
-          <label className="block text-[10px] font-bold text-slate-500 mb-1">베이스 넘버</label>
-          <input value={c.baseNo ?? ''} onChange={e => updateColor(c.id, 'baseNo', e.target.value)} placeholder="25S038"
-            className="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm font-mono font-bold uppercase focus:ring-2 focus:ring-indigo-500 outline-none" />
-        </div>
-        <div className="col-span-5 sm:col-span-2">
-          <label className="block text-[10px] font-bold text-slate-500 mb-1">낱장 수</label>
-          <select value={c.letters ?? 2} onChange={e => updateColor(c.id, 'letters', e.target.value)}
-            className="w-full border border-slate-200 rounded-lg px-2 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
-            {Array.from({ length: 8 }, (_, i) => i + 1).map(n => {
-              const ls = labdipLetters(n);
-              return <option key={n} value={n}>{n === 1 ? 'A' : `A~${ls[ls.length - 1]}`} ({n}장)</option>;
-            })}
-          </select>
-        </div>
-        <div className="col-span-6 sm:col-span-3">
-          <label className="block text-[10px] font-bold text-slate-500 mb-1">컬러 코멘트</label>
-          <input value={c.comment ?? ''} onChange={e => updateColor(c.id, 'comment', e.target.value)} placeholder="예: A안 채택 요망"
-            className="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
-        </div>
-        <div className="col-span-1 flex justify-end">
-          <button onClick={() => removeColor(c.id)} title="컬러 삭제"
-            className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg">
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-      {/* 자동 생성 미리보기 */}
-      <div className="mt-2 flex items-center gap-1.5 text-[11px] text-indigo-600">
-        <SwatchBook className="w-3.5 h-3.5 shrink-0" />
-        <span className="font-bold">생성:</span>
-        <span className="font-mono truncate">{preview || <span className="text-slate-400 font-sans">컬러명 또는 넘버를 입력하면 자동 생성됩니다</span>}</span>
-      </div>
+    <div className="flex flex-wrap gap-1">
+      {cs.slice(0, max).map(c => {
+        const s = colorStage(c, ld);
+        const r = currentRound(c);
+        const extra = s === 'confirm' && r.confirmedLetter ? ` "${r.confirmedLetter}"` : (!isFinishedStage(s) && r.no > 1 ? ` ${r.no}차` : '');
+        return (
+          <StageChip key={c.id} stage={s} label={`${c.name || c.pantone || '컬러'}${extra}`}
+            title={`${LD_STAGES[s].label}${r.factoryNo ? ` · ${r.factoryNo}` : ''}`}
+            dim={tab !== 'done' && LD_STAGES[s].tab !== tab} className={`uppercase ${s === 'drop' ? 'line-through' : ''}`} />
+        );
+      })}
+      {cs.length > max && <span className="text-[10px] text-slate-400 font-bold">+{cs.length - max}</span>}
     </div>
   );
 };
 
+/** 탭마다 납기 · 경과 칸 */
+const TimingCell = ({ it, tab, today }) => {
+  const t = it.timing;
+  if (tab === 'active') {
+    if (!t.factoryDue && !t.buyerDue) return <span className="text-slate-300">—</span>;
+    return (
+      <div className="space-y-0.5">
+        <DueLine label="공장" date={t.factoryDue} badge={dueBadge(t.factoryDue, today)} />
+        <DueLine label="바이어" date={t.buyerDue} badge={dueBadge(t.buyerDue, today)} />
+      </div>
+    );
+  }
+  if (tab === 'waiting') {
+    if (!t.waitingSince) return <span className="text-slate-300">—</span>;
+    const late = (t.waitingDays ?? 0) >= WAITING_WARN_DAYS;
+    return (
+      <div className="text-[11px] whitespace-nowrap">
+        <span className={late ? 'text-amber-600 font-extrabold' : 'text-slate-600 font-bold'}>보낸 지 {t.waitingDays}일</span>
+        <span className="text-slate-400 ml-1">{formatMonthDay(t.waitingSince)}</span>
+      </div>
+    );
+  }
+  if (it.ld.legacyDone) return <span className="text-[11px] text-slate-400 font-bold">예전 기록</span>;
+  if (isAllDropped(it.ld)) return <span className="text-[11px] text-slate-400 font-bold">Drop {formatMonthDay(t.doneDate)}</span>;
+  return t.doneDate ? <span className="text-[11px] text-slate-500 font-bold">완료 {formatMonthDay(t.doneDate)}</span> : <span className="text-slate-300">—</span>;
+};
+
+const NoCell = ({ ld }) => (
+  <div>
+    <div className={`font-mono font-extrabold ${ld.ldNo ? 'text-slate-800' : 'text-slate-300 text-xs'}`}>{ld.ldNo || '번호 없음'}</div>
+    <div className="flex flex-wrap gap-1 mt-0.5">
+      {ld.mode === 'direct' && !ld.legacy && <span className="text-[9px] font-extrabold px-1 py-px rounded border text-indigo-700 bg-indigo-50 border-indigo-200">EZ-TEX{ld.eztexNo ? ` ${ld.eztexNo}` : ''}</span>}
+      {ld.legacy && <span className="text-[9px] font-extrabold px-1 py-px rounded border text-slate-500 bg-slate-50 border-slate-200">예전 기록</span>}
+    </div>
+  </div>
+);
+
 export const LabdipPage = ({
-  labdipInput, setLabdipInput, editingLabdipId,
-  handleLabdipChange, resetLabdipForm,
-  addColor, removeColor, updateColor,
-  handleSaveLabdip, handleEditLabdip, handleDuplicateLabdip, handleDeleteLabdip,
-  handlePrintLabdip,
-  labdips = [],
-  partners = [], savePartner, deletePartner, makeEmptyPartner,   // 거래처(견적서 공유)
+  labdips = [], savedFabrics = [], yarnLibrary = [], dyeingFactories = [],
+  partners = [], savePartner, deletePartner, makeEmptyPartner,
+  onOpenFactoryMaster, onPrint, navGuardRef, user,
+  labdipInput, setLabdipInput, editingLabdipId, labdipDirty,
+  newLabdip, openLabdip, duplicateLabdip, discardLabdip, saveLabdip, deleteLabdip,
+  recordArrival, recordSend, recordResults, requestRedip,
+  dropColor, dropOpenColors, restoreDropped, reopenLegacy, stepBackColor,
 }) => {
-  const [mode, setMode] = useState('list');     // 'list' | 'form'
-  const [listSearch, setListSearch] = useState('');
+  const [view, setView] = useState('list');      // 'list' | 'form'
+  const [tab, setTab] = useState('active');
+  const [search, setSearch] = useState('');
+  const [pending, setPending] = useState(null);  // '저장할까요?' 뒤에 할 일
+  const [dialog, setDialog] = useState(null);    // 'arrival' | 'send' | 'result' | 'redip'
+  const [busy, setBusy] = useState(false);
+  const today = todayLocalISO();
+  const userName = user?.displayName || user?.email?.split('@')[0] || '';
 
-  // ── 모드 전환 ──
-  const openNew = () => { resetLabdipForm(); setMode('form'); };
-  const openEdit = (id) => { handleEditLabdip(id); setMode('form'); };
-  const backToList = () => { setMode('list'); resetLabdipForm(); };
-  const onSave = async () => { await handleSaveLabdip(); /* 저장 후 폼 유지 (인쇄/추가편집 가능) */ };
+  // ── 저장 안 한 변경 확인 (다른 L/D · 새 L/D · 목록 · 다른 메뉴) ──
+  const formDirty = view === 'form' && labdipDirty;
+  const guard = (action) => { if (formDirty) setPending(() => action); else action(); };
+  useEffect(() => {
+    if (!navGuardRef) return undefined;
+    navGuardRef.current = (proceed) => { if (formDirty) setPending(() => proceed); else proceed(); };
+    return () => { navGuardRef.current = null; };
+  });
+  const keepEditing = () => setPending(null);
+  const leaveWithoutSave = () => { const act = pending; setPending(null); discardLabdip(); if (act) act(); };
+  const saveAndLeave = async () => {
+    const saved = await saveLabdip();
+    if (!saved) return; // 저장 못 하면 그대로 (입력값 보존)
+    const act = pending;
+    setPending(null);
+    if (act) act();
+  };
 
-  // 보관함 목록 (검색 + 최신순)
-  const filteredList = useMemo(() => {
-    const term = listSearch.trim().toLowerCase();
-    return [...(labdips || [])]
-      .filter(t =>
-        !term ||
-        String(t.buyerName || '').toLowerCase().includes(term) ||
-        String(t.article || '').toLowerCase().includes(term) ||
-        String(t.style || '').toLowerCase().includes(term) ||
-        String(t.remarks || '').toLowerCase().includes(term) ||
-        String(t.sentMethod || '').toLowerCase().includes(term) ||
-        (t.colors || []).some(c => String(c.name || '').toLowerCase().includes(term) || String(c.baseNo || '').toLowerCase().includes(term))
-      )
-      .sort((a, b) => String(b.updatedAt || b.date || '').localeCompare(String(a.updatedAt || a.date || '')));
-  }, [labdips, listSearch]);
+  // ── 목록 ──
+  const items = useMemo(() => (labdips || []).map(raw => {
+    const ld = normalizeLabdip(raw);
+    return { id: raw.id, ld, tabs: labdipTabKeys(ld), timing: labdipTiming(ld, today), text: labdipSearchText(ld) };
+  }), [labdips, today]);
+  const term = search.trim().toUpperCase();
+  const matched = useMemo(() => items.filter(it => !term || it.text.includes(term)), [items, term]);
+  const tabCounts = useMemo(() => Object.fromEntries(LD_TABS.map(t => [t.key, matched.filter(it => it.tabs.includes(t.key)).length])), [matched]);
+  const tabItems = useMemo(() => sortForTab(matched.filter(it => it.tabs.includes(tab)), tab), [matched, tab]);
+  const nextNo = nextLdNo(labdips, labdipInput.requestDate);
+
+  // ── 화면 전환 ──
+  const openNew = (mode) => guard(() => { newLabdip(mode); setView('form'); });
+  const openEdit = (id) => {
+    if (view === 'form' && String(id) === String(editingLabdipId)) return;
+    guard(() => { if (openLabdip(id)) setView('form'); });
+  };
+  const backToList = () => guard(() => setView('list'));
+  const duplicate = (id) => guard(() => { if (duplicateLabdip(id)) setView('form'); });
+  const remove = async (id) => {
+    const ok = await deleteLabdip(id);
+    if (ok && view === 'form' && String(id) === String(editingLabdipId)) setView('list');
+  };
+
+  const handleSave = async () => {
+    setBusy(true);
+    try { await saveLabdip(); } finally { setBusy(false); }
+  };
+
+  // ── 인쇄 ──
+  // 공장 의뢰서 — 저장 안 한 변경이 있거나 새 L/D면 먼저 저장 (의뢰서에 찍히는 L/D NO.가 저장소에 있게)
+  const printFactory = async (colorIds = null, savedDoc = null) => {
+    let doc = savedDoc ? normalizeLabdip(savedDoc) : labdipInput;
+    if (!savedDoc && (!editingLabdipId || labdipDirty)) {
+      setBusy(true);
+      try {
+        const saved = await saveLabdip();
+        if (!saved) return;
+        doc = normalizeLabdip(saved);
+      } finally { setBusy(false); }
+    }
+    onPrint(buildFactorySheet(doc, colorIds || factoryPrintColorIds(doc), { author: doc.authorName || userName }));
+  };
+  const printBuyer = (colorIds, date) => onPrint(buildBuyerSheet(labdipInput, colorIds, date));
+
+  // ── 컬러 칸 진행 버튼 (확인 후 바로 저장) ──
+  const askStepBack = (c, text) => {
+    if (!window.confirm(`'${c.name || '컬러'}' — ${text}.\n바로 저장돼요. 되돌릴까요?`)) return;
+    stepBackColor(c.id);
+  };
+  const askDropColor = (c) => {
+    if (!window.confirm(`'${c.name || '컬러'}' — 이 컬러를 Drop할까요? (바이어가 이 컬러를 안 하기로)\n바로 저장돼요 — 나중에 [되돌리기]로 풀 수 있어요.`)) return;
+    dropColor(c.id);
+  };
+  const askDropOpen = () => {
+    const open = realColors(labdipInput).filter(c => !isFinishedStage(colorStage(c, labdipInput))).length;
+    if (!window.confirm(`아직 안 끝난 컬러 ${open}개를 모두 Drop할까요? (의뢰를 그만둘 때)\n바로 저장돼요 — [Drop 모두 되돌리기]로 풀 수 있어요.`)) return;
+    dropOpenColors();
+  };
 
   // ════════════════════════════════════════════════════════
-  // 상단 공통 헤더
-  // ════════════════════════════════════════════════════════
-  const Header = (
-    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-5">
-      <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-        <SwatchBook className="w-6 h-6 text-indigo-600" /> Lab-Dip 발송
-        <span className="text-base font-bold text-slate-400">({(labdips || []).length})</span>
-      </h2>
+  const header = (
+    <div className="mb-4 space-y-3">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+          <SwatchBook className="w-6 h-6 text-teal-600" /> LAB-DIP
+          <span className="text-base font-bold text-slate-400">({items.length})</span>
+        </h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="L/D NO.·바이어·아티클·컬러·공장 검색"
+              className="border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-sm w-64 focus:ring-2 focus:ring-teal-500 outline-none" />
+          </div>
+          <NewLabdipMenu onPick={openNew}
+            className="bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 flex items-center justify-center gap-1.5 text-sm font-bold shadow-lg shadow-teal-200">
+            <FilePlus className="w-4 h-4" /> 새 L/D <ChevronDown className="w-4 h-4" />
+          </NewLabdipMenu>
+        </div>
+      </div>
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
-          <input value={listSearch} onChange={e => setListSearch(e.target.value)} placeholder="바이어·아티클·컬러 검색"
-            className="border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-sm w-52 focus:ring-2 focus:ring-indigo-500 outline-none" />
-        </div>
-        <button onClick={openNew} className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-1.5 text-sm font-bold shadow-lg shadow-indigo-200">
-          <FilePlus className="w-4 h-4" /> 새 Lab-Dip
-        </button>
-      </div>
-    </div>
-  );
-
-  // ════════════════════════════════════════════════════════
-  // 작성/편집 폼
-  // ════════════════════════════════════════════════════════
-  const FormPanel = (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-      {/* 폼 헤더 */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 border-b border-slate-200 px-4 sm:px-5 py-3">
-        <h3 className="text-base font-bold text-slate-800 shrink-0">
-          {/* editingLabdipId 기준: 복제 직후(미저장 신규)는 '작성'으로 표시 */}
-          {editingLabdipId ? 'Lab-Dip 편집' : 'Lab-Dip 작성'}
-        </h3>
-        <div className="flex flex-wrap gap-1.5">
-          <button onClick={() => handlePrintLabdip(labdipInput)} className="bg-white border border-slate-300 text-indigo-700 px-3 py-2 rounded-lg hover:bg-indigo-50 flex items-center gap-1.5 text-sm font-bold">
-            <Download className="w-4 h-4" /> PDF 인쇄
-          </button>
-          <button onClick={onSave} className="bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800 flex items-center gap-1.5 text-sm font-bold">
-            <Save className="w-4 h-4" /> 저장
-          </button>
-          <button onClick={backToList} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-100 flex items-center gap-1.5 text-sm font-bold">
-            <X className="w-4 h-4" /> 닫기
-          </button>
-        </div>
-      </div>
-
-      <div className="p-4 sm:p-6 space-y-6">
-        {/* 발송 정보 (헤더) */}
-        <section>
-          <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-3">발송 정보 (시트 상단)</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="col-span-2">
-              <label className="block text-[11px] font-bold text-slate-500 mb-1">바이어 * (거래처)</label>
-              <PartnerSelectField
-                value={labdipInput.buyerName || ''}
-                onSelect={(p) => setLabdipInput(prev => ({ ...prev, buyerName: p.name || '' }))}
-                partners={partners}
-                savePartner={savePartner}
-                deletePartner={deletePartner}
-                makeEmptyPartner={makeEmptyPartner}
-                placeholder="거래처 선택 / 등록"
-              />
-            </div>
-            <Field label="작성일 (DATE)" type="date" value={labdipInput.date} onChange={e => handleLabdipChange('date', e.target.value)} />
-            <div />
-            <Field label="ARTICLE" value={labdipInput.article} onChange={e => handleLabdipChange('article', e.target.value)} placeholder="PW1000" upper />
-            <Field label="STYLE" value={labdipInput.style} onChange={e => handleLabdipChange('style', e.target.value)} placeholder="선택 입력" upper />
-          </div>
-        </section>
-
-        {/* 컬러 & 낱장 */}
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-              <Palette className="w-4 h-4" /> 컬러 &amp; 낱장 (Lab-Dip)
-            </h3>
-            <button onClick={addColor} className="flex items-center gap-1 bg-indigo-50 text-indigo-700 border border-indigo-200 px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-indigo-100">
-              <Plus className="w-4 h-4" /> 컬러 추가
+        <div className="flex rounded-xl border border-slate-200 bg-white p-1 gap-1">
+          {LD_TABS.map(t => (
+            <button key={t.key} type="button" onClick={() => setTab(t.key)} aria-pressed={tab === t.key}
+              className={`px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1.5 transition-colors ${tab === t.key ? 'bg-teal-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
+              {t.label}
+              <span className={`text-[11px] font-extrabold px-1.5 rounded-full ${tab === t.key ? 'bg-white/25' : 'bg-slate-100 text-slate-500'}`}>{tabCounts[t.key] || 0}</span>
             </button>
-          </div>
-          <div className="space-y-2.5">
-            {(labdipInput.colors || []).map((c) => <ColorRow key={c.id} c={c} updateColor={updateColor} removeColor={removeColor} />)}
-            {(labdipInput.colors || []).length === 0 && (
-              <div className="py-6 text-center text-slate-400 text-sm border border-dashed border-slate-200 rounded-xl">
-                ‘컬러 추가’로 컬러를 넣어주세요.
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* 발송 기록 (PDF 미표시) */}
-        <section>
-          <div className="flex items-center gap-1.5 mb-3">
-            <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">발송 기록</h3>
-            <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 font-bold">
-              <Info className="w-3 h-3" /> PDF에는 표시되지 않는 내부 기록용입니다
-            </span>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Field label="발송일" type="date" value={labdipInput.sentDate} onChange={e => handleLabdipChange('sentDate', e.target.value)} />
-            <Field label="발송 방법" value={labdipInput.sentMethod} onChange={e => handleLabdipChange('sentMethod', e.target.value)} placeholder="퀵 / 택배 / 방문 …" list="labdip-sent-methods" />
-            <datalist id="labdip-sent-methods">
-              {SENT_METHODS.map(m => <option key={m} value={m} />)}
-            </datalist>
-            <div className="col-span-2">
-              <label className="block text-[11px] font-bold text-slate-500 mb-1">특이사항</label>
-              <textarea value={labdipInput.remarks ?? ''} onChange={e => handleLabdipChange('remarks', e.target.value)} rows={1}
-                placeholder="예: 원단 로트 상이 / 재발송 건 / 바이어 요청사항 등"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none leading-snug" />
-            </div>
-          </div>
-        </section>
+          ))}
+        </div>
+        <span className="text-[11px] text-slate-400">{LD_TABS.find(t => t.key === tab)?.hint}</span>
+        <div className="ml-auto hidden md:flex flex-wrap items-center gap-1">
+          {LD_STAGE_ORDER.filter(s => s !== 'legacy').map(s => <StageChip key={s} stage={s} />)}
+        </div>
       </div>
     </div>
   );
 
-  // ════════════════════════════════════════════════════════
-  // 좌측 좁은 목록 (폼 열렸을 때)
-  // ════════════════════════════════════════════════════════
-  const compactList = (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full max-h-[calc(100vh-150px)]">
-      <div className="px-3 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
-        <span className="text-xs font-extrabold text-slate-500">보관함 ({filteredList.length})</span>
-        <button onClick={openNew} className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5">
-          <Plus className="w-3.5 h-3.5" /> 새로 작성
-        </button>
-      </div>
-      <div className="overflow-y-auto flex-1">
-        {filteredList.length === 0 ? (
-          <div className="py-10 text-center text-slate-400 text-xs">저장된 기록이 없습니다.</div>
-        ) : filteredList.map(t => (
-          <button key={t.id} onClick={() => openEdit(t.id)}
-            className={`w-full text-left px-3 py-2.5 border-b border-slate-100 hover:bg-indigo-50/60 transition-colors ${String(labdipInput.id) === String(t.id) ? 'bg-indigo-50 border-l-[3px] border-l-indigo-500' : 'border-l-[3px] border-l-transparent'}`}>
-            <div className="flex items-center justify-between gap-2 mb-0.5">
-              <span className="text-[13px] font-bold text-slate-800 truncate uppercase">{t.buyerName || '(바이어 미입력)'}</span>
-              {sentBadge(t)}
-            </div>
-            <div className="text-[11px] text-slate-500 truncate uppercase">{t.article || '-'}{t.style ? ` · ${t.style}` : ''}</div>
-            <div className="flex items-center justify-between text-[10px] text-slate-400 mt-0.5">
-              <span>{t.date}</span>
-              <span>{(t.colors || []).length}컬러 · {swatchCount(t)}장</span>
-            </div>
-            {t.remarks ? <div className="text-[10px] text-amber-600 truncate mt-0.5" title={t.remarks}>※ {t.remarks}</div> : null}
-          </button>
-        ))}
-      </div>
+  const emptyAll = (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 py-20 text-center">
+      <SwatchBook className="w-12 h-12 text-slate-200 mx-auto mb-3" />
+      <p className="text-slate-400 text-sm mb-4">아직 L/D가 없어요.</p>
+      <NewLabdipMenu onPick={openNew}
+        className="inline-flex items-center gap-1.5 bg-teal-600 text-white px-5 py-2.5 rounded-lg hover:bg-teal-700 text-sm font-bold shadow-lg shadow-teal-200">
+        <FilePlus className="w-4 h-4" /> 첫 L/D 만들기 <ChevronDown className="w-4 h-4" />
+      </NewLabdipMenu>
     </div>
   );
 
-  // ════════════════════════════════════════════════════════
-  // 보관함 전체 표 (기본 화면)
-  // ════════════════════════════════════════════════════════
   const fullList = (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-      {filteredList.length === 0 ? (
-        <div className="py-20 text-center">
-          <SwatchBook className="w-12 h-12 text-slate-200 mx-auto mb-3" />
-          <p className="text-slate-400 text-sm mb-4">저장된 Lab-Dip 발송 기록이 없습니다.</p>
-          <button onClick={openNew} className="inline-flex items-center gap-1.5 bg-indigo-600 text-white px-5 py-2.5 rounded-lg hover:bg-indigo-700 text-sm font-bold shadow-lg shadow-indigo-200">
-            <FilePlus className="w-4 h-4" /> 첫 Lab-Dip 작성하기
-          </button>
-        </div>
+      {tabItems.length === 0 ? (
+        <div className="py-14 text-center text-slate-400 text-sm">{term ? '찾는 L/D가 이 탭에 없어요.' : `${LD_TABS.find(t => t.key === tab)?.label} L/D가 없어요.`}</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[1000px]">
+          <table className="w-full text-sm min-w-[1100px]">
             <thead>
               <tr className="text-left text-[11px] text-slate-400 uppercase bg-slate-50 border-b border-slate-200">
-                <th className="py-2.5 px-3 font-bold">작성일</th>
+                <th className="py-2.5 px-3 font-bold">L/D NO.</th>
                 <th className="py-2.5 px-3 font-bold">바이어</th>
-                <th className="py-2.5 px-3 font-bold">ARTICLE / STYLE</th>
-                <th className="py-2.5 px-3 font-bold text-center">컬러 · 낱장</th>
-                <th className="py-2.5 px-3 font-bold">발송 상태</th>
-                <th className="py-2.5 px-3 font-bold">특이사항</th>
-                <th className="py-2.5 px-3 font-bold">작성자</th>
+                <th className="py-2.5 px-3 font-bold">ARTICLE · ITEM NAME</th>
+                <th className="py-2.5 px-3 font-bold">공장</th>
+                <th className="py-2.5 px-3 font-bold">컬러</th>
+                <th className="py-2.5 px-3 font-bold">{tab === 'active' ? '납기' : tab === 'waiting' ? '회신 기다림' : '끝난 날'}</th>
+                <th className="py-2.5 px-3 font-bold">의뢰일</th>
+                <th className="py-2.5 px-3 font-bold">작성</th>
                 <th className="py-2.5 px-3 font-bold text-center">작업</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredList.map(t => (
-                <tr key={t.id} onClick={() => openEdit(t.id)} className="hover:bg-indigo-50/40 cursor-pointer">
-                  <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{t.date}</td>
-                  <td className="py-2.5 px-3 font-bold text-slate-800 uppercase">{t.buyerName}</td>
-                  <td className="py-2.5 px-3 text-slate-700 uppercase">
-                    {t.article || '-'}
-                    {t.style ? <span className="text-slate-400"> · {t.style}</span> : null}
+              {tabItems.map(it => (
+                <tr key={it.id} onClick={() => openEdit(it.id)} className="hover:bg-teal-50/40 cursor-pointer align-top">
+                  <td className="py-2.5 px-3 whitespace-nowrap"><NoCell ld={it.ld} /></td>
+                  <td className="py-2.5 px-3 font-bold text-slate-800 uppercase">{it.ld.buyerName || <span className="text-slate-300">—</span>}</td>
+                  <td className="py-2.5 px-3 max-w-[240px]">
+                    <div className="font-bold text-slate-700 uppercase">{it.ld.article || '-'}</div>
+                    {it.ld.itemName && <div className="text-[11px] text-slate-400 truncate" title={it.ld.itemName}>{it.ld.itemName}</div>}
                   </td>
-                  <td className="py-2.5 px-3 text-center text-slate-500 whitespace-nowrap">
-                    {(t.colors || []).length}컬러 · {swatchCount(t)}장
-                  </td>
-                  <td className="py-2.5 px-3 whitespace-nowrap">
-                    {sentBadge(t)}
-                    {t.sentMethod ? <span className="ml-1 text-[10px] text-slate-400">{t.sentMethod}</span> : null}
-                  </td>
-                  <td className="py-2.5 px-3 text-slate-500 text-xs max-w-[220px]">
-                    <span className="block truncate" title={t.remarks || ''}>{t.remarks || <span className="text-slate-300">—</span>}</span>
-                  </td>
-                  <td className="py-2.5 px-3 text-slate-500 text-xs">{t.authorName || '-'}</td>
+                  <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">{it.ld.factory || <span className="text-slate-300">—</span>}</td>
+                  <td className="py-2.5 px-3 max-w-[320px]"><ColorChips ld={it.ld} tab={tab} /></td>
+                  <td className="py-2.5 px-3"><TimingCell it={it} tab={tab} today={today} /></td>
+                  <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{formatMonthDay(it.ld.requestDate) || '-'}</td>
+                  <td className="py-2.5 px-3 text-slate-500 text-xs whitespace-nowrap">{it.ld.authorName || '-'}</td>
                   <td className="py-2.5 px-3" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-center gap-1">
-                      <button onClick={() => openEdit(t.id)} title="편집" className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"><Pencil className="w-4 h-4" /></button>
-                      <button onClick={() => handlePrintLabdip(t)} title="PDF 인쇄" className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"><Download className="w-4 h-4" /></button>
-                      <button onClick={() => { handleDuplicateLabdip(t.id); setMode('form'); }} title="복제" className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded"><Copy className="w-4 h-4" /></button>
-                      <button onClick={() => handleDeleteLabdip(t.id)} title="삭제" className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4" /></button>
+                      <button type="button" onClick={() => duplicate(it.id)} title="복제 — 같은 바이어 · 원단 · 컬러로 새 의뢰" className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded"><Copy className="w-4 h-4" /></button>
+                      <button type="button" onClick={() => remove(it.id)} title="삭제" className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </td>
                 </tr>
@@ -335,17 +285,85 @@ export const LabdipPage = ({
     </div>
   );
 
-  return (
-    <div className="max-w-[1600px] mx-auto w-full print:hidden">
-      {Header}
-      {mode === 'list' ? (
-        fullList
-      ) : (
-        <div className="flex flex-col lg:flex-row gap-4 items-start">
-          <aside className="w-full lg:w-72 shrink-0">{compactList}</aside>
-          <div className="flex-1 min-w-0 w-full max-w-5xl">{FormPanel}</div>
-        </div>
-      )}
+  const compactList = (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-full max-h-[calc(100vh-180px)]">
+      <div className="px-3 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
+        <span className="text-xs font-extrabold text-slate-500">{LD_TABS.find(t => t.key === tab)?.label} ({tabItems.length})</span>
+        <NewLabdipMenu onPick={openNew} className="text-[11px] font-bold text-teal-700 hover:text-teal-900 flex items-center gap-0.5">
+          <Plus className="w-3.5 h-3.5" /> 새 L/D
+        </NewLabdipMenu>
+      </div>
+      <div className="overflow-y-auto flex-1 max-h-64 lg:max-h-none">
+        {tabItems.length === 0 ? (
+          <div className="py-10 text-center text-slate-400 text-xs">이 탭에 L/D가 없어요.</div>
+        ) : tabItems.map(it => {
+          const active = String(editingLabdipId) === String(it.id);
+          return (
+            <button key={it.id} type="button" onClick={() => openEdit(it.id)}
+              className={`w-full text-left px-3 py-2.5 border-b border-slate-100 transition-colors ${active ? 'bg-teal-50 border-l-[3px] border-l-teal-500' : 'border-l-[3px] border-l-transparent hover:bg-teal-50/50'}`}>
+              <div className="flex items-center justify-between gap-2 mb-0.5">
+                <span className={`text-[12px] font-mono font-extrabold ${it.ld.ldNo ? 'text-slate-800' : 'text-slate-300'}`}>{it.ld.ldNo || '번호 없음'}</span>
+                <span className="text-[10px] text-slate-400 truncate">{it.ld.factory || ''}</span>
+              </div>
+              <div className="text-[12px] font-bold text-slate-700 truncate uppercase">{it.ld.buyerName || '(바이어 미입력)'} · {it.ld.article || '-'}</div>
+              <div className="mt-1"><ColorChips ld={it.ld} tab={tab} max={6} /></div>
+            </button>
+          );
+        })}
+      </div>
     </div>
+  );
+
+  const isSaved = !!editingLabdipId;
+
+  return (
+    <>
+      <div className="max-w-[1600px] mx-auto w-full print:hidden">
+        {header}
+        {view === 'list' ? (
+          items.length === 0 ? emptyAll : fullList
+        ) : (
+          <div className="flex flex-col lg:flex-row gap-4 items-start">
+            <aside className="w-full lg:w-72 shrink-0">{compactList}</aside>
+            <div className="flex-1 min-w-0 w-full max-w-6xl">
+              <LabdipForm
+                ld={labdipInput} setLd={setLabdipInput} isSaved={isSaved} dirty={labdipDirty} busy={busy}
+                nextNo={nextNo} labdips={labdips} editingId={editingLabdipId}
+                savedFabrics={savedFabrics} yarnLibrary={yarnLibrary} dyeingFactories={dyeingFactories}
+                partners={partners} savePartner={savePartner} deletePartner={deletePartner} makeEmptyPartner={makeEmptyPartner}
+                onOpenFactoryMaster={onOpenFactoryMaster}
+                onSave={handleSave} onClose={backToList} onPrintFactory={() => printFactory()}
+                onDuplicate={() => duplicate(editingLabdipId)} onDelete={() => remove(editingLabdipId)}
+                onArrival={() => setDialog('arrival')} onSend={() => setDialog('send')}
+                onResult={() => setDialog('result')} onRedip={() => setDialog('redip')}
+                onStepBack={askStepBack} onDropColor={askDropColor} onDropOpen={askDropOpen}
+                onRestoreDropped={restoreDropped} onReopenLegacy={reopenLegacy}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── 진행 창 (화면 칸 밖 — 팝업 규약) ── */}
+      {dialog === 'arrival' && <ArrivalDialog ld={labdipInput} onClose={() => setDialog(null)} onSave={recordArrival} />}
+      {dialog === 'send' && <SendDialog ld={labdipInput} onClose={() => setDialog(null)} onSave={recordSend} onPrint={printBuyer} />}
+      {dialog === 'result' && <ResultDialog ld={labdipInput} onClose={() => setDialog(null)} onSave={recordResults} />}
+      {dialog === 'redip' && (
+        <RedipDialog ld={labdipInput} onClose={() => setDialog(null)} canPrint={labdipInput.mode === 'factory'}
+          onSave={async (entries, meta, { print }) => {
+            const saved = await requestRedip(entries, meta);
+            if (saved && print) printFactory(entries.map(e => e.colorId), saved);
+            return saved;
+          }} />
+      )}
+
+      <UnsavedChangesDialog
+        open={!!pending}
+        message="저장하지 않은 L/D 변경이 있어요. 저장할까요?"
+        onSave={saveAndLeave}
+        onDiscard={leaveWithoutSave}
+        onKeepEditing={keepEditing}
+      />
+    </>
   );
 };

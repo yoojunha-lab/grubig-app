@@ -526,3 +526,77 @@ export const DEV_SAMPLE_ORDERS = [
     changeLog: [], createdBy: 'dev@grubig.kr', createdAt: '2026-09-18T00:00:00.000Z', updatedAt: '2026-09-18T00:00:00.000Z',
   },
 ];
+
+// ── [DEV 검증 전용] 생산 ▾ LAB-DIP 샘플 (2026-10-27) ─────────────────────────────
+//   공장 목록(염가공처) — 공장 고르기 확인용
+export const DEV_SAMPLE_DYEING_FACTORIES = ['킹텍스', '동진염색'];
+//   단계가 다 나오게: 예전 기록(완료) / 공장 진행중(D-2) / 섞임(컨펌·컨펌대기 10일·리젝) / EZ-TEX(도착·납기 지남) / 완료(컨펌·Drop)
+const ldRound = (fields = {}) => ({
+  no: 1, requestDate: '', factoryDue: '', requestNote: '', letters: 2, startIdx: 0, factoryNo: '', receivedDate: '',
+  sentDate: '', sentMethod: '', result: '', resultDate: '', confirmedLetter: '', buyerComment: '', ...fields,
+});
+const ldColor = (id, name, fields = {}, round = {}) => ({
+  id, name, pantone: '', swatch: false, memo: '', comment: '', droppedAt: '', rounds: [ldRound(round)], ...fields,
+});
+const ldBase = {
+  schemaVersion: 2, mode: 'factory', eztexNo: '', buyerDue: '', style: '', woolManual: false, lightSources: [],
+  remarks: '', memo: '', legacy: false, legacyDone: false, authorName: 'DEV 검증용',
+};
+export const DEV_SAMPLE_LABDIPS = [
+  // 예전 '영업 ▾ Lab-Dip 발송' 기록 (schemaVersion 없음) → '완료' 탭 '예전 기록'
+  {
+    id: 'labdip_dev_old1', buyerName: 'BYC', article: 'PW1000', style: 'BYC-2601', date: '2026-09-01',
+    sentDate: '2026-09-02', sentMethod: '퀵서비스', remarks: '재발송 건',
+    colors: [
+      { id: 'c_old_1', name: 'NAVY', baseNo: '25S038', letters: 3, comment: '' },
+      { id: 'c_old_2', name: 'CHARCOAL', baseNo: '25S041', letters: 2, comment: 'A안 추천' },
+    ],
+    authorName: '김영업', createdAt: '2026-09-01T02:00:00.000Z', updatedAt: '2026-09-02T02:00:00.000Z',
+  },
+  // 완료 — 컨펌 1 · Drop 1
+  {
+    ...ldBase, id: 'labdip_dev_23', ldNo: 'GB26023', buyerName: 'BYC', factory: '킹텍스',
+    requestDate: '2026-10-01', factoryDue: '2026-10-07',
+    fabricId: 'fab_dev_5', article: 'GB-2405', itemName: 'Cotton Single', gsm: 180, widthCut: 64, widthFull: 66, woolType: 'none',
+    colors: [
+      ldColor('c23_1', 'RED', { pantone: '18-1664 TCX' }, { factoryNo: '26S090', receivedDate: '2026-10-07', sentDate: '2026-10-08', sentMethod: '퀵서비스', result: 'confirm', resultDate: '2026-10-15', confirmedLetter: 'A' }),
+      ldColor('c23_2', 'YELLOW', { droppedAt: '2026-10-15' }, { factoryNo: '26S091', receivedDate: '2026-10-07', sentDate: '2026-10-08', sentMethod: '퀵서비스' }),
+    ],
+    createdAt: '2026-10-01T01:00:00.000Z', updatedAt: '2026-10-15T01:00:00.000Z',
+  },
+  // 섞임 — 컨펌 "B" · 컨펌대기(10/17 발송) · 리젝(더 붉게 → 2차 의뢰 전)
+  {
+    ...ldBase, id: 'labdip_dev_24', ldNo: 'GB26024', buyerName: '효성TNC', factory: '동진염색',
+    requestDate: '2026-10-10', factoryDue: '2026-10-17', lightSources: ['D65'],
+    fabricId: 'fab_dev_1', article: 'GB-2401', itemName: 'Wool Jersey', gsm: 280, widthCut: 58, widthFull: 60, woolType: 'regular',
+    colors: [
+      ldColor('c24_1', 'NAVY', { pantone: '19-4052 TCX' }, { letters: 3, factoryNo: '26S105', receivedDate: '2026-10-16', sentDate: '2026-10-17', sentMethod: '택배', result: 'confirm', resultDate: '2026-10-22', confirmedLetter: 'B' }),
+      ldColor('c24_2', 'CHARCOAL', { pantone: '19-0201 TCX' }, { factoryNo: '26S106', receivedDate: '2026-10-16', sentDate: '2026-10-17', sentMethod: '택배' }),
+      ldColor('c24_3', 'BEIGE', { swatch: true, comment: 'B안 추천' }, { letters: 3, factoryNo: '26S107', receivedDate: '2026-10-16', sentDate: '2026-10-17', sentMethod: '택배', result: 'reject', resultDate: '2026-10-22', buyerComment: '더 붉게' }),
+    ],
+    createdAt: '2026-10-10T01:00:00.000Z', updatedAt: '2026-10-22T01:00:00.000Z',
+  },
+  // 공장 진행중 — 선염 SW 원단 (원사 F/60Nm SW/N 87/13 → 슈퍼워시), PANTONE · 바이어 스와치
+  {
+    ...ldBase, id: 'labdip_dev_25', ldNo: 'GB26025', buyerName: '피플앤네이쳐', factory: '킹텍스',
+    requestDate: '2026-10-24', factoryDue: '2026-10-29', buyerDue: '2026-11-03', lightSources: ['D65', 'TL84'],
+    fabricId: 'fab_dev_7', article: 'PW1050', itemName: 'W/N=87/13 SINGLE STRIPE', gsm: 145, widthCut: 53, widthFull: 55, woolType: 'superwash',
+    remarks: '선염 원사 L/D — 원사로 떠 주세요',
+    colors: [
+      ldColor('c25_1', 'APRICOT', { pantone: '14-1230 TCX' }, { letters: 3 }),
+      ldColor('c25_2', 'BARK BROWN', { swatch: true, memo: '스와치보다 살짝 밝게' }),
+    ],
+    createdAt: '2026-10-24T01:00:00.000Z', updatedAt: '2026-10-24T01:00:00.000Z',
+  },
+  // 바이어 발송만 (EZ-TEX 의뢰) — BLACK 도착(발송 전) · WHITE 공장 진행중(납기 지남)
+  {
+    ...ldBase, id: 'labdip_dev_26', ldNo: 'GB26026', mode: 'direct', eztexNo: 'LD-2611', buyerName: '한세실업', factory: '킹텍스',
+    requestDate: '2026-10-20', factoryDue: '2026-10-24',
+    fabricId: 'fab_dev_3', article: 'GB-2403', itemName: 'Poly Interlock', gsm: 240, widthCut: 60, widthFull: 62, woolType: 'none',
+    colors: [
+      ldColor('c26_1', 'BLACK', {}, { factoryNo: 'K-3321', receivedDate: '2026-10-26' }),
+      ldColor('c26_2', 'WHITE'),
+    ],
+    createdAt: '2026-10-20T01:00:00.000Z', updatedAt: '2026-10-26T01:00:00.000Z',
+  },
+];
