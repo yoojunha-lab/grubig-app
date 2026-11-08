@@ -395,8 +395,9 @@ export const DYE_METHODS = [
 export const DEFAULT_DYE_METHOD = 'piece';
 export const getDyeMethodMeta = (key) => DYE_METHODS.find(m => m.key === key) || null;
 
-// 오더 마무리 체크 (대표님 요청 2026-10-14 — 이걸 끝내야 오더가 최종 마무리)
-//  3개를 모두 체크하면 오더가 자동으로 '완료' (체크를 풀면 다시 진행중 — 자동으로 완료한 경우만)
+// 오더 마무리 체크 (대표님 요청 2026-10-14)
+//  3개를 모두 체크하면 오더가 자동으로 '완료' (체크를 풀면 다시 진행중 — 자동으로 완료한 경우만, 출고가 다 끝난 오더는 완료 그대로)
+//  출고가 다 끝나면 마무리와 상관없이 먼저 '완료' (2026-11-09 — 남은 마무리는 생산 현황 [마무리 안 됨]에서)
 export const CLOSING_ITEMS = [
   { key: 'yarnStock',   label: '원사재고정리',   short: '원사재고' },
   { key: 'eztexStock',  label: 'EZTEX 재고정리', short: 'EZTEX 재고' },

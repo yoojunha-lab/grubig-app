@@ -511,10 +511,14 @@ const normalizeClosing = (raw) => {
   }));
 };
 
-// 자동 '완료' 표시 (마무리 체크 3개 · 출고 끝 — closingAuto · shipCompleteAuto) — '완료'인 오더에만 남김
-const normalizeClosingAuto = (raw, status) => {
+// 자동 '완료' 표시 { prevStatus: 자동 완료 전 상태(진행중 · 보류), at } — 마무리 체크 3개(closingAuto) · 출고 끝(shipCompleteAuto)
+//  되돌릴 때 prevStatus 로 (완료로는 안 돌아감)
+const autoPrevStatus = (status) => (status === 'on_hold' ? 'on_hold' : 'active');
+const makeAutoDone = (status) => ({ prevStatus: autoPrevStatus(status), at: new Date().toISOString() });
+// 읽을 때 — '완료'인 오더에만 남김
+const normalizeAutoDone = (raw, status) => {
   if (status !== 'completed' || !raw || typeof raw !== 'object') return null;
-  return { prevStatus: raw.prevStatus === 'on_hold' ? 'on_hold' : 'active', at: str(raw.at) };
+  return { prevStatus: autoPrevStatus(raw.prevStatus), at: str(raw.at) };
 };
 
 const normalizeDyeMethod = (v) => (DYE_METHODS.some(m => m.key === v) ? v : '');
@@ -627,8 +631,8 @@ const normalizeV8 = (raw) => {
     dyeMethod: normalizeDyeMethod(raw.dyeMethod),   // 예전 오더는 '' (안 고름 — 컬러마다 출고)
     greigeOuts: cleanGreigeList(raw.greigeOuts, `${id}_o`),
     closing: normalizeClosing(raw.closing),
-    closingAuto: normalizeClosingAuto(raw.closingAuto, status),
-    shipCompleteAuto: normalizeClosingAuto(raw.shipCompleteAuto, status),
+    closingAuto: normalizeAutoDone(raw.closingAuto, status),
+    shipCompleteAuto: normalizeAutoDone(raw.shipCompleteAuto, status),
     // 원사 (v11) — v11 전 오더는 예전 원사 일정을 사종 한 줄로
     yarnStock: !!raw.yarnStock,
     // 컨펌 · 성적서 / 외관검사 '안 함' (오더 전체 — 2026-10-19)
@@ -1863,17 +1867,15 @@ export const isShippingDone = (order) => {
   return colors.length > 0 && colors.every(c => c.shipDone);
 };
 
-// '마무리 대기' — 출고는 다 끝났는데 마무리 체크가 남은 진행 중 오더
+// '마무리 대기' — 출고는 다 끝났는데 마무리 체크가 남은, 아직 완료 전(진행중 · 보류) 오더
 //  2026-11-09 부터는 출고가 끝나면 자동 '완료'라 거의 없음 — 규칙이 생기기 전에 출고가 끝난 오더 ·
 //  자동 완료 뒤 손으로 진행중으로 되돌린 오더 · 아이템을 안 고른 재샘플만 (생산 현황 [완료로 넘기기])
 export const isClosingPending = (order) => !!order && order.status !== 'completed'
   && isShippingDone(order) && !getClosingState(order).complete;
 
-const autoInfo = (status) => ({ prevStatus: status === 'on_hold' ? 'on_hold' : 'active', at: new Date().toISOString() });
-
 // 출고 끝으로 '완료' (+ 자동 완료 표시 — 출고가 다시 남으면 그 전 상태로). 생산 현황 [완료로 넘기기]도 이것
 export const completeByShipping = (order) => ({
-  ...order, status: 'completed', dropInfo: null, shipCompleteAuto: autoInfo(order.status),
+  ...order, status: 'completed', dropInfo: null, shipCompleteAuto: makeAutoDone(order.status),
 });
 
 /**
@@ -1896,13 +1898,13 @@ export const applyShipComplete = (prev, next) => {
   }
   if (wasDone && !nowDone && next.status === 'completed' && next.shipCompleteAuto && !next.dropInfo
     && !getClosingState(next).complete) {
-    return { order: { ...next, status: next.shipCompleteAuto.prevStatus, shipCompleteAuto: null }, change: 'reopened' };
+    return { order: { ...next, status: autoPrevStatus(next.shipCompleteAuto.prevStatus), shipCompleteAuto: null }, change: 'reopened' };
   }
   return { order: next, change: '' };
 };
 
 // 오더를 '완료'로 바꾼 날 ('YYYY-MM-DD', 모르면 '') — 변경 이력의 가장 최근 '오더상태 …→완료' 줄
-//  손으로 완료 · 마무리 자동 완료 · [체크 없이 완료] · 설계서 아이템화 · Drop 모두 이 글자로 남음
+//  손으로 완료 · 출고 끝 / 마무리 자동 완료 · [완료로 넘기기] · 설계서 아이템화 · Drop 모두 이 글자로 남음 (예전 [체크 없이 완료]도)
 //  이력 시각(ts)은 세계 표준시(ISO) 글자라 한국 날짜로 바꿔서 — 오전 9시 전에 완료한 오더가 하루 앞 날짜로 잡히지 않게 (2026-10-19 검토)
 const COMPLETED_LOG = /오더상태 \S+→완료/;
 export const getCompletedAt = (order) => {
@@ -1917,7 +1919,7 @@ export const getCompletedAt = (order) => {
  *  (대표님 요청 2026-10-19 — 모아서 나중에 처리. 생산 현황 [마무리 안 됨] 버튼 · 나중에 대시보드 공용)
  *  · 진행 중 · 보류: 입력 있는 컬러가 모두 출고 끝 (= '마무리 대기')
  *  · 완료: 마무리 체크가 생긴 날(CLOSING_SINCE) 뒤에 완료한 오더만 — 예전에 완료한 오더는 뺌
- *    ([체크 없이 완료] · 아이템화 · Drop 샘플 포함 — EZ-TEX 번호가 있어 종결이 필요할 수 있어서)
+ *    (출고 끝 자동 완료 · 손으로 완료 · 아이템화 · Drop 샘플 포함 — EZ-TEX 번호가 있어 종결이 필요할 수 있어서)
  */
 export const isClosingOutstanding = (order) => {
   if (!order) return false;
@@ -1954,7 +1956,7 @@ export const applyClosing = (order, patchByKey) => {
   if (!wasAll && nowAll && order.status !== 'completed') {
     out.status = 'completed';
     out.dropInfo = null;
-    out.closingAuto = autoInfo(order.status);
+    out.closingAuto = makeAutoDone(order.status);
   } else if (wasAll && !nowAll && order.status === 'completed' && order.closingAuto && !order.dropInfo) {
     // (설계서 Drop 으로 닫힌 샘플은 체크를 풀어도 그대로 — 다시 열려면 설계서 복원)
     out.closingAuto = null;
@@ -1962,7 +1964,7 @@ export const applyClosing = (order, patchByKey) => {
       // 출고가 다 끝났으면 완료 그대로 — 나중에 출고가 다시 남으면 그 전 상태로 돌아가게 표시를 넘김
       out.shipCompleteAuto = order.shipCompleteAuto || { ...order.closingAuto };
     } else {
-      out.status = order.closingAuto.prevStatus === 'on_hold' ? 'on_hold' : 'active';
+      out.status = autoPrevStatus(order.closingAuto.prevStatus);
     }
   }
   return out;
@@ -2698,7 +2700,7 @@ export const completeHeldResample = (prev, next) => {
     ...next,
     status: 'completed',
     dropInfo: null,
-    ...(shipped ? { shipCompleteAuto: autoInfo(next.status) } : { closingAuto: autoInfo(next.status) }),
+    ...(shipped ? { shipCompleteAuto: makeAutoDone(next.status) } : { closingAuto: makeAutoDone(next.status) }),
   };
 };
 

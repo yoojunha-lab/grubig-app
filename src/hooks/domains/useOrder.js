@@ -139,14 +139,13 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       showToast(`출고가 다시 남아서 '${no}' 오더를 ${order.status === 'on_hold' ? '보류' : '진행중'}으로 돌렸어요.`, 'info');
       return;
     }
-    const cs = getClosingState(order);
-    const left = cs.total - cs.done;
+    const left = getClosingState(order).missing.length;
     const { noSheet } = getCompleteCheck(order);
     const sheetSample = !!order.linkedSheetId && getOrderKind(order) === 'new';
     showToast(
       `출고 끝 — '${no}' 오더를 완료로 넘겼어요. (출고를 풀면 다시 진행중)`
       + (left > 0 ? ` 마무리 ${left}개 남음 → 위 [마무리 안 됨]에서 체크` : '')
-      + (sheetSample ? " · 설계서 샘플은 아이템화 · Drop 하면 완료 탭으로 가요 (그 전엔 '아이템화 대기')" : '')
+      + (sheetSample ? " · 설계서 샘플이면 아이템화 · Drop 전까지 '아이템화 대기'로 진행 중에 보여요" : '')
       + (noSheet ? ' ⚠ 신제품인데 설계서가 없어요 — 아이템화하려면 ⋯ 메뉴(또는 상세창)에서 설계서를 붙여 주세요.' : ''),
       left > 0 || sheetSample || noSheet ? 'info' : 'success'
     );
@@ -254,7 +253,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       showShipToast(next, shipChange);
     } else if (!note && prev.status !== 'completed' && next.status === 'completed') {
       // 손으로 '완료' — 마무리가 남았으면 어디서 하는지만 알려 줌 (완료는 그대로 — 2026-11-09)
-      const left = getClosingState(next).total - getClosingState(next).done;
+      const left = getClosingState(next).missing.length;
       if (left > 0) showToast(`'${next.orderNumber}' 오더를 완료로 바꿨어요. 마무리 ${left}개가 남았어요 — 위 [마무리 안 됨]에서 체크해 주세요.`, 'info');
     }
     return ok;
@@ -502,10 +501,12 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       if (after.status === 'completed') {
         // 출고가 안 끝난 컬러가 있으면 같이 알려 줌 (완료는 그대로 — 마무리 3개를 다 하면 출고 전이어도 완료)
         //  설계서가 없는 신제품이면 그것도 (설계서가 있어야 아이템화 — ⋯ 메뉴에서 붙이면 '아이템화 대기')
+        //  출고가 다 끝난 오더는 체크를 풀어도 완료 그대로라 '다시 진행중' 안내를 빼요 (2026-11-09 검토)
         const unshipped = (after.colors || []).filter(c => colorHasData(c) && !c.shipDone).length;
         const { noSheet } = getCompleteCheck(after);
         showToast(
-          `마무리 체크 3개 끝 — '${before.orderNumber}' 오더를 완료로 바꿨어요. (체크를 풀면 다시 진행중)`
+          `마무리 체크 3개 끝 — '${before.orderNumber}' 오더를 완료로 바꿨어요.`
+          + (isShippingDone(after) ? '' : ' (체크를 풀면 다시 진행중)')
           + (unshipped ? ` ⚠ 출고가 안 끝난 컬러 ${unshipped}개가 있어요.` : '')
           + (noSheet ? ' ⚠ 신제품인데 설계서가 없어요 — 아이템화하려면 ⋯ 메뉴(또는 상세창)에서 설계서를 붙여 주세요.' : ''),
           unshipped || noSheet ? 'info' : 'success'
@@ -517,7 +518,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     return ok;
   };
 
-  // [완료로 넘기기] (생산 현황 위 '마무리 대기' — 대표님 요청 2026-11-09): 출고가 다 끝났는데 아직 진행 중인 오더를 한 번에 '완료'
+  // [완료로 넘기기] (생산 현황 위 '마무리 대기' — 대표님 요청 2026-11-09): 출고가 다 끝났는데 아직 완료 전인 오더(진행중 · 보류)를 한 번에 '완료'
   //  (출고 끝 = 자동 완료 규칙이 생기기 전에 출고가 끝난 오더 · 손으로 되돌린 오더) — 출고 끝 자동 완료와 같은 표시(shipCompleteAuto)
   //  완료할 수 없는 오더(재샘플인데 아이템을 안 고름)는 건너뛰고 알림에 번호를 적음
   const completeShippedOrders = async (ids = []) => {

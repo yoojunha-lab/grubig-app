@@ -919,7 +919,7 @@ const OrderGroup = ({ order, isDraft, visibleFlow, ctx }) => {
                     {isClosingPending(order) && (
                       <span
                         className="px-1 py-px rounded border bg-amber-50 text-amber-800 border-amber-300 text-[9px] font-extrabold"
-                        title="출고는 다 끝났는데 아직 진행 중이에요 — 위 '마무리 대기' [완료로 넘기기] 또는 ⋯ 메뉴에서 '완료' (마무리 체크는 완료한 뒤 [마무리 안 됨]에서 해도 돼요)"
+                        title="출고는 다 끝났는데 아직 완료 전이에요 — 위 '마무리 대기' [완료로 넘기기] 또는 ⋯ 메뉴에서 '완료' (마무리 체크는 완료한 뒤 [마무리 안 됨]에서 해도 돼요)"
                       >
                         마무리 대기
                       </span>

@@ -38,7 +38,8 @@ import { DESIGN_STAGES } from '../constants/common';
 // - 오더 마무리 (대표님 요청 2026-10-14): 원사재고정리 · EZTEX 재고정리 · EZTEX 종결 (3개를 다 체크하면 자동 완료)
 //   · 출고 끝 = 완료 (대표님 요청 2026-11-09 '마무리가 안 됐더라도 일단 완료로 — 마무리 안 된 건 [마무리 안 됨]에서')
 //     출고가 다 끝나면 자동 '완료'(useOrder — orderModel.applyShipComplete), 손으로 '완료'할 때도 마무리 창 없이 바로
-//   · 출고는 다 끝났는데 아직 진행 중인 오더 = '마무리 대기' (위 요약 [완료로 넘기기] · order# 칸) — 규칙이 생기기 전 오더 · 손으로 되돌린 오더
+//   · 출고는 다 끝났는데 아직 완료 전인 오더 = '마무리 대기' (위 요약 [완료로 넘기기] · order# 칸) — 규칙이 생기기 전 오더 · 손으로 되돌린 오더
+//   · 지금 보는 목록에 있던 오더는 상태가 바뀌어도 그 자리에 (탭 · 구분 · 검색을 바꾸면 정리 — 2026-11-09 검토)
 // - LOT 창: 원단 스펙(예상 YD 환산) = 원단 보관함 → 오더 값 → 같은 Article 원단 → 설계서 최종 스펙 (yieldSpecOf)
 // - 원사 창 (v11 — 대표님 요청 2026-10-14): 사종 · 원사처 · 원사염색 염색처 제안 + 오더 article# 원단의 원사 (yarnHelpers)
 // - 구분 — 메인 / 신제품 / 재샘플 (대표님 요청 2026-10-19 '샘플/메인을 함부로 바꿀 수 있으면 안 됨')
@@ -54,6 +55,19 @@ import { DESIGN_STAGES } from '../constants/common';
 //   현황표 새 줄은 정렬과 상관없이 한곳에 (내림차순이면 맨 위) — 저장되는 순간 줄이 튀어 가지 않게 (newRowIds)
 // ============================================================
 
+// 마지막 선택 기억 (이 컴퓨터 — 현황표/간트 · 메인/샘플 · 정렬). list 에 없는 값이거나 저장 못 하는 환경이면 기본값
+const loadPref = (key, list, fallback) => {
+  try {
+    const v = localStorage.getItem(key);
+    return list.some(x => x.key === v) ? v : fallback;
+  } catch {
+    return fallback;
+  }
+};
+const savePref = (key, value) => {
+  try { localStorage.setItem(key, value); } catch { /* 저장 불가 환경은 무시 */ }
+};
+
 // 메인 / 샘플 (샘플 = 신제품 + 재샘플 — 구분은 오더를 만들 때 정하고 잠김) — 마지막 선택을 기억
 const TYPE_TABS = [
   { key: 'all',    label: '전체', match: () => true },
@@ -61,14 +75,6 @@ const TYPE_TABS = [
   { key: 'sample', label: '샘플', match: o => o.type === 'sample' },
 ];
 const LS_TYPE = 'grubig.production.type';
-const loadTypeFilter = () => {
-  try {
-    const v = localStorage.getItem(LS_TYPE);
-    return TYPE_TABS.some(t => t.key === v) ? v : 'all';
-  } catch {
-    return 'all';
-  }
-};
 
 // 데스크탑 보기 (현황표 / 간트) — 마지막 선택을 기억
 const VIEWS = [
@@ -76,9 +82,6 @@ const VIEWS = [
   { key: 'gantt', label: '간트',   Icon: ChartGantt },
 ];
 const LS_VIEW = 'grubig.production.view';
-const loadView = () => {
-  try { return localStorage.getItem(LS_VIEW) === 'gantt' ? 'gantt' : 'sheet'; } catch { return 'sheet'; }
-};
 
 // awaiting = '아이템화 대기' (오더는 완료했지만 설계서가 아직 아이템화·Drop 전) → '진행 중'에 남겨 둠
 const STATUS_TABS = [
@@ -97,14 +100,9 @@ const SORTS = [
 ];
 const DEFAULT_SORT = 'number_desc';
 const LS_SORT = 'grubig.production.sort';
-const loadSort = () => {
-  try {
-    const v = localStorage.getItem(LS_SORT);
-    return SORTS.some(s => s.key === v) ? v : DEFAULT_SORT;
-  } catch {
-    return DEFAULT_SORT;
-  }
-};
+
+// 지금 보는 목록에 남겨 둔 오더가 없을 때 (useMemo 의존값이 매번 바뀌지 않게 하나만)
+const NO_IDS = new Set();
 
 // 검색 대상: order#·article#·detail·buyer·메모·컬러명·외주처(공정·염색소·검사처) (+ 연결된 설계서의 개발번호·원단명)
 //  + 구분 글자(메인·신제품·재샘플·종류 미정)와 할 일('설계서 없음'·'아이템 선택') — 위 요약 칸의 건수를 검색으로 모아 보기
@@ -155,11 +153,11 @@ export const OrderListPage = ({
   focusRequest = null,  // { orderNumber, nonce } — 개발/설계 현황에서 '생산 현황에서 보기'
   onFocusHandled,
 }) => {
-  const [view, setView] = useState(loadView);
+  const [view, setView] = useState(() => loadPref(LS_VIEW, VIEWS, 'sheet'));
   const [search, setSearch] = useState(() => focusRequest?.orderNumber || '');
   const [statusTab, setStatusTab] = useState(() => (focusRequest ? 'all' : 'open'));
-  const [typeFilter, setTypeFilter] = useState(() => (focusRequest ? 'all' : loadTypeFilter()));
-  const [sortKey, setSortKey] = useState(loadSort);
+  const [typeFilter, setTypeFilter] = useState(() => (focusRequest ? 'all' : loadPref(LS_TYPE, TYPE_TABS, 'all')));
+  const [sortKey, setSortKey] = useState(() => loadPref(LS_SORT, SORTS, DEFAULT_SORT));
   // 이 화면에서 만든 새 줄 id (만든 순서) — 현황표가 정렬과 상관없이 한곳(내림차순이면 맨 위, 아니면 맨 아래)에 모아 둠
   //  → order# 를 넣어 저장되는 순간 정렬 자리로 튀어 가 입력하던 줄이 사라져 보이지 않게 (2026-11-08)
   //  정렬을 바꾸거나 다른 메뉴에 갔다 오면 비워져서 제자리로
@@ -392,14 +390,14 @@ export const OrderListPage = ({
     return actions.setOrderField(id, 'status', 'completed');
   };
 
-  // [완료로 넘기기] — 출고가 다 끝났는데 아직 진행 중인 오더('마무리 대기')를 한 번에 '완료' (대표님 요청 2026-11-09)
+  // [완료로 넘기기] — 출고가 다 끝났는데 아직 완료 전인 오더('마무리 대기' — 진행중 · 보류)를 한 번에 '완료' (대표님 요청 2026-11-09)
   //  위 요약에서 보는 오더(고른 [전체 · 메인 · 샘플])만 · 재샘플 아이템이 없는 건 useOrder 가 건너뛰고 알림
-  const completeShippedOrders = async () => {
+  const handleCompleteShipped = async () => {
     const targets = orders.filter(o => typeTab.match(o) && isClosingPending(o));
     if (!targets.length || !actions.completeShippedOrders) return;
     const names = targets.slice(0, 12).map(o => o.orderNumber).join(', ') + (targets.length > 12 ? ` 외 ${targets.length - 12}건` : '');
     if (!window.confirm(
-      `출고가 다 끝났는데 아직 진행 중인 오더 ${targets.length}건을 '완료'로 넘길까요?\n${names}\n\n`
+      `출고가 다 끝났는데 아직 완료 전인 오더(진행중 · 보류) ${targets.length}건을 '완료'로 넘길까요?\n${names}\n\n`
       + '· 마무리(원사재고정리 · EZTEX 재고정리 · EZTEX 종결)는 나중에 위 [마무리 안 됨]에서 체크하면 돼요.\n'
       + "· 설계서 샘플은 아이템화 · Drop 전까지 '아이템화 대기'로 진행 중에 보여요.\n"
       + '· 출고 체크를 풀면 다시 진행중으로 돌아가요.'
@@ -446,12 +444,12 @@ export const OrderListPage = ({
   const changeSort = (k) => {
     setSortKey(k);
     setNewRowIds([]);
-    try { localStorage.setItem(LS_SORT, k); } catch { /* 저장 불가 환경은 무시 */ }
+    savePref(LS_SORT, k);
   };
   // 툴바 [전체 · 메인 · 샘플] (마지막 선택을 기억)
   const changeType = (k) => {
     setTypeFilter(k);
-    try { localStorage.setItem(LS_TYPE, k); } catch { /* 저장 불가 환경은 무시 */ }
+    savePref(LS_TYPE, k);
   };
   // 새 줄의 구분이 툴바 [메인 · 샘플]과 다르면 '전체'로 — order# 를 넣어 저장되는 순간 그 구분 버튼에 걸려 줄이 사라지지 않게
   //  (새 줄을 만들 때 · 새 줄 구분을 바꿀 때 — 2026-10-19 검토)
@@ -490,22 +488,37 @@ export const OrderListPage = ({
     TYPE_TABS.map(t => [t.key, orders.filter(o => inListScope(o) && t.match(o)).length])
   ), [orders, inListScope]);
 
+  // 지금 보는 목록에 있던 오더는 상태가 바뀌어도 그 자리에 남김 (2026-11-09 검토 — 출고 끝 자동 완료로 줄이 바로 사라졌음)
+  //  · 마지막 출고 체크 → 완료(회색 + '완료')인 채로 남아 출고일을 고치거나 바로 되돌릴 수 있게
+  //  · 완료 탭에서 출고 풀기 · 새 컬러 입력 → 진행중이 돼도 입력하던 줄이 안 사라지게 · [마무리 안 됨]에서 마지막 체크도
+  //  · 탭 · 구분 · 검색 · [마무리 안 됨]을 바꾸거나(같은 상태 탭을 다시 눌러도) 다른 메뉴에 갔다 오면 정리 (위 탭 숫자는 바로 바뀜)
+  const [listRound, setListRound] = useState(0);
+  const listKey = [closingView ? 'closing' : statusTab, typeFilter, search.trim().toLowerCase(), listRound].join('|');
+  const [kept, setKept] = useState({ key: listKey, ids: NO_IDS });
+  const keptIds = kept.key === listKey ? kept.ids : NO_IDS;
+
   // 구분 · 검색은 [마무리 안 됨] 보기에서도 그대로
   const visibleOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const list = orders.filter(o => inListScope(o)
+    const list = orders.filter(o => keptIds.has(o.id) || (inListScope(o)
       && typeTab.match(o)
-      && (!term || searchText(o, sheetInfoOf(o)).includes(term)));
+      && (!term || searchText(o, sheetInfoOf(o)).includes(term))));
     return sortOrders(list, sortKey);
-  }, [orders, inListScope, typeTab, search, sortKey, sheetInfoOf]);
+  }, [orders, inListScope, typeTab, search, sortKey, sheetInfoOf, keptIds]);
+  // 보인 오더를 기억 (목록이 바뀌면 새로) — 그리는 중에 바로 맞춤 (React '이전 렌더 값 저장' 방식, 이미 다 기억하면 그대로)
+  if (kept.key !== listKey || visibleOrders.some(o => !keptIds.has(o.id))) {
+    setKept({ key: listKey, ids: new Set([...keptIds, ...visibleOrders.map(o => o.id)]) });
+  }
   // [마무리 안 됨 N] 버튼 숫자 (고른 구분 안에서)
   const closingOutstandingCount = useMemo(
     () => orders.filter(o => typeTab.match(o) && isClosingOutstanding(o)).length,
     [orders, typeTab]
   );
+  // 상태 탭 — 같은 탭을 다시 눌러도 남겨 둔 줄을 정리 (listRound)
   const pickStatusTab = (key) => {
     setClosingView(false);
     setStatusTab(key);
+    setListRound(n => n + 1);
   };
 
   // 상단 요약: 진행/보류/납기 임박/지남 (완료 제외, 고른 구분 안에서) + 아이템화 대기 (완료한 샘플 중 설계서가 아직 안 끝난 것)
@@ -551,7 +564,7 @@ export const OrderListPage = ({
   };
   const changeView = (v) => {
     setView(v);
-    try { localStorage.setItem(LS_VIEW, v); } catch { /* 저장 불가 환경은 무시 */ }
+    savePref(LS_VIEW, v);
   };
   // 새 줄 만들기 — 만든 순서를 기억 (현황표 새 줄 자리 — newRowIds)
   const addDraftRow = (kind) => {
@@ -624,22 +637,15 @@ export const OrderListPage = ({
               title="오더는 완료했지만 설계서가 아직 아이템화·Drop 전인 샘플 — ⋯ 메뉴(또는 상세창)에서 아이템화 또는 Drop"
             />
           )}
-          {/* 마무리 대기 = 출고는 다 끝났는데 아직 진행 중 (출고 끝 = 자동 완료 규칙 전 오더 · 손으로 되돌린 오더) → [완료로 넘기기] (2026-11-09) */}
+          {/* 마무리 대기 = 출고는 다 끝났는데 아직 완료 전 (출고 끝 = 자동 완료 규칙 전 오더 · 손으로 되돌린 오더) → [완료로 넘기기] (2026-11-09) */}
           {stats.closing > 0 && (
-            <div
-              className="flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-lg border text-[11px] font-bold bg-emerald-50 text-emerald-800 border-emerald-300"
-              title="출고는 다 끝났는데 아직 진행 중인 오더 — 지금은 출고가 끝나면 자동으로 '완료'돼요 (마무리는 [마무리 안 됨]에서). 예전에 출고가 끝난 오더는 [완료로 넘기기]로 한 번에"
-            >
-              <span>마무리 대기</span>
-              <span className="font-mono text-sm">{stats.closing}</span>
-              <button
-                type="button"
-                onClick={completeShippedOrders}
-                className="ml-0.5 px-1.5 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-extrabold hover:bg-emerald-700"
-              >
-                완료로 넘기기
-              </button>
-            </div>
+            <StatChip
+              label="마무리 대기"
+              value={stats.closing}
+              cls="bg-emerald-50 text-emerald-800 border-emerald-300"
+              title="출고는 다 끝났는데 아직 완료 전인 오더(진행중 · 보류) — 지금은 출고가 끝나면 자동으로 '완료'돼요 (마무리는 [마무리 안 됨]에서). 예전에 출고가 끝난 오더는 [완료로 넘기기]로 한 번에"
+              action={{ label: '완료로 넘기기', onClick: handleCompleteShipped, cls: 'bg-emerald-600 hover:bg-emerald-700' }}
+            />
           )}
           {/* 구분 할 일 (2026-10-19 — 아이템 선택은 완료된 재샘플도). 검색창에 같은 글자를 넣으면 그 오더만 모임 */}
           {stats.kindTodo.unknown > 0 && (
@@ -910,9 +916,22 @@ export const OrderListPage = ({
   );
 };
 
-const StatChip = ({ label, value, cls, title }) => (
-  <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold ${cls}`} title={title}>
+// 위 요약 칸 — action { label, onClick, cls }: 칸 안 버튼 ('마무리 대기' [완료로 넘기기])
+const StatChip = ({ label, value, cls, title, action = null }) => (
+  <div
+    className={`flex items-center gap-1.5 ${action ? 'pl-2.5 pr-1 py-1' : 'px-2.5 py-1.5'} rounded-lg border text-[11px] font-bold ${cls}`}
+    title={title}
+  >
     <span>{label}</span>
     <span className="font-mono text-sm">{value}</span>
+    {action && (
+      <button
+        type="button"
+        onClick={action.onClick}
+        className={`ml-0.5 px-1.5 py-0.5 rounded-md text-white text-[10px] font-extrabold ${action.cls}`}
+      >
+        {action.label}
+      </button>
+    )}
   </div>
 );
