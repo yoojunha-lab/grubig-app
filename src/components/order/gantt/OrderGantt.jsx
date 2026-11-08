@@ -25,6 +25,7 @@ import { GanttDateMenu } from './GanttDateMenu';
 import { SheetLinkChips } from '../common/SheetLinkChips';
 import { OrderKindChip } from '../common/OrderKindChip';
 import { DayNotePopover } from './DayNotePopover';
+import { useFitToViewport } from '../../../hooks/useFitToViewport';
 import {
   BAR_H, BAR_PAD, DAY_W, LABEL_W, LANE_H, MARK_H, WEEKDAY_KO, buildGanttLayout,
 } from './ganttLayout';
@@ -475,6 +476,8 @@ export const OrderGantt = ({
   // 화면에 보이는 날짜 칸 수 — 와이드 모니터에서 날짜 칸을 더 그려 오른쪽 빈 곳을 채움 (대표님 요청 2026-10-14)
   const [viewCols, setViewCols] = useState(0);
   const hasOrders = orders.length > 0;
+  // 본문 높이 = 화면에 남은 높이 → 가로 스크롤바가 늘 화면 맨 아래에 보임 (2026-11-08)
+  const fitHeight = useFitToViewport(scrollRef, { active: hasOrders });
 
   // ---------- 간트 본문 폭 재기 (창 크기를 바꾸면 다시) ----------
   useLayoutEffect(() => {
@@ -942,7 +945,8 @@ export const OrderGantt = ({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        style={{ overflow: 'auto', maxHeight: 'calc(100vh - 240px)', minHeight: 200 }}
+        className="overscroll-y-contain"
+        style={{ overflow: 'auto', maxHeight: fitHeight ?? 'calc(100vh - 240px)', minHeight: 200 }}
       >
         <div className="relative" style={{ width: LABEL_W + layout.width }}>
           <GanttHeader layout={layout} />

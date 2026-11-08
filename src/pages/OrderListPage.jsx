@@ -50,6 +50,8 @@ import { DESIGN_STAGES } from '../constants/common';
 //   마무리 3개가 남은 것만 (orderModel.isClosingOutstanding — 나중에 대시보드도 같은 규칙). 켜면 상태 탭 대신 이 목록,
 //   현황표는 공정 칸을 접고 출고 · 마무리 · 상태 칸을 color 바로 옆에 (구분 · 검색은 그대로 걸림 — [메인 · 샘플] 숫자도
 //   이 목록 기준, 버튼을 다시 누르거나 상태 탭을 누르면 꺼짐)
+// - 정렬 (대표님 요청 2026-11-08): 기본 order# 내림차순 · 오름차순 · 등록순 · 납기순, 마지막 선택을 기억
+//   현황표 새 줄은 정렬과 상관없이 한곳에 (내림차순이면 맨 위) — 저장되는 순간 줄이 튀어 가지 않게 (newRowIds)
 // ============================================================
 
 // 메인 / 샘플 (샘플 = 신제품 + 재샘플 — 구분은 오더를 만들 때 정하고 잠김) — 마지막 선택을 기억
@@ -85,11 +87,24 @@ const STATUS_TABS = [
   { key: 'all',       label: '전체',    match: () => true },
 ];
 
+// 정렬 — 기본 order# 내림차순 (대표님 요청 2026-11-08), 마지막 선택을 기억
+//  newRowsOnTop: 현황표 새 줄 · [+ 오더 추가] 줄을 맨 위에 (최근 번호가 위에 오는 정렬이라서)
 const SORTS = [
-  { key: 'created', label: '등록순' },
-  { key: 'due',     label: '납기순' },
-  { key: 'number',  label: 'order#순' },
+  { key: 'number_desc', label: 'order# 내림차순', newRowsOnTop: true },
+  { key: 'number_asc',  label: 'order# 오름차순' },
+  { key: 'created',     label: '등록순' },
+  { key: 'due',         label: '납기순' },
 ];
+const DEFAULT_SORT = 'number_desc';
+const LS_SORT = 'grubig.production.sort';
+const loadSort = () => {
+  try {
+    const v = localStorage.getItem(LS_SORT);
+    return SORTS.some(s => s.key === v) ? v : DEFAULT_SORT;
+  } catch {
+    return DEFAULT_SORT;
+  }
+};
 
 // 검색 대상: order#·article#·detail·buyer·메모·컬러명·외주처(공정·염색소·검사처) (+ 연결된 설계서의 개발번호·원단명)
 //  + 구분 글자(메인·신제품·재샘플·종류 미정)와 할 일('설계서 없음'·'아이템 선택') — 위 요약 칸의 건수를 검색으로 모아 보기
@@ -102,16 +117,20 @@ const searchText = (o, sheetInfo) => [
   getOrderKindMeta(o).label, ORDER_KIND_TODOS[getOrderKindTodo(o)]?.label,
 ].filter(Boolean).join(' ').toLowerCase();
 
+// order# 는 숫자 부분을 숫자 크기로 (F-26M9 → F-26M20). 같은 해 안에서는 글자 순서라 S(샘플)가 M(메인) 뒤
 const sortOrders = (list, sortKey) => {
-  const byCreated = (a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
-    || String(a.orderNumber).localeCompare(String(b.orderNumber), undefined, { numeric: true });
+  const byNumber = (a, b) => String(a.orderNumber).localeCompare(String(b.orderNumber), undefined, { numeric: true });
+  const byCreatedAt = (a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
   const sorted = [...list];
   if (sortKey === 'due') {
-    sorted.sort((a, b) => (a.finalDueDate || '9999-99-99').localeCompare(b.finalDueDate || '9999-99-99') || byCreated(a, b));
-  } else if (sortKey === 'number') {
-    sorted.sort((a, b) => String(a.orderNumber).localeCompare(String(b.orderNumber), undefined, { numeric: true }));
+    sorted.sort((a, b) => (a.finalDueDate || '9999-99-99').localeCompare(b.finalDueDate || '9999-99-99')
+      || byCreatedAt(a, b) || byNumber(a, b));
+  } else if (sortKey === 'number_asc') {
+    sorted.sort((a, b) => byNumber(a, b) || byCreatedAt(a, b));
+  } else if (sortKey === 'number_desc') {
+    sorted.sort((a, b) => byNumber(b, a) || byCreatedAt(b, a));
   } else {
-    sorted.sort(byCreated);
+    sorted.sort((a, b) => byCreatedAt(a, b) || byNumber(a, b));
   }
   return sorted;
 };
@@ -140,7 +159,11 @@ export const OrderListPage = ({
   const [search, setSearch] = useState(() => focusRequest?.orderNumber || '');
   const [statusTab, setStatusTab] = useState(() => (focusRequest ? 'all' : 'open'));
   const [typeFilter, setTypeFilter] = useState(() => (focusRequest ? 'all' : loadTypeFilter()));
-  const [sortKey, setSortKey] = useState('created');
+  const [sortKey, setSortKey] = useState(loadSort);
+  // 이 화면에서 만든 새 줄 id (만든 순서) — 현황표가 정렬과 상관없이 한곳(내림차순이면 맨 위, 아니면 맨 아래)에 모아 둠
+  //  → order# 를 넣어 저장되는 순간 정렬 자리로 튀어 가 입력하던 줄이 사라져 보이지 않게 (2026-11-08)
+  //  정렬을 바꾸거나 다른 메뉴에 갔다 오면 비워져서 제자리로
+  const [newRowIds, setNewRowIds] = useState([]);
   const [closingView, setClosingView] = useState(false); // [마무리 안 됨] 보기 (2026-10-19)
   const [detailOrderId, setDetailOrderId] = useState(null);
   const [lotTarget, setLotTarget] = useState(null);          // { orderId, colorId, rect }
@@ -413,6 +436,12 @@ export const OrderListPage = ({
         + '샘플을 그만두는 거라면 지우지 말고 ⋯ 메뉴(또는 상세창)의 Drop을 써 주세요.';
     return actions.deleteOrder(id, { note });
   };
+  // 툴바 정렬 (마지막 선택을 기억) — 방금 넣은 새 오더도 정렬 자리로
+  const changeSort = (k) => {
+    setSortKey(k);
+    setNewRowIds([]);
+    try { localStorage.setItem(LS_SORT, k); } catch { /* 저장 불가 환경은 무시 */ }
+  };
   // 툴바 [전체 · 메인 · 샘플] (마지막 선택을 기억)
   const changeType = (k) => {
     setTypeFilter(k);
@@ -441,6 +470,7 @@ export const OrderListPage = ({
   // ---------- 필터 / 정렬 ----------
   // 상태 탭 숫자는 고른 구분(메인/샘플) 안에서, 구분 숫자는 지금 보는 목록 안에서 (상태 탭 — [마무리 안 됨] 보기면 그 목록)
   const typeTab = TYPE_TABS.find(t => t.key === typeFilter) || TYPE_TABS[0];
+  const sortMeta = SORTS.find(s => s.key === sortKey) || SORTS[0];
   const statusTabMeta = STATUS_TABS.find(t => t.key === statusTab) || STATUS_TABS[0];
   // 지금 보는 목록에 드는 오더인지 — [마무리 안 됨] 보기면 상태 탭 대신 '마무리 안 됨' 오더만
   const inListScope = useCallback(
@@ -517,15 +547,21 @@ export const OrderListPage = ({
     setView(v);
     try { localStorage.setItem(LS_VIEW, v); } catch { /* 저장 불가 환경은 무시 */ }
   };
+  // 새 줄 만들기 — 만든 순서를 기억 (현황표 새 줄 자리 — newRowIds)
+  const addDraftRow = (kind) => {
+    const id = actions.addDraftOrder(kind);
+    if (id) setNewRowIds(prev => [...prev, id]);
+    return id;
+  };
   // 간트에는 새 줄(초안)이 안 보이므로 현황표로 돌아가서 추가
   const handleAddDesktop = (kind = 'main') => {
     revealNewRow(kind);
     if (view !== 'sheet') changeView('sheet');
-    setPendingFocusOrderId(actions.addDraftOrder(kind));
+    setPendingFocusOrderId(addDraftRow(kind));
   };
   const handleAddMobile = (kind = 'main') => {
     revealNewRow(kind);
-    setDetailOrderId(actions.addDraftOrder(kind));
+    setDetailOrderId(addDraftRow(kind));
   };
   // 표 안의 [+ 오더 추가] · [첫 오더 추가] 버튼도 같은 규칙 적용
   // (order# 입력으로 저장되는 순간 검색어/완료 탭/구분 필터에 걸려 줄이 사라지지 않도록)
@@ -533,7 +569,7 @@ export const OrderListPage = ({
     ...pageActions,
     addDraftOrder: (kind = 'main') => {
       revealNewRow(kind);
-      return actions.addDraftOrder(kind);
+      return addDraftRow(kind);
     },
   };
 
@@ -699,9 +735,10 @@ export const OrderListPage = ({
           </button>
           <select
             value={sortKey}
-            onChange={e => setSortKey(e.target.value)}
+            onChange={e => changeSort(e.target.value)}
             className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-600 bg-white focus:ring-2 focus:ring-teal-500 outline-none"
-            title="정렬"
+            title={'정렬 — order# 내림차순이면 최근 번호가 맨 위 (고른 정렬은 이 컴퓨터가 기억해요)\n'
+              + '새로 넣은 오더는 이 화면에 있는 동안 입력한 자리에 그대로 있다가, 정렬을 바꾸거나 다시 들어오면 제자리로 가요'}
           >
             {SORTS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
           </select>
@@ -749,6 +786,8 @@ export const OrderListPage = ({
             yieldSpecOf={yieldSpecOf}
             yarnHelpers={yarnHelpers}
             closingView={closingView}
+            newRowIds={newRowIds}
+            newRowsOnTop={!!sortMeta.newRowsOnTop}
           />
         )}
         {/* 빈 목록 안내는 현황표가 (마무리 안 됨 보기도 — 2026-10-19 검토: 한 곳으로) */}

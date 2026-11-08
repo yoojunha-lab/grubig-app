@@ -36,6 +36,7 @@ import { SkipChip, StockSkipChip } from '../common/SkipChip';
 import { AddOrderMenu } from '../common/AddOrderMenu';
 import { StepManagerPopover } from './StepManagerPopover';
 import { PartnerPickerModal } from '../../common/PartnerPickerModal';
+import { useFitToViewport } from '../../../hooks/useFitToViewport';
 
 // ============================================================
 // 생산 현황표 (엑셀형) — 한 줄 = 컬러 1개, 오더 단위 칸은 rowSpan
@@ -43,8 +44,10 @@ import { PartnerPickerModal } from '../../common/PartnerPickerModal';
 // - 칸을 클릭하거나 Tab 으로 이동하면 바로 입력 (Enter 확정 후 아래 칸, Esc 취소)
 // - 공정·컨펌 칸은 클릭하면 팝오버, 염가공 LOT 칸은 onOpenLots 로 LOT 편집 열기
 // - 왼쪽 5칸(order#~color) 고정, 나머지 가로 스크롤. 공정/컬러 칸은 보이기/숨기기 가능
-// - 초안(order# 입력 전 새 줄)은 저장된 오더 다음에 같은 목록(key=order.id)으로 렌더
+// - 초안(order# 입력 전 새 줄)은 저장된 오더와 같은 목록(key=order.id)으로 렌더
 //   → order# 를 입력해 저장돼도 줄이 다시 마운트되지 않아 입력 흐름이 끊기지 않음
+// - 새 줄 자리 (2026-11-08): 이 화면에서 만든 줄(newRowIds — 저장 전 새 줄 + 방금 저장한 오더)은 정렬과 상관없이 한곳에 모음
+//   order# 내림차순이면 맨 위(최근 만든 줄이 제일 위), 다른 정렬이면 맨 아래 — 저장되는 순간 정렬 자리로 튀어 가지 않게
 // - 구분(메인 · 신제품 · 재샘플 — 2026-10-19): 새 줄만 드롭다운, 저장된 오더는 표시만 (바꾸려면 ⋯ 메뉴 [구분 바꾸기])
 //   '종류 미정'을 누르면 고르는 창 · '설계서 없음'을 누르면 ⋯ 메뉴 · 재샘플 '아이템 선택'은 article# 칸
 //   [+ 오더 추가]는 구분을 고르는 메뉴 (AddOrderMenu)
@@ -1192,6 +1195,8 @@ export const ProductionSheet = ({
   yieldSpecOf,              // (order) => 예상 YD 환산 원단 스펙 { gsm, widthFull, source } | null (OrderListPage)
   yarnHelpers = null,       // 원사 창 { popoverProps(order) — 제안 목록 · 원단 원사 } (OrderListPage)
   closingView = false,      // '마무리 안 됨' 보기 — 공정 칸을 접고 출고 · 마무리 · 상태 칸을 color 바로 옆에 (OrderListPage, 2026-10-19)
+  newRowIds = [],           // 이 화면에서 만든 새 줄 id (만든 순서 — OrderListPage, 정렬을 바꾸면 비워짐)
+  newRowsOnTop = false,     // 새 줄을 맨 위에 (order# 내림차순) — 아니면 맨 아래
 }) => {
   const scrollRef = useRef(null);
   const stepDefs = useMemo(() => stepDefsProp || getStepDefs(customSteps), [stepDefsProp, customSteps]);
@@ -1210,7 +1215,18 @@ export const ProductionSheet = ({
   const orderIds = useMemo(() => new Set(orders.map(o => o.id)), [orders]);
   const draftRows = useMemo(() => drafts.filter(d => !orderIds.has(d.id)), [drafts, orderIds]);
   const draftIds = useMemo(() => new Set(draftRows.map(d => d.id)), [draftRows]);
-  const rows = useMemo(() => [...orders, ...draftRows], [orders, draftRows]);
+  // 새 줄 = 이 화면에서 만든 줄 (+ 그 밖의 저장 전 새 줄) — 만든 순서대로 한곳에 모음 (맨 위면 최근 것이 제일 위)
+  const rows = useMemo(() => {
+    const byId = new Map([...orders, ...draftRows].map(o => [o.id, o]));
+    const newIdSet = new Set(newRowIds);
+    const newRows = [
+      ...newRowIds.filter(id => byId.has(id)).map(id => byId.get(id)),
+      ...draftRows.filter(d => !newIdSet.has(d.id)),
+    ];
+    const rest = orders.filter(o => !newIdSet.has(o.id));
+    return newRowsOnTop ? [...newRows.reverse(), ...rest] : [...rest, ...newRows];
+  }, [orders, draftRows, newRowIds, newRowsOnTop]);
+  const fitHeight = useFitToViewport(scrollRef, { active: rows.length > 0 });
 
   const fabricOptions = useMemo(() => (savedFabrics || []).filter(f => f && f.article), [savedFabrics]);
 
@@ -1434,6 +1450,24 @@ export const ProductionSheet = ({
     );
   }
 
+  // ---------- + 오더 추가 줄 (구분 고르기 메뉴) — 새 줄이 생기는 쪽 (내림차순이면 표 맨 위, 아니면 맨 아래) ----------
+  const addOrderRow = (
+    <tbody>
+      <tr>
+        <td colSpan={columns.length} className="p-0 border-b border-b-slate-200">
+          <AddOrderMenu
+            onPick={addDraft}
+            className="w-full text-left py-2 text-xs font-bold text-teal-700 hover:bg-teal-50 transition-colors"
+          >
+            <span className="sticky left-0 inline-flex items-center gap-1 px-3">
+              <Plus className="w-3.5 h-3.5" /> 오더 추가 <ChevronDown className="w-3 h-3 opacity-70" />
+            </span>
+          </AddOrderMenu>
+        </td>
+      </tr>
+    </tbody>
+  );
+
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
       {/* ---------- 상단 바: 칸 보이기/숨기기 ---------- */}
@@ -1520,7 +1554,14 @@ export const ProductionSheet = ({
       </div>
 
       {/* ---------- 표 (세로·가로 스크롤, 머리글·왼쪽 5칸 고정) ---------- */}
-      <div ref={scrollRef} onFocus={keepFocusVisible} className="overflow-auto max-h-[calc(100vh-220px)]">
+      {/* 높이 = 화면에 남은 높이 → 가로 스크롤바가 늘 화면 맨 아래에 보임 (2026-11-08 · 재기 전엔 예전처럼 화면 높이 − 220px)
+          표 끝까지 내려도 페이지는 안 밀림 (overscroll-y-contain) */}
+      <div
+        ref={scrollRef}
+        onFocus={keepFocusVisible}
+        className="overflow-auto overscroll-y-contain"
+        style={{ maxHeight: fitHeight ?? 'calc(100vh - 220px)' }}
+      >
         <table
           className="table-fixed border-separate border-spacing-0 text-slate-700"
           style={{ width: tableWidth, minWidth: tableWidth }}
@@ -1557,6 +1598,8 @@ export const ProductionSheet = ({
             </tr>
           </thead>
 
+          {newRowsOnTop && addOrderRow}
+
           {rows.map(order => (
             <OrderGroup
               key={order.id}
@@ -1567,21 +1610,7 @@ export const ProductionSheet = ({
             />
           ))}
 
-          {/* ---------- 맨 아래 줄: + 오더 추가 (구분 고르기 메뉴) ---------- */}
-          <tbody>
-            <tr>
-              <td colSpan={columns.length} className="p-0 border-b border-b-slate-200">
-                <AddOrderMenu
-                  onPick={addDraft}
-                  className="w-full text-left py-2 text-xs font-bold text-teal-700 hover:bg-teal-50 transition-colors"
-                >
-                  <span className="sticky left-0 inline-flex items-center gap-1 px-3">
-                    <Plus className="w-3.5 h-3.5" /> 오더 추가 <ChevronDown className="w-3 h-3 opacity-70" />
-                  </span>
-                </AddOrderMenu>
-              </td>
-            </tr>
-          </tbody>
+          {!newRowsOnTop && addOrderRow}
         </table>
       </div>
 
