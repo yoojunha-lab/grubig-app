@@ -16,6 +16,7 @@
 //     greigeOuts: [{ id, date, kind, memo, done, kg }]  (후염 오더의 생지 출고 — 오더 전체 한 번에)
 //     closing: { yarnStock, eztexStock, eztexClosed } 각 { done, date, memo }  (오더 마무리 체크 — 2026-10-14)
 //     closingAuto: 마무리 3개를 다 체크해서 자동으로 '완료'가 된 오더 { prevStatus, at } — 체크를 풀면 prevStatus 로 (없으면 null)
+//     shipCompleteAuto: 출고가 다 끝나서 자동으로 '완료'가 된 오더 { prevStatus, at } — 출고가 다시 남으면 prevStatus 로 (2026-11-09 v13)
 //     yarnStock: 원사 [재고 사용] (오더 전체 — 체크하면 원사 발주는 끝난 것으로 봄, 2026-10-14 v11)
 //     skipConfirm: 컨펌 · 성적서 '안 함' (오더 전체 — 브랜드 컨펌 · 시험성적서 둘 다, 2026-10-19 v12)
 //     skipInspection: 외관검사 '안 함' (오더 전체, 2026-10-19 v12) — 둘 다 이미 넣은 기록은 지우지 않고 진행 계산에서만 뺌
@@ -70,8 +71,10 @@ import { addDaysYmd, diffDaysYmd, todayYmd, toYmd, round1, calcKgFromYd, shortDa
 //                   예전 샘플은 읽을 때: 설계서 연결 = 신제품 / 원단 연결 = 재샘플 / 둘 다 없음 = 종류 미정
 //                   + 편직 재고 사용(knitting.stock) · 컨펌 · 성적서 / 외관검사 '안 함'(skipConfirm · skipInspection)
 //                     (같은 날 두 번째 요청 — 배포 전이라 같은 버전에 넣음)
+// v13 (2026-11-09): 출고가 다 끝나면 마무리와 상관없이 자동 '완료' (shipCompleteAuto) — 마무리는 [마무리 안 됨]에서
+//                   (예전 화면이 새 규칙 표시를 모른 채 저장하지 않게 버전을 올림 — 예전 화면은 새로고침 안내)
 //  예전 문서는 읽을 때 자동으로 맞춤 (오더 단위 외관검사 → 컬러별 → LOT별, 예전 컨펌 라운드 → 상태 기록)
-export const ORDER_SCHEMA_VERSION = 12;
+export const ORDER_SCHEMA_VERSION = 13;
 
 // 공정 목록 기본값 (추가 공정이 없을 때 — 프리세팅은 LOT 창에서 관리하므로 빠짐)
 const DEFAULT_STEP_DEFS = getStepDefs([]);
@@ -184,6 +187,7 @@ export const createEmptyOrder = (userEmail = '', kind = 'main') => {
     greigeOuts: [],
     closing: createClosing(),
     closingAuto: null,
+    shipCompleteAuto: null,
     yarnStock: false,
     skipConfirm: false,
     skipInspection: false,
@@ -507,7 +511,7 @@ const normalizeClosing = (raw) => {
   }));
 };
 
-// 마무리 체크로 자동 '완료'된 표시 — '완료'인 오더에만 남김
+// 자동 '완료' 표시 (마무리 체크 3개 · 출고 끝 — closingAuto · shipCompleteAuto) — '완료'인 오더에만 남김
 const normalizeClosingAuto = (raw, status) => {
   if (status !== 'completed' || !raw || typeof raw !== 'object') return null;
   return { prevStatus: raw.prevStatus === 'on_hold' ? 'on_hold' : 'active', at: str(raw.at) };
@@ -624,6 +628,7 @@ const normalizeV8 = (raw) => {
     greigeOuts: cleanGreigeList(raw.greigeOuts, `${id}_o`),
     closing: normalizeClosing(raw.closing),
     closingAuto: normalizeClosingAuto(raw.closingAuto, status),
+    shipCompleteAuto: normalizeClosingAuto(raw.shipCompleteAuto, status),
     // 원사 (v11) — v11 전 오더는 예전 원사 일정을 사종 한 줄로
     yarnStock: !!raw.yarnStock,
     // 컨펌 · 성적서 / 외관검사 '안 함' (오더 전체 — 2026-10-19)
@@ -1759,10 +1764,11 @@ export const applyOrderField = (order, field, value) => {
     const n = numOrNull(value);
     next.lossRate = n === null ? DEFAULT_LOSS_RATE : Math.max(0, n);
   }
-  // 오더상태를 손으로 바꾸면 'Drop으로 닫힘' · '마무리 체크로 자동 완료' 표시는 지움 (그 뒤엔 체크를 풀어도 상태 그대로)
+  // 오더상태를 손으로 바꾸면 'Drop으로 닫힘' · '마무리 체크 / 출고 끝으로 자동 완료' 표시는 지움 (그 뒤엔 체크를 풀어도 상태 그대로)
   if (field === 'status' && value !== order.status) {
     next.dropInfo = null;
     next.closingAuto = null;
+    next.shipCompleteAuto = null;
   }
   if (field === 'dyeMethod') return applyDyeMethod(order, value);
   return next;
@@ -1858,8 +1864,42 @@ export const isShippingDone = (order) => {
 };
 
 // '마무리 대기' — 출고는 다 끝났는데 마무리 체크가 남은 진행 중 오더
+//  2026-11-09 부터는 출고가 끝나면 자동 '완료'라 거의 없음 — 규칙이 생기기 전에 출고가 끝난 오더 ·
+//  자동 완료 뒤 손으로 진행중으로 되돌린 오더 · 아이템을 안 고른 재샘플만 (생산 현황 [완료로 넘기기])
 export const isClosingPending = (order) => !!order && order.status !== 'completed'
   && isShippingDone(order) && !getClosingState(order).complete;
+
+const autoInfo = (status) => ({ prevStatus: status === 'on_hold' ? 'on_hold' : 'active', at: new Date().toISOString() });
+
+// 출고 끝으로 '완료' (+ 자동 완료 표시 — 출고가 다시 남으면 그 전 상태로). 생산 현황 [완료로 넘기기]도 이것
+export const completeByShipping = (order) => ({
+  ...order, status: 'completed', dropInfo: null, shipCompleteAuto: autoInfo(order.status),
+});
+
+/**
+ * 출고 끝 → 자동 '완료' (대표님 요청 2026-11-09 '마무리가 안 됐더라도 일단 완료로 — 마무리는 [마무리 안 됨]에서')
+ *  prev → next 로 고칠 때 (useOrder.updateOrder — 출고 칸 · 외관검사 '출고완료' 자동 체크 · 상세창 어디서 고쳐도)
+ *  · 입력한 컬러의 출고가 막 다 끝났으면 '완료' + shipCompleteAuto { prevStatus, at } (진행중 · 보류 모두)
+ *    완료할 수 없는 오더(재샘플인데 아이템을 안 고름)는 그대로 → 'held' (아이템을 고르는 순간 completeHeldResample)
+ *  · 출고로 자동 완료된 오더에서 출고가 다시 남으면(출고 체크 해제 · 새 컬러) 그 전 상태로 → 'reopened'
+ *    (마무리 3개가 다 됐으면 완료 그대로 · Drop 으로 닫힌 샘플은 그대로 — 다시 열려면 설계서 복원)
+ *  · 같은 저장에서 오더상태를 손으로 바꿨으면 건드리지 않음
+ *  반환: { order, change: 'completed' | 'reopened' | 'held' | '' }
+ */
+export const applyShipComplete = (prev, next) => {
+  if (!prev || !next || prev.status !== next.status) return { order: next, change: '' };
+  const wasDone = isShippingDone(prev);
+  const nowDone = isShippingDone(next);
+  if (!wasDone && nowDone && next.status !== 'completed') {
+    if (getCompleteCheck(next).block) return { order: next, change: 'held' };
+    return { order: completeByShipping(next), change: 'completed' };
+  }
+  if (wasDone && !nowDone && next.status === 'completed' && next.shipCompleteAuto && !next.dropInfo
+    && !getClosingState(next).complete) {
+    return { order: { ...next, status: next.shipCompleteAuto.prevStatus, shipCompleteAuto: null }, change: 'reopened' };
+  }
+  return { order: next, change: '' };
+};
 
 // 오더를 '완료'로 바꾼 날 ('YYYY-MM-DD', 모르면 '') — 변경 이력의 가장 최근 '오더상태 …→완료' 줄
 //  손으로 완료 · 마무리 자동 완료 · [체크 없이 완료] · 설계서 아이템화 · Drop 모두 이 글자로 남음
@@ -1893,6 +1933,7 @@ export const isClosingOutstanding = (order) => {
  *  · 3개가 모두 체크되는 순간 오더 '완료' (대표님 결정 ③) + closingAuto { prevStatus, at }
  *  · 자동으로 완료된 오더에서 체크를 풀면 다시 그 전 상태로 (대표님: '잘못 눌렀으니 체크해제하면 다시 완료가 풀림')
  *    손으로 '완료'한 오더는 체크를 풀어도 그대로
+ *    출고가 다 끝난 오더는 체크를 풀어도 완료 그대로 (2026-11-09 — 출고 끝 = 완료) — 자동 완료 표시만 출고 쪽으로 넘김
  */
 export const applyClosing = (order, patchByKey) => {
   const cur = normalizeClosing(order.closing);
@@ -1913,11 +1954,16 @@ export const applyClosing = (order, patchByKey) => {
   if (!wasAll && nowAll && order.status !== 'completed') {
     out.status = 'completed';
     out.dropInfo = null;
-    out.closingAuto = { prevStatus: order.status === 'on_hold' ? 'on_hold' : 'active', at: new Date().toISOString() };
+    out.closingAuto = autoInfo(order.status);
   } else if (wasAll && !nowAll && order.status === 'completed' && order.closingAuto && !order.dropInfo) {
     // (설계서 Drop 으로 닫힌 샘플은 체크를 풀어도 그대로 — 다시 열려면 설계서 복원)
-    out.status = order.closingAuto.prevStatus === 'on_hold' ? 'on_hold' : 'active';
     out.closingAuto = null;
+    if (isShippingDone(order)) {
+      // 출고가 다 끝났으면 완료 그대로 — 나중에 출고가 다시 남으면 그 전 상태로 돌아가게 표시를 넘김
+      out.shipCompleteAuto = order.shipCompleteAuto || { ...order.closingAuto };
+    } else {
+      out.status = order.closingAuto.prevStatus === 'on_hold' ? 'on_hold' : 'active';
+    }
   }
   return out;
 };
@@ -2419,6 +2465,14 @@ export const summarizeOrderChange = (prev, next, stepDefs = DEFAULT_STEP_DEFS) =
     && getClosingState(prev).complete && !getClosingState(next).complete) {
     out.push('마무리 체크를 풀어서 완료 취소');
   }
+  // 출고 끝으로 자동 완료 / 출고가 다시 남아 진행 (2026-11-09) — 마무리 체크를 풀며 표시만 넘긴 경우(상태 그대로)는 안 남김
+  if (!prev.shipCompleteAuto && next.shipCompleteAuto && prev.status !== 'completed' && next.status === 'completed') {
+    out.push('출고 끝 → 자동 완료');
+  }
+  if (prev.shipCompleteAuto && !next.shipCompleteAuto && prev.status === 'completed' && next.status !== 'completed'
+    && isShippingDone(prev) && !isShippingDone(next)) {
+    out.push('출고가 다시 남아서 완료 취소');
+  }
 
   // 후염 오더 생지 출고 (오더 전체)
   const ogA = greigeText(prev.greigeOuts);
@@ -2617,33 +2671,34 @@ export const formatSheetLabel = (sheet, { devOrderNo = sheet?.devOrderNo, emptyN
 );
 
 /**
- * '완료'로 바꾸기 전에 볼 것 — 생산 현황 완료 · useOrder 저장 · 마무리 자동 완료 · 마무리 창 공용 (2026-10-19 검토 — 한 곳으로)
+ * '완료'로 바꾸기 전에 볼 것 — 생산 현황 완료 · useOrder 저장 · 출고 끝 / 마무리 자동 완료 · 마무리 창 공용 (2026-10-19 검토 — 한 곳으로)
  *  block  : 완료할 수 없는 까닭 ('' = 됨) — 새 줄(order# 입력 전 — 등록한 뒤에) · 아이템을 안 고른 재샘플
- *  closing: 마무리 체크(원사재고정리 · EZTEX 재고정리 · EZTEX 종결)가 남음 → 마무리 창부터
  *  noSheet: 설계서가 없는 신제품 → 설계서 없이 완료할지 한 번 묻기 (설계서가 없으면 아이템화를 못 함)
+ *  (마무리 체크는 더 이상 완료를 막지 않음 — 2026-11-09, [마무리 안 됨]에서)
  */
 export const getCompleteCheck = (order, { draft = false } = {}) => ({
   block: draft
     ? '새 줄은 order#를 넣어 오더를 등록한 뒤에 완료할 수 있어요.'
     : isItemMissing(order) ? '재샘플은 article# 칸에서 기존 아이템(원단 관리)을 골라야 완료할 수 있어요.' : '',
-  closing: !getClosingState(order).complete,
   noSheet: isSheetMissing(order),
 });
 
 /**
- * 마무리 체크 3개를 다 했는데 아이템이 없어 자동 완료를 미뤄 둔 재샘플 → 아이템을 고르는 순간 자동 완료
- *  (대표님 결정 2026-10-19 검토 ①). 마무리 자동 완료와 같게 closingAuto 를 남김 — 체크를 풀면 그 전 상태로
+ * 출고가 다 끝났거나(2026-11-09) 마무리 체크 3개를 다 했는데 아이템이 없어 자동 완료를 미뤄 둔 재샘플
+ *  → 아이템을 고르는 순간 자동 완료 (대표님 결정 2026-10-19 검토 ①)
+ *  자동 완료 표시를 남김 — 출고 끝이면 shipCompleteAuto(출고가 다시 남으면 그 전 상태로), 아니면 closingAuto(체크를 풀면)
  *  prev: 고치기 전 오더 / next: 고친 오더 → 자동 완료할 때만 새 오더, 아니면 next 그대로
  */
 export const completeHeldResample = (prev, next) => {
   if (!prev || !next || next.status === 'completed') return next;
   if (!isItemMissing(prev) || getOrderKind(next) !== 'resample' || isItemMissing(next)) return next;
-  if (!getClosingState(next).complete) return next;
+  const shipped = isShippingDone(next);
+  if (!shipped && !getClosingState(next).complete) return next;
   return {
     ...next,
     status: 'completed',
     dropInfo: null,
-    closingAuto: { prevStatus: next.status === 'on_hold' ? 'on_hold' : 'active', at: new Date().toISOString() },
+    ...(shipped ? { shipCompleteAuto: autoInfo(next.status) } : { closingAuto: autoInfo(next.status) }),
   };
 };
 

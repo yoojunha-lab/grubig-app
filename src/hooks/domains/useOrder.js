@@ -8,6 +8,7 @@ import {
   applyDyeMethod, applyOrderGreigeOuts, applyOrderSpec, applyLotInspections, addLotInspectionEvent, applyClosing,
   applyYarn, addYarnOrderEvent,
   applyOrderKind, getOrderKind, getOrderKindMeta, isKindLocked, getCompleteCheck, completeHeldResample, applySkip,
+  applyShipComplete, completeByShipping, isShippingDone, getClosingState,
   summarizeOrderChange, isSameOrderContent, ORDER_SCHEMA_VERSION,
 } from '../../utils/orderModel';
 import { makeChangeLogEntry, appendChangeLog } from '../../utils/auditLog';
@@ -25,8 +26,10 @@ import { todayYmd } from '../../utils/orderCalculations';
 // ■ 새 오더 줄(초안)은 order# 를 입력하는 순간 저장(등록)된다. 그 전엔 화면에만 있음
 // ■ 구분(메인 · 신제품 · 재샘플 — 대표님 요청 2026-10-19)은 새 줄을 만들 때 고르고, 저장되면 잠김
 //   저장된 오더의 구분은 changeOrderKind([구분 바꾸기] 창 — 사유) · 설계서 연결(→ 신제품)로만 바뀜 (updateOrder 가 막음)
-//   재샘플은 아이템(원단 관리 원단)을 골라야 '완료' (마무리 체크 자동 완료도 미뤘다가 아이템을 고르는 순간 완료)
+//   재샘플은 아이템(원단 관리 원단)을 골라야 '완료' (출고 끝 · 마무리 체크 자동 완료도 미뤘다가 아이템을 고르는 순간 완료)
 //   '완료'로 바꿔도 되는지는 orderModel.getCompleteCheck 한 곳에서 (새 줄 · 재샘플 아이템 — 2026-10-19 검토)
+// ■ 출고가 다 끝나면 자동 '완료' (대표님 요청 2026-11-09 '마무리가 안 됐더라도 일단 완료로') — 저장할 때마다 updateOrder 가 봄
+//   (orderModel.applyShipComplete — 출고가 다시 남으면 그 전 상태로). 마무리는 생산 현황 [마무리 안 됨]에서
 
 // override 가 서버 값보다 앞서 있는지 (true 면 override 를 보여줌)
 //  - 서버에 없는 문서: 저장이 아직 안 끝났을 때만 (끝났는데 없으면 다른 곳에서 삭제된 것)
@@ -125,6 +128,30 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     return ok;
   };
 
+  // 출고 끝 자동 완료 알림 (updateOrder — applyShipComplete 결과 'completed' | 'reopened' | 'held')
+  const showShipToast = (order, change) => {
+    const no = order.orderNumber;
+    if (change === 'held') {
+      showToast(`출고는 다 끝났어요. '${no}'는 재샘플이라 article# 칸에서 아이템(원단 관리)을 고르면 그때 완료돼요.`, 'info');
+      return;
+    }
+    if (change === 'reopened') {
+      showToast(`출고가 다시 남아서 '${no}' 오더를 ${order.status === 'on_hold' ? '보류' : '진행중'}으로 돌렸어요.`, 'info');
+      return;
+    }
+    const cs = getClosingState(order);
+    const left = cs.total - cs.done;
+    const { noSheet } = getCompleteCheck(order);
+    const sheetSample = !!order.linkedSheetId && getOrderKind(order) === 'new';
+    showToast(
+      `출고 끝 — '${no}' 오더를 완료로 넘겼어요. (출고를 풀면 다시 진행중)`
+      + (left > 0 ? ` 마무리 ${left}개 남음 → 위 [마무리 안 됨]에서 체크` : '')
+      + (sheetSample ? " · 설계서 샘플은 아이템화 · Drop 하면 완료 탭으로 가요 (그 전엔 '아이템화 대기')" : '')
+      + (noSheet ? ' ⚠ 신제품인데 설계서가 없어요 — 아이템화하려면 ⋯ 메뉴(또는 상세창)에서 설계서를 붙여 주세요.' : ''),
+      left > 0 || sheetSample || noSheet ? 'info' : 'success'
+    );
+  };
+
   /**
    * 오더 하나를 updater(오더) => 새 오더 로 수정하고 저장.
    * 초안(새 줄)은 order# 가 생기는 순간 등록 저장된다.
@@ -157,10 +184,18 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       }
     }
 
-    // 마무리 체크 3개를 다 했는데 아이템이 없어 자동 완료를 미뤄 둔 재샘플 → 아이템을 고르는 순간 완료 (대표님 결정 2026-10-19 검토 ①)
+    // 출고 끝 · 마무리 체크 3개로 자동 완료를 미뤄 둔 재샘플 → 아이템을 고르는 순간 완료 (대표님 결정 2026-10-19 검토 ①)
     const heldDone = draft ? next : completeHeldResample(prev, next);
     const autoCompleted = heldDone !== next;
     next = heldDone;
+
+    // 출고 끝 → 자동 완료 / 출고가 다시 남으면 그 전 상태로 (대표님 요청 2026-11-09 — 마무리는 [마무리 안 됨]에서)
+    let shipChange = '';
+    if (!draft) {
+      const r = applyShipComplete(prev, next);
+      next = r.order;
+      shipChange = r.change;
+    }
 
     // '완료'로 바꿔도 되는지 (어느 화면에서 완료해도 같게 — getCompleteCheck)
     //  · 새 줄(order# 입력 전)은 등록한 뒤에 (2026-10-19 검토 — 새 줄에서 완료하면 재샘플 아이템 · 마무리 확인을 다 건너뛰었음)
@@ -209,9 +244,19 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       return ok;
     }
 
-    if (!autoCompleted) return persist(prev, next, 'order_update', note);
-    const ok = await persist(prev, next, 'order_update', [note, '재샘플 아이템 선택 → 마무리 체크대로 자동 완료'].filter(Boolean).join(' · '));
-    if (ok) showToast(`아이템을 골라서 '${next.orderNumber}' 오더를 완료로 바꿨어요. (마무리 체크 3개가 이미 끝나 있었어요 — 체크를 풀면 다시 진행중)`, 'success');
+    const ok = await persist(prev, next, 'order_update', [note, autoCompleted ? '재샘플 아이템 선택 → 자동 완료' : ''].filter(Boolean).join(' · '));
+    if (!ok) return ok;
+    if (autoCompleted) {
+      showToast(next.shipCompleteAuto
+        ? `아이템을 골라서 '${next.orderNumber}' 오더를 완료로 바꿨어요. (출고가 이미 다 끝나 있었어요 — 출고를 풀면 다시 진행중)`
+        : `아이템을 골라서 '${next.orderNumber}' 오더를 완료로 바꿨어요. (마무리 체크 3개가 이미 끝나 있었어요 — 체크를 풀면 다시 진행중)`, 'success');
+    } else if (shipChange) {
+      showShipToast(next, shipChange);
+    } else if (!note && prev.status !== 'completed' && next.status === 'completed') {
+      // 손으로 '완료' — 마무리가 남았으면 어디서 하는지만 알려 줌 (완료는 그대로 — 2026-11-09)
+      const left = getClosingState(next).total - getClosingState(next).done;
+      if (left > 0) showToast(`'${next.orderNumber}' 오더를 완료로 바꿨어요. 마무리 ${left}개가 남았어요 — 위 [마무리 안 됨]에서 체크해 주세요.`, 'info');
+    }
     return ok;
   };
 
@@ -349,13 +394,13 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     if (!o) return null;
     const closed = o.status !== 'completed' || !!o.dropInfo;
     const relinked = !!fabric && String(o.linkedFabricId || '') !== String(fabric.id || '');
-    // closingAuto(마무리 체크로 자동 완료) 표시는 지움 — 아이템화로 닫힌 오더가 마무리 체크를 풀었다고 다시 열리지 않게
+    // 자동 완료 표시(closingAuto · shipCompleteAuto)는 지움 — 아이템화로 닫힌 오더가 마무리 체크 · 출고를 풀었다고 다시 열리지 않게
     //  (이미 완료였고 연결도 같아서 그 표시만 지우는 경우는 알림에 안 붙임 — changed: false)
-    const clearAuto = !!o.closingAuto;
+    const clearAuto = !!o.closingAuto || !!o.shipCompleteAuto;
     if (!closed && !relinked && !clearAuto) return { ok: true, changed: false, closed: false, orderNumber: o.orderNumber };
     const ok = await updateOrder(
       o.id,
-      ord => ({ ...(fabric ? applyFabric(ord, fabric) : ord), status: 'completed', dropInfo: null, closingAuto: null }),
+      ord => ({ ...(fabric ? applyFabric(ord, fabric) : ord), status: 'completed', dropInfo: null, closingAuto: null, shipCompleteAuto: null }),
       { note: '설계서 아이템화' }
     );
     return { ok, changed: closed || relinked, closed, orderNumber: o.orderNumber };
@@ -369,10 +414,10 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     if (!o) return null;
     if (o.status === 'completed' && o.dropInfo) return { ok: true, changed: false, orderNumber: o.orderNumber };
     const at = new Date().toISOString();
-    // closingAuto 도 지움 — Drop 된 샘플은 설계서 복원으로만 다시 열림 (마무리 체크를 풀어도 그대로)
+    // 자동 완료 표시도 지움 — Drop 된 샘플은 설계서 복원으로만 다시 열림 (마무리 체크 · 출고를 풀어도 그대로)
     const ok = await updateOrder(
       o.id,
-      ord => ({ ...ord, status: 'completed', dropInfo: { prevStatus: ord.status, at }, closingAuto: null }),
+      ord => ({ ...ord, status: 'completed', dropInfo: { prevStatus: ord.status, at }, closingAuto: null, shipCompleteAuto: null }),
       { note: '설계서 Drop' }
     );
     return { ok, changed: true, orderNumber: o.orderNumber };
@@ -386,7 +431,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     if (!o) return null;
     if (!(o.status === 'completed' && o.dropInfo)) return { ok: true, changed: false, orderNumber: o.orderNumber, status: o.status };
     const status = o.dropInfo.prevStatus || 'active';
-    const ok = await updateOrder(o.id, ord => ({ ...ord, status, dropInfo: null, closingAuto: null }), { note: '설계서 복원' });
+    const ok = await updateOrder(o.id, ord => ({ ...ord, status, dropInfo: null, closingAuto: null, shipCompleteAuto: null }), { note: '설계서 복원' });
     return { ok, changed: true, orderNumber: o.orderNumber, status };
   };
 
@@ -455,7 +500,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
     }
     if (ok && before && after && before.status !== after.status) {
       if (after.status === 'completed') {
-        // 출고가 안 끝난 컬러가 있으면 같이 알려 줌 (완료는 그대로 — 대표님 결정: 마무리 3개 = 최종 마무리)
+        // 출고가 안 끝난 컬러가 있으면 같이 알려 줌 (완료는 그대로 — 마무리 3개를 다 하면 출고 전이어도 완료)
         //  설계서가 없는 신제품이면 그것도 (설계서가 있어야 아이템화 — ⋯ 메뉴에서 붙이면 '아이템화 대기')
         const unshipped = (after.colors || []).filter(c => colorHasData(c) && !c.shipDone).length;
         const { noSheet } = getCompleteCheck(after);
@@ -470,6 +515,32 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       }
     }
     return ok;
+  };
+
+  // [완료로 넘기기] (생산 현황 위 '마무리 대기' — 대표님 요청 2026-11-09): 출고가 다 끝났는데 아직 진행 중인 오더를 한 번에 '완료'
+  //  (출고 끝 = 자동 완료 규칙이 생기기 전에 출고가 끝난 오더 · 손으로 되돌린 오더) — 출고 끝 자동 완료와 같은 표시(shipCompleteAuto)
+  //  완료할 수 없는 오더(재샘플인데 아이템을 안 고름)는 건너뛰고 알림에 번호를 적음
+  const completeShippedOrders = async (ids = []) => {
+    let done = 0;
+    let failed = 0;
+    const skipped = [];
+    for (const id of ids) {
+      const o = findLatest(id);
+      if (!o || o.status === 'completed' || !isShippingDone(o)) continue;
+      if (getCompleteCheck(o).block) {
+        skipped.push(o.orderNumber);
+        continue;
+      }
+      // 한 건씩 저장 (변경 이력이 오더마다 남게)
+      const ok = await updateOrder(id, completeByShipping, { note: '완료로 넘기기 (출고 끝)' });
+      if (ok) done += 1; else failed += 1;
+    }
+    const parts = [];
+    if (done) parts.push(`출고가 끝난 오더 ${done}건을 완료로 넘겼어요. 마무리는 위 [마무리 안 됨]에서 체크해 주세요.`);
+    if (skipped.length) parts.push(`재샘플이라 아이템을 골라야 완료되는 오더: ${skipped.join(', ')} (article# 칸에서 아이템을 고르면 바로 완료)`);
+    if (failed) parts.push(`${failed}건은 저장하지 못했어요.`);
+    if (parts.length) showToast(parts.join(' '), failed || skipped.length ? 'info' : 'success');
+    return { done, skipped, failed };
   };
 
   // 컨펌 · 성적서 / 외관검사 '안 함' (오더 전체 — 대표님 요청 2026-10-19) { confirm?, inspection? } — 바로 저장
@@ -578,7 +649,7 @@ export const useOrder = (rawOrders, saveDocToCloud, deleteDocFromCloud, showToas
       setStep, setLots, setGreigeOuts, setGreigeOutDone, setDailyNote, setProvisionalDue,
       setColorTracks, addTrackEvent,
       setDyeMethod, setOrderGreigeOuts, setOrderGreigeOutDone, setOrderSpec,
-      setLotInspections, addLotInspection, setClosing, setSkip, setSkipItem,
+      setLotInspections, addLotInspection, setClosing, completeShippedOrders, setSkip, setSkipItem,
       setYarn, addYarnEvent,
       addDraftOrder, setDraftKind, changeOrderKind, discardDraft, deleteOrder,
     },

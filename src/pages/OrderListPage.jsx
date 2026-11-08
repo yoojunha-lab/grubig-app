@@ -9,7 +9,6 @@ import { SampleCloseDialog } from '../components/order/common/SampleCloseDialog'
 import { AddOrderMenu } from '../components/order/common/AddOrderMenu';
 import { OrderKindDialog } from '../components/order/common/OrderKindDialog';
 import { LinkSheetDialog } from '../components/order/common/LinkSheetDialog';
-import { ClosingPopover } from '../components/order/sheet/ClosingPopover';
 import { DevDropModal } from '../components/dashboard/DevDropModal';
 import {
   getDday, isDropClosed, getOpenWork, collectVendorOptions, resolveYieldSpec, isClosingPending,
@@ -36,9 +35,10 @@ import { DESIGN_STAGES } from '../constants/common';
 //   · 오더만 완료하고 설계서가 아직 아이템화·Drop 전이면 '아이템화 대기' — '진행 중' 목록에 남음
 //   · Drop 으로 닫힌 오더를 '진행중'·'보류'로 바꾸려 하면 설계서 복원으로 (설계서·의뢰도 같이 돌아오게)
 // - focusRequest: 개발/설계 현황 [생산 현황]에서 넘어오면 그 오더 번호로 찾아서 보여 줌 (전체 탭)
-// - 오더 마무리 (대표님 요청 2026-10-14): 원사재고정리 · EZTEX 재고정리 · EZTEX 종결을 끝내야 최종 마무리
-//   · 체크가 남았는데 '완료'로 바꾸면 마무리 창 (체크하고 저장하면 자동 완료 / [체크 없이 완료])
-//   · 출고는 다 끝났는데 체크가 남은 오더 = '마무리 대기' (위 요약 · order# 칸)
+// - 오더 마무리 (대표님 요청 2026-10-14): 원사재고정리 · EZTEX 재고정리 · EZTEX 종결 (3개를 다 체크하면 자동 완료)
+//   · 출고 끝 = 완료 (대표님 요청 2026-11-09 '마무리가 안 됐더라도 일단 완료로 — 마무리 안 된 건 [마무리 안 됨]에서')
+//     출고가 다 끝나면 자동 '완료'(useOrder — orderModel.applyShipComplete), 손으로 '완료'할 때도 마무리 창 없이 바로
+//   · 출고는 다 끝났는데 아직 진행 중인 오더 = '마무리 대기' (위 요약 [완료로 넘기기] · order# 칸) — 규칙이 생기기 전 오더 · 손으로 되돌린 오더
 // - LOT 창: 원단 스펙(예상 YD 환산) = 원단 보관함 → 오더 값 → 같은 Article 원단 → 설계서 최종 스펙 (yieldSpecOf)
 // - 원사 창 (v11 — 대표님 요청 2026-10-14): 사종 · 원사처 · 원사염색 염색처 제안 + 오더 article# 원단의 원사 (yarnHelpers)
 // - 구분 — 메인 / 신제품 / 재샘플 (대표님 요청 2026-10-19 '샘플/메인을 함부로 바꿀 수 있으면 안 됨')
@@ -369,29 +369,21 @@ export const OrderListPage = ({
   const [kindTarget, setKindTarget] = useState(null); // { orderId }
   const kindOrder = kindTarget ? orders.find(o => o.id === kindTarget.orderId) || null : null;
 
-  // ---------- 오더 '완료' (재샘플 아이템 → 설계서 없음 확인 → 마무리 체크 → 샘플 끝내기 → 완료) ----------
-  //  판단은 orderModel.getCompleteCheck 한 곳에서 (useOrder 저장 · 마무리 자동 완료와 같은 규칙 — 2026-10-19 검토)
+  // ---------- 오더 '완료' (재샘플 아이템 → 설계서 없음 확인 → 샘플 끝내기 → 완료) ----------
+  //  판단은 orderModel.getCompleteCheck 한 곳에서 (useOrder 저장 · 출고 끝 / 마무리 자동 완료와 같은 규칙 — 2026-10-19 검토)
   //  0) 완료할 수 없으면(재샘플인데 아이템을 안 고름) 막음 (알림은 useOrder — 대표님 결정 2026-10-19)
   //  1) 설계서가 없는 신제품이면 먼저 한 번 묻기 (설계서가 없으면 아이템화를 못 함 — 나중에 붙이면 '아이템화 대기')
-  //     마무리 창을 열기 전에 물음 — 마무리 창에서 체크해 자동 완료되는 길도 같은 확인을 거치게 (2026-10-19 검토)
-  //  2) 마무리 체크(원사재고정리 · EZTEX 재고정리 · EZTEX 종결)가 남았으면 마무리 창 (체크하고 저장 = 자동 완료 / [체크 없이 완료] → 3)
-  //  3) 설계서가 아직 아이템화·Drop 전인 샘플이면 샘플 끝내기 창
-  //  4) 그 밖은 바로 완료
-  //  opts.skipClosing: 마무리 창 [체크 없이 완료] / opts.noSheetOk: 설계서 없음 확인을 이미 받음 (마무리 창을 거쳐 온 경우)
-  const [closingTarget, setClosingTarget] = useState(null); // { orderId } — '완료'로 바꾸려는데 마무리 체크가 남은 오더
-  const completeOrder = async (id, { skipClosing = false, noSheetOk = false } = {}) => {
+  //  2) 설계서가 아직 아이템화·Drop 전인 샘플이면 샘플 끝내기 창
+  //  3) 그 밖은 바로 완료 — 마무리 체크가 남아도 (대표님 요청 2026-11-09 — 마무리는 [마무리 안 됨]에서, 남은 개수는 useOrder 알림)
+  const completeOrder = async (id) => {
     const order = orders.find(o => o.id === id);
     if (!order) return actions.setOrderField(id, 'status', 'completed');
     const check = getCompleteCheck(order);
     if (check.block) return actions.setOrderField(id, 'status', 'completed'); // useOrder 가 막고 알림
-    if (check.noSheet && !noSheetOk && !window.confirm(
+    if (check.noSheet && !window.confirm(
       `'${order.orderNumber}'는 신제품 샘플인데 설계서가 없어요. 설계서가 없으면 아이템화(원단 등록)를 할 수 없어요.\n\n`
       + "설계서 없이 완료할까요? (나중에 ⋯ 메뉴(또는 상세창)에서 설계서를 붙이면 '아이템화 대기'로 보여요)"
     )) return false;
-    if (!skipClosing && check.closing) {
-      setClosingTarget({ orderId: id });
-      return true;
-    }
     const info = sheetInfoOf(order);
     if (info && !info.dropped && !info.articled) {
       setCloseTarget({ orderId: id, sheetId: info.sheet.id });
@@ -399,10 +391,24 @@ export const OrderListPage = ({
     }
     return actions.setOrderField(id, 'status', 'completed');
   };
-  const closingOrder = closingTarget ? orders.find(o => o.id === closingTarget.orderId) || null : null;
+
+  // [완료로 넘기기] — 출고가 다 끝났는데 아직 진행 중인 오더('마무리 대기')를 한 번에 '완료' (대표님 요청 2026-11-09)
+  //  위 요약에서 보는 오더(고른 [전체 · 메인 · 샘플])만 · 재샘플 아이템이 없는 건 useOrder 가 건너뛰고 알림
+  const completeShippedOrders = async () => {
+    const targets = orders.filter(o => typeTab.match(o) && isClosingPending(o));
+    if (!targets.length || !actions.completeShippedOrders) return;
+    const names = targets.slice(0, 12).map(o => o.orderNumber).join(', ') + (targets.length > 12 ? ` 외 ${targets.length - 12}건` : '');
+    if (!window.confirm(
+      `출고가 다 끝났는데 아직 진행 중인 오더 ${targets.length}건을 '완료'로 넘길까요?\n${names}\n\n`
+      + '· 마무리(원사재고정리 · EZTEX 재고정리 · EZTEX 종결)는 나중에 위 [마무리 안 됨]에서 체크하면 돼요.\n'
+      + "· 설계서 샘플은 아이템화 · Drop 전까지 '아이템화 대기'로 진행 중에 보여요.\n"
+      + '· 출고 체크를 풀면 다시 진행중으로 돌아가요.'
+    )) return;
+    await actions.completeShippedOrders(targets.map(o => o.id));
+  };
 
   // ---------- 오더 수정 (설계서 샘플 오더 규칙을 얹은 actions — 표·간트·상세창·모바일 공용) ----------
-  //  오더상태: Drop 으로 닫힌 샘플을 다시 열려면 설계서 복원 / '완료'로 → completeOrder (마무리 체크 · 샘플 끝내기)
+  //  오더상태: Drop 으로 닫힌 샘플을 다시 열려면 설계서 복원 / '완료'로 → completeOrder (재샘플 아이템 · 샘플 끝내기)
   //  order#: 설계서 샘플 오더면 설계서 EZ-TEX O/D NO.도 같이 바꿈 (번호가 어긋나지 않게 — 설계서 변경 이력에 남음)
   const setOrderField = async (id, field, value) => {
     const order = orders.find(o => o.id === id);
@@ -618,13 +624,22 @@ export const OrderListPage = ({
               title="오더는 완료했지만 설계서가 아직 아이템화·Drop 전인 샘플 — ⋯ 메뉴(또는 상세창)에서 아이템화 또는 Drop"
             />
           )}
+          {/* 마무리 대기 = 출고는 다 끝났는데 아직 진행 중 (출고 끝 = 자동 완료 규칙 전 오더 · 손으로 되돌린 오더) → [완료로 넘기기] (2026-11-09) */}
           {stats.closing > 0 && (
-            <StatChip
-              label="마무리 대기"
-              value={stats.closing}
-              cls="bg-emerald-50 text-emerald-800 border-emerald-300"
-              title="출고는 다 끝났는데 원사재고정리 · EZTEX 재고정리 · EZTEX 종결 체크가 남은 진행 중 오더 — 현황표 '마무리' 칸(또는 상세창)에서 체크 (완료된 오더까지 모아 보려면 [마무리 안 됨])"
-            />
+            <div
+              className="flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-lg border text-[11px] font-bold bg-emerald-50 text-emerald-800 border-emerald-300"
+              title="출고는 다 끝났는데 아직 진행 중인 오더 — 지금은 출고가 끝나면 자동으로 '완료'돼요 (마무리는 [마무리 안 됨]에서). 예전에 출고가 끝난 오더는 [완료로 넘기기]로 한 번에"
+            >
+              <span>마무리 대기</span>
+              <span className="font-mono text-sm">{stats.closing}</span>
+              <button
+                type="button"
+                onClick={completeShippedOrders}
+                className="ml-0.5 px-1.5 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-extrabold hover:bg-emerald-700"
+              >
+                완료로 넘기기
+              </button>
+            </div>
           )}
           {/* 구분 할 일 (2026-10-19 — 아이템 선택은 완료된 재샘플도). 검색창에 같은 글자를 넣으면 그 오더만 모임 */}
           {stats.kindTodo.unknown > 0 && (
@@ -842,19 +857,6 @@ export const OrderListPage = ({
           spec={yieldSpecOf(lotOrder)}
           onSaveSpec={(spec) => actions.setOrderSpec(lotOrder.id, spec)}
           prefillNewLotDate={lotTarget.newLotDate || ''}
-        />
-      )}
-
-      {/* 오더 마무리 — '완료'로 바꾸려는데 마무리 체크가 남았을 때 (체크하고 저장 = 자동 완료 / 체크 없이 완료) */}
-      {closingOrder && (
-        <ClosingPopover
-          key={`closing_complete_${closingOrder.id}`}
-          order={closingOrder}
-          anchorRect={null}
-          mode="complete"
-          onClose={() => setClosingTarget(null)}
-          onSave={(patch) => actions.setClosing(closingOrder.id, patch)}
-          onForceComplete={() => completeOrder(closingOrder.id, { skipClosing: true, noSheetOk: true })}
         />
       )}
 

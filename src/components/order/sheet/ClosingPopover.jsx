@@ -1,21 +1,21 @@
 import React, { useState } from 'react';
-import { AlertTriangle, CheckCircle2, Info } from 'lucide-react';
+import { CheckCircle2, Info } from 'lucide-react';
 import { PopoverShell } from '../common/PopoverShell';
 import { usePopoverSave } from '../common/usePopoverSave';
 import { CLOSING_ITEMS } from '../../../constants/production';
-import { getClosingState, getCompleteCheck, colorHasData } from '../../../utils/orderModel';
+import { getClosingState, getCompleteCheck, colorHasData, isShippingDone } from '../../../utils/orderModel';
 import { todayYmd } from '../../../utils/orderCalculations';
 
 // ============================================================
 // 오더 마무리 창 — 원사재고정리 · EZTEX 재고정리 · EZTEX 종결 (대표님 요청 2026-10-14)
 // ------------------------------------------------------------
-// - 3개 체크(체크한 날) + 각각 메모. 3개를 모두 끝내야 오더가 최종 마무리 → 모두 체크하면 오더 자동 '완료'
-//   (자동으로 완료된 오더는 체크를 풀면 다시 진행중 — orderModel.applyClosing)
+// - 3개 체크(체크한 날) + 각각 메모. 모두 체크하면 오더 자동 '완료' (출고 전이어도)
+//   (마무리로 자동 완료된 오더는 체크를 풀면 다시 진행중 — 단 출고가 다 끝난 오더는 완료 그대로, orderModel.applyClosing)
 //   재샘플인데 아이템을 안 골랐으면 체크만 저장되고 완료는 아이템을 고르는 순간 (getCompleteCheck — 안내도 그렇게, 2026-10-19 검토)
-// - mode 'complete': 마무리 체크가 남았는데 오더를 '완료'로 바꾸려 할 때 (OrderListPage) — 위에 안내 +
-//   [체크 없이 완료] (onForceComplete — 예전에 끝난 오더처럼 체크 없이 닫을 때)
+// - 출고가 다 끝나면 오더는 마무리와 상관없이 먼저 '완료' (대표님 요청 2026-11-09) → 남은 체크는 [마무리 안 됨]에서 이 창으로
+//   (예전 '완료로 바꾸기 전 마무리 창' — [체크 없이 완료]는 없앰)
 // - 로컬 draft 로 편집 → [저장] 시 바뀐 칸만 onSave({ yarnStock: { done?, date?, memo? }, … }). Enter = 저장
-// props: order, anchorRect(null = 화면 가운데), onClose, onSave(patch) => Promise<boolean>, mode, onForceComplete
+// props: order, anchorRect(null = 화면 가운데), onClose, onSave(patch) => Promise<boolean>
 // ============================================================
 
 const INPUT_CLS = 'w-full min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-400/60 focus:border-teal-400';
@@ -32,7 +32,7 @@ const isSubmitEnter = (e) => {
   return tag === 'INPUT' && e.target.type !== 'checkbox';
 };
 
-export const ClosingPopover = ({ order, anchorRect = null, onClose, onSave, mode = 'edit', onForceComplete }) => {
+export const ClosingPopover = ({ order, anchorRect = null, onClose, onSave }) => {
   const [initial] = useState(() => toDraft(order));
   const [draft, setDraft] = useState(initial);
   const { saving, close, run } = usePopoverSave(onClose);
@@ -58,7 +58,9 @@ export const ClosingPopover = ({ order, anchorRect = null, onClose, onSave, mode
   // 재샘플인데 아이템을 안 고름 → 체크는 저장되지만 완료는 아이템을 고를 때 (useOrder.setClosing · completeHeldResample)
   const heldForItem = !completed && !!getCompleteCheck(order).block;
   const willComplete = allDone && !wasAll && !completed && !heldForItem;
-  const willReopen = !allDone && wasAll && completed && !!order.closingAuto;
+  const shipped = isShippingDone(order);
+  // 출고가 다 끝난 오더는 체크를 풀어도 완료 그대로 (2026-11-09 — 출고 끝 = 완료)
+  const willReopen = !allDone && wasAll && completed && !!order.closingAuto && !shipped;
   const unshipped = (order.colors || []).filter(c => colorHasData(c) && !c.shipDone);
 
   const setItem = (key, p) => setDraft(d => ({ ...d, [key]: { ...d[key], ...p } }));
@@ -81,21 +83,6 @@ export const ClosingPopover = ({ order, anchorRect = null, onClose, onSave, mode
     handleSave();
   };
 
-  // [체크 없이 완료] — 이 창에서 체크·메모를 고쳤으면 먼저 저장하고 완료 (고친 내용이 버려지지 않게)
-  const handleForceComplete = () => {
-    if (saving || !onForceComplete) return;
-    if (!isDirty) {
-      close();
-      onForceComplete();
-      return;
-    }
-    run(async () => {
-      const ok = await onSave?.(patch);
-      if (ok !== false) onForceComplete();
-      return ok;
-    });
-  };
-
   const footer = (
     <div className="flex items-center justify-between gap-2">
       <div className="min-w-0 flex-1 text-[10px] leading-snug">
@@ -104,19 +91,11 @@ export const ClosingPopover = ({ order, anchorRect = null, onClose, onSave, mode
             <span className="font-bold text-amber-700">재샘플이라 article# 칸에서 아이템(원단 관리)을 골라야 완료돼요 — 고르는 순간 자동으로 완료.</span>
           )
           : willReopen ? <span className="font-bold text-amber-700">저장하면 자동 완료가 풀리고 다시 진행중이 돼요.</span>
-            : mode === 'complete' && onForceComplete ? (
-              <button
-                type="button"
-                onClick={handleForceComplete}
-                disabled={saving}
-                className="px-2 py-1 rounded-md border border-slate-300 bg-white text-[11px] font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-                title={isDirty ? '고친 체크·메모를 저장하고 오더를 완료 (남은 체크는 나중에 해도 돼요)' : '마무리 체크 없이 오더만 완료 (체크는 나중에 해도 돼요)'}
-              >
-                {isDirty ? '저장하고 완료' : '체크 없이 완료'}
-              </button>
-            ) : heldForItem ? (
+            : heldForItem ? (
               <span className="text-slate-500">3개를 모두 체크해도 재샘플은 아이템을 고른 뒤에 '완료'돼요.</span>
-            ) : <span className="text-slate-500">3개를 모두 체크하면 오더가 자동으로 '완료'돼요.</span>}
+            ) : completed ? (
+              <span className="text-slate-500">오더는 이미 '완료'예요 — 마무리 체크만 저장돼요.</span>
+            ) : <span className="text-slate-500">출고가 다 끝나거나 3개를 모두 체크하면 오더가 자동으로 '완료'돼요.</span>}
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
         <button
@@ -143,24 +122,13 @@ export const ClosingPopover = ({ order, anchorRect = null, onClose, onSave, mode
       anchorRect={anchorRect}
       width={440}
       title={`${order.orderNumber || '새 오더'} · 마무리`}
-      subtitle="원사재고정리 · EZTEX 재고정리 · EZTEX 종결 — 다 끝내야 오더 최종 마무리"
+      subtitle="원사재고정리 · EZTEX 재고정리 · EZTEX 종결 — 오더가 완료된 뒤에 해도 돼요 ([마무리 안 됨]에서 모아 보기)"
       onClose={close}
       dirty={isDirty && !saving}
       onSaveDirty={handleSave}
       footer={footer}
     >
       <div className="p-3 space-y-2.5 outline-none" tabIndex={-1} data-autofocus onKeyDown={onKeyDown}>
-        {mode === 'complete' && !completed && (
-          <p className="flex items-start gap-1.5 px-2.5 py-2 rounded-lg border border-amber-300 bg-amber-50 text-[11px] font-bold text-amber-800 leading-snug">
-            <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" />
-            <span>
-              마무리 체크 {CLOSING_ITEMS.length - CLOSING_ITEMS.filter(i => initial[i.key].done).length}개가 남았어요
-              ({CLOSING_ITEMS.filter(i => !initial[i.key].done).map(i => i.label).join(' · ')}).
-              체크하고 저장하면 오더가 '완료'돼요.
-            </span>
-          </p>
-        )}
-
         {CLOSING_ITEMS.map(item => {
           const d = draft[item.key];
           return (
@@ -203,7 +171,10 @@ export const ClosingPopover = ({ order, anchorRect = null, onClose, onSave, mode
 
         <div className="flex items-center justify-between gap-2 text-[11px]">
           <span className={`font-bold ${allDone ? 'text-emerald-700' : 'text-slate-500'}`}>마무리 {doneCount}/{CLOSING_ITEMS.length}</span>
-          {completed && order.closingAuto && (
+          {completed && order.shipCompleteAuto && (
+            <span className="text-[10px] text-slate-500">출고가 다 끝나서 자동 완료된 오더 — 출고를 풀면 다시 진행중</span>
+          )}
+          {completed && order.closingAuto && !shipped && (
             <span className="text-[10px] text-slate-500">마무리 체크로 자동 완료된 오더 — 체크를 풀면 다시 진행중</span>
           )}
         </div>
