@@ -556,6 +556,7 @@ const App = () => {
     resetSheetForm, setStage, registerEztexOrderNo, syncEztexFromOrder,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
     getDesignCost, initFromDevRequest, initFromOrder, dropDesignSheet, restoreFromDrop,
+    loadSheetAsTemplate,
     saveSheetAndRegisterFabric, getBlankSheetInput
   } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, exchangeRates, saveFabricFromSheet, devRequests, sampleOrderLink);
 
@@ -1374,6 +1375,7 @@ const App = () => {
                 saveSheetAndRegisterFabric={saveSheetAndRegisterFabric}
                 tempDesignSheets={tempDesignSheets}
                 onLoadTempSheet={loadTempToSheet}
+                onLoadDesignSheet={loadSheetAsTemplate}
                 detailInput={detailInput}
                 setDetailInput={setDetailInput}
                 editingDetailId={editingDetailId}

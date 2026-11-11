@@ -56,7 +56,7 @@ GRUBIG-APP/
 │   │   ├── DevStatusPage.jsx           # 개발/설계 현황 — 개발 의뢰 현황 한 표 (의뢰·설계서·자체개발 줄, EZ-TEX 등록 → 생산 현황 샘플)
 │   │   ├── OrderListPage.jsx           # 생산 현황 (현황표·간트, 메인/샘플, 설계서 샘플 오더 — 샘플 끝내기·아이템화 대기·샘플 Drop)
 │   │   ├── ReportPage.jsx              # 리포트 (생산 통계 — [전체·메인·샘플], Drop 샘플은 완료 통계에서 뺌)
-│   │   ├── DesignSheetPage.jsx         # 원단 설계서 작성 문서
+│   │   ├── DesignSheetPage.jsx         # 원단 설계서 작성 문서 (새 설계서 위 [설계서 불러오기] — 기존 설계서 스펙 복사해서 시작)
 │   │   ├── DesignSheetListPage.jsx     # 설계서 보관함
 │   │   ├── TempDesignSheetListPage.jsx # 가설계서 보관함
 │   │   ├── MainDetailPage.jsx          # 메인/QC 디테일 시트
@@ -75,7 +75,7 @@ GRUBIG-APP/
 │   │   ├── useFitToViewport.js         # 스크롤 상자 높이를 화면에 남은 높이로 (생산 현황 현황표·간트 — 가로 스크롤바 늘 화면 맨 아래)
 │   │   └── domains/                    # 도메인별 비즈니스 로직 훅
 │   │       ├── useDevRequest.js        # 개발 의뢰 CRUD + 상태 전이 + 원가 견적 저장·Drop 사유
-│   │       ├── useDesignSheet.js       # 설계서 CRUD + 단계 전이 + 원단 연동 + EZ-TEX 등록 → 생산 현황 샘플 오더 (sampleOrderLink) + Drop·복원
+│   │       ├── useDesignSheet.js       # 설계서 CRUD + 단계 전이 + 원단 연동 + EZ-TEX 등록 → 생산 현황 샘플 오더 (sampleOrderLink) + Drop·복원 + 기존 설계서 불러오기 (loadSheetAsTemplate — 스펙만 복사, copiedFrom)
 │   │       ├── useOrder.js             # 생산 현황 오더 (칸 단위 즉시 저장·가납기·생지 출고(선염/후염)·상태 기록(성적서·컨펌)·LOT 외관검사 차수·마무리 체크·원사 사종 줄·재고 사용·설계서 샘플 오더 sheetOrderLink — Drop 표시 dropInfo·구분 잠금(메인/신제품/재샘플 — changeOrderKind 사유)·출고 끝 자동 완료(마무리와 상관없이 — completeShippedOrders [완료로 넘기기]))
 │   │       ├── useTempDesignSheet.js   # 가설계서
 │   │       ├── useMainDetail.js        # 메인/QC 디테일
@@ -94,7 +94,7 @@ GRUBIG-APP/
 │   │   ├── dashboard/           # 개발 의뢰 — DevRequestFormModal, DevArchiveModal(보관함·Drop 사유별 보기), DevCostQuoteModal(원가 견적), DevDropModal(Drop 사유), DevQuoteBadge(견적·예상 배지 공용), DevReqSummaryCard(현재 안 씀)
 │   │   ├── order/               # 생산 현황 — sheet/(현황표·⋯ 메뉴·입력 창: Process·ProvisionalDue·GreigeOut(선염/후염·kg)·LotEditor(배색량·예상 YD·프리세팅)·ColorPopovers(컨펌·성적서)·Inspection(LOT별 1차·2차)·Ship·Closing(마무리)·StepManager(공정 추가)·Yarn(원사 — 사종 줄·재고 사용·원사염색)), gantt/(간트·GanttAddMenu [+]·GanttDateMenu 날짜 → 그 날에 넣기), common/(SheetLinkChips '설계서' 표시·SampleCloseDialog 샘플 끝내기·OrderKindChip 구분 표시·AddOrderMenu [+ 오더 추가 ▾]·OrderKindDialog 구분 바꾸기·LinkSheetDialog 작성 중인 설계서 연결·SkipBar 컨펌/외관검사 '안 함'(SkippedPopover 창)·SkipChip 회색 '안 함·재고 사용·생지 재고'·PopoverShell(저장할까요?)·StatusSelect 상태 드롭다운·TrackEditor 상태 기록·StepChip(PresettingChip·YarnDyeChip)), OrderDetailModal
 │   │   ├── design/              # DesignStepper (진행 단계 바)
-│   │   ├── design-sheet/        # 설계서 전용 (DesktopSheetRow, MobileSheetCard, DropSheetModal)
+│   │   ├── design-sheet/        # 설계서 전용 (DesktopSheetRow, MobileSheetCard, DropSheetModal, SheetTemplatePickerModal(설계서 불러오기 — 고르는 창))
 │   │   ├── fabric/              # 원단 행/카드 (+ fabricRowModel: 행·카드 공통 계산)
 │   │   ├── yarn/                # 원사 행/카드 (+ yarnRowModel: 행·카드 공통 계산)
 │   │   ├── quote/               # PDFRenderer (견적서 PDF), QuoteParts (견적서 화면 공용 부품), FabricPickerModal, RunningGreigeModal (러닝 생지 견적 창)

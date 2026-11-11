@@ -25,6 +25,43 @@ const LINK_KEYS = ['eztexOrderNo', 'devRequestId', 'devOrderNo', 'linkedFabricId
 const pickLinkFields = (src) => Object.fromEntries(LINK_KEYS.filter(k => k in (src || {})).map(k => [k, src[k]]));
 const sameLinkValue = (a, b) => String(a ?? '').trim() === String(b ?? '').trim();
 
+// 저장된 설계서의 스펙 칸(원사·편직·염가공·후가공·원가)을 지금 양식 모양으로 — 빠진 칸은 기본값, 예전 원가 칸은 지금 방식으로
+//  수정 모드 진입(handleEditSheet)·기존 설계서 불러오기(loadSheetAsTemplate) 공용
+//  initial = getInitialSheetInput() (빈 양식)
+const normalizeSheetSpec = (sheet, initial) => ({
+  knitting: { ...initial.knitting, ...(sheet.knitting || {}) },
+  dyeing: { ...initial.dyeing, ...(sheet.dyeing || {}) },
+  finishing: { ...initial.finishing, ...(sheet.finishing || {}) },
+  costInput: {
+    ...initial.costInput,
+    ...(sheet.costInput || {}),
+    losses: {
+      tier1k: { ...initial.costInput.losses.tier1k, ...(sheet.costInput?.losses?.tier1k || {}) },
+      tier3k: { ...initial.costInput.losses.tier3k, ...(sheet.costInput?.losses?.tier3k || {}) },
+      tier5k: { ...initial.costInput.losses.tier5k, ...(sheet.costInput?.losses?.tier5k || {}) }
+    },
+    brandExtra: { ...initial.costInput.brandExtra, ...(sheet.costInput?.brandExtra || {}) },
+    // [원가 개편] 기존 설계서: kg단가는 옛 5,000YD 편직료에서 가져오고(목록 계산과 같은 값),
+    //   추가비용은 예전 기본 3항목(외관/이화학/운임 — 이제 원가 설정)을 빼고 품목 항목만 남김
+    knitKgRate: resolveKnitKgRate(sheet.costInput),
+    etcCosts: normalizeExtraCosts(sheet.costInput?.etcCosts)
+  },
+  yarns: sheet.yarns || initial.yarns,
+});
+
+// 스펙 칸에 빈 양식과 다른 값이 있는지 — 기존 설계서 불러오기 전 '덮어쓸까요?' 확인용
+//  (원가 견적에서 이어받은 값·직접 적은 값이 있으면 true)
+const SPEC_KEYS = ['yarns', 'knitting', 'dyeing', 'finishing', 'costInput'];
+const hasSpecInput = (input, initial) =>
+  SPEC_KEYS.some(k => JSON.stringify(input?.[k] ?? null) !== JSON.stringify(initial[k] ?? null));
+
+// 불러온 설계서를 가리키는 짧은 이름 (출처 표시·알림) — 'PW1050 · 코튼 스판 저지'
+export const sheetSourceLabel = (sheet) => {
+  const no = String(sheet?.articleNo || sheet?.eztexOrderNo || sheet?.devOrderNo || '').trim();
+  const name = String(sheet?.fabricName || '').trim();
+  return [no, name].filter(Boolean).join(' · ') || '이름 없는 설계서';
+};
+
 export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, exchangeRates, saveFabricFromSheet, devRequests, sampleOrderLink = null) => {
   const [editingSheetId, setEditingSheetId] = useState(null);
   // 편집 창을 열 때의 연결 칸 값 (LINK_KEYS) — 저장 때 '이 창에서 바꿨는지' 비교용
@@ -823,29 +860,60 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     setSheetInput({
       ...initial,
       ...sheet,
-      knitting: { ...initial.knitting, ...(sheet.knitting || {}) },
-      dyeing: { ...initial.dyeing, ...(sheet.dyeing || {}) },
-      finishing: { ...initial.finishing, ...(sheet.finishing || {}) },
+      ...normalizeSheetSpec(sheet, initial),
       actualData: { ...initial.actualData, ...(sheet.actualData || {}) },
-      costInput: {
-        ...initial.costInput,
-        ...(sheet.costInput || {}),
-        losses: {
-          tier1k: { ...initial.costInput.losses.tier1k, ...(sheet.costInput?.losses?.tier1k || {}) },
-          tier3k: { ...initial.costInput.losses.tier3k, ...(sheet.costInput?.losses?.tier3k || {}) },
-          tier5k: { ...initial.costInput.losses.tier5k, ...(sheet.costInput?.losses?.tier5k || {}) }
-        },
-        brandExtra: { ...initial.costInput.brandExtra, ...(sheet.costInput?.brandExtra || {}) },
-        // [원가 개편] 기존 설계서: kg단가는 옛 5,000YD 편직료에서 가져오고(목록 계산과 같은 값),
-        //   추가비용은 예전 기본 3항목(외관/이화학/운임 — 이제 원가 설정)을 빼고 품목 항목만 남김
-        knitKgRate: resolveKnitKgRate(sheet.costInput),
-        etcCosts: normalizeExtraCosts(sheet.costInput?.etcCosts)
-      },
-      yarns: sheet.yarns || initial.yarns,
       orderNumbers: sheet.orderNumbers || []
     });
     setEditingSheetId(sheet.id);
     loadedLinksRef.current = pickLinkFields({ ...Object.fromEntries(LINK_KEYS.map(k => [k, null])), ...sheet });
+  };
+
+  // [기존 설계서 불러오기 — 대표님 요청 2026-11-11] 새 설계서(저장 전)에 다른 설계서의 스펙을 복사해서 시작
+  //  · 복사: 원사 배합 · 편직 · 염가공 · 후가공 · 원가 칸 / 원단명은 비었거나 앞서 불러온 이름 그대로일 때만
+  //  · 그대로: 지금 폼의 번호·연결·납기·등록 날짜 ([설계 시작] = 그 의뢰 것, 생산 현황 [새 설계서 작성] = 그 오더 번호)
+  //  · 안 가져옴: 원본의 EZ-TEX·Article·개발번호·단계·변경 이력·담당자 확인 표시·실측 데이터·원단/샘플 오더 연결
+  //  · 원본 설계서는 바꾸지 않음 (값만 복사 — 원사·피더 줄도 새 객체로). 출처는 copiedFrom 에 적어 저장 (화면 위 '📋 ○○에서 불러옴')
+  //  · 저장된 설계서를 고치는 중이면 하지 않음 (다른 설계서 값으로 덮어쓰면 변경 이력이 꼬임 — 버튼도 새 설계서에서만 보임)
+  //  반환: 불러왔으면 true (취소·막힘이면 false — 창은 그대로)
+  const loadSheetAsTemplate = (source) => {
+    if (!source) return false;
+    if (editingSheetId) {
+      showToast('저장된 설계서에는 불러올 수 없어요. 새 설계서에서 불러와 주세요.', 'error');
+      return false;
+    }
+    const initial = getInitialSheetInput();
+    const label = sheetSourceLabel(source);
+    // 원가 견적에서 이어받은 값이나 직접 적은 스펙이 있으면 덮어쓰기 전에 물어봄
+    if (hasSpecInput(sheetInput, initial) && !window.confirm(
+      `'${label}' 설계서의 스펙(원사·편직·염가공·후가공·원가 칸)을 불러올까요?\n\n` +
+      `지금 적혀 있는 스펙은 불러온 값으로 바뀌어요. (개발번호·납기 등 번호 칸은 그대로)`
+    )) return false;
+
+    const spec = normalizeSheetSpec(source, initial);
+    setSheetInput(prev => {
+      // 원단명: 비었거나, 앞서 불러온 설계서 이름 그대로면(손대지 않음) 이번 설계서 이름으로 — 직접 적은 이름·원가 견적 품목명은 그대로
+      const prevName = String(prev.fabricName || '').trim();
+      const prevSource = prev.copiedFrom?.sheetId
+        ? (designSheets || []).find(s => String(s.id) === String(prev.copiedFrom.sheetId))
+        : null;
+      const nameFromPrevLoad = !!prevSource && prevName === String(prevSource.fabricName || '').trim();
+      return {
+        ...prev,
+        fabricName: (!prevName || nameFromPrevLoad) ? String(source.fabricName || '') : prev.fabricName,
+        ...spec,
+        knitting: {
+          ...spec.knitting,
+          ...(Array.isArray(spec.knitting.feeders) ? { feeders: spec.knitting.feeders.map(f => ({ ...f })) } : {})
+        },
+        yarns: (spec.yarns || []).map(s => (s ? { ...s } : s)),
+        // 담당자 확인 표시는 새 설계서에서 다시 확인 (원본의 확인·감사 기록은 가져오지 않음)
+        fieldConfirm: {},
+        fieldMeta: {},
+        copiedFrom: { sheetId: source.id, label, at: new Date().toISOString() },
+      };
+    });
+    showToast(`'${label}' 설계서 스펙을 불러왔어요. 고친 뒤 저장하면 새 설계서로 저장돼요 (원본은 그대로).`, 'success');
+    return true;
   };
 
   // 반환: 삭제했으면 true (취소·차단·실패면 false — 편집 창은 그대로 두도록)
@@ -1221,6 +1289,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     resetSheetForm, setStage, registerEztexOrderNo, syncEztexFromOrder,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
     getDesignCost, initFromDevRequest, initFromOrder, dropDesignSheet, restoreFromDrop,
+    loadSheetAsTemplate,
     saveSheetAndRegisterFabric,
     getBlankSheetInput: getInitialSheetInput, // 저장 안 한 변경 확인용 빈 양식 (새 설계서 기준)
   };

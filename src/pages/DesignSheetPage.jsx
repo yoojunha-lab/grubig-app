@@ -1,5 +1,5 @@
 import React from 'react';
-import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download, ChevronDown, DollarSign, RotateCcw } from 'lucide-react';
+import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download, ChevronDown, DollarSign, RotateCcw, Copy } from 'lucide-react';
 import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
@@ -8,6 +8,7 @@ import { num, roundUsd, calculateGYd, computeSellPrice, rateForMarket, rateLabel
 import { computeCostAtQty, resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete } from '../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
+import { SheetTemplatePickerModal } from '../components/design-sheet/SheetTemplatePickerModal';
 
 // 편직 조직도 관련 부호
 const KNIT_SYMBOLS = ['︹', '︺', '︿', '﹀', '━', '┃', '╋', '○', '●', '◎', '△', '▽'];
@@ -140,6 +141,9 @@ export const DesignSheetPage = ({
   onTempBuyerChange,            // 바이어명 변경 콜백
   onLoadTempSheet,              // 가설계서 → 정식 설계서 불러오기 콜백
   tempDesignSheets = [],        // 저장된 가설계서 목록 (불러오기 모달용)
+  // === 기존 설계서 불러오기 (정식 · 새 설계서 전용 — 대표님 요청 2026-11-11) ===
+  designSheets = [],            // 설계서 목록 (불러올 설계서 고르는 창 — Drop 제외)
+  onLoadDesignSheet,            // (설계서) => 불러왔으면 true — useDesignSheet.loadSheetAsTemplate
   // === 원가 설정 (편직 정액·LOSS 구간·가공 유형 등 — 원가 표 / 소요 중량 계산용) ===
   costSettings = null,
   onOpenCostSettings
@@ -173,6 +177,10 @@ export const DesignSheetPage = ({
 
   // 가설계서 불러오기 모달 상태
   const [isTempLoadModalOpen, setIsTempLoadModalOpen] = React.useState(false);
+  // 기존 설계서 불러오기 창 — 새 설계서(저장 전)에서만 (저장된 설계서를 다른 설계서 값으로 덮어쓰면 변경 이력이 꼬임)
+  const [isSheetLoadModalOpen, setIsSheetLoadModalOpen] = React.useState(false);
+  const canLoadDesignSheet = !isTempMode && !editingSheetId && typeof onLoadDesignSheet === 'function'
+    && (designSheets || []).some(s => s && s.status !== 'dropped');
   // [요청3] 소요 중량(kg) 간이 계산기 — 입력 YD수 (저장 안 함, 화면 계산용)
   const [calcYd, setCalcYd] = React.useState('');
   // [편직 사양] 조직/기종 선택 모달 — 칩 나열 대신 버튼 클릭 → 창에서 선택
@@ -300,9 +308,24 @@ export const DesignSheetPage = ({
           <div>
             <h1 className="text-lg font-extrabold text-slate-800 leading-tight">{isTempMode ? '가설계서 (레시피)' : '원단 설계서 (Circular knit fabric)'}</h1>
             <p className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">{isTempMode ? (editingSheetId ? '레시피 수정 중' : '새 레시피 작성') : (editingSheetId ? '문서 수정 중' : '새 문서 작성')}</p>
+            {/* 기존 설계서에서 불러와 만든 설계서 — 어느 설계서를 바탕으로 했는지 (저장하면 같이 남음) */}
+            {!isTempMode && sheetInput.copiedFrom?.label && (
+              <p className="text-[10px] text-indigo-600 font-bold mt-0.5" title="이 설계서는 기존 설계서의 스펙을 복사해서 시작했어요 (원본은 그대로)">
+                📋 '{sheetInput.copiedFrom.label}' 설계서에서 불러옴
+              </p>
+            )}
           </div>
         </div>
-        <div className="flex gap-2">
+        {/* 버튼 줄 — 좁은 화면(휴대폰)에서는 글자가 꺾이지 않게 다음 줄로 넘김 */}
+        <div className="flex flex-wrap justify-end gap-2 [&>button]:whitespace-nowrap">
+          {/* 정식 · 새 설계서: 기존 설계서 불러오기 버튼 (스펙만 복사 — 원본은 그대로) */}
+          {canLoadDesignSheet && (
+            <button onClick={() => setIsSheetLoadModalOpen(true)}
+              title="기존 설계서를 골라 그 스펙(원사·편직·염가공·후가공·원가 칸)을 이 새 설계서에 복사해요 — 원본은 그대로"
+              className="px-4 py-2 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-300 hover:bg-indigo-100 rounded shadow-sm transition-colors flex items-center gap-1.5">
+              <Copy className="w-3.5 h-3.5" /> 설계서 불러오기
+            </button>
+          )}
           {/* 정식 모드: 가설계서 불러오기 버튼 */}
           {!isTempMode && (tempDesignSheets || []).length > 0 && (
             <button onClick={() => setIsTempLoadModalOpen(true)} className="px-4 py-2 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-300 hover:bg-amber-100 rounded shadow-sm transition-colors flex items-center gap-1.5">
@@ -995,6 +1018,16 @@ export const DesignSheetPage = ({
             </div>
           </div>
         </ModalBackdrop>
+      )}
+
+      {/* === 기존 설계서 불러오기 창 (정식 · 새 설계서 전용) === */}
+      {canLoadDesignSheet && isSheetLoadModalOpen && (
+        <SheetTemplatePickerModal
+          sheets={designSheets}
+          yarnSelectOptions={yarnSelectOptions}
+          onPick={(sheet) => onLoadDesignSheet(sheet)}
+          onClose={() => setIsSheetLoadModalOpen(false)}
+        />
       )}
 
       {/* === 가설계서 불러오기 모달 (정식 모드 전용) === */}
