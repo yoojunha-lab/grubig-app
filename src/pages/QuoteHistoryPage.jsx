@@ -4,6 +4,7 @@ import { num } from '../utils/helpers';
 import {
   calcQuotePrice, formatQuotePrice, normalizeQuote, getShownTiers, getShownCustomItems, calcCustomQuotePrice,
   normalizeRunning, formatColorSplit, isMeterQuote,
+  quoteUnit, toUnitPrice, toUnitMcq, tierUnitLabel, rowUnitQty,
 } from '../utils/quoteModel';
 import { RunningGreigeBadge, MeterUnitBadge } from '../components/quote/QuoteParts';
 
@@ -151,8 +152,9 @@ export const QuoteHistoryPage = ({
                                     <th className="py-2 px-3 font-bold">Article</th>
                                     <th className="py-2 px-3">Spec</th>
                                     <th className="py-2 px-3 text-right">MCQ</th>
+                                    {/* M 견적서(2026-11-16)는 보낸 그대로 — 구간 이름·단가·MCQ를 M로 */}
                                     {getShownTiers(quote).map(t => (
-                                      <th key={t.key} className={`py-2 px-3 text-right whitespace-nowrap ${t.main ? 'font-bold text-blue-600' : ''}`}>{t.label}</th>
+                                      <th key={t.key} className={`py-2 px-3 text-right whitespace-nowrap ${t.main ? 'font-bold text-blue-600' : ''}`}>{tierUnitLabel(t, quote)}</th>
                                     ))}
                                   </tr>
                                 </thead>
@@ -163,14 +165,15 @@ export const QuoteHistoryPage = ({
                                   {(quote.items || []).map((item, idx) => {
                                     // 실제 나간 단가로 표시: calcQuotePrice = 기준원가 + 매출이익율(%) + YD당 정액.
                                     // (기존엔 getBasePrice=마진 미포함 기준원가만 보여 PDF/실제 견적가와 달랐음 → 버그 수정)
+                                    // M 견적서는 견적서와 같은 M 단가·MCQ (toUnitPrice·toUnitMcq — YD 견적은 그대로)
                                     const cur = quote.currency;
                                     return (
                                       <tr key={idx} className="hover:bg-slate-50">
                                         <td className="py-2 px-3 font-bold text-slate-800 uppercase whitespace-nowrap">{item.article}</td>
                                         <td className="py-2 px-3 text-slate-600 truncate max-w-[150px]" title={item.itemName}>{item.itemName}</td>
-                                        <td className="py-2 px-3 text-right text-orange-600 font-bold whitespace-nowrap">{num(item.mcqYd || 300)} YD</td>
+                                        <td className="py-2 px-3 text-right text-orange-600 font-bold whitespace-nowrap">{num(toUnitMcq(item.mcqYd, quote))} {quoteUnit(quote)}</td>
                                         {getShownTiers(quote).map(t => (
-                                          <td key={t.key} className={`py-2 px-3 text-right font-mono whitespace-nowrap ${t.main ? 'text-blue-700 font-bold' : 'text-slate-500'}`}>{formatQuotePrice(calcQuotePrice(item, t.key, quote, cur), cur)}</td>
+                                          <td key={t.key} className={`py-2 px-3 text-right font-mono whitespace-nowrap ${t.main ? 'text-blue-700 font-bold' : 'text-slate-500'}`}>{formatQuotePrice(toUnitPrice(calcQuotePrice(item, t.key, quote, cur), quote, cur), cur)}</td>
                                         ))}
                                       </tr>
                                     );
@@ -193,7 +196,7 @@ export const QuoteHistoryPage = ({
                                       <th className="py-2 px-3 font-bold">Article</th>
                                       <th className="py-2 px-3 text-right">수량</th>
                                       <th className="py-2 px-3 text-center">컬러</th>
-                                      <th className="py-2 px-3 text-right">판가/YD</th>
+                                      <th className="py-2 px-3 text-right">판가/{quoteUnit(quote)}</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100">
@@ -207,11 +210,12 @@ export const QuoteHistoryPage = ({
                                             {running && <RunningGreigeBadge greigeQty={running.greigeQty} />}
                                           </td>
                                           <td className="py-2 px-3 text-right font-mono whitespace-nowrap">
-                                            {num(row.qty)} YD
-                                            {running && <span className="block text-[10px] text-teal-700">{formatColorSplit(row)}</span>}
+                                            {/* M 견적서는 견적서에 나간 M 수량 (M로 넣은 러닝 생지 줄은 넣은 M 그대로) */}
+                                            {num(rowUnitQty(row, quote))} {quoteUnit(quote)}
+                                            {running && <span className="block text-[10px] text-teal-700">{formatColorSplit(row, { quote })}</span>}
                                           </td>
                                           <td className="py-2 px-3 text-center font-mono">{num(row.colors)}</td>
-                                          <td className="py-2 px-3 text-right font-mono font-bold text-amber-800 whitespace-nowrap">{formatQuotePrice(calcCustomQuotePrice(row, quote, quote.currency), quote.currency)}</td>
+                                          <td className="py-2 px-3 text-right font-mono font-bold text-amber-800 whitespace-nowrap">{formatQuotePrice(toUnitPrice(calcCustomQuotePrice(row, quote, quote.currency), quote, quote.currency), quote.currency)}</td>
                                         </tr>
                                       );
                                     })}
