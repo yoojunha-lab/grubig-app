@@ -394,6 +394,28 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
     MCQ·MOQ 미만 오더는 추가 비용 발생. 별도: 적힌 수량(오더 총수량)과 컬러 수에만 적용되는 단가입니다 / 수량을 적힌 컬러 수로 고르게 나눈
     기준의 단가입니다 / 컬러별 수량이 고르지 않아 어느 컬러가 MCQ(컬러당 YD)보다 적으면 단가가 조정될 수 있습니다 / 다른 수량·컬러는 새로 견적을 요청해 주세요.
   - 엑셀 맨 위 'Valid Until' 줄·열 이름은 영문 그대로 (약관 부분만 한글).
+- **M 견적서 — 견적서 단위 [YD | M]** (대표님 요청 2026-11-16 — YD 말고 M로 견적서를 원하는 바이어가 있어서):
+  견적서 화면 Buyer Information의 **[견적서 단위 YD | M]** (시장 구분 옆). **견적마다 저장** (`quote.priceUnit` — 'M' / 'YD', 값이 없는 예전 견적은 YD)
+  → 견적 목록에서 다시 뽑아도 보낸 단위 그대로. 복제하면 단위도 따라감. 새 견적은 YD.
+  - **원가 계산·견적서 화면 표는 늘 YD 그대로** — 바이어 견적서(PDF·엑셀)만 M로 환산 (`quoteModel.js` 6절). 기준·별도 견적서 둘 다.
+  - 환산 규칙 (1YD = 0.9144M, 1M = 1.0936YD):
+
+    | 칸 | M 견적서 | 예 |
+    |---|---|---|
+    | 단가 | 화면의 YD 판가 × 1.0936 → 원 100원 / $ 센트 반올림 (원가 표 '원가 / m'와 같은 방법) | ₩13,300/YD → ₩14,500/M, $9.17 → $10.03 |
+    | 구간 이름 | **같은 숫자에 M** — 300 M = 300YD 구간 단가를 M로 환산 (대표님 결정: 274M처럼 정확한 숫자 대신). 300M는 328YD라 실제보다 아주 조금 비싸게 나감(수량이 적은 쪽 단가) → 그루빅에 안전한 쪽 | 500 / 700 / 1,000 / 3,000 M |
+    | 중량 | g/YD → **g/M** (× 1.0936, 반올림) | 327 → 358 |
+    | MCQ | YD × 0.9144 → **10M 단위 올림** | 300YD → 280M, 500YD → 460M |
+    | 별도 견적 수량 | YD × 0.9144 반올림. 컬러별 수량(러닝 생지)은 합계가 수량 칸과 맞게 나눔 (`splitToUnit`) | 1,094YD → 1,000M, 250/182/242YD → 229/166/221M |
+    | 폭 (Cut·Full) | 인치 그대로 | |
+
+  - 약관: 'PRICES ARE PER METER, …' / '단가는 M당 가격이며, …', 구간 줄 '500 / 700 M: …', 별도 'MCQ (M PER COLOR)' / 'MCQ(컬러당 M)'.
+    PDF 머리 'Currency: KRW · Unit: METER', 표 머리 띠 '… · PER METER', 엑셀 머리줄 'Unit: METER', 열 이름 g/M·MCQ(M/color)·500M (KRW)·Q'TY(M)·Price/M.
+    파일 이름 `Quotation_M_…` / `Quotation_Special_M_…`. YD 견적서는 예전과 한 글자도 다르지 않음 (2026-11-16 대조).
+  - 화면: M면 단위 칸 아래 청록 안내 띠, 기준·별도 견적 판가 아래 '→ ₩14,500/M'(바이어 견적서에 나갈 값), 별도 견적 수량 아래 '견적서 1,000M',
+    PDF·엑셀 버튼과 견적 목록(전체 표·작성 화면 왼쪽 목록)에 'M' 표시 (`QuoteParts.MeterUnitBadge`).
+  - 별도 견적 수량은 **YD로 넣음** — 바이어가 M로 말한 수량은 YD로 바꿔 넣기 (1,000M = 1,094YD, 수량 아래 '견적서 M'로 확인).
+  - 개발 의뢰 '예상'·'견적' 배지 등 견적서 밖의 값은 YD 그대로.
 - **예전 견적 호환** (`normalizeQuote`): 판가는 그대로. 새 구간(300·500·700 — 10/5 개편 때는 800)의 이익율·정액은 기본값으로 채움(0% 방지),
   예전 800YD 견적은 800YD 그대로 둠 (§1-D),
   새 구간을 켜면 단가 '—' + [현재 원가로 다시 계산] 안내. 아주 옛날(extraMargin) 견적은 구간 설정·별도 견적을 막음.
@@ -490,6 +512,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 견적 계산 (순수 함수) | `src/utils/quoteModel.js` — `calcQuotePrice`, `calcCustomQuotePrice`, `computeBaseFromParts`, `normalizeQuote`, `getShownTiers`, `tierForQty`, `validateQuoteForExport`(출력 전 확인), `buildQuoteTerms`·`quotePriceBasis`·`quoteValidUntilLine`·`quoteTermsLang`(견적서 문구 — 내수는 약관만 한글) 등 |
 | 견적마다 구간 (예전 800YD 견적 보존) | `quoteModel.js` 1-A — `ALL_QUOTE_TIERS`(지금 + 예전 구간, 수량 순), `getQuoteTiers`·`getQuoteTierKeys`(그 견적의 구간), `usesRetiredTiers`·`getRetiredTiersInUse`(예전 견적 판단 — 견적서 표시·구간 이익율·YD당 정액에 800 값이 있고 700 값이 없음), `upgradeQuoteTiers`(다시 계산 전에 800 → 700 옮기기), `describeTierUpgrade`(안내 문구), `customRateChangesOnUpgrade`·`describeCustomRateChanges`(이익율 빈칸 별도 견적 줄의 이익율 변화 안내), `moveRetiredTierKeys`(원가 견적 이어받기) / `useQuotation.js` — 다시 계산·시장 전환·복제에서 upgrade(안내 말 `tierUpgradeAsk`·`tierUpgradeDone`·`tierUpgradeMissing`), 구간 칸·버튼·원단 추가는 그 견적의 구간 / `QuotationPage.jsx` 안내 띠 |
 | 견적서 화면·출력 | `src/pages/QuotationPage.jsx`(기준/별도 칸) + `src/components/quote/QuoteParts.jsx`(공용 부품), `src/components/quote/PDFRenderer.jsx`(kind: standard/special), `src/hooks/domains/useQuoteExport.js` — `handleDownloadPDF`·`handleDownloadQuoteExcel(quote, kind)`(인쇄할 견적은 `pdfQuote`로 따로) |
+| M 견적서 (견적서 단위 YD / M) | `quoteModel.js` 6절 — `quoteUnit`·`isMeterQuote`, 환산 `toUnitPrice`·`toUnitQty`·`toUnitMcq`·`toUnitWeight`·`splitToUnit`, 구간 이름 `tierUnitLabel`, 약관 `TERMS_TEXT.perUnit`·`specialUneven(unit)`·`tierLabels(tiers, unit)` / `PDFRenderer.jsx`·`useQuoteExport.js`(`quoteFilePrefix`) / `QuotationPage.jsx` [YD \| M] 버튼·'→ /M' 미리보기 / `QuoteParts.MeterUnitBadge`·`ExportButtons unit` / `QuoteHistoryPage.jsx`·`QuotationWorkspacePage.jsx` 'M' 표시 / `useQuotation.makeBlankQuote` `priceUnit: 'YD'` |
 | 러닝 생지 견적 (계산) | `costModel.js` — `computeCostAtQty` 옵션 `greigeQty`(생지 짠 수량)·`colorQtys`(컬러별 수량), 결과 `running`(생지 짤 때 kg·편직비)·`dye.perColor`, `normalizeColorQtys` / `quoteModel.js` 4-A — `normalizeRunning`·`isRunningRow`·`customRowCostOpts`·`sumColorQtys`·`formatColorSplit`·`validateRunning`, 약관 `specialStated` |
 | 러닝 생지 견적 (창·줄) | `src/components/quote/RunningGreigeModal.jsx`(창), `QuoteParts.RunningGreigeBadge`(배지) / `useQuotation.js` — `previewRunningRow`(창 미리보기·비교·소량 추가분)·`handleSaveRunningRow`(넣기·고치기)·`handleReleaseRunningRow`(해제), `createCustomItem`(러닝 생지 조건 반영) / `QuotationPage.jsx` 버튼·줄 표시 / `QuoteHistoryPage.jsx` 목록 펼침 |
 | 설계서 소요 중량 | `src/pages/DesignSheetPage.jsx` — 입력 YD → 원사 kg (같은 kg 흐름) |

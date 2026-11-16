@@ -3,9 +3,9 @@ import { Search, X, Trash2, Copy, ChevronDown, ChevronRight, CheckCircle2, FileT
 import { num } from '../utils/helpers';
 import {
   calcQuotePrice, formatQuotePrice, normalizeQuote, getShownTiers, getShownCustomItems, calcCustomQuotePrice,
-  normalizeRunning, formatColorSplit,
+  normalizeRunning, formatColorSplit, isMeterQuote,
 } from '../utils/quoteModel';
-import { RunningGreigeBadge } from '../components/quote/QuoteParts';
+import { RunningGreigeBadge, MeterUnitBadge } from '../components/quote/QuoteParts';
 
 export const QuoteHistoryPage = ({
   quoteBuyerFilter,
@@ -99,6 +99,8 @@ export const QuoteHistoryPage = ({
                     <div className="flex items-center gap-1">
                       {quote.buyerType && <span className={`text-[9px] px-1 py-0.5 rounded font-bold uppercase ${quote.buyerType === 'converter' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>{quote.buyerType}</span>}
                       <span className={`text-[9px] px-1 py-0.5 rounded font-bold uppercase border ${quote.marketType === 'domestic' ? 'border-blue-200 text-blue-600' : 'border-emerald-200 text-emerald-600'}`}>{quote.marketType === 'domestic' ? 'DOM' : 'EXP'} ({quote.currency})</span>
+                      {/* M 견적서 (2026-11-16) — PDF·Excel도 M로 나감 */}
+                      {isMeterQuote(quote) && <MeterUnitBadge />}
                     </div>
                     {quote.exchangeRate ? <div className="text-[9px] text-slate-400 font-mono mt-0.5">환율 ￦{num(quote.exchangeRate)}/$</div> : null}
                   </td>

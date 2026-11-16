@@ -43,6 +43,7 @@ const makeBlankQuote = () => ({
   shownTiers: [...DEFAULT_SHOWN_TIERS],      // 바이어 견적서에 보여줄 구간 (기본 500·700·1,000·3,000YD)
   excludeVisual: false, excludeChem: false,   // 기준 견적 전체: 외관검사·시험성적서(이화학) 제외
   customExcludeVisual: false, customExcludeChem: false, // 별도 견적 전체: 외관검사·시험성적서(이화학) 제외
+  priceUnit: 'YD',                            // 바이어 견적서 단위 'YD' / 'M' (2026-11-16 — M는 PDF·엑셀만 M로 환산, quoteModel 6절)
   remarks: '', items: [], customItems: [], validityOption: '2weeks'
 });
 

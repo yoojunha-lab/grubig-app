@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   FileText, Save, X, Plus, FilePlus, DollarSign, ArrowLeft, RefreshCw, Tags, Calculator, Copy, Trash2,
-  RotateCcw, AlertTriangle, Warehouse, Pencil, Info,
+  RotateCcw, AlertTriangle, Warehouse, Pencil, Info, Ruler,
 } from 'lucide-react';
 import { PartnerSelectField } from '../components/common/PartnerSelectField';
 import { num, usd, roundUsd, QUOTE_VALIDITY_OPTIONS, rateForMarket, rateLabel } from '../utils/helpers';
@@ -10,6 +10,7 @@ import {
   calcQuotePrice, formatQuotePrice, getBasePrice, getItemTierRate, getShownTiers, isNewMarginModel,
   calcCustomQuotePrice, getCustomRowRate, getCustomRowAddRaw, getMarginAddCurrency, toQuoteCurrencyAdd, quoteMarket,
   normalizeRunning, formatColorSplit, getQuoteTiers, describeTierUpgrade, describeCustomRateChanges,
+  quoteUnit, toUnitPrice, toUnitQty,
 } from '../utils/quoteModel';
 import { FabricPickerModal } from '../components/quote/FabricPickerModal';
 import { RunningGreigeModal } from '../components/quote/RunningGreigeModal';
@@ -32,6 +33,8 @@ import { DEV_QUOTE_SOURCE } from '../utils/devQuoteModel';
 //  · 팝업(원단 검색·러닝 생지 견적)은 화면의 space-y 칸 밖에 둠 (팝업 규약 — 안에 두면 위 여백이 붙어 맨 위 띠가 안 덮임)
 //  · 구간은 그 견적의 구간 (2026-10-21 800YD → 700YD): 예전 800YD 견적은 800YD 그대로 보이고 안내 띠를 띄움 —
 //    [현재 원가로 다시 계산]하면 700YD로 바뀜 (utils/quoteModel.js getQuoteTiers · upgradeQuoteTiers)
+//  · 견적서 단위 [YD | M] (2026-11-16 — M로 견적을 원하는 바이어): 견적마다 저장(priceUnit). 화면 표·원가는 YD 그대로,
+//    M면 판가 아래에 바이어 견적서에 나갈 M 단가('→ ₩14,500/M'), 별도 견적 수량 아래에 '견적서 1,000M' (quoteModel 6절)
 // ============================================================
 
 export const QuotationPage = ({
@@ -90,6 +93,10 @@ export const QuotationPage = ({
   const customRateChanges = tierUpgrade ? describeCustomRateChanges(quoteInput) : '';
   const shownTiers = getShownTiers(quoteInput);
   const shownKeys = shownTiers.map(t => t.key);
+  // 바이어 견적서 단위 — 'YD' / 'M' (M면 PDF·엑셀만 M로 환산. 화면 표·원가는 YD 그대로)
+  const unit = quoteUnit(quoteInput);
+  const isM = unit === 'M';
+  const meterPrice = (ydPrice) => `→ ${formatQuotePrice(toUnitPrice(ydPrice, quoteInput, currency), currency)}/M`; // 견적서에 나갈 M 단가
 
   // 칸 접기/펴기, 체크 선택, 원단 검색 팝업(기준/별도)
   const [openStd, setOpenStd] = useState(true);
@@ -168,8 +175,8 @@ export const QuotationPage = ({
             <input type="text" value={quoteInput.remarks || ''} onChange={(e) => setQuoteInput({ ...quoteInput, remarks: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 ring-blue-400" placeholder="내부 기록용 (히스토리 확인)" />
           </div>
 
-          {/* 2행: 발행일 · 유효기간 · 시장구분 · 환율 */}
-          <div className="lg:col-span-2"><label className="block text-xs font-bold text-slate-500 mb-1">Quote Date</label><input type="date" value={quoteInput.date} onChange={(e) => setQuoteInput({ ...quoteInput, date: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm" /></div>
+          {/* 2행: 발행일 · 유효기간 · 시장구분 · 견적서 단위 · 환율 */}
+          <div className="lg:col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">Quote Date</label><input type="date" value={quoteInput.date} onChange={(e) => setQuoteInput({ ...quoteInput, date: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm" /></div>
           <div className="lg:col-span-2">
             <label className="block text-xs font-bold text-slate-500 mb-1">Valid (유효기간)</label>
             <select
@@ -187,12 +194,33 @@ export const QuotationPage = ({
               <button onClick={() => handleQuoteSettingChange('marketType', 'export')} className={`flex-1 py-1.5 rounded-md text-[11px] font-bold transition-all ${quoteInput.marketType === 'export' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>Exp</button>
             </div>
           </div>
+          {/* 견적서 단위 (2026-11-16) — M면 바이어 견적서(PDF·엑셀)의 단가·g/M·MCQ·수량을 M로. 견적마다 저장 */}
+          <div className="lg:col-span-1" title="바이어 견적서(PDF·엑셀)에 나갈 단위 — M를 고르면 단가·중량·MCQ·수량을 M로 바꿔서 내보내요. 화면 표와 원가 계산은 YD 그대로예요.">
+            <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1"><Ruler className="w-3 h-3 text-teal-500" /> 견적서 단위</label>
+            <div className="flex bg-slate-100 p-1 rounded-lg gap-1">
+              {['YD', 'M'].map(u => (
+                <button key={u} type="button" onClick={() => setQuoteInput({ ...quoteInput, priceUnit: u })} aria-pressed={unit === u}
+                  className={`flex-1 py-1.5 rounded-md text-[11px] font-bold transition-all ${unit === u ? `bg-white shadow-sm ${u === 'M' ? 'text-teal-600' : 'text-slate-700'}` : 'text-slate-400'}`}>
+                  {u}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="lg:col-span-1" title={`이 견적의 환율 — 품목을 넣을 때 그 시장의 공통 환율(${rateLabel(market)})로 기록되고, 화면 위 환율을 바꿔도 그대로예요. 바꾸려면 [현재 원가로 다시 계산]`}>
             <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1"><DollarSign className="w-3 h-3 text-emerald-500" /> Rate (견적)</label>
             <div className={`w-full border rounded-lg px-2 py-2 text-right font-mono font-bold text-sm ${rateDiffers ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>￦{num(quoteRate)}</div>
             {rateDiffers && <div className="text-[10px] text-amber-700 mt-0.5 text-right">지금 {rateLabel(market)} ￦{num(currentRate)}</div>}
           </div>
         </div>
+        {isM && (
+          <div className="mt-3 flex items-start gap-2 bg-teal-50 border border-teal-200 text-teal-800 rounded-lg px-3 py-2 text-[11px]">
+            <Ruler className="w-4 h-4 shrink-0 mt-px" />
+            <span>
+              <b>M 견적서</b> — 바이어 견적서(PDF·엑셀)의 단가·중량(g/M)·MCQ·수량이 M로 나가요. 단가 = YD 판가 × 1.0936 (1M = 1.0936YD),
+              {' '}구간 이름은 같은 숫자에 M (300YD 구간 단가 → '300 M'). 화면 표와 원가는 YD 그대로예요.
+            </span>
+          </div>
+        )}
         {hasAnyRows && handleRecalcQuote && (
           <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
             <p className="text-[11px] text-slate-400">견적 단가는 품목을 넣을 때의 원가·견적 환율로 고정돼요. 원가나 환율이 바뀌었으면 다시 계산하세요. (기준·별도 견적 모두)</p>
@@ -215,7 +243,7 @@ export const QuotationPage = ({
         desc="정해 둔 수량 구간별 단가 — 고른 구간만 바이어 견적서에 나가요"
         open={openStd}
         onToggle={() => setOpenStd(o => !o)}
-        actions={<ExportButtons label="기준 견적서" onPdf={() => handleDownloadPDF(null, 'standard')} onExcel={() => handleDownloadQuoteExcel(null, 'standard')} />}
+        actions={<ExportButtons label="기준 견적서" unit={unit} onPdf={() => handleDownloadPDF(null, 'standard')} onExcel={() => handleDownloadQuoteExcel(null, 'standard')} />}
       >
         {isLegacy ? (
           <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-xs">
@@ -405,6 +433,7 @@ export const QuotationPage = ({
                           ) : (
                             <>
                               <div className={`font-mono text-[13px] text-right ${t.main ? 'font-bold text-indigo-700' : 'text-slate-600'}`}>{formatQuotePrice(price, currency)}</div>
+                              {isM && <div className="text-[9px] font-bold text-teal-600 mt-0.5 text-right" title={`M 견적서에 '${t.label.replace(/ YD$/, ' M')}' 단가로 나가요 (YD 판가 × 1.0936)`}>{meterPrice(price)}</div>}
                               <div className="text-[9px] text-slate-400 mt-0.5 text-right">원가 {formatQuotePrice(base, currency)}</div>
                             </>
                           )}
@@ -455,7 +484,7 @@ export const QuotationPage = ({
         tone="amber"
         open={openCustom}
         onToggle={() => setOpenCustom(o => !o)}
-        actions={<ExportButtons label="별도 견적서" onPdf={() => handleDownloadPDF(null, 'special')} onExcel={() => handleDownloadQuoteExcel(null, 'special')} />}
+        actions={<ExportButtons label="별도 견적서" unit={unit} onPdf={() => handleDownloadPDF(null, 'special')} onExcel={() => handleDownloadQuoteExcel(null, 'special')} />}
       >
         {!isLegacy && (
           <ExcludeToggles
@@ -565,6 +594,7 @@ export const QuotationPage = ({
                             </button>
                           </div>
                           <div className="text-[10px] mt-1 font-bold text-teal-700">컬러별 {formatColorSplit(row, { wrap: true })} YD</div>
+                          {isM && <div className="text-[10px] font-bold text-teal-600" title="M 견적서에 나갈 수량 (YD × 0.9144)">견적서 {num(toUnitQty(qtyNum, quoteInput))}M ({formatColorSplit(row, { wrap: true, quote: quoteInput })})</div>}
                           <div className="text-[10px] text-slate-400">생지 짠 수량 {num(running.greigeQty)}YD</div>
                           {belowMcqColors > 0 && (
                             <div className="text-[10px] text-amber-700 font-bold">MCQ {num(mcq)} 미달 {belowMcqColors}컬러</div>
@@ -585,6 +615,11 @@ export const QuotationPage = ({
                               컬러당 {num(perColor)}YD{belowMcq ? ` · MCQ ${num(mcq)} 미달` : ''}
                             </div>
                           )}
+                          {isM && qtyNum > 0 && (
+                            <div className="text-[10px] font-bold text-teal-600" title="M 견적서에 나갈 수량 (YD × 0.9144). 바이어가 M로 말한 수량은 YD로 바꿔 넣으세요 (1,000M = 1,094YD)">
+                              견적서 {num(toUnitQty(qtyNum, quoteInput))}M
+                            </div>
+                          )}
                         </>
                       )}
                     </td>
@@ -601,6 +636,7 @@ export const QuotationPage = ({
                     </td>
                     <td className="px-2 py-2 text-right">
                       <div className="font-mono text-[14px] font-extrabold text-amber-800">{formatQuotePrice(price, currency)}</div>
+                      {isM && price !== null && <div className="text-[9px] font-bold text-teal-600 mt-0.5" title="M 견적서에 나갈 단가 (YD 판가 × 1.0936)">{meterPrice(price)}</div>}
                       <div className="text-[9px] text-slate-400 mt-0.5">원가 {formatQuotePrice(row.basePrice ?? null, currency)}</div>
                       {row.dye?.minApplied && (
                         <div className="text-[9px] font-bold text-rose-600 mt-0.5"

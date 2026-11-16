@@ -3,12 +3,18 @@ import { getQuoteValidUntil } from '../../utils/helpers';
 import {
   calcQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice,
   quotePriceBasis, buildQuoteTerms, validateQuoteForExport, isRunningRow, formatColorSplit,
+  quoteUnit, toUnitPrice, toUnitQty, toUnitMcq, toUnitWeight, tierUnitLabel,
 } from '../../utils/quoteModel';
 
 // GRUBIG ERP - 바이어 견적서 내보내기 (PDF 인쇄 · 엑셀)
 //  · App.jsx에서 그대로 옮김 (2026-10-06 — 동작 같음)
 //  · kind: 'standard' 기준 견적서 / 'special' 별도 견적서 — 바이어에게 따로 보냄
 //  · PDF는 인쇄할 견적을 따로 담아(pdfQuote) PDFRenderer가 그림 — 편집 중인 견적(quoteInput)은 건드리지 않음
+//  · M 견적서 (2026-11-16, quote.priceUnit 'M'): PDF와 같이 단가·g/M·MCQ·수량·구간을 M로, 파일 이름에 '_M'
+
+// 파일 이름 앞부분 — 'Quotation' / 'Quotation_Special', M 견적서는 끝에 '_M' (PDF·엑셀 같이)
+const quoteFilePrefix = (quote, isSpecial) =>
+  `Quotation${isSpecial ? '_Special' : ''}${quoteUnit(quote) === 'M' ? '_M' : ''}`;
 export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
   const [pdfKind, setPdfKind] = useState('standard'); // 견적서 PDF 종류: 'standard' 기준 견적서 / 'special' 별도 견적서
@@ -47,7 +53,7 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
     setTimeout(() => {
       const oldTitle = document.title;
       const safeBuyer = String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9\s-가-힣]/g, '');
-      const filename = `Quotation${kind === 'special' ? '_Special' : ''}_${safeBuyer}_${targetQuote.date || ''}`.trim();
+      const filename = `${quoteFilePrefix(targetQuote, kind === 'special')}_${safeBuyer}_${targetQuote.date || ''}`.trim();
       try {
         document.title = filename;
         window.print();
@@ -77,7 +83,12 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
 
     const cur = targetQuote.currency;
     const priceBasis = quotePriceBasis(cur);
-    const cell = (v) => (v === null || v === undefined ? '' : v); // 기준원가가 없는 구간(예전 견적)은 빈칸
+    const unit = quoteUnit(targetQuote);   // 견적서 단위 'YD' / 'M' — M는 단가·중량·MCQ·수량을 M로 환산 (quoteModel 6절)
+    // 기준원가가 없는 구간(예전 견적)은 빈칸. 단가는 견적서 단위로 (M = YD 판가 × 1.0936)
+    const cell = (ydPrice) => {
+      const v = toUnitPrice(ydPrice, targetQuote, cur);
+      return v === null || v === undefined ? '' : v;
+    };
     // 표 아래 조건 — PDF 약관과 같은 문구 (quoteModel.buildQuoteTerms 한 곳에서 관리 — 원화(내수) 견적은 한글, 수출은 영문)
     const notes = buildQuoteTerms(targetQuote, isSpecial ? 'special' : 'standard').map(line => `• ${line}`);
 
@@ -94,10 +105,10 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
           'Cut(inch)': item.widthCut ?? '',
           'Full(inch)': item.widthFull ?? '',
           'GSM': item.gsm ?? '',
-          'g/YD': Number(item.gYd) || 0,
-          'MCQ(YD/color)': Number(item.mcqYd || 300),
+          [`g/${unit}`]: toUnitWeight(item.gYd, targetQuote),
+          [`MCQ(${unit}/color)`]: toUnitMcq(item.mcqYd, targetQuote),
         };
-        tiers.forEach(t => { row[`${t.label.replace(' YD', 'YD')} (${cur})`] = cell(calcQuotePrice(item, t.key, targetQuote, cur)); });
+        tiers.forEach(t => { row[`${tierUnitLabel(t, targetQuote).replace(/ (YD|M)$/, '$1')} (${cur})`] = cell(calcQuotePrice(item, t.key, targetQuote, cur)); });
         return row;
       });
       cols = [{ wch: 5 }, { wch: 16 }, { wch: 28 }, { wch: 9 }, { wch: 9 }, { wch: 7 }, { wch: 8 }, { wch: 13 }, ...tiers.map(() => ({ wch: 14 }))];
@@ -112,12 +123,12 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
         'Cut(inch)': r.widthCut ?? '',
         'Full(inch)': r.widthFull ?? '',
         'GSM': r.gsm ?? '',
-        'g/YD': Number(r.gYd) || 0,
-        "Q'TY(YD)": Number(r.qty) || 0,
+        [`g/${unit}`]: toUnitWeight(r.gYd, targetQuote),
+        [`Q'TY(${unit})`]: toUnitQty(r.qty, targetQuote),
         'Colors': Number(r.colors) || 0,
-        ...(hasSplit ? { 'Qty per Color(YD)': formatColorSplit(r) } : {}),
-        'MCQ(YD/color)': Number(r.mcqYd || 300), // 컬러당 최소 수량 — 약관: 고르지 않게 나눠 MCQ 미만이면 단가 조정
-        [`Price/YD (${cur})`]: cell(calcCustomQuotePrice(r, targetQuote, cur)),
+        ...(hasSplit ? { [`Qty per Color(${unit})`]: formatColorSplit(r, { quote: targetQuote }) } : {}),
+        [`MCQ(${unit}/color)`]: toUnitMcq(r.mcqYd, targetQuote), // 컬러당 최소 수량 — 약관: 고르지 않게 나눠 MCQ 미만이면 단가 조정
+        [`Price/${unit} (${cur})`]: cell(calcCustomQuotePrice(r, targetQuote, cur)),
       }));
       cols = [
         { wch: 5 }, { wch: 16 }, { wch: 28 }, { wch: 9 }, { wch: 9 }, { wch: 7 }, { wch: 8 }, { wch: 10 }, { wch: 8 },
@@ -130,7 +141,7 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
     const meta = [
       [`GRUBIG FABRIC QUOTATION${isSpecial ? ' - SPECIAL CONDITIONS' : ''} (${priceBasis})`],
       [`Buyer: ${targetQuote.buyerName || ''}${targetQuote.attention ? `    Attn: ${targetQuote.attention}` : ''}`],
-      [`Date: ${targetQuote.date || ''}    Currency: ${cur}    Valid Until: ${validUntil}`],
+      [`Date: ${targetQuote.date || ''}    Currency: ${cur}${unit === 'M' ? '    Unit: METER' : ''}    Valid Until: ${validUntil}`],
       [],
     ];
     const ws = window.XLSX.utils.aoa_to_sheet(meta);
@@ -141,7 +152,7 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
     const wb = window.XLSX.utils.book_new();
     window.XLSX.utils.book_append_sheet(wb, ws, isSpecial ? 'Special Quotation' : 'Quotation');
     const safeBuyer = String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim();
-    const fileParts = [isSpecial ? 'Quotation_Special' : 'Quotation', safeBuyer, targetQuote.date].filter(Boolean);
+    const fileParts = [quoteFilePrefix(targetQuote, isSpecial), safeBuyer, targetQuote.date].filter(Boolean);
     window.XLSX.writeFile(wb, `${fileParts.join('_')}.xlsx`);
     showToast(`${rows.length}개 ${isSpecial ? '별도 견적 줄' : '품목'}을 엑셀로 내보냈습니다.`, 'success');
   };

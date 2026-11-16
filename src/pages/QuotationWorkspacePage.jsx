@@ -2,8 +2,9 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Plus, Home, Globe, Save, LogOut, X } from 'lucide-react';
 import { QuotationPage } from './QuotationPage';
 import { QuoteHistoryPage } from './QuoteHistoryPage';
-import { normalizeQuote } from '../utils/quoteModel';
+import { normalizeQuote, isMeterQuote } from '../utils/quoteModel';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
+import { MeterUnitBadge } from '../components/quote/QuoteParts';
 
 // ============================================================
 // 견적서 워크스페이스 — '견적서 작성' + '견적 히스토리'를 한 메뉴로 병합
@@ -176,7 +177,10 @@ export const QuotationWorkspacePage = (props) => {
             className={`w-full text-left px-3 py-2 border-b border-slate-100 hover:bg-indigo-50/60 transition-colors ${String(quoteInput.id) === String(q.id) ? 'bg-indigo-50 border-l-[3px] border-l-indigo-500' : 'border-l-[3px] border-l-transparent'}`}>
             <div className="flex items-center justify-between gap-2 mb-0.5">
               <span className="text-[13px] font-bold text-slate-800 truncate uppercase">{q.buyerName || '(바이어 미입력)'}</span>
-              {marketBadge(q.marketType)}
+              <span className="flex items-center gap-1 shrink-0">
+                {isMeterQuote(q) && <MeterUnitBadge />}{/* M 견적서 (2026-11-16) */}
+                {marketBadge(q.marketType)}
+              </span>
             </div>
             <div className="flex items-center justify-between text-[10px] text-slate-400">
               <span>{q.date}</span>
