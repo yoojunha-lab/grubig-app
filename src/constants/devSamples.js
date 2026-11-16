@@ -13,6 +13,8 @@ export const DEV_SAMPLE_YARNS = [
   { id: 'y_dev_5', category: '화섬',    name: 'NYLON 70D', remarks: '', suppliers: [{ id: 's_dev_5', name: '태광',   currency: 'KRW', price: 0,     tariff: 0, freight: 0, isDefault: true, history: [] }] },
   // 선염 원사 — 생산 ▾ 계산기 ARTICLE 불러오기 확인용 (PW1050)
   { id: 'y_dev_6', category: '소모',    name: 'F/60Nm SW/N 87/13', remarks: '', suppliers: [{ id: 's_dev_6', name: '대원', currency: 'KRW', price: 32000, tariff: 0, freight: 0, isDefault: true, history: [] }] },
+  // 예전에 띄어쓰기만 다르게 저장된 같은 이름 원사(CM 30S ↔ CM30S) — 목록 '같은 이름 2개' 표시 · 이름 그대로 수정 허용 확인용 (2026-11-16)
+  { id: 'y_dev_7', category: '면방',    name: 'CM30S',     remarks: '', suppliers: [{ id: 's_dev_7', name: '효성',    currency: 'KRW', price: 9500,  tariff: 0, freight: 0, isDefault: true, history: [] }] },
 ];
 
 // calculateCost가 호출돼도 안전하도록 비용/로스 필드까지 채운 완전한 원단 샘플

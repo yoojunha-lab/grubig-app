@@ -6,6 +6,7 @@ import { getYarnRowInfo, getCategoryColor } from './yarnRowModel';
 
 export const MobileYarnCard = React.memo(({
   y,
+  sameNameCount = 0, // 같은 이름(띄어쓰기·대소문자 무시) 원사 수 — 2개 이상이면 '같은 이름 N개' 표시
   exchangeRates,
   handleEditYarn,
   handleDeleteYarn,
@@ -25,6 +26,11 @@ export const MobileYarnCard = React.memo(({
         <div className="flex-1 pr-3">
           <div className="mb-1.5"><span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase inline-block ${catColor}`}>{y.category || '-'}</span></div>
           <div className="font-extrabold text-slate-900 uppercase text-lg tracking-tight leading-tight">{y.name}</div>
+          {sameNameCount > 1 && (
+            <div className="mt-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 w-fit">
+              같은 이름 {sameNameCount}개 — 쓰지 않는 쪽을 지우거나 이름을 바꿔 주세요
+            </div>
+          )}
         </div>
         <div className="flex gap-1.5 shrink-0">
           <button onClick={() => handleEditYarn(y)} className="p-1.5 text-blue-600 bg-blue-50 border border-blue-100 rounded-lg shadow-sm active:scale-95 transition-all"><Edit2 className="w-4 h-4" /></button>
@@ -107,6 +113,7 @@ export const MobileYarnCard = React.memo(({
   );
 }, (prevProps, nextProps) => {
   return prevProps.y === nextProps.y &&
+         prevProps.sameNameCount === nextProps.sameNameCount &&
          prevProps.exchangeRates === nextProps.exchangeRates &&
          prevProps.yarnLibrary === nextProps.yarnLibrary &&
          // 원가 설정(수입 운반비 구간)이 바뀌면 운반비·내수 단가 범위가 달라지므로 재렌더

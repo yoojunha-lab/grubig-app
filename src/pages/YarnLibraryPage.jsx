@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Database, Upload, Factory, History, Plus, Save, Settings, Search, Edit2, Trash2, Truck, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Database, Upload, Factory, History, Plus, Save, Settings, Search, Edit2, Trash2, Truck, Check, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { YarnLibraryRow } from '../components/yarn/YarnLibraryRow';
 import { MobileYarnCard } from '../components/yarn/MobileYarnCard';
 import { SearchableSelect } from '../components/common/SearchableSelect';
-import { num, usd } from '../utils/helpers';
+import { num, usd, yarnNameKey, cleanYarnName, describeYarn, checkYarnNameDuplicate, groupSameNameYarns } from '../utils/helpers';
 import { isImportSupplier, findImportCountry, describeImportBrackets } from '../utils/costModel';
 
 const PAGE_SIZE = 30; // 1페이지당 원사 수 (로드 성능)
@@ -116,11 +116,33 @@ export const YarnLibraryPage = ({
     return [...set].sort().map(n => ({ id: n, name: n }));
   }, [yarnSuppliers, yarnInput.suppliers]);
 
+  // --- 같은 이름 원사 (대소문자·띄어쓰기 무시 — 대표님 결정 2026-11-16) ---
+  //  원사명 칸 아래 안내: 같은 이름 원사가 있으면 빨간 글자(저장 막힘), 예전부터 겹쳐 있던 원사를 이름 그대로 고치는 중이면 노란 글자(저장됨)
+  const nameDup = useMemo(
+    () => checkYarnNameDuplicate(yarnLibrary, yarnInput.name, editingYarnId),
+    [yarnLibrary, yarnInput.name, editingYarnId]
+  );
+  const nameDupSpelledDiff = nameDup.others.some(o => cleanYarnName(o.name) !== cleanYarnName(yarnInput.name));
+  //  목록: 이미 같은 이름으로 저장된 원사에 '같은 이름 N개' 표시 + 제목 옆 [모아 보기]
+  const sameNameGroups = useMemo(() => groupSameNameYarns(yarnLibrary), [yarnLibrary]);
+  const sameNameTotal = useMemo(() => [...sameNameGroups.values()].reduce((sum, g) => sum + g.length, 0), [sameNameGroups]);
+  const sameNameCountOf = (y) => sameNameGroups.get(yarnNameKey(y.name))?.length || 0;
+  const [showSameNameOnly, setShowSameNameOnly] = useState(false);
+  const sameNameOnly = showSameNameOnly && sameNameGroups.size > 0; // 다 정리하면 저절로 전체 보기로
+  const listYarns = useMemo(() => (sameNameOnly
+    ? filteredYarns.filter(y => sameNameGroups.has(yarnNameKey(y.name)))
+      .sort((a, b) => yarnNameKey(a.name).localeCompare(yarnNameKey(b.name))) // 같은 이름끼리 붙여서
+    : filteredYarns), [sameNameOnly, filteredYarns, sameNameGroups]);
+  const toggleSameNameOnly = () => {
+    setShowSameNameOnly(v => !v);
+    if (setYarnPage) setYarnPage(0);
+  };
+
   // --- 페이지네이션 계산 ---
-  const total = filteredYarns.length;
+  const total = listYarns.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(Math.max(0, yarnPage), totalPages - 1);
-  const pageYarns = filteredYarns.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const pageYarns = listYarns.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
   const rangeStart = total === 0 ? 0 : safePage * PAGE_SIZE + 1;
   const rangeEnd = Math.min(total, safePage * PAGE_SIZE + PAGE_SIZE);
   const goPage = (p) => setYarnPage && setYarnPage(Math.min(Math.max(0, p), totalPages - 1));
@@ -233,7 +255,18 @@ export const YarnLibraryPage = ({
   return (
     <div className="max-w-[1500px] mx-auto space-y-6 w-full print:hidden">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h2 className="text-2xl font-bold text-slate-800">원사 라이브러리 ({total}개)</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-2xl font-bold text-slate-800">원사 라이브러리 ({total}개)</h2>
+          {sameNameGroups.size > 0 && (
+            <button
+              onClick={toggleSameNameOnly}
+              title="같은 이름(띄어쓰기·대소문자 무시)으로 두 번 이상 저장된 원사예요. 쓰지 않는 쪽을 지우거나 이름을 바꿔 주세요."
+              className={`px-2.5 py-1 rounded-lg border text-xs font-bold flex items-center gap-1 transition-colors whitespace-nowrap ${sameNameOnly ? 'bg-amber-500 border-amber-500 text-white' : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'}`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5" /> 같은 이름 원사 {sameNameTotal}개 · {sameNameOnly ? '전체 보기' : '모아 보기'}
+            </button>
+          )}
+        </div>
         <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto">
           <button onClick={handleOpenAddYarn} className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-800 transition-colors shadow-sm whitespace-nowrap"><Plus className="w-4 h-4" /> 새 원사 등록</button>
 
@@ -303,6 +336,7 @@ export const YarnLibraryPage = ({
               <YarnLibraryRow
                 key={y.id}
                 y={y}
+                sameNameCount={sameNameCountOf(y)}
                 exchangeRates={exchangeRates}
                 handleEditYarn={(yarn) => { handleEditYarn(yarn); setIsYarnFormModalOpen(true); }}
                 handleDeleteYarn={handleDeleteYarn}
@@ -322,6 +356,7 @@ export const YarnLibraryPage = ({
           <MobileYarnCard
             key={y.id}
             y={y}
+            sameNameCount={sameNameCountOf(y)}
             exchangeRates={exchangeRates}
             handleEditYarn={(yarn) => { handleEditYarn(yarn); setIsYarnFormModalOpen(true); }}
             handleDeleteYarn={handleDeleteYarn}
@@ -372,7 +407,25 @@ export const YarnLibraryPage = ({
                   </div>
                   <div className="flex-1">
                     <label className="text-xs font-bold text-slate-500 mb-1 block">원사명 <span className="text-red-500">*</span></label>
-                    <input type="text" value={yarnInput.name} onChange={e => setYarnInput({ ...yarnInput, name: e.target.value.toUpperCase() })} className="w-full border rounded-lg px-3 py-2.5 text-sm font-bold uppercase focus:border-blue-500 focus:bg-white bg-slate-50 transition-colors outline-none" placeholder="예: 2/48 WOOL" />
+                    <input type="text" value={yarnInput.name} onChange={e => setYarnInput({ ...yarnInput, name: e.target.value.toUpperCase() })} className={`w-full border rounded-lg px-3 py-2.5 text-sm font-bold uppercase focus:bg-white bg-slate-50 transition-colors outline-none ${nameDup.blocked ? 'border-red-400 focus:border-red-500' : 'focus:border-blue-500'}`} placeholder="예: 2/48 WOOL" />
+                    {/* 같은 이름 원사 안내 — 빨강: 저장 막힘 / 노랑: 예전부터 겹쳐 있던 원사를 이름 그대로 고치는 중 (저장됨) */}
+                    {nameDup.others.length > 0 && (
+                      <div className={`mt-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug ${nameDup.blocked ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                        <div className="font-bold flex items-center gap-1">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                          {nameDup.blocked ? '이미 있는 원사예요:' : '같은 이름 원사가 또 있어요:'}
+                        </div>
+                        {nameDup.others.map(o => <div key={o.id} className="ml-[18px] font-bold">{describeYarn(o)}</div>)}
+                        <div className="ml-[18px] mt-0.5">
+                          {nameDup.blocked
+                            ? '이름을 바꾸거나, 목록에서 그 원사를 수정해 주세요.'
+                            : '예전부터 이름이 겹쳐 있던 원사예요. 이름을 그대로 두면 저장돼요.'}
+                        </div>
+                        {nameDup.blocked && nameDupSpelledDiff && (
+                          <div className="ml-[18px] mt-0.5 text-red-500">띄어쓰기·대소문자가 달라도 같은 이름으로 봐요.</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div>

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { clampNum, todayLocalISO } from '../../utils/helpers';
+import { clampNum, todayLocalISO, cleanYarnName, checkYarnNameDuplicate, describeYarn } from '../../utils/helpers';
 import { isImportSupplier, findImportCountry } from '../../utils/costModel';
 
 // GRUBIG ERP - 원사(Yarn) 도메인 로직 및 훅
@@ -54,19 +54,19 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
   };
 
   const handleSaveYarn = async () => {
-    if (!yarnInput.name) {
+    // 저장 모양: 앞뒤 띄어쓰기 빼고, 여러 칸 띄어쓰기는 한 칸, 대문자 (띄어쓰기만 친 이름도 빈 이름으로 봄)
+    const normalizedName = cleanYarnName(yarnInput.name);
+    if (!normalizedName) {
       showToast('원사명을 입력해주세요', 'error');
       return false;
     }
 
-    const normalizedName = String(yarnInput.name).trim().toUpperCase();
-
-    // [Step 3] 중복 원사명 등록 차단 (수정 모드에서는 본인 제외)
-    const isDuplicate = (yarnLibrary || []).some(y =>
-      String(y.name || '').toUpperCase() === normalizedName && y.id !== editingYarnId
-    );
-    if (isDuplicate) {
-      showToast('이미 존재하는 원사명입니다.', 'error');
+    // [중복 이름 막기] 대소문자·띄어쓰기를 무시하고 같은 이름 원사가 있으면 저장 안 함 (수정 중인 자기 자신은 뺌)
+    //  예전부터 겹쳐 있던 원사는 이름을 그대로 두면 저장됨 — 대표님 결정 2026-11-16 (helpers.checkYarnNameDuplicate)
+    //  원사명 칸 아래에도 같은 안내가 바로 보임 (YarnLibraryPage)
+    const { others, blocked } = checkYarnNameDuplicate(yarnLibrary, normalizedName, editingYarnId);
+    if (blocked) {
+      showToast(`같은 이름의 원사가 이미 있어요: ${others.map(describeYarn).join(', ')}`, 'error');
       return false;
     }
 

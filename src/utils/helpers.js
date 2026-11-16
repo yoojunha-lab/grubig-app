@@ -214,6 +214,55 @@ export const fabricYarnEntries = (fabric, yarnLibrary = []) => (fabric?.yarns ||
   });
 
 /**
+ * 원사 이름 비교 키 — 대소문자·띄어쓰기(앞뒤·중간 전부) 무시
+ *  '2/48 WOOL' = '2/48WOOL' = ' 2/48  wool ' → 같은 원사 (대표님 결정 2026-11-16 — 같은 이름 원사가 두 번 저장되지 않게)
+ *  원사 등록·수정 창, 원사 엑셀 일괄 등록, 원단 엑셀 등록의 원사 찾기가 모두 이 키로 비교
+ */
+export const yarnNameKey = (name) => String(name ?? '').replace(/\s+/g, '').toUpperCase();
+
+/** 원사 이름 저장 모양 — 앞뒤 띄어쓰기 빼고, 여러 칸 띄어쓰기는 한 칸, 대문자 ('  2/48  wool ' → '2/48 WOOL') */
+export const cleanYarnName = (name) => String(name ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+
+/** 원사 한 줄 설명 — '2/48 WOOL (소모 · 대표 공급처 XINAO)' (같은 이름 안내용) */
+export const describeYarn = (yarn) => {
+  const sups = yarn?.suppliers || [];
+  const def = sups.find(s => s?.isDefault) || sups[0];
+  const supName = String(def?.name || yarn?.supplier || '').trim();
+  const parts = [String(yarn?.category || '').trim(), supName ? `대표 공급처 ${supName}` : ''].filter(Boolean);
+  return `${yarn?.name || ''}${parts.length > 0 ? ` (${parts.join(' · ')})` : ''}`;
+};
+
+/**
+ * 같은 이름 원사 확인 (원사 등록·수정 창 — 원사명 칸 아래 안내 + 저장 버튼에서 막기)
+ *  · others = 이름이 같은 다른 원사 (수정 중인 자기 자신은 뺌)
+ *  · blocked = 저장을 막을지. 수정하면서 이름을 그대로 두면(예전부터 겹쳐 있던 원사) 막지 않음 — 단가 등은 고칠 수 있게
+ * @returns {{ others: Object[], blocked: boolean }}
+ */
+export const checkYarnNameDuplicate = (yarnLibrary, name, editingId = null) => {
+  const key = yarnNameKey(name);
+  if (!key) return { others: [], blocked: false };
+  const isSelf = (y) => editingId != null && String(y?.id) === String(editingId);
+  const others = (yarnLibrary || []).filter(y => y && !isSelf(y) && yarnNameKey(y.name) === key);
+  if (others.length === 0) return { others, blocked: false };
+  const self = (yarnLibrary || []).find(isSelf);
+  const keptOldName = !!self && yarnNameKey(self.name) === key;
+  return { others, blocked: !keptOldName };
+};
+
+/** 라이브러리 안 같은 이름 원사 묶음 — 이름 키 → 원사 목록 (2개 이상인 이름만) · 원사 목록 '같은 이름 N개' 표시 */
+export const groupSameNameYarns = (yarnLibrary) => {
+  const map = new Map();
+  (yarnLibrary || []).forEach(y => {
+    const key = yarnNameKey(y?.name);
+    if (!key) return;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(y);
+  });
+  [...map.keys()].forEach(k => { if (map.get(k).length < 2) map.delete(k); });
+  return map;
+};
+
+/**
  * 견적서 날짜 표기 (유효기간)
  *  · 'en' — 'OCT 21, 2026' 영문 대문자 (수출 견적서)
  *  · 'ko' — '2026년 10월 21일' (내수 견적서 약관 — 대표님 요청 2026-10-07)
