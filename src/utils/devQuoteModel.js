@@ -17,6 +17,7 @@ import {
   makeDefaultTierRates, makeDefaultTierAdds, toQuoteTierRate, toQuoteTierAdd, defaultTierAdd,
   calcQuotePrice, calcCustomQuotePrice, getBasePrice, getShownTiers, formatQuotePrice,
   moveRetiredTierKeys, getQuoteTiers, ALL_QUOTE_TIERS,
+  isMeterQuote, formatUnitPrice, tierUnitLabel, rowUnitQty,
 } from './quoteModel';
 import { num, formatMonthDay } from './helpers';
 
@@ -292,21 +293,31 @@ export const getDevQuoteBadge = (devReq, linkedQuotes = []) => {
         ? DEV_QUOTE_MAIN_TIER
         : (getShownTiers(latest)[0] || DEV_QUOTE_MAIN_TIER);
       const warnings = Array.isArray(item.costWarnings) ? item.costWarnings : [];
+      const mainPrice = calcQuotePrice(item, main.key, latest, cur);
+      // M 견적서로 보낸 견적 (2026-11-16) — 배지·구간 줄은 예상가와 비교하기 쉽게 YD 그대로, 바이어에게 나간 M 단가는 따로 한 줄
+      const meterLine = isMeterQuote(latest)
+        ? [`※ M 견적서로 보냄 — 바이어에게는 ${tierUnitLabel(main, latest)} ${formatUnitPrice(mainPrice, latest, cur)}/M (아래는 YD 단가)`]
+        : [];
       return {
         kind: 'quote', count: linked.length, date: formatMonthDay(latest.date), otherBuyer, warnings,
-        price: formatQuotePrice(calcQuotePrice(item, main.key, latest, cur), cur),
+        price: formatQuotePrice(mainPrice, cur),
         qtyLabel: main.label,
-        detail: [head, ...lines, ...newer, ...warningLines(warnings)].join('\n'),
+        detail: [head, ...meterLine, ...lines, ...newer, ...warningLines(warnings)].join('\n'),
       };
     }
     const row = (latest.customItems || []).find(r => String(r?.fabricId) === String(devReq.id));
     if (row) {
       const qtyLabel = `${num(row.qty)} YD · ${num(row.colors)}컬러`;
-      const price = formatQuotePrice(calcCustomQuotePrice(row, latest, cur), cur);
+      const rowPrice = calcCustomQuotePrice(row, latest, cur);
+      const price = formatQuotePrice(rowPrice, cur);
       const warnings = Array.isArray(row.costWarnings) ? row.costWarnings : [];
+      // M 견적서로 보낸 견적 — 바이어에게 나간 M 수량·단가 (배지는 YD 그대로)
+      const meterLine = isMeterQuote(latest)
+        ? [`※ M 견적서로 보냄 — 바이어에게는 ${num(rowUnitQty(row, latest))} M ${formatUnitPrice(rowPrice, latest, cur)}/M`]
+        : [];
       return {
         kind: 'quote', count: linked.length, date: formatMonthDay(latest.date), otherBuyer, warnings, price, qtyLabel,
-        detail: [head, `별도 견적 ${qtyLabel} ${price}`, ...newer, ...warningLines(warnings)].join('\n'),
+        detail: [head, `별도 견적 ${qtyLabel} ${price}`, ...meterLine, ...newer, ...warningLines(warnings)].join('\n'),
       };
     }
   }

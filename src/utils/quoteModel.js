@@ -640,6 +640,21 @@ export const toUnitPrice = (ydPrice, quote, currency) => {
   return isMeterQuote(quote) ? smartRound(cleanFloat(Number(ydPrice) * YD_PER_M), currency) : ydPrice;
 };
 
+/** YD 판가 → 견적서 단위 판가 글자 ('￦14,500' / '$10.03', 단가 없음은 '—') — PDF·견적 목록·화면 미리보기 공통 */
+export const formatUnitPrice = (ydPrice, quote, currency) => formatQuotePrice(toUnitPrice(ydPrice, quote, currency), currency);
+
+/**
+ * 총액 (화면에서만) = 판가 × 수량, 견적서 단위로 — M 견적서는 M 단가 × M 수량 (바이어가 보는 값). 단가·수량이 없으면 null
+ * @param {number|null} ydPrice YD 판가
+ * @param {number} unitQty 견적서 단위 수량 (M 견적서는 M)
+ */
+export const calcUnitAmount = (ydPrice, unitQty, quote, currency) => {
+  const price = toUnitPrice(ydPrice, quote, currency);
+  const qty = Number(unitQty) || 0;
+  if (price === null || !(qty > 0)) return null;
+  return currency === 'USD' ? roundUsd(price * qty) : price * qty;
+};
+
 /** YD 수량 → 견적서 단위 수량 (M는 반올림 정수 — 1,094YD → 1,000M) */
 export const toUnitQty = (yd, quote) => {
   const v = Number(yd) || 0;

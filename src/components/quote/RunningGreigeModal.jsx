@@ -9,7 +9,7 @@ import { num, usd, roundUsd, smartRound } from '../../utils/helpers';
 import { KNIT_FEE_MODE_LABEL } from '../../constants/costing';
 import {
   normalizeRunning, formatQuotePrice, getCustomRowRate, getMarginAddCurrency, toQuoteCurrencyAdd,
-  quoteUnit, toUnitQty, toUnitPrice, toUnitMcq, fromUnitQty, rowUnitQty, rowUnitSplit,
+  quoteUnit, toUnitQty, formatUnitPrice, calcUnitAmount, toUnitMcq, fromUnitQty, rowUnitQty, rowUnitSplit,
 } from '../../utils/quoteModel';
 
 /**
@@ -163,9 +163,8 @@ export const RunningGreigeModal = ({
     ? `≈ $${usd(roundUsd(toQuoteCurrencyAdd(form.marginAdd, { ...quote, exchangeRate: quoteRate || quote?.exchangeRate })))}`
     : '';
   // 총액 — M 견적서는 M 단가 × 넣은 M 합계 (바이어가 보는 값)
-  const amountPrice = isM ? toUnitPrice(price, quote, currency) : price;
   const amountQty = isM ? total : qtyForRate;
-  const totalAmount = amountPrice === null || !(amountQty > 0) ? null : (isUsd ? roundUsd(amountPrice * amountQty) : amountPrice * amountQty);
+  const totalAmount = calcUnitAmount(price, amountQty, quote, currency);
 
   // ── 원단 고르기 (새로 넣을 때) — 별도 견적에 이미 있는 원단은 그 줄을 고침 ──
   const fabricOptions = useMemo(() => {
@@ -455,7 +454,7 @@ export const RunningGreigeModal = ({
                 <div className="text-right">
                   <div className="text-[11px] font-bold text-slate-500">판가 / YD</div>
                   <div className="font-mono text-xl font-extrabold text-teal-800">{formatQuotePrice(price, currency)}</div>
-                  {isM && price !== null && <div className="text-[10px] font-bold text-teal-600" title="M 견적서에 나갈 단가 (YD 판가 × 1.0936)">→ {formatQuotePrice(toUnitPrice(price, quote, currency), currency)}/M</div>}
+                  {isM && price !== null && <div className="text-[10px] font-bold text-teal-600" title="M 견적서에 나갈 단가 (YD 판가 × 1.0936)">→ {formatUnitPrice(price, quote, currency)}/M</div>}
                   <div className="text-[10px] text-slate-400">원가 {formatQuotePrice(row?.basePrice ?? null, currency)}</div>
                 </div>
                 <div className="text-right">

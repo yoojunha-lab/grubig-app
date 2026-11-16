@@ -2,9 +2,9 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { num } from '../../utils/helpers';
 import {
-  calcQuotePrice, formatQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice, quotePriceBasis, buildQuoteTerms,
+  calcQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice, quotePriceBasis, buildQuoteTerms,
   quoteValidUntilLine, formatColorSplit,
-  quoteUnit, toUnitPrice, toUnitMcq, toUnitWeight, tierUnitLabel, rowUnitQty,
+  quoteUnit, formatUnitPrice, toUnitMcq, toUnitWeight, tierUnitLabel, rowUnitQty,
 } from '../../utils/quoteModel';
 
 // 견적서 PDF — 단일 연속 표 + 브라우저 자동 페이지 분할 방식.
@@ -50,7 +50,7 @@ export const PDFRenderer = ({
   const validUntil = quoteValidUntilLine(quoteInput);                           // '견적 유효기간: …까지' / 'VALID UNTIL: …'
   const unit = quoteUnit(quoteInput);                                           // 견적서 단위 'YD' / 'M'
   const isM = unit === 'M';
-  const unitPrice = (ydPrice) => formatQuotePrice(toUnitPrice(ydPrice, quoteInput, currency), currency); // YD 판가 → 견적서 단위 판가
+  const unitPrice = (ydPrice) => formatUnitPrice(ydPrice, quoteInput, currency); // YD 판가 → 견적서 단위 판가
 
   // [PDF 좌측 잘림 v4 — native window.print() 방식]
   //   Chrome native 인쇄(window.print) + @media print CSS (index.css) 로 출력.
