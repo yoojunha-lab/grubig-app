@@ -9,6 +9,7 @@ import { num, usd, roundUsd, smartRound } from '../../utils/helpers';
 import { KNIT_FEE_MODE_LABEL } from '../../constants/costing';
 import {
   normalizeRunning, formatQuotePrice, getCustomRowRate, getMarginAddCurrency, toQuoteCurrencyAdd,
+  quoteUnit, toUnitQty, toUnitPrice, toUnitMcq, fromUnitQty, rowUnitQty, rowUnitSplit,
 } from '../../utils/quoteModel';
 
 /**
@@ -17,6 +18,8 @@ import {
  *  [별도 견적에 넣기]로 별도 견적 줄로 넣음 (같은 원단은 한 줄만 — 일반 줄이 있으면 그 줄이 러닝 생지 줄로 바뀜)
  *  ① 원단  ② 생지 짠 수량 · 컬러별 수량  ③ 원가 (YD당 실비 + 비교·소량 추가분)  ④ 판매가 (일반 별도 견적 줄과 같은 이익율·YD당 정액)
  *  계산: useQuotation.previewRunningRow (별도 견적 줄과 같은 계산) · 규칙: docs/costing-model.md §5-B '러닝 생지 견적'
+ *  M 견적서 (2026-11-16): 컬러별 수량은 M로 넣고 YD로 바꿔 계산 (넣은 M는 running.colorQtysM으로 같이 저장 — 견적서에 그대로).
+ *   생지 짠 수량은 편직처 기록이라 YD 그대로. 원가 내역(③)·판가 칸은 YD당, 판가 아래 '→ /M'·총액은 M
  */
 
 const BLANK_FORM = { rowId: null, fabricId: '', greigeQty: '', colorQtys: ['', ''], marginRate: '', marginAdd: '' };
@@ -28,9 +31,10 @@ const isFormEmpty = (f) => isBlank(String(f.greigeQty).trim()) && f.colorQtys.ev
   && isBlank(String(f.marginRate).trim()) && isBlank(String(f.marginAdd).trim());
 
 // 별도 견적 줄 → 창 입력값. 러닝 생지 줄이면 그 조건, 일반 줄이면 수량을 컬러수로 고르게 나눈 칸 (생지 짠 수량은 비움)
-const formFromRow = (row) => {
+//  컬러별 수량 칸은 견적서 단위로 (M 견적서는 M — 넣은 M가 있으면 그대로, YD 줄은 환산)
+const formFromRow = (row, quote) => {
   const running = normalizeRunning(row?.running);
-  const qty = Math.round(Number(row?.qty) || 0);
+  const qty = Math.round(toUnitQty(row?.qty, quote));
   const colors = Math.round(Number(row?.colors) || 0);
   const even = qty > 0 && colors > 0
     ? Array.from({ length: colors }, (_, i) => String(Math.floor(qty / colors) + (i < qty % colors ? 1 : 0)))
@@ -39,7 +43,7 @@ const formFromRow = (row) => {
     rowId: row.id,
     fabricId: String(row.fabricId ?? ''),
     greigeQty: running && running.greigeQty > 0 ? String(running.greigeQty) : '',
-    colorQtys: running ? running.colorQtys.map(String) : even,
+    colorQtys: running ? rowUnitSplit(row, quote).map(String) : even,
     marginRate: toInput(row.marginRate),
     marginAdd: toInput(row.marginAdd),
   };
@@ -58,7 +62,7 @@ export const RunningGreigeModal = ({
   const customItems = quote?.customItems || NO_ROWS;
   const [form, setForm] = useState(() => {
     const row = initialRowId ? customItems.find(r => r.id === initialRowId) : null;
-    return row ? formFromRow(row) : BLANK_FORM;
+    return row ? formFromRow(row, quote) : BLANK_FORM;
   });
   const [leavePending, setLeavePending] = useState(false);
   const [showErrors, setShowErrors] = useState(false); // [넣기]를 누른 뒤부터 막는 사유를 빨갛게
@@ -75,29 +79,45 @@ export const RunningGreigeModal = ({
   const isUsd = currency === 'USD';
   const fmt = (v) => (isUsd ? `$${usd(v)}` : `₩${num(v)}`);
   const fmtSigned = (v) => `${v < 0 ? '−' : '+'}${fmt(Math.abs(isUsd ? v : Math.round(v)))}`;
+  // 견적서 단위 — M 견적서면 컬러별 수량을 M로 넣음 (계산은 YD로 바꿔서). 생지 짠 수량은 늘 YD
+  const unit = quoteUnit(quote);
+  const isM = unit === 'M';
 
   // ── 입력 확인 ──
   const greigeNum = Math.round(Number(form.greigeQty) || 0);
-  const colorNums = form.colorQtys.map(v => Math.round(Number(v) || 0));
+  const colorNums = form.colorQtys.map(v => Math.round(Number(v) || 0));        // 넣은 값 (견적서 단위)
   const badColors = colorNums.map(q => !(q > 0));
-  const total = colorNums.reduce((sum, q) => sum + Math.max(0, q), 0);
-  const lotShort = greigeNum > 0 && total > 0 && greigeNum < total;
+  const total = colorNums.reduce((sum, q) => sum + Math.max(0, q), 0);          // 합계 (견적서 단위)
+  const totalYd = isM ? colorNums.reduce((sum, q) => sum + (q > 0 ? fromUnitQty(q, quote) : 0), 0) : total; // 계산하는 YD
+  const lotShort = greigeNum > 0 && totalYd > 0 && greigeNum < totalYd;
   const problems = [];
   if (!form.fabricId) problems.push('원단을 골라 주세요.');
   if (!(greigeNum > 0)) problems.push('생지 짠 수량을 넣어 주세요.');
   if (colorNums.length === 0) problems.push('컬러를 1개 이상 넣어 주세요.');
   else if (badColors.some(Boolean)) problems.push('비어 있는 컬러 칸이 있어요. (안 쓰는 칸은 ✕로 지워 주세요)');
-  if (lotShort) problems.push(`생지 짠 수량(${num(greigeNum)}YD)이 오더 수량(${num(total)}YD)보다 적어요.`);
+  if (lotShort) problems.push(`생지 짠 수량(${num(greigeNum)}YD)이 오더 수량(${num(totalYd)}YD${isM ? ` = ${num(total)}M` : ''})보다 적어요.`);
   const ready = problems.length === 0;
 
   // ── 계산 (별도 견적 줄과 같은 계산) — 입력이 다 채워졌을 때만 ──
+  //  M 견적서: 넣은 M를 YD로 바꿔 계산하고, 넣은 M(colorQtysM)도 같이 넘겨 견적서에 그대로 나가게.
+  //  YD 견적서: 이 줄에 M로 넣어 둔 값이 있으면 넘겨 둠 — YD 칸을 안 바꿨으면 남고, 바꿨으면 normalizeRunning이 버림
+  const keptMeters = useMemo(
+    () => normalizeRunning(form.rowId ? customItems.find(r => r.id === form.rowId)?.running : null)?.colorQtysM || null,
+    [form.rowId, customItems],
+  );
   const draft = useMemo(() => ({
     rowId: form.rowId,
     fabricId: form.fabricId,
-    running: { greigeQty: form.greigeQty, colorQtys: form.colorQtys },
+    running: isM
+      ? {
+        greigeQty: form.greigeQty,
+        colorQtys: form.colorQtys.map(v => (isBlank(String(v).trim()) ? '' : String(fromUnitQty(v, quote)))),
+        colorQtysM: form.colorQtys,
+      }
+      : { greigeQty: form.greigeQty, colorQtys: form.colorQtys, ...(keptMeters ? { colorQtysM: keptMeters } : {}) },
     marginRate: form.marginRate,
     marginAdd: form.marginAdd,
-  }), [form]);
+  }), [form, isM, quote, keptMeters]);
   const pv = useMemo(() => (ready && preview ? preview(draft) : null), [ready, preview, draft]);
   const calc = pv?.calc || null;
   const mode = calc ? calc[pv.marketType] : null;          // 견적 시장의 원가 (내수 ₩ / 수출 $)
@@ -142,7 +162,10 @@ export const RunningGreigeModal = ({
   const addUsd = isUsd && addBasis === 'KRW' && Number(form.marginAdd) > 0
     ? `≈ $${usd(roundUsd(toQuoteCurrencyAdd(form.marginAdd, { ...quote, exchangeRate: quoteRate || quote?.exchangeRate })))}`
     : '';
-  const totalAmount = price === null || !(qtyForRate > 0) ? null : (isUsd ? roundUsd(price * qtyForRate) : price * qtyForRate);
+  // 총액 — M 견적서는 M 단가 × 넣은 M 합계 (바이어가 보는 값)
+  const amountPrice = isM ? toUnitPrice(price, quote, currency) : price;
+  const amountQty = isM ? total : qtyForRate;
+  const totalAmount = amountPrice === null || !(amountQty > 0) ? null : (isUsd ? roundUsd(amountPrice * amountQty) : amountPrice * amountQty);
 
   // ── 원단 고르기 (새로 넣을 때) — 별도 견적에 이미 있는 원단은 그 줄을 고침 ──
   const fabricOptions = useMemo(() => {
@@ -168,10 +191,10 @@ export const RunningGreigeModal = ({
     if (!existing) {
       setForm({ ...base, fabricId: id, rowId: null });
     } else if (isRunning) {
-      setForm(formFromRow(existing)); // 이미 있는 러닝 생지 줄 — 그 조건을 불러옴
+      setForm(formFromRow(existing, quote)); // 이미 있는 러닝 생지 줄 — 그 조건을 불러옴
     } else {
-      // 일반 줄 — 비어 있는 칸만 그 줄 값으로 (컬러 칸 = 수량을 고르게 나눈 값)
-      const fromRow = formFromRow(existing);
+      // 일반 줄 — 비어 있는 칸만 그 줄 값으로 (컬러 칸 = 수량을 고르게 나눈 값, 견적서 단위)
+      const fromRow = formFromRow(existing, quote);
       setForm({
         ...base,
         fabricId: id,
@@ -207,7 +230,7 @@ export const RunningGreigeModal = ({
     if (!targetRow || savingRef.current) return;
     if (!window.confirm(
       `러닝 생지 조건을 빼고 일반 별도 견적 줄로 되돌릴까요?\n\n` +
-      `수량·컬러수(${num(targetRow.qty)}YD · ${num(targetRow.colors)}컬러)는 그대로 두고, 컬러별로 고르게 나눈 기준으로 다시 계산해요.`
+      `수량·컬러수(${num(rowUnitQty(targetRow, quote))}${unit} · ${num(targetRow.colors)}컬러)는 그대로 두고, 컬러별로 고르게 나눈 기준으로 다시 계산해요.`
     )) return;
     if (onRelease(targetRow.id)) onClose();
   };
@@ -260,13 +283,13 @@ export const RunningGreigeModal = ({
               )}
               {row && (
                 <div className="text-[11px] text-slate-500 mt-1.5 flex items-center gap-1.5 flex-wrap">
-                  <span>{row.widthCut}/{row.widthFull}" · {row.gsm}g · MCQ {num(row.mcqYd)}YD/컬러</span>
+                  <span>{row.widthCut}/{row.widthFull}" · {row.gsm}g · MCQ {num(isM ? toUnitMcq(row.mcqYd, quote) : row.mcqYd)}{unit}/컬러</span>
                   {!isEdit && <CostWarningBadge warnings={row.costWarnings} />}
                 </div>
               )}
               {form.rowId && targetRow && !targetIsRunning && (
                 <div className="mt-2 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
-                  이 원단은 별도 견적에 일반 줄({num(targetRow.qty)}YD · {num(targetRow.colors)}컬러)로 있어요. [{saveLabel}] 버튼을 누르면 그 줄이 러닝 생지 견적으로 바뀌어요. (같은 원단은 한 줄만)
+                  이 원단은 별도 견적에 일반 줄({num(rowUnitQty(targetRow, quote))}{unit} · {num(targetRow.colors)}컬러)로 있어요. [{saveLabel}] 버튼을 누르면 그 줄이 러닝 생지 견적으로 바뀌어요. (같은 원단은 한 줄만)
                 </div>
               )}
               {!isEdit && form.rowId && targetIsRunning && (
@@ -299,12 +322,17 @@ export const RunningGreigeModal = ({
                   ) : (
                     <>원가 표 수량과 같은 가공지 기준 YD예요. 편직 정액·편직 LOSS·수입 원사 운반비를 이 수량으로 짠 기준으로 계산해요.</>
                   )}
-                  {lotShort && <div className="text-red-600 font-bold mt-0.5">생지 짠 수량이 오더 수량({num(total)}YD)보다 적어요.</div>}
+                  {lotShort && <div className="text-red-600 font-bold mt-0.5">생지 짠 수량이 오더 수량({num(totalYd)}YD{isM ? ` = ${num(total)}M` : ''})보다 적어요.</div>}
                 </div>
               </div>
 
               <div className="mt-3">
                 <div className="text-[11px] font-bold text-slate-500 mb-1">컬러별 수량 <span className="text-red-400">*</span> <span className="font-medium text-slate-400">— 컬러마다 따로 염색 (생지 {num(calc?.dye?.minKg ?? 100)}kg 미만이면 그 kg로 청구)</span></div>
+                {isM && (
+                  <div className="text-[11px] font-bold text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1 mb-1.5">
+                    M 견적서 — 컬러별 수량은 M로 넣어요. 원가는 YD로 바꿔서 계산해요 (1,000M = 1,094YD). 생지 짠 수량은 YD 그대로예요.
+                  </div>
+                )}
                 <div className="flex flex-wrap items-start gap-2">
                   {form.colorQtys.map((v, i) => {
                     const info = calc?.dye?.perColor?.[i];
@@ -319,8 +347,11 @@ export const RunningGreigeModal = ({
                         <div className="relative">
                           <input type="number" min="1" step="1" value={v} onChange={e => setColor(i, e.target.value)} placeholder="수량"
                             className={`w-full border rounded-lg pl-2 pr-7 py-1.5 text-right text-sm font-mono font-bold outline-none focus:ring-2 ring-teal-200 ${badColors[i] && showErrors ? 'border-red-300 bg-red-50 text-red-600' : 'border-slate-300 text-slate-800'}`} />
-                          <span className="absolute right-2 top-2 text-[10px] text-slate-400 pointer-events-none">YD</span>
+                          <span className={`absolute right-2 top-2 text-[10px] pointer-events-none ${isM ? 'font-bold text-teal-600' : 'text-slate-400'}`}>{unit}</span>
                         </div>
+                        {isM && colorNums[i] > 0 && (
+                          <div className="text-[10px] text-slate-400 mt-0.5 leading-tight">= {num(fromUnitQty(colorNums[i], quote))}YD</div>
+                        )}
                         {info && (
                           <div className={`text-[10px] mt-0.5 leading-tight ${info.minApplied ? 'text-rose-600 font-bold' : 'text-slate-400'}`}
                             title={info.minApplied ? '염색 최소 청구 — 이 컬러는 생지가 최소 kg보다 적어서 최소 kg 값을 내요' : ''}>
@@ -336,7 +367,8 @@ export const RunningGreigeModal = ({
                   </button>
                 </div>
                 <div className="text-[11px] text-slate-600 mt-1.5">
-                  합계 <b className="font-mono text-slate-800">{num(total)}YD · {colorNums.length}컬러</b>
+                  합계 <b className="font-mono text-slate-800">{num(total)}{unit} · {colorNums.length}컬러</b>
+                  {isM && <span className="text-slate-500"> (= {num(totalYd)}YD로 계산)</span>}
                   <span className="text-slate-400"> — 별도 견적 줄의 수량·컬러가 돼요</span>
                 </div>
               </div>
@@ -423,10 +455,11 @@ export const RunningGreigeModal = ({
                 <div className="text-right">
                   <div className="text-[11px] font-bold text-slate-500">판가 / YD</div>
                   <div className="font-mono text-xl font-extrabold text-teal-800">{formatQuotePrice(price, currency)}</div>
+                  {isM && price !== null && <div className="text-[10px] font-bold text-teal-600" title="M 견적서에 나갈 단가 (YD 판가 × 1.0936)">→ {formatQuotePrice(toUnitPrice(price, quote, currency), currency)}/M</div>}
                   <div className="text-[10px] text-slate-400">원가 {formatQuotePrice(row?.basePrice ?? null, currency)}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[11px] font-bold text-slate-500">총액 ({num(qtyForRate)}YD)</div>
+                  <div className="text-[11px] font-bold text-slate-500">총액 ({num(amountQty)}{unit})</div>
                   <div className="font-mono text-base font-bold text-slate-700">{totalAmount === null ? '—' : fmt(totalAmount)}</div>
                   <div className="text-[10px] text-slate-400">화면에서만 보여요</div>
                 </div>

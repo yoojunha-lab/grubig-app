@@ -407,12 +407,19 @@ export const getCustomExclude = (quote) => ({
 //   · 같은 원단은 별도 견적에 한 줄만 — 일반 줄을 러닝 생지 줄로 바꾸거나, [러닝 생지 해제]로 되돌림
 // ----------------------------------------------------------------------
 
-/** 러닝 생지 조건 정리 — 생지 짠 수량(정수 YD)과 컬러별 수량(0보다 큰 정수 YD). 컬러별 수량이 없으면 null (= 일반 줄) */
+/**
+ * 러닝 생지 조건 정리 — 생지 짠 수량(정수 YD)과 컬러별 수량(0보다 큰 정수 YD). 컬러별 수량이 없으면 null (= 일반 줄)
+ *  colorQtysM: M 견적서에서 M로 넣은 컬러별 수량 (2026-11-16) — 견적서에 넣은 숫자 그대로 내보내려고 같이 둠.
+ *   YD 칸과 하나하나 맞을 때만 남김 (M ÷ 0.9144 반올림 = 그 컬러 YD). 맞지 않으면(YD로 다시 고친 예전 값) 버림
+ */
 export const normalizeRunning = (running) => {
   if (!running || typeof running !== 'object') return null;
   const colorQtys = normalizeColorQtys(running.colorQtys);
   if (colorQtys.length === 0) return null;
-  return { greigeQty: Math.max(0, Math.round(Number(running.greigeQty) || 0)), colorQtys };
+  const base = { greigeQty: Math.max(0, Math.round(Number(running.greigeQty) || 0)), colorQtys };
+  const meters = normalizeColorQtys(running.colorQtysM);
+  const matches = meters.length === colorQtys.length && meters.every((m, i) => meterToYd(m) === colorQtys[i]);
+  return matches ? { ...base, colorQtysM: meters } : base;
 };
 
 /** 러닝 생지 줄인지 */
@@ -437,7 +444,7 @@ export const customRowCostOpts = (row) => {
  */
 export const formatColorSplit = (row, { wrap = false, quote = null } = {}) => {
   const running = normalizeRunning(row?.running);
-  return running ? (quote ? splitToUnit(running.colorQtys, quote) : running.colorQtys).map(q => num(q)).join(wrap ? '/\u200B' : '/') : '';
+  return running ? (quote ? rowUnitSplit(row, quote) : running.colorQtys).map(q => num(q)).join(wrap ? '/\u200B' : '/') : '';
 };
 
 /**
@@ -607,6 +614,10 @@ export const buildQuoteTerms = (quote, kind = 'standard') => {
 //    실제보다 아주 조금 비싸게 나감 (수량이 적은 쪽 단가) → 그루빅에 안전한 쪽
 //  · 중량 g/YD → g/M (× 1.0936), MCQ → M (× 0.9144, 10M 단위 올림 — 500YD → 460M), 별도 견적 수량 → M (반올림)
 //  · 폭(Cut·Full)은 인치 그대로
+//  · 별도 견적 수량 M로 넣기 (2026-11-16 2차): M 견적서면 별도 견적 수량 칸·러닝 생지 컬러별 수량을 M로 넣고,
+//    저장·원가 계산은 YD로 바꿔서 (M ÷ 0.9144 반올림 정수 — fromUnitQty). 정수 YD로 반올림해도 다시 M로 바꾸면
+//    넣은 숫자 그대로 (오차 0.46M 미만). 러닝 생지는 컬러마다 반올림 오차가 쌓여 합계가 1M쯤 어긋날 수 있어서
+//    넣은 M(running.colorQtysM)를 같이 두고 견적서에 그대로 씀 (rowUnitQty · rowUnitSplit). 생지 짠 수량은 YD 그대로
 // ----------------------------------------------------------------------
 
 /** 1YD = 0.9144M */
@@ -633,6 +644,30 @@ export const toUnitPrice = (ydPrice, quote, currency) => {
 export const toUnitQty = (yd, quote) => {
   const v = Number(yd) || 0;
   return isMeterQuote(quote) ? Math.round(cleanFloat(v * M_PER_YD)) : v;
+};
+
+// M → YD (÷ 0.9144 반올림 정수) — 다시 M로 바꾸면 넣은 숫자 그대로 (1,000M → 1,094YD → 1,000M)
+const meterToYd = (m) => Math.round(cleanFloat((Number(m) || 0) * YD_PER_M));
+
+/** 견적서 단위로 넣은 수량 → YD (원가 계산·저장용). M 견적서면 M ÷ 0.9144 반올림 정수 (1,000M → 1,094YD), YD 견적서는 그대로 */
+export const fromUnitQty = (v, quote) => (isMeterQuote(quote) ? meterToYd(v) : Number(v) || 0);
+
+/**
+ * 별도 견적 줄 컬러별 수량 — 견적서 단위로 (러닝 생지 줄만, 아니면 [])
+ *  M 견적서: M로 넣은 줄은 넣은 M 그대로, YD로 넣은 줄은 합계가 수량 칸과 맞게 나눠 환산 (splitToUnit)
+ */
+export const rowUnitSplit = (row, quote) => {
+  const running = normalizeRunning(row?.running);
+  if (!running) return [];
+  if (isMeterQuote(quote) && running.colorQtysM) return running.colorQtysM;
+  return splitToUnit(running.colorQtys, quote);
+};
+
+/** 별도 견적 줄 수량 — 견적서 단위로 (M로 넣은 러닝 생지 줄은 컬러별 M 합계 = 넣은 숫자 그대로) */
+export const rowUnitQty = (row, quote) => {
+  const running = normalizeRunning(row?.running);
+  if (isMeterQuote(quote) && running?.colorQtysM) return running.colorQtysM.reduce((sum, q) => sum + q, 0);
+  return toUnitQty(row?.qty, quote);
 };
 
 /** MCQ(컬러당 최소 수량, YD) → 견적서 단위 (M는 10M 단위 올림 — 500YD → 460M). 비어 있으면 300YD (견적서 표시와 같은 기본값) */

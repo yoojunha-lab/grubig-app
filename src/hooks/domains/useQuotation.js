@@ -7,6 +7,7 @@ import {
   getBasePrice, getShownTiers, getCustomExclude, describeTierDefaults, getMarginAddCurrency, quoteMarket,
   normalizeRunning, customRowCostOpts, sumColorQtys, validateRunning, calcCustomQuotePrice,
   ALL_QUOTE_TIER_KEYS, getQuoteTiers, getQuoteTierKeys, upgradeQuoteTiers, describeTierUpgrade, describeCustomRateChanges, moveRetiredTierKeys,
+  quoteUnit, isMeterQuote, fromUnitQty, rowUnitQty,
 } from '../../utils/quoteModel';
 import { devQuoteToFabric } from '../../utils/devQuoteModel';
 
@@ -547,6 +548,7 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
 
   // ── 별도 견적 ──
   // 원단들을 별도 견적 줄로 추가 (수량 300YD · 2컬러로 시작). 기준 견적처럼 같은 원단은 한 줄만 — 이미 있으면 건너뜀
+  //  M 견적서는 300M · 2컬러로 시작 (= 328YD로 계산, 2026-11-16)
   const addCustomRows = (fabrics) => {
     if (blockLegacyAdd()) return { rows: [], duplicates: 0, blocked: true };
     const existing = new Set((quoteInput.customItems || []).map(r => String(r.fabricId)));
@@ -559,8 +561,9 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
     });
     if (fresh.length === 0) return { rows: [], duplicates };
     const rate = quoteRateOf(quoteInput);
+    const startQty = isMeterQuote(quoteInput) ? fromUnitQty(DEFAULT_CUSTOM_QTY, quoteInput) : DEFAULT_CUSTOM_QTY;
     const rows = fresh.map(f => createCustomItem(
-      f, { qty: DEFAULT_CUSTOM_QTY, colors: DEFAULT_CUSTOM_COLORS },
+      f, { qty: startQty, colors: DEFAULT_CUSTOM_COLORS },
       { rate, marketType: quoteInput.marketType, exclude: getCustomExclude(quoteInput) }
     ));
     setQuoteInput(prev => ({ ...prev, exchangeRate: prev.exchangeRate || rate, customItems: [...(prev.customItems || []), ...rows] }));
@@ -574,7 +577,8 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       return;
     }
     const warned = rows.filter(r => (r.costWarnings || []).length > 0).length;
-    const head = rows.length === 1 ? `${rows[0].article} — 별도 견적에 넣었어요 (300YD · 2컬러로 시작)` : `별도 견적에 ${rows.length}줄을 넣었어요 (300YD · 2컬러로 시작)`;
+    const start = `${num(DEFAULT_CUSTOM_QTY)}${quoteUnit(quoteInput)} · ${DEFAULT_CUSTOM_COLORS}컬러로 시작`; // M 견적서는 300M
+    const head = rows.length === 1 ? `${rows[0].article} — 별도 견적에 넣었어요 (${start})` : `별도 견적에 ${rows.length}줄을 넣었어요 (${start})`;
     showToast(
       `${head}${duplicates > 0 ? ` (중복 제외됨: ${duplicates}건)` : ''}${extra}${warned > 0 ? ` ⚠ 원가 확인 필요 ${warned}개` : ''}`,
       warned > 0 ? 'error' : 'success'
@@ -726,20 +730,23 @@ export const useQuotation = (savedFabrics, calculateCost, saveDocToCloud, delete
       return { ...prev, exchangeRate: prev.exchangeRate || rate, customItems: nextList };
     });
     const running = normalizeRunning(built.running);
-    const head = `${fabric.article} — 러닝 생지 견적을 ${target ? '고쳤어요' : '별도 견적에 넣었어요'} (${num(built.qty)}YD · ${built.colors}컬러, 생지 짠 수량 ${num(running.greigeQty)}YD)`;
+    // 수량은 견적서 단위로 (M 견적서는 넣은 M 합계), 생지 짠 수량은 늘 YD
+    const head = `${fabric.article} — 러닝 생지 견적을 ${target ? '고쳤어요' : '별도 견적에 넣었어요'} (${num(rowUnitQty(built, quoteInput))}${quoteUnit(quoteInput)} · ${built.colors}컬러, 생지 짠 수량 ${num(running.greigeQty)}YD)`;
     const warns = built.costWarnings || [];
     showToast(warns.length > 0 ? `${head} ⚠ 원가 확인 필요 — ${warns[0]}` : head, warns.length > 0 ? 'error' : 'success');
     return true;
   };
 
   // [러닝 생지 해제] — 일반 별도 견적 줄로 (수량·컬러수는 그대로, 컬러별로 고르게 나눈다고 보고 다시 계산)
+  //  M 견적서에서 M로 넣은 줄은 넣은 M 합계를 일반 줄 수량으로 (YD는 그 M를 바꾼 값 — 견적서에 같은 M가 나가게)
   //  반환: 바꿨으면 true
   const handleReleaseRunningRow = (rowId) => {
     const row = (quoteInput.customItems || []).find(r => r.id === rowId);
     if (!row) return false;
     if (!findFabric(row.fabricId)) { showToast('원단이 삭제되어 다시 계산할 수 없어요.', 'error'); return false; }
-    handleCustomItemChange(rowId, { running: null });
-    showToast(`${row.article} — 일반 별도 견적 줄로 되돌렸어요 (${num(row.qty)}YD · ${num(row.colors)}컬러, 컬러별로 고르게 나눈 기준)`, 'success');
+    const unitQty = rowUnitQty(row, quoteInput);
+    handleCustomItemChange(rowId, { running: null, ...(isMeterQuote(quoteInput) ? { qty: fromUnitQty(unitQty, quoteInput) } : {}) });
+    showToast(`${row.article} — 일반 별도 견적 줄로 되돌렸어요 (${num(unitQty)}${quoteUnit(quoteInput)} · ${num(row.colors)}컬러, 컬러별로 고르게 나눈 기준)`, 'success');
     return true;
   };
 

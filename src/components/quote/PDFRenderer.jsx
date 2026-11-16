@@ -4,7 +4,7 @@ import { num } from '../../utils/helpers';
 import {
   calcQuotePrice, formatQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice, quotePriceBasis, buildQuoteTerms,
   quoteValidUntilLine, formatColorSplit,
-  quoteUnit, toUnitPrice, toUnitQty, toUnitMcq, toUnitWeight, tierUnitLabel,
+  quoteUnit, toUnitPrice, toUnitMcq, toUnitWeight, tierUnitLabel, rowUnitQty,
 } from '../../utils/quoteModel';
 
 // 견적서 PDF — 단일 연속 표 + 브라우저 자동 페이지 분할 방식.
@@ -198,7 +198,7 @@ export const PDFRenderer = ({
                       <td className="py-3 text-right text-slate-500">{row.gsm}</td>
                       <td className="py-3 text-right text-slate-500 font-mono">{num(toUnitWeight(row.gYd, quoteInput))}</td>
                       <td className="py-3 text-right text-slate-900 font-mono font-bold">
-                        {num(toUnitQty(row.qty, quoteInput))} {unit}
+                        {num(rowUnitQty(row, quoteInput))} {unit}
                         {split && <span className="block text-[9px] font-normal text-slate-500 mt-0.5">{split}</span>}
                       </td>
                       <td className="py-3 text-center text-slate-900 font-mono font-bold">{num(row.colors)}</td>

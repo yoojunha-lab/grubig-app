@@ -3,7 +3,7 @@ import { getQuoteValidUntil } from '../../utils/helpers';
 import {
   calcQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice,
   quotePriceBasis, buildQuoteTerms, validateQuoteForExport, isRunningRow, formatColorSplit,
-  quoteUnit, toUnitPrice, toUnitQty, toUnitMcq, toUnitWeight, tierUnitLabel,
+  quoteUnit, toUnitPrice, toUnitMcq, toUnitWeight, tierUnitLabel, rowUnitQty,
 } from '../../utils/quoteModel';
 
 // GRUBIG ERP - 바이어 견적서 내보내기 (PDF 인쇄 · 엑셀)
@@ -124,7 +124,7 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
         'Full(inch)': r.widthFull ?? '',
         'GSM': r.gsm ?? '',
         [`g/${unit}`]: toUnitWeight(r.gYd, targetQuote),
-        [`Q'TY(${unit})`]: toUnitQty(r.qty, targetQuote),
+        [`Q'TY(${unit})`]: rowUnitQty(r, targetQuote), // M 견적서에서 M로 넣은 러닝 생지 줄은 넣은 M 합계 그대로
         'Colors': Number(r.colors) || 0,
         ...(hasSplit ? { [`Qty per Color(${unit})`]: formatColorSplit(r, { quote: targetQuote }) } : {}),
         [`MCQ(${unit}/color)`]: toUnitMcq(r.mcqYd, targetQuote), // 컬러당 최소 수량 — 약관: 고르지 않게 나눠 MCQ 미만이면 단가 조정

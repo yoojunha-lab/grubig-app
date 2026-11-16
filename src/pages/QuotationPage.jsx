@@ -10,7 +10,7 @@ import {
   calcQuotePrice, formatQuotePrice, getBasePrice, getItemTierRate, getShownTiers, isNewMarginModel,
   calcCustomQuotePrice, getCustomRowRate, getCustomRowAddRaw, getMarginAddCurrency, toQuoteCurrencyAdd, quoteMarket,
   normalizeRunning, formatColorSplit, getQuoteTiers, describeTierUpgrade, describeCustomRateChanges,
-  quoteUnit, toUnitPrice, toUnitQty,
+  quoteUnit, toUnitPrice, toUnitQty, toUnitMcq, fromUnitQty, rowUnitQty,
 } from '../utils/quoteModel';
 import { FabricPickerModal } from '../components/quote/FabricPickerModal';
 import { RunningGreigeModal } from '../components/quote/RunningGreigeModal';
@@ -34,7 +34,9 @@ import { DEV_QUOTE_SOURCE } from '../utils/devQuoteModel';
 //  · 구간은 그 견적의 구간 (2026-10-21 800YD → 700YD): 예전 800YD 견적은 800YD 그대로 보이고 안내 띠를 띄움 —
 //    [현재 원가로 다시 계산]하면 700YD로 바뀜 (utils/quoteModel.js getQuoteTiers · upgradeQuoteTiers)
 //  · 견적서 단위 [YD | M] (2026-11-16 — M로 견적을 원하는 바이어): 견적마다 저장(priceUnit). 화면 표·원가는 YD 그대로,
-//    M면 판가 아래에 바이어 견적서에 나갈 M 단가('→ ₩14,500/M'), 별도 견적 수량 아래에 '견적서 1,000M' (quoteModel 6절)
+//    M면 판가 아래에 바이어 견적서에 나갈 M 단가('→ ₩14,500/M') (quoteModel 6절)
+//    별도 견적은 수량 칸을 M로 넣고 YD로 바꿔 계산 (2026-11-16 2차 — 1,000M → 1,094YD, 칸 아래 '= 1,094YD로 계산'),
+//    컬러당 수량·MCQ·총액도 M로. 러닝 생지 컬러별 수량도 창에서 M로 (RunningGreigeModal)
 // ============================================================
 
 export const QuotationPage = ({
@@ -529,7 +531,7 @@ export const QuotationPage = ({
                     onChange={(e) => setSelectedCustom(e.target.checked ? customIds : [])} />
                 </th>
                 <th className="px-2 py-2">원단</th>
-                <th className="px-2 py-2 w-[196px]">수량 (YD) · 컬러</th>
+                <th className="px-2 py-2 w-[196px]" title={isM ? 'M 견적서 — 수량은 M로 넣어요 (원가는 YD로 바꿔서 계산)' : undefined}>수량 ({unit}) · 컬러</th>
                 <th className="px-2 py-2 w-[78px] text-right">이익율 %</th>
                 <th className="px-2 py-2 w-[90px] text-right">YD당 정액 ({addSym})</th>
                 <th className="px-2 py-2 w-[112px] text-right">판가 / YD</th>
@@ -563,6 +565,12 @@ export const QuotationPage = ({
                 const addDefault = getCustomRowAddRaw({ ...row, marginAdd: null }, quoteInput);
                 const qtyBad = !(qtyNum > 0);
                 const colorsBad = !(colorsNum > 0);
+                // M 견적서 (2026-11-16): 수량 칸은 M로 넣고 보여 줌 — 저장·원가 계산은 YD (qtyNum)
+                const unitQty = rowUnitQty(row, quoteInput);                 // 견적서 단위 수량 (M 견적서는 넣은 M)
+                const qtyBlank = row.qty === '' || row.qty === null || row.qty === undefined;
+                const qtyValue = isM ? (qtyBlank ? '' : toUnitQty(row.qty, quoteInput)) : (row.qty ?? '');
+                const perColorUnit = isM ? (unitQty > 0 && colorsNum > 0 ? Math.round(unitQty / colorsNum) : 0) : perColor;
+                const mcqUnit = isM ? toUnitMcq(mcq, quoteInput) : mcq;      // 견적서에 나가는 MCQ (M는 10M 올림)
                 return (
                   <tr key={row.id} className={`align-top divide-x divide-slate-100 ${checked ? 'bg-amber-50/50' : 'hover:bg-slate-50'} ${row.show === false ? 'opacity-60' : ''}`}>
                     <td className="px-2 py-2 text-center"><input type="checkbox" className="w-3.5 h-3.5 accent-amber-600" checked={checked} onChange={() => toggleSel(selectedCustom, setSelectedCustom, row.id)} /></td>
@@ -576,15 +584,15 @@ export const QuotationPage = ({
                         <span>{row.itemName}</span>
                         <CostWarningBadge warnings={row.costWarnings} />
                       </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">{row.widthCut}/{row.widthFull}" · {row.gsm}g · MCQ {num(mcq)}YD/컬러</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">{row.widthCut}/{row.widthFull}" · {row.gsm}g · MCQ {num(mcqUnit)}{unit}/컬러</div>
                     </td>
                     <td className="px-2 py-2">
                       {running ? (
                         // 러닝 생지 줄 — 수량 = 컬러별 합계, 컬러 = 칸 수 (고치는 건 창에서)
                         <>
                           <div className="flex items-center gap-1">
-                            <span className="font-mono text-sm font-bold text-slate-800">{num(qtyNum)}</span>
-                            <span className="text-[11px] text-slate-400">YD</span>
+                            <span className="font-mono text-sm font-bold text-slate-800">{num(unitQty)}</span>
+                            <span className="text-[11px] text-slate-400">{unit}</span>
                             <span className="font-mono text-sm font-bold text-slate-800 ml-1">{num(colorsNum)}</span>
                             <span className="text-[11px] text-slate-400">컬러</span>
                             <button type="button" onClick={() => setRunningModal({ rowId: row.id })}
@@ -593,31 +601,35 @@ export const QuotationPage = ({
                               <Pencil className="w-3 h-3" /> 수정
                             </button>
                           </div>
-                          <div className="text-[10px] mt-1 font-bold text-teal-700">컬러별 {formatColorSplit(row, { wrap: true })} YD</div>
-                          {isM && <div className="text-[10px] font-bold text-teal-600" title="M 견적서에 나갈 수량 (YD × 0.9144)">견적서 {num(toUnitQty(qtyNum, quoteInput))}M ({formatColorSplit(row, { wrap: true, quote: quoteInput })})</div>}
+                          <div className="text-[10px] mt-1 font-bold text-teal-700">컬러별 {formatColorSplit(row, { wrap: true, quote: quoteInput })} {unit}</div>
+                          {isM && <div className="text-[10px] text-slate-400" title="원가는 이 YD로 계산해요 (M ÷ 0.9144)">= {formatColorSplit(row, { wrap: true })}YD로 계산</div>}
                           <div className="text-[10px] text-slate-400">생지 짠 수량 {num(running.greigeQty)}YD</div>
                           {belowMcqColors > 0 && (
-                            <div className="text-[10px] text-amber-700 font-bold">MCQ {num(mcq)} 미달 {belowMcqColors}컬러</div>
+                            <div className="text-[10px] text-amber-700 font-bold">MCQ {num(mcqUnit)}{isM ? 'M' : ''} 미달 {belowMcqColors}컬러</div>
                           )}
                         </>
                       ) : (
                         <>
                           <div className="flex items-center gap-1">
-                            <input type="number" min="1" step="1" value={row.qty ?? ''} onChange={(e) => handleCustomItemChange(row.id, { qty: e.target.value })}
-                              className={`w-[76px] bg-white border rounded px-1.5 py-1 text-right text-sm font-bold outline-none focus:border-amber-500 ${qtyBad ? 'border-red-300 text-red-600' : 'border-slate-300 text-slate-800'}`} placeholder="YD" title="오더 총수량 (YD)" />
-                            <span className="text-[11px] text-slate-400">YD</span>
+                            <input type="number" min="1" step="1" value={qtyValue}
+                              onChange={(e) => {
+                                // M 견적서는 M로 넣은 값을 YD로 바꿔 저장 (1,000M → 1,094YD) — 원가는 YD로 계산
+                                const v = e.target.value;
+                                handleCustomItemChange(row.id, { qty: isM && v.trim() !== '' ? fromUnitQty(v, quoteInput) : v });
+                              }}
+                              className={`w-[76px] bg-white border rounded px-1.5 py-1 text-right text-sm font-bold outline-none focus:border-amber-500 ${qtyBad ? 'border-red-300 text-red-600' : 'border-slate-300 text-slate-800'}`}
+                              placeholder={unit} title={isM ? '오더 총수량 (M) — 원가는 YD로 바꿔서 계산해요 (1,000M = 1,094YD)' : '오더 총수량 (YD)'} />
+                            <span className={`text-[11px] ${isM ? 'font-bold text-teal-600' : 'text-slate-400'}`}>{unit}</span>
                             <input type="number" min="1" step="1" value={row.colors ?? ''} onChange={(e) => handleCustomItemChange(row.id, { colors: e.target.value })}
                               className={`w-[44px] bg-white border rounded px-1.5 py-1 text-right text-sm font-bold outline-none focus:border-amber-500 ${colorsBad ? 'border-red-300 text-red-600' : 'border-slate-300 text-slate-800'}`} placeholder="컬러" title="컬러수 — 이화학·염색을 컬러마다 따로 계산" />
                             <span className="text-[11px] text-slate-400">컬러</span>
                           </div>
-                          {perColor > 0 && (
-                            <div className={`text-[10px] mt-1 ${belowMcq ? 'text-amber-700 font-bold' : 'text-slate-400'}`}>
-                              컬러당 {num(perColor)}YD{belowMcq ? ` · MCQ ${num(mcq)} 미달` : ''}
-                            </div>
-                          )}
                           {isM && qtyNum > 0 && (
-                            <div className="text-[10px] font-bold text-teal-600" title="M 견적서에 나갈 수량 (YD × 0.9144). 바이어가 M로 말한 수량은 YD로 바꿔 넣으세요 (1,000M = 1,094YD)">
-                              견적서 {num(toUnitQty(qtyNum, quoteInput))}M
+                            <div className="text-[10px] mt-1 text-slate-400" title="원가는 이 YD로 계산해요 (M ÷ 0.9144 반올림)">= {num(qtyNum)}YD로 계산</div>
+                          )}
+                          {perColorUnit > 0 && (
+                            <div className={`text-[10px] ${isM ? '' : 'mt-1'} ${belowMcq ? 'text-amber-700 font-bold' : 'text-slate-400'}`}>
+                              컬러당 {num(perColorUnit)}{unit}{belowMcq ? ` · MCQ ${num(mcqUnit)}${isM ? 'M' : ''} 미달` : ''}
                             </div>
                           )}
                         </>
@@ -648,7 +660,13 @@ export const QuotationPage = ({
                       )}
                     </td>
                     <td className="px-2 py-2 text-right font-mono text-[12px] text-slate-600">
-                      {price === null || !(qtyNum > 0) ? '—' : `${cSym}${fmtMoney(isUsd ? roundUsd(price * qtyNum) : price * qtyNum)}`}
+                      {/* 총액 = 판가 × 수량 — M 견적서는 M 단가 × M 수량 (바이어가 보는 값) */}
+                      {(() => {
+                        if (price === null || !(qtyNum > 0)) return '—';
+                        const p = isM ? toUnitPrice(price, quoteInput, currency) : price;
+                        const q = isM ? unitQty : qtyNum;
+                        return `${cSym}${fmtMoney(isUsd ? roundUsd(p * q) : p * q)}`;
+                      })()}
                     </td>
                     <td className="px-2 py-2 text-center">
                       <input type="checkbox" className="w-4 h-4 accent-amber-600" checked={row.show !== false} onChange={(e) => handleCustomItemChange(row.id, { show: e.target.checked })} title="별도 견적서(바이어용)에 이 줄을 넣기" />
@@ -672,7 +690,8 @@ export const QuotationPage = ({
             </tbody>
           </table>
         </div>
-        <p className="text-[10px] text-slate-400">이익율을 비워 두면 수량이 속한 기준 구간 값(위 구간 설정), YD당 정액은 비워 두면 0이에요. 총액 = 판가 × 수량 (화면에서만 보여요). 러닝 생지 줄은 [수정]으로 생지 짠 수량·컬러별 수량을 바꿔요.</p>
+        <p className="text-[10px] text-slate-400">이익율을 비워 두면 수량이 속한 기준 구간 값(위 구간 설정), YD당 정액은 비워 두면 0이에요. 총액 = 판가 × 수량 (화면에서만 보여요). 러닝 생지 줄은 [수정]으로 생지 짠 수량·컬러별 수량을 바꿔요.
+          {isM && <b className="text-teal-700"> M 견적서라 수량은 M로 넣어요 — 원가는 YD로 바꿔서 계산해요 (1,000M = 1,094YD).</b>}</p>
       </QuoteSection>
     </div>
 
