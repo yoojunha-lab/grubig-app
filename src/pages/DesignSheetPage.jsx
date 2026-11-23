@@ -202,7 +202,7 @@ export const DesignSheetPage = ({
       : knitMatch.status === 'ambiguous'
         ? { tone: 'hint', text: `${knitMatch.factory.name}에 맞는 기계가 여러 개예요 (${knitMatch.candidates.map(b => b.type).join(' · ')}) — 기계 현황에서 골라 주세요` }
         : knitMatch.status === 'incomplete'
-          ? { tone: 'hint', text: '편직 사양이 덜 채워졌어요 — 기계 현황에서 골라 주세요' }
+          ? { tone: 'hint', text: knitMatch.factory ? '편직 사양이 덜 채워졌어요 — 기계 현황에서 골라 주세요' : '편직처가 비어 있어요 — 기계 현황에서 골라 주세요' }
           : null;
   // 알람의 [기계 현황에 이 가마 추가] — 그 편직처 · 종류 · 인치에 이 게이지 가마를 더함 (기종도 기계 현황 종류 이름으로)
   const addKnitCylinderFromSheet = async () => {

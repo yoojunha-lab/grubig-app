@@ -155,7 +155,7 @@ export const KnitSheetAlignModal = ({
                     {groups.other.map(p => (
                       <AlignRow key={`${p.kind}_${p.sheet.id}`} p={p}>
                         <td className="px-2 py-1.5 text-slate-500">
-                          {p.status === 'empty' ? '편직 사양이 비어 있어요' : p.status === 'incomplete' ? '인치 · 게이지가 없어요' : `맞는 기계가 여러 개예요 (${(p.match.candidates || []).map(b => `${b.type} ${inchLabel(b.inch)}`).join(' · ')})`}
+                          {p.status === 'empty' ? '편직 사양이 비어 있어요' : p.status === 'incomplete' ? (p.match?.factory ? '인치 · 게이지가 없어요' : '편직처가 비어 있어요') : `맞는 기계가 여러 개예요 (${(p.match.candidates || []).map(b => `${b.type} ${inchLabel(b.inch)}`).join(' · ')})`}
                         </td>
                       </AlignRow>
                     ))}

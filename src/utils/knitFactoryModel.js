@@ -474,7 +474,9 @@ export const matchSheetKnitting = (knitting, factories, config) => {
   const gauge = numOrNull(k.gauge);
   const inch = numOrNull(k.machineInch);
   if (!name && !gauge && !inch && !str(k.machineType)) return { status: 'empty' };
-  const factory = name ? (factories || []).find(f => sameFactoryName(f.name, name)) || null : null;
+  // 편직처가 비어 있으면 '덜 채워짐' (노란 안내) — 가설계서(레시피)는 편직처 없이 쓰는 게 보통이라 빨간 알람은 안 띄움 (2026-11-24)
+  if (!name) return { status: 'incomplete', factory: null, typeHint: typeFromSheetMachine(k.machineType, config) };
+  const factory = (factories || []).find(f => sameFactoryName(f.name, name)) || null;
   if (!factory) return { status: 'no-factory', name };
   const typeHint = typeFromSheetMachine(k.machineType, config);
   if (!gauge || !inch) return { status: 'incomplete', factory, typeHint };
@@ -491,7 +493,7 @@ export const matchSheetKnitting = (knitting, factories, config) => {
 export const sheetKnitAlarm = (knitting, factories, config) => {
   const m = matchSheetKnitting(knitting, factories, config);
   const k = knitting || {};
-  if (m.status === 'no-factory') return m.name ? `편직처 '${m.name}'이(가) 기계 현황에 없어요` : '편직처가 비어 있어요';
+  if (m.status === 'no-factory') return `편직처 '${m.name}'이(가) 기계 현황에 없어요`;
   if (m.status === 'no-machine') return `${m.factory.name}에 ${m.typeHint || str(k.machineType) || ''} ${inchLabel(m.inch)} ${m.gauge}G 기계 · 가마가 없어요`.replace(/\s+/g, ' ');
   return '';
 };
