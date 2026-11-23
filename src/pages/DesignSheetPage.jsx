@@ -9,6 +9,7 @@ import { computeCostAtQty, resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio,
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
 import { SheetTemplatePickerModal } from '../components/design-sheet/SheetTemplatePickerModal';
+import { KnitMachinePickerModal } from '../components/knitFactory/KnitMachinePickerModal';
 
 // 편직 조직도 관련 부호
 const KNIT_SYMBOLS = ['︹', '︺', '︿', '﹀', '━', '┃', '╋', '○', '●', '◎', '△', '▽'];
@@ -129,6 +130,7 @@ export const DesignSheetPage = ({
   handleSaveDetail, resetDetailForm, getBlankDetailInput,
   // 마스터 데이터 프롭스
   knittingFactories,
+  knitFactories = [],           // 편직처 기계 현황 (편직 사양 [기계 현황에서 고르기] — 2026-11-23)
   dyeingFactories,
   machineTypes: machineTypesList,
   structures: structuresList,
@@ -186,6 +188,8 @@ export const DesignSheetPage = ({
   // [편직 사양] 조직/기종 선택 모달 — 칩 나열 대신 버튼 클릭 → 창에서 선택
   //  { field: 'structure'|'machineType', title, options[], allowCustom, master{key,title,description,icon} }
   const [optionPicker, setOptionPicker] = React.useState(null);
+  // [편직 사양] 편직처 기계 현황에서 고르기 창 (2026-11-23) — 고른 기계로 편직처·게이지·인치·침수·피더 채움
+  const [knitPickerOpen, setKnitPickerOpen] = React.useState(false);
   // 메인 디테일 시트 팝업 상태 (작성 / 연동현황 보기) — 설계서 길이 축소용
   const [mdFormOpen, setMdFormOpen] = React.useState(false);
   const [mdViewOpen, setMdViewOpen] = React.useState(false);
@@ -510,7 +514,15 @@ export const DesignSheetPage = ({
         {/* ------------------------------------------- */}
         {/* 3. 편직 사양 Grid */}
         {/* ------------------------------------------- */}
-        <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5 flex-wrap"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 편직 사양 (Knitting Specification) {!isTempMode && <SpecHint />}</h3>
+        <h3 className="text-xs font-extrabold text-slate-800 mb-1.5 flex items-center gap-1.5 flex-wrap"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 편직 사양 (Knitting Specification) {!isTempMode && <SpecHint />}
+          {!isFullyLocked && (
+            <button type="button" onClick={() => setKnitPickerOpen(true)}
+              title="개발 ▾ 편직처 기계 현황에서 기계를 골라 편직처 · 게이지 · 인치 · 침수 · 피더를 채워요"
+              className="ml-auto print:hidden px-2 py-0.5 text-[10px] font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded hover:bg-violet-100 inline-flex items-center gap-1">
+              <Factory className="w-3 h-3" /> 기계 현황에서 고르기
+            </button>
+          )}
+        </h3>
         <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 grid grid-cols-6 md:grid-cols-12 mb-2">
           <Th span={2}>편직처 (Factory)</Th>
           <SpecCell {...specProps('knitting.factory', 4)}>
@@ -1018,6 +1030,16 @@ export const DesignSheetPage = ({
             </div>
           </div>
         </ModalBackdrop>
+      )}
+
+      {/* === 편직처 기계 현황에서 고르기 (편직 사양 — 2026-11-23) === */}
+      {knitPickerOpen && (
+        <KnitMachinePickerModal
+          knitFactories={knitFactories}
+          knitting={sheetInput.knitting || {}}
+          onApply={(fields) => Object.entries(fields).forEach(([k, v]) => handleSectionChange('knitting', k, v))}
+          onClose={() => setKnitPickerOpen(false)}
+        />
       )}
 
       {/* === 기존 설계서 불러오기 창 (정식 · 새 설계서 전용) === */}

@@ -36,6 +36,7 @@ export const TempDesignSheetListPage = ({
   viewMode,
   exchangeRates,   // 공통 환율 두 칸 { domestic, export } — 수출 보기 판매가는 수출 환율로 YD당 정액 환산
   knittingFactories,
+  knitFactories = [],     // 편직처 기계 현황 (편직 사양 [기계 현황에서 고르기])
   dyeingFactories,
   machineTypes,
   structures,
@@ -403,6 +404,7 @@ export const TempDesignSheetListPage = ({
               closeModal={() => setIsTempModalOpen(false)}
               designSheets={[]}
               knittingFactories={knittingFactories}
+              knitFactories={knitFactories}
               dyeingFactories={dyeingFactories}
               machineTypes={machineTypes}
               structures={structures}

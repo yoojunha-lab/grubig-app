@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Cloud, Menu, Layers, Home, Globe, FileSpreadsheet, Box, FileText, LogOut, DollarSign, Activity, Archive,
-  FileCheck, FlaskConical, LayoutDashboard, TrendingUp, ChevronDown, X, Boxes, FileSignature, SwatchBook, ExternalLink, Calculator, Tag,
+  FileCheck, FlaskConical, LayoutDashboard, TrendingUp, ChevronDown, X, Boxes, FileSignature, SwatchBook, ExternalLink, Calculator, Tag, Factory,
 } from 'lucide-react';
 import { rateLabel } from '../../utils/helpers';
 import { useMarketRate, NAVER_FX_URL } from '../../hooks/useMarketRate';
@@ -61,6 +61,7 @@ const NAV_GROUPS = [
       { tab: 'devStatus',  label: '개발/설계 현황', icon: Activity },
       { tab: 'designList', label: '설계서 보관함', icon: Archive },
       { tab: 'tempDesign', label: '가설계서 (레시피)', icon: FlaskConical },
+      { tab: 'knitFactory', label: '편직처 기계 현황', icon: Factory },   // 예전 편직처 엑셀 — 게이지·인치로 기계 찾기 (2026-11-23)
     ],
   },
   {

@@ -30,6 +30,7 @@ import { usePartner } from '../hooks/domains/usePartner';
 import { useLabdip } from '../hooks/domains/useLabdip';
 import { useYarnDyeCalc } from '../hooks/domains/useYarnDyeCalc';
 import { useHangerSticker } from '../hooks/domains/useHangerSticker';
+import { useKnitFactory } from '../hooks/domains/useKnitFactory';
 import { useExcelIO } from '../hooks/domains/useExcelIO';
 import { useQuoteExport } from '../hooks/domains/useQuoteExport';
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
@@ -60,6 +61,8 @@ import { OrderListPage } from '../pages/OrderListPage';
 import { ReportPage } from '../pages/ReportPage';
 import { ProductionCalcPage } from '../pages/ProductionCalcPage';
 import { HangerStickerPage } from '../pages/HangerStickerPage';
+import { KnitFactoryPage } from '../pages/KnitFactoryPage';
+import { sameFactoryName } from '../utils/knitFactoryModel';
 import { CollectionPage } from '../pages/CollectionPage';
 import { ProformaInvoicePage } from '../pages/ProformaInvoicePage';
 import { PIPrintSheet } from '../components/pi/PIPrintSheet';
@@ -142,6 +145,7 @@ const App = () => {
   const [labdipPrint, setLabdipPrint] = useState(null);
   const [yarnDyeCalcs, setYarnDyeCalcs] = useState([]); // 생산 ▾ 계산기 — 저장된 선염 계산 (yarnDyeCalcs)
   const [hangerStickers, setHangerStickers] = useState([]); // 기타 ▾ 헹거 스티커 (hangerStickers)
+  const [knitFactories, setKnitFactories] = useState([]);   // 개발 ▾ 편직처 기계 현황 (knitFactories, 2026-11-23)
   // 헹거 스티커 설정 — CATEGORY · CARE 목록 (settings/general.hangerStickerOptions, null = 아직 저장 전 → 기본 목록)
   const [hangerStickerOptionsRaw, setHangerStickerOptionsRaw] = useState(null);
   const hangerStickerOptions = useMemo(() => resolveStickerOptions(hangerStickerOptionsRaw), [hangerStickerOptionsRaw]);
@@ -312,7 +316,9 @@ const App = () => {
     const unsubYarnDyeCalcs = onSnapshot(collection(db, 'yarnDyeCalcs'), (snapshot) => setYarnDyeCalcs(snapshot.docs.map(doc => doc.data())));
     // 기타 ▾ 헹거 스티커 구독
     const unsubHangerStickers = onSnapshot(collection(db, 'hangerStickers'), (snapshot) => setHangerStickers(snapshot.docs.map(doc => doc.data())));
-    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); unsubPIs(); unsubLabdips(); unsubPartners(); unsubYarnDyeCalcs(); unsubHangerStickers(); };
+    // 개발 ▾ 편직처 기계 현황 (2026-11-23)
+    const unsubKnitFactories = onSnapshot(collection(db, 'knitFactories'), (snapshot) => setKnitFactories(snapshot.docs.map(doc => doc.data())));
+    return () => { unsubSettings(); unsubYarns(); unsubFabrics(); unsubQuotes(); unsubDevReqs(); unsubDesignSheets(); unsubMainDetails(); unsubTempDesignSheets(); unsubOrders(); unsubCollections(); unsubPIs(); unsubLabdips(); unsubPartners(); unsubYarnDyeCalcs(); unsubHangerStickers(); unsubKnitFactories(); };
   }, [user]);
 
   // 원사 검색/필터가 바뀌면 목록을 1페이지로 되돌림
@@ -344,7 +350,7 @@ const App = () => {
     quotes: setSavedQuotes, devRequests: setDevRequests, designSheets: setDesignSheets,
     mainDetails: setMainDetails, tempDesignSheets: setTempDesignSheets, orders: setOrders,
     proformaInvoices: setProformaInvoices, labdips: setLabdips, partners: setPartners,
-    yarnDyeCalcs: setYarnDyeCalcs, hangerStickers: setHangerStickers,
+    yarnDyeCalcs: setYarnDyeCalcs, hangerStickers: setHangerStickers, knitFactories: setKnitFactories,
   };
   const saveDocToCloud = async (colName, item) => {
     if (DEV_BYPASS) {
@@ -669,6 +675,17 @@ const App = () => {
   // ⚓️ 기타 ▾ 헹거 스티커 — 저장·삭제·엑셀 다운로드 (TAG 엑셀 양식 그대로)
   const { saveSticker, deleteSticker, downloadStickers } =
     useHangerSticker(hangerStickers, savedFabrics, hangerStickerOptions, saveDocToCloud, deleteDocFromCloud, showToast, user);
+
+  // ⚓️ 개발 ▾ 편직처 기계 현황 — 저장·메모·확인일·엑셀 가져오기 (2026-11-23)
+  //  편직처를 저장하면 이름을 설계서 편직처 목록(settings/general.knittingFactories)에도 넣음 (대표님 결정 — 없는 이름만)
+  const addKnittingFactoryNames = async (names) => {
+    const missing = [...new Set((names || []).map(n => String(n || '').trim()).filter(Boolean))]
+      .filter(n => !knittingFactories.some(k => sameFactoryName(k, n)));
+    if (missing.length) await writeSettingsList('knittingFactories', { add: missing });
+  };
+  const knitFactoryHook = useKnitFactory({
+    knitFactories, designSheets, saveDocToCloud, saveBatchToCloud, deleteDocFromCloud, showToast, user, addKnittingFactoryNames,
+  });
 
   // ⚓️ 거래처(Partner) 훅 — 모든 거래처 선택/등록 공통
   const { makeEmptyPartner, savePartner, deletePartner } =
@@ -1367,6 +1384,7 @@ const App = () => {
                 onRequestClose={requestCloseSheet}
                 designSheets={designSheets}
                 knittingFactories={knittingFactories}
+                knitFactories={knitFactories}
                 dyeingFactories={dyeingFactories}
                 machineTypes={machineTypes}
                 structures={structures}
@@ -1440,6 +1458,7 @@ const App = () => {
             viewMode={viewMode}
             exchangeRates={exchangeRates}
             knittingFactories={knittingFactories}
+            knitFactories={knitFactories}
             dyeingFactories={dyeingFactories}
             machineTypes={machineTypes}
             structures={structures}
@@ -1534,6 +1553,19 @@ const App = () => {
             yarnLibrary={yarnLibrary}
             navGuardRef={navGuardRef}
             showToast={showToast}
+          />
+        )}
+
+        {/* TAB: 편직처 기계 현황 (개발 — 예전 편직처 엑셀을 옮김, 2026-11-23) */}
+        {activeTab === 'knitFactory' && (
+          <KnitFactoryPage
+            knitFactories={knitFactories}
+            designSheets={designSheets}
+            orders={orders}
+            knittingFactories={knittingFactories}
+            isXlsxReady={isXlsxReady}
+            {...knitFactoryHook}
+            onOpenSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
           />
         )}
 
