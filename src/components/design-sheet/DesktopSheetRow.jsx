@@ -5,6 +5,8 @@ import { fieldLabel } from './constants';
 
 export const DesktopSheetRow = ({
   sheet, 
+  knitAlarm = '',      // 편직 사양이 기계 현황에 없으면 글자 (2026-11-24)
+
   costData, 
   history = [], 
   viewMode, 
@@ -56,6 +58,7 @@ export const DesktopSheetRow = ({
           <p className="text-xs font-bold text-indigo-800">{sheet.knitting?.factory || '-'}</p>
           <p className="text-[10px] text-slate-600 mt-0.5">{sheet.knitting?.structure || '-'}</p>
           <p className="text-[10px] font-mono text-slate-400">{sheet.knitting?.gauge || '-'}G / {sheet.knitting?.machineInch || '-'}″</p>
+          {knitAlarm && <p title={knitAlarm} className="mt-0.5 inline-flex items-center gap-0.5 text-[9px] font-extrabold px-1 py-px rounded bg-red-50 text-red-700 border border-red-200 whitespace-nowrap">⚠ 기계 현황에 없음</p>}
         </td>
 
         {/* 5. Dyeing (염가공처, 후가공) */}

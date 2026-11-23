@@ -3,9 +3,11 @@ import { Search, Plus, Archive, Check } from 'lucide-react';
 import { MobileSheetCard } from '../components/design-sheet/MobileSheetCard';
 import { DesktopSheetRow } from '../components/design-sheet/DesktopSheetRow';
 import { DropSheetModal } from '../components/design-sheet/DropSheetModal';
+import { sheetKnitAlarm, resolveKnitConfig } from '../utils/knitFactoryModel';
 
 export const DesignSheetListPage = ({
   designSheets,
+  knitFactories = [], knitConfig,   // 편직처 기계 현황 — 편직 사양이 기계 현황에 없으면 ⚠ (2026-11-24)
   devRequests,
   handleEditSheet,
   handleDeleteSheet,
@@ -66,6 +68,7 @@ export const DesignSheetListPage = ({
 
   const getCardProps = (sheet) => ({
     sheet,
+    knitAlarm: sheetKnitAlarm(sheet.knitting, knitFactories, knitConfig || resolveKnitConfig(null)),
     costData: getDesignCost?.(sheet),
     history: sheet.changeHistory || [],
     viewMode,

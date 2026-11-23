@@ -1,5 +1,5 @@
 import React from 'react';
-import { Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Cpu, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download, ChevronDown, DollarSign, RotateCcw, Copy } from 'lucide-react';
+import { AlertTriangle, Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download, ChevronDown, DollarSign, RotateCcw, Copy } from 'lucide-react';
 import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
@@ -10,6 +10,7 @@ import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../constants/cos
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
 import { SheetTemplatePickerModal } from '../components/design-sheet/SheetTemplatePickerModal';
 import { KnitMachinePickerModal } from '../components/knitFactory/KnitMachinePickerModal';
+import { matchSheetKnitting, sheetKnitAlarm, resolveKnitConfig } from '../utils/knitFactoryModel';
 
 // 편직 조직도 관련 부호
 const KNIT_SYMBOLS = ['︹', '︺', '︿', '﹀', '━', '┃', '╋', '○', '●', '◎', '△', '▽'];
@@ -128,12 +129,11 @@ export const DesignSheetPage = ({
   detailInput, setDetailInput, editingDetailId,
   handleDetailChange, handleTestChange, addTest, removeTest,
   handleSaveDetail, resetDetailForm, getBlankDetailInput,
-  // 마스터 데이터 프롭스
-  knittingFactories,
+  // 마스터 데이터 프롭스 (편직처 · 기종 목록은 2026-11-24부터 안 씀 — 편직 사양은 기계 현황에서만 고름)
   knitFactories = [],           // 편직처 기계 현황 (편직 사양 [기계 현황에서 고르기] — 2026-11-23)
   knitConfig,                   // 편직처 기계 종류 · 계열 (같은 창에서)
+  onAddKnitCylinder,            // (편직처 id, { type, inch, gauge, needles, feeder }) => 기계 현황에 가마 추가 — 알람의 [기계 현황에 이 가마 추가]
   dyeingFactories,
-  machineTypes: machineTypesList,
   structures: structuresList,
   setActiveMasterModal,
   savedFabrics,
@@ -191,6 +191,41 @@ export const DesignSheetPage = ({
   const [optionPicker, setOptionPicker] = React.useState(null);
   // [편직 사양] 편직처 기계 현황에서 고르기 창 (2026-11-23) — 고른 기계로 편직처·게이지·인치·침수·피더 채움
   const [knitPickerOpen, setKnitPickerOpen] = React.useState(false);
+  // 편직 사양 = 기계 현황에서만 (대표님 2026-11-24) — 칸을 누르면 고르기 창. 기계 현황에 없는 기계면 알람
+  const knitCfg = knitConfig || resolveKnitConfig(null);
+  const knitMatch = matchSheetKnitting(sheetInput.knitting, knitFactories, knitCfg);
+  const knitAlarmText = sheetKnitAlarm(sheetInput.knitting, knitFactories, knitCfg);
+  const knitNotice = knitAlarmText
+    ? { tone: 'alarm', text: `기계 현황에 없는 기계예요 — ${knitAlarmText}`, addable: knitMatch.status === 'no-machine' && !!knitMatch.typeHint }
+    : knitMatch.status === 'ok' && !knitMatch.exact
+      ? { tone: 'hint', text: `기종 '${sheetInput.knitting?.machineType || '(빈 칸)'}'이(가) 기계 현황 종류(${knitMatch.block.type})와 달라요 — 다시 골라 주세요` }
+      : knitMatch.status === 'ambiguous'
+        ? { tone: 'hint', text: `${knitMatch.factory.name}에 맞는 기계가 여러 개예요 (${knitMatch.candidates.map(b => b.type).join(' · ')}) — 기계 현황에서 골라 주세요` }
+        : knitMatch.status === 'incomplete'
+          ? { tone: 'hint', text: '편직 사양이 덜 채워졌어요 — 기계 현황에서 골라 주세요' }
+          : null;
+  // 알람의 [기계 현황에 이 가마 추가] — 그 편직처 · 종류 · 인치에 이 게이지 가마를 더함 (기종도 기계 현황 종류 이름으로)
+  const addKnitCylinderFromSheet = async () => {
+    const k = sheetInput.knitting || {};
+    if (knitMatch.status !== 'no-machine' || !knitMatch.typeHint) return;
+    const ok = await onAddKnitCylinder?.(knitMatch.factory.id, {
+      type: knitMatch.typeHint, inch: Number(k.machineInch), gauge: Number(k.gauge),
+      needles: Number(k.needleCount) || null, feeder: String(k.feederCount || '').trim(),
+    });
+    if (ok && k.machineType !== knitMatch.typeHint) handleSectionChange('knitting', 'machineType', knitMatch.typeHint);
+  };
+  // 편직처 · 기종 · 게이지 · 인치 · 침수 · 피더 칸 — 글자만 보이고 누르면 고르기 창
+  const knitPickCell = (value, empty, { mono = false, estimated = false } = {}) => (
+    <button type="button" disabled={isFullyLocked} onClick={() => setKnitPickerOpen(true)}
+      title="기계 현황에서 골라요 (직접 칠 수 없어요)"
+      className="w-full h-full min-h-[28px] flex items-center justify-between gap-1 px-2 py-1 pr-6 text-[11px] disabled:cursor-not-allowed hover:bg-violet-50/60 transition-colors text-left">
+      <span className={`truncate ${value ? `font-bold text-slate-800 ${mono ? 'font-mono' : ''}` : 'text-slate-300'}`}>
+        {value ? `${estimated ? '≈' : ''}${value}` : empty}
+        {value && estimated && <span className="ml-1 font-sans text-[9px] font-normal text-slate-400">계산 값</span>}
+      </span>
+      {!isFullyLocked && <Factory className="w-3 h-3 text-violet-300 shrink-0" />}
+    </button>
+  );
   // 메인 디테일 시트 팝업 상태 (작성 / 연동현황 보기) — 설계서 길이 축소용
   const [mdFormOpen, setMdFormOpen] = React.useState(false);
   const [mdViewOpen, setMdViewOpen] = React.useState(false);
@@ -524,17 +559,23 @@ export const DesignSheetPage = ({
             </button>
           )}
         </h3>
+        {knitNotice && (
+          <div className={`print:hidden mb-1.5 rounded-lg border px-3 py-1.5 text-[11px] flex flex-wrap items-center gap-2 ${knitNotice.tone === 'alarm' ? 'bg-red-50 border-red-200 text-red-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            <span className="font-bold">{knitNotice.text}</span>
+            {!isFullyLocked && (
+              <span className="ml-auto flex gap-1.5">
+                {knitNotice.addable && onAddKnitCylinder && (
+                  <button type="button" onClick={addKnitCylinderFromSheet} className="px-2 py-0.5 rounded border border-red-300 bg-white font-bold hover:bg-red-100">기계 현황에 이 가마 추가</button>
+                )}
+                <button type="button" onClick={() => setKnitPickerOpen(true)} className="px-2 py-0.5 rounded border border-violet-300 bg-white text-violet-700 font-bold hover:bg-violet-50">기계 현황에서 다시 고르기</button>
+              </span>
+            )}
+          </div>
+        )}
         <div className="border-t-[2px] border-l-[2px] border-r-[1px] border-slate-800 grid grid-cols-6 md:grid-cols-12 mb-2">
           <Th span={2}>편직처 (Factory)</Th>
-          <SpecCell {...specProps('knitting.factory', 4)}>
-            <div className="flex items-center gap-1 pr-5">
-              <TSelect value={sheetInput.knitting?.factory || ''} onChange={e => handleSectionChange('knitting', 'factory', e.target.value)} disabled={isFullyLocked}>
-                <option value="">-- 선택 --</option>
-                {(knittingFactories || []).map(f => <option key={f} value={f}>{f}</option>)}
-              </TSelect>
-              {!isFullyLocked && <button type="button" onClick={() => setActiveMasterModal?.({ key: 'knittingFactories', title: '편직처 사전 등록 관리', description: '자주 거래하는 편직처를 등록해 두면 목록에서 간편하게 선택할 수 있습니다.', icon: Factory })} className="shrink-0 px-1.5 py-0.5 text-[9px] font-bold text-violet-600 bg-violet-50 border border-violet-200 rounded hover:bg-violet-100">+ 등록</button>}
-            </div>
-          </SpecCell>
+          <SpecCell {...specProps('knitting.factory', 4)}>{knitPickCell(sheetInput.knitting?.factory, '기계 현황에서 고르기')}</SpecCell>
           <Th span={2}>조직 (Structure)</Th>
           <SpecCell {...specProps('knitting.structure', 4)}>
             <button type="button" disabled={isFullyLocked}
@@ -546,23 +587,16 @@ export const DesignSheetPage = ({
           </SpecCell>
 
           <Th span={2}>기종 (Machine)</Th>
-          <SpecCell {...specProps('knitting.machineType', 4)}>
-            <button type="button" disabled={isFullyLocked}
-              onClick={() => setOptionPicker({ field: 'machineType', title: '기종 (Machine) 선택', options: machineTypesList || [], allowCustom: true, master: { key: 'machineTypes', title: '편직 기종 등록 관리', description: '자주 쓰는 편직 기종(게이지/타입 등)을 등록하세요.', icon: Cpu } })}
-              className="w-full h-full min-h-[28px] flex items-center justify-between gap-1 px-2 py-1 pr-6 text-[11px] disabled:cursor-not-allowed hover:bg-blue-50/40 transition-colors">
-              <span className={`truncate ${sheetInput.knitting?.machineType ? 'font-bold text-slate-800' : 'text-slate-300'}`}>{sheetInput.knitting?.machineType || '클릭하여 선택'}</span>
-              {!isFullyLocked && <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
-            </button>
-          </SpecCell>
+          <SpecCell {...specProps('knitting.machineType', 4)}>{knitPickCell(sheetInput.knitting?.machineType, '기계 현황에서 고르기')}</SpecCell>
           <Th span={2}>게이지 (Gauge)</Th>
-          <SpecCell {...specProps('knitting.gauge', 4)}><TInput type="number" value={sheetInput.knitting?.gauge || ''} onChange={e => handleSectionChange('knitting', 'gauge', e.target.value)} readOnly={isFullyLocked} placeholder="28" className="font-mono pr-5" /></SpecCell>
+          <SpecCell {...specProps('knitting.gauge', 4)}>{knitPickCell(sheetInput.knitting?.gauge, '—', { mono: true })}</SpecCell>
 
           <Th span={2}>인치 (Inch)</Th>
-          <SpecCell {...specProps('knitting.machineInch', 2)}><TInput type="number" value={sheetInput.knitting?.machineInch || ''} onChange={e => handleSectionChange('knitting', 'machineInch', e.target.value)} readOnly={isFullyLocked} placeholder="30" className="font-mono pr-5" /></SpecCell>
+          <SpecCell {...specProps('knitting.machineInch', 2)}>{knitPickCell(sheetInput.knitting?.machineInch, '—', { mono: true })}</SpecCell>
           <Th span={2}>침수 (Needle)</Th>
-          <SpecCell {...specProps('knitting.needleCount', 2)}><TInput type="number" value={sheetInput.knitting?.needleCount || ''} onChange={e => handleSectionChange('knitting', 'needleCount', e.target.value)} readOnly={isFullyLocked} placeholder="2640" className="font-mono pr-5" /></SpecCell>
+          <SpecCell {...specProps('knitting.needleCount', 2)}>{knitPickCell(sheetInput.knitting?.needleCount, '—', { mono: true, estimated: !!sheetInput.knitLink?.needleEstimated })}</SpecCell>
           <Th span={2}>피더 (Feeder)</Th>
-          <SpecCell {...specProps('knitting.feederCount', 2)}><TInput type="number" value={sheetInput.knitting?.feederCount || ''} onChange={e => handleSectionChange('knitting', 'feederCount', e.target.value)} readOnly={isFullyLocked} placeholder="96" className="font-mono pr-5" /></SpecCell>
+          <SpecCell {...specProps('knitting.feederCount', 2)}>{knitPickCell(sheetInput.knitting?.feederCount, '—', { mono: true })}</SpecCell>
 
           <Th span={2}>개폭 설정</Th>
           <SpecCell {...specProps('knitting.openWidth', 10, '!border-r-0')}>
@@ -1039,7 +1073,10 @@ export const DesignSheetPage = ({
           knitFactories={knitFactories}
           config={knitConfig}
           knitting={sheetInput.knitting || {}}
-          onApply={(fields) => Object.entries(fields).forEach(([k, v]) => handleSectionChange('knitting', k, v))}
+          onApply={(fields, link) => {
+            Object.entries(fields).forEach(([k, v]) => handleSectionChange('knitting', k, v));
+            setSheetInput?.(prev => ({ ...prev, knitLink: link || null }));
+          }}
           onClose={() => setKnitPickerOpen(false)}
         />
       )}

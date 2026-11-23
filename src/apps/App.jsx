@@ -739,6 +739,29 @@ const App = () => {
     saveDocToCloud, saveBatchToCloud, deleteDocFromCloud, showToast, user,
     addKnittingFactoryNames, removeKnittingFactoryNames, saveKnitConfig, geocode: geocodeKnitFactory,
   });
+  // [설계서 맞추기] — 예전 설계서 편직 사양을 편직처 기계 현황에 맞춤 (대표님 2026-11-24)
+  //  바뀐 칸은 설계서 변경 이력에 '편직처 기계 현황에 맞춤' (syncEztexFromOrder 와 같은 방식) · knitLink = 연결한 기계
+  const alignSheetsToKnit = async (proposals) => {
+    const now = new Date().toISOString();
+    const docs = (proposals || []).map(p => {
+      const s = designSheets.find(x => x.id === p.sheet.id) || p.sheet;
+      const knitting = { ...(s.knitting || {}) };
+      const fields = {};
+      Object.entries(p.changes || {}).forEach(([k, [from, to]]) => { knitting[k] = to; fields[`knitting.${k}`] = from; });
+      return {
+        ...s,
+        knitting,
+        knitLink: { ...p.link, at: now },
+        ...(Object.keys(fields).length ? { changeHistory: [{ date: now, fields, reason: '편직처 기계 현황에 맞춤' }, ...(s.changeHistory || [])] } : {}),
+        updatedAt: now,
+      };
+    });
+    if (!docs.length) return true;
+    const ok = await saveBatchToCloud('designSheets', docs);
+    if (ok === false) return false;
+    showToast(`설계서 ${docs.length}건의 편직 사양을 기계 현황에 맞췄어요.`, 'success');
+    return true;
+  };
   // 기계 종류 설정 창 [저장] — 설정 저장 뒤, 이름을 바꾼 종류는 그 종류를 쓰는 편직처도 같이 바꿈
   const saveKnitConfigWithRenames = async (config, renames = []) => {
     if (!(await saveKnitConfig(config))) return false;
@@ -1365,6 +1388,8 @@ const App = () => {
         {/* TAB: 개발 현황 (의뢰 등록 + 진행현황 통합) */}
         {activeTab === 'devStatus' && (
           <DevStatusPage
+            knitFactories={knitFactories}
+            knitConfig={knitConfig}
             getBlankDevInput={getBlankDevInput}
             devRequests={devRequests}
             designSheets={designSheets}
@@ -1449,6 +1474,7 @@ const App = () => {
                 knittingFactories={knittingFactories}
                 knitFactories={knitFactories}
                 knitConfig={knitConfig}
+                onAddKnitCylinder={knitFactoryHook.addCylinderFromSheet}
                 dyeingFactories={dyeingFactories}
                 machineTypes={machineTypes}
                 structures={structures}
@@ -1485,6 +1511,8 @@ const App = () => {
         {/* TAB: 설계서 목록 */}
         {activeTab === 'designList' && (
           <DesignSheetListPage
+            knitFactories={knitFactories}
+            knitConfig={knitConfig}
             designSheets={designSheets}
             devRequests={devRequests}
             handleEditSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
@@ -1524,6 +1552,7 @@ const App = () => {
             knittingFactories={knittingFactories}
             knitFactories={knitFactories}
             knitConfig={knitConfig}
+            onAddKnitCylinder={knitFactoryHook.addCylinderFromSheet}
             dyeingFactories={dyeingFactories}
             machineTypes={machineTypes}
             structures={structures}
@@ -1634,6 +1663,7 @@ const App = () => {
             onSaveKakaoMapKey={saveKakaoMapKey}
             geocode={geocodeKnitFactory}
             navGuardRef={navGuardRef}
+            onAlignSheets={alignSheetsToKnit}
             {...knitFactoryHook}
             onOpenSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
           />

@@ -189,6 +189,24 @@ export const useKnitFactory = ({
     return ok;
   };
 
+  /**
+   * 설계서 알람 [기계 현황에 이 가마 추가] — 그 편직처의 종류 · 인치 묶음에 이 게이지 가마를 더함 (2026-11-24)
+   *  묶음(기계 줄)이 없으면 기계 줄(대수 모름 · 피더)도 같이. 확인일은 안 바꿈 (편직처에 확인한 게 아니라서)
+   */
+  const addCylinderFromSheet = async (id, { type, inch, gauge, needles = null, feeder = '' }) => {
+    const existing = findFactory(id);
+    if (!existing || !type || !(inch > 0) || !(gauge > 0)) return false;
+    const machines = (existing.machines || []).map(normalizeMachine);
+    const cylinders = (existing.cylinders || []).map(normalizeCylinder);
+    const hasBlock = machines.some(m => m.type === type && m.inch === inch);
+    if (cylinders.some(c => c.type === type && c.inch === inch && c.gauge === gauge)) return true;
+    const nextMachines = hasBlock ? machines : [...machines, { ...normalizeMachine({ type, inch, feeder }), note: '설계서 알람에서 추가' }];
+    const nextCylinders = [...cylinders, normalizeCylinder({ type, inch, gauge, needles, note: '설계서 알람에서 추가' })];
+    const ok = await patchFactory(id, { machines: nextMachines, cylinders: nextCylinders });
+    if (ok) showToast(`${existing.name}에 ${type} ${inch}" ${gauge}G 가마를 더했어요.${hasBlock ? '' : ' 그 인치 기계 줄도 같이 만들었어요 (대수 모름).'}`, 'success');
+    return ok;
+  };
+
   /** 지도 위치 — 직접 찍기(manual) · 자동으로 찾은 좌표 저장(auto: '마지막 저장'은 안 바꿈) */
   const setGeo = async (id, geo, { auto = false } = {}) => {
     const ok = await patchFactory(id, { geo }, { touch: !auto });
@@ -280,7 +298,7 @@ export const useKnitFactory = ({
   };
 
   return {
-    saveFactory, deleteFactory, addMemo, updateMemo, deleteMemo, markChecked, setMountedGauge, saveEquipment, setGeo,
+    saveFactory, deleteFactory, addMemo, updateMemo, deleteMemo, markChecked, setMountedGauge, saveEquipment, addCylinderFromSheet, setGeo,
     renameTypeInFactories, typeUsage, importSeed,
   };
 };

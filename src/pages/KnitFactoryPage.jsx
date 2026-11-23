@@ -1,14 +1,15 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Factory, Plus, FileJson, Search, List, Cpu, CalendarClock, Map as MapIcon, Layers, ChevronRight } from 'lucide-react';
+import { Factory, Plus, FileJson, Search, List, Cpu, CalendarClock, Map as MapIcon, Layers, ChevronRight, Wand2 } from 'lucide-react';
 import { KnitFactoryDetail } from '../components/knitFactory/KnitFactoryDetail';
 import { KnitMachineSearch } from '../components/knitFactory/KnitMachineSearch';
 import { KnitFactoryEditModal } from '../components/knitFactory/KnitFactoryEditModal';
 import { KnitImportModal } from '../components/knitFactory/KnitImportModal';
 import { KnitTypeSettingsModal } from '../components/knitFactory/KnitTypeSettingsModal';
 import { KnitMapView } from '../components/knitFactory/KnitMapView';
+import { KnitSheetAlignModal } from '../components/knitFactory/KnitSheetAlignModal';
 import { CheckBadge, BlockSummary } from '../components/knitFactory/KnitParts';
 import {
-  sortFactories, factoryMatches, factoryTotals, needsCheck, checkState, KNIT_CHECK_STALE_DAYS, EMPTY_MACHINE_FILTERS, fmtNum,
+  sortFactories, factoryMatches, factoryTotals, needsCheck, checkState, KNIT_CHECK_STALE_DAYS, EMPTY_MACHINE_FILTERS, fmtNum, sheetKnitAlarm,
 } from '../utils/knitFactoryModel';
 import { todayLocalISO } from '../utils/helpers';
 
@@ -53,6 +54,7 @@ export const KnitFactoryPage = ({
   typeUsage, importSeed,
   onOpenSheet,              // (설계서) => 설계서 열기
   navGuardRef,              // App 위 메뉴로 나갈 때 묻기 (기계 수정 중 저장 안 한 변경)
+  onAlignSheets,            // (맞출 안 목록) => [설계서 맞추기] 저장
 }) => {
   const today = todayLocalISO();
   const [view, setView] = useState('list');          // 'list' | 'machine' | 'map'
@@ -65,6 +67,9 @@ export const KnitFactoryPage = ({
   const [editor, setEditor] = useState(null);         // { id | null, key }
   const [importOpen, setImportOpen] = useState(false);
   const [typeSettingsOpen, setTypeSettingsOpen] = useState(false);
+  const [alignOpen, setAlignOpen] = useState(false);   // [설계서 맞추기]
+  // 설계서 편직 사양이 기계 현황에 없는 것 (머리 버튼 숫자)
+  const sheetAlarmCount = useMemo(() => designSheets.filter(s => sheetKnitAlarm(s.knitting, knitFactories, knitConfig)).length, [designSheets, knitFactories, knitConfig]);
   const listScrollRef = useRef(0);
   const restoreScrollRef = useRef(false);
   const equipDirtyRef = useRef(false);   // 상세 [기계 수정] 중 저장 안 한 변경
@@ -134,6 +139,13 @@ export const KnitFactoryPage = ({
             </p>
           </div>
           <div className="flex gap-2 w-full sm:w-auto flex-wrap">
+            {onAlignSheets && (
+              <button type="button" onClick={() => setAlignOpen(true)} title="설계서 편직 사양을 기계 현황에 맞추기 · 기계 현황에 없는 설계서 보기"
+                className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg hover:bg-violet-50 hover:border-violet-300 flex items-center justify-center gap-1.5 text-sm font-bold">
+                <Wand2 className="w-4 h-4 text-violet-600" /> 설계서 맞추기
+                {sheetAlarmCount > 0 && <span className="text-[10px] font-extrabold px-1.5 rounded-full bg-red-500 text-white" title="기계 현황에 없는 설계서">{sheetAlarmCount}</span>}
+              </button>
+            )}
             <button type="button" onClick={() => setTypeSettingsOpen(true)} title="기계 종류 · 계열 목록"
               className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50 flex items-center justify-center gap-1.5 text-sm font-bold">
               <Layers className="w-4 h-4" /> 기계 종류
@@ -332,6 +344,15 @@ export const KnitFactoryPage = ({
           config={knitConfig}
           onImport={importSeed}
           onClose={() => setImportOpen(false)}
+        />
+      )}
+      {alignOpen && (
+        <KnitSheetAlignModal
+          designSheets={designSheets}
+          knitFactories={knitFactories}
+          config={knitConfig}
+          onApply={onAlignSheets}
+          onClose={() => setAlignOpen(false)}
         />
       )}
       {typeSettingsOpen && (

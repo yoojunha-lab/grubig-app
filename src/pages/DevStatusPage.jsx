@@ -13,6 +13,7 @@ import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog'
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
 import { getDevQuoteBadge, indexDevQuotes } from '../utils/devQuoteModel';
 import { formatMonthDay } from '../utils/helpers';
+import { sheetKnitAlarm, resolveKnitConfig } from '../utils/knitFactoryModel';
 
 // 개발 의뢰 단계 설명 (바이어 의뢰 접수~개발 가능 여부 확인까지)
 const DEV_REQ_STAGE_GUIDE = [
@@ -212,6 +213,7 @@ const RowBuyer = ({ row }) => {
  * - 아이템화 완료된 설계서는 [설계서 보관함] 페이지에서 관리
  */
 export const DevStatusPage = ({
+  knitFactories = [], knitConfig,   // 편직처 기계 현황 — 설계서 편직 사양이 기계 현황에 없으면 ⚠ (2026-11-24)
   devRequests, designSheets, devInput, editingDevId,
   handleDevChange, handleSpecChange, handleSaveDevRequest,
   handleEditDevRequest, handleDeleteDevRequest, resetDevForm,
@@ -239,6 +241,9 @@ export const DevStatusPage = ({
   onOpenProductionOrder,                  // (order#) → 생산 현황으로 가서 그 오더 보기 (보관함 '샘플 진행')
   onNewSelfSheet,                         // [자체 설계서] — 의뢰 없이 새 설계서 (자체개발 줄)
 }) => {
+  // 설계서 편직 사양이 편직처 기계 현황에 없으면 알람 글자 (없으면 '')
+  const knitCfg = knitConfig || resolveKnitConfig(null);
+  const knitAlarmOf = (sheet) => (sheet ? sheetKnitAlarm(sheet.knitting, knitFactories, knitCfg) : '');
   const [showDevModal, setShowDevModal] = useState(false);
   const [costQuoteDevId, setCostQuoteDevId] = useState(null); // 원가 견적 창을 연 의뢰 id
   const [dropTargetId, setDropTargetId] = useState(null);     // Drop 사유 창을 연 의뢰 id
@@ -708,6 +713,7 @@ export const DevStatusPage = ({
                                 <span className="truncate">{s.fabricName || '원단명 미입력'}</span>
                               </div>
                             )}
+                            {knitAlarmOf(s) && <div className="mt-0.5"><span title={knitAlarmOf(s)} className="inline-flex items-center gap-0.5 text-[9px] font-extrabold px-1 py-px rounded bg-red-50 text-red-700 border border-red-200 whitespace-nowrap">⚠ 기계 현황에 없음</span></div>}
                             {(stageEntry || quoteBadge) && (
                               <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                                 {stageEntry && <span className="text-[9px] text-slate-400 font-medium">📅 {stageEntry}</span>}
@@ -868,6 +874,7 @@ export const DevStatusPage = ({
                           <FileText className="w-3 h-3 shrink-0"/> {s.fabricName || '원단명 미입력'}
                         </p>
                       )}
+                      {knitAlarmOf(s) && <p className="mb-0.5"><span title={knitAlarmOf(s)} className="inline-flex items-center gap-0.5 text-[9px] font-extrabold px-1 py-px rounded bg-red-50 text-red-700 border border-red-200 whitespace-nowrap">⚠ 기계 현황에 없음</span></p>}
                       <p className="text-[11px] text-slate-500 mb-2"><RowBuyer row={row} /></p>
                       {quoteBadge && <div className="mb-2"><DevQuoteBadge badge={quoteBadge} /></div>}
                       <div className="mb-2 flex items-center gap-2 flex-wrap">

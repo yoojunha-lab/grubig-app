@@ -38,6 +38,7 @@ export const TempDesignSheetListPage = ({
   knittingFactories,
   knitFactories = [],     // 편직처 기계 현황 (편직 사양 [기계 현황에서 고르기])
   knitConfig,             // 편직처 기계 종류 · 계열
+  onAddKnitCylinder,      // 알람 [기계 현황에 이 가마 추가]
   dyeingFactories,
   machineTypes,
   structures,
@@ -407,6 +408,7 @@ export const TempDesignSheetListPage = ({
               knittingFactories={knittingFactories}
               knitFactories={knitFactories}
               knitConfig={knitConfig}
+              onAddKnitCylinder={onAddKnitCylinder}
               dyeingFactories={dyeingFactories}
               machineTypes={machineTypes}
               structures={structures}

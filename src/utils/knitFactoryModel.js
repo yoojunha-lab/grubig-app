@@ -413,17 +413,140 @@ export const hasMachineFilter = (f) => !!(Number(f?.gauge) > 0 || Number(f?.inch
 // ============================================================
 // 4. 설계서에 넣을 값 (설계서 편직 사양 [기계 현황에서 고르기])
 // ============================================================
-/** 고른 기계 + 게이지 → 설계서 knitting 칸 값 (빈 값은 안 넣음 — 설계서 칸 유지). 침수는 적힌 값만 (계산 값 X) */
+//  2026-11-24 대표님: 설계서 편직 사양(편직처 · 기종 · 게이지 · 인치 · 침수 · 피더)은 기계 현황에서만 고름
+//   · 기종 = 기계 현황 종류 이름 · 침수가 안 적힌 기계면 계산 값을 넣고 '≈ 계산 값' 표시(knitLink.needleEstimated)
+//   · 피더는 기계 것 (가마에는 없음) — 고른 기계 줄의 피더 그대로
+/**
+ * 고른 기계 + 게이지 → { fields: 설계서 knitting 칸 값, link: 설계서 knitLink }
+ *  fields: factory · machineType(종류) · gauge · machineInch · needleCount · feederCount (빈 값은 '')
+ */
 export const sheetFieldsFromPick = (factory, machine, gauge) => {
-  const fields = { factory: str(factory?.name) };
   const g = Number(gauge) > 0 ? Number(gauge) : machine.gauge;
-  if (g) fields.gauge = String(g);
-  if (machine.inch) fields.machineInch = String(machine.inch);
   const n = g ? needlesFor(factory, machine.type, machine.inch, g, g === machine.gauge ? machine.needles : null) : null;
-  if (n && !n.estimated) fields.needleCount = String(n.value);
-  const feeder = str(machine.feeder);
-  if (/^\d+$/.test(feeder)) fields.feederCount = feeder;
-  return fields;
+  const fields = {
+    factory: str(factory?.name),
+    machineType: str(machine.type),
+    gauge: g ? String(g) : '',
+    machineInch: machine.inch ? String(machine.inch) : '',
+    needleCount: n ? String(n.value) : '',
+    feederCount: str(machine.feeder),
+  };
+  const link = {
+    factoryId: factory?.id || '', factoryName: str(factory?.name), machineId: machine.id || '', type: str(machine.type),
+    inch: machine.inch || null, gauge: g || null, needleEstimated: !!n?.estimated, at: new Date().toISOString(),
+  };
+  return { fields, link };
+};
+
+// ── 설계서 ↔ 기계 현황 맞춰 보기 (알람 · 예전 설계서 맞추기) ──
+// 예전 설계서 기종 글자 → 종류 (설정 목록에서 같은 이름 · 그 이름을 품은 종류 — 예: 쥬리 → '쥬리전용')
+const LEGACY_TYPE_WORDS = [
+  [/^(double\s*jacquard|더블\s*자카드|양면\s*자카드)$/i, '양면 자카드'],
+  [/^(single\s*jacquard|싱글\s*자카드)$/i, '싱글 자카드'],
+  [/^(single|싱글)$/i, '싱글'],
+  [/^(double|더블|양면|interlock|인터록|rib)$/i, '양면'],
+  [/^(siru|시루)/i, '시루'],
+  [/^(jurry|jury|쥬리|쭈리)/i, '쥬리'],
+  [/(양면\s*벨로아)/i, '양면 벨로아'],
+  [/(벨로아|velour)/i, '벨로아'],
+  [/(테리|terry)/i, '테리'],
+];
+const squash = (s) => str(s).replace(/\s+/g, '');
+export const typeFromSheetMachine = (machineType, config) => {
+  const t = str(machineType);
+  if (!t) return '';
+  if (isKnownType(config, t)) return t;
+  const hit = LEGACY_TYPE_WORDS.find(([re]) => re.test(t));
+  if (!hit) return '';
+  const types = config?.types || [];
+  return types.find(x => squash(x.name) === squash(hit[1]))?.name
+    || types.find(x => squash(x.name).includes(squash(hit[1])))?.name || '';
+};
+
+/**
+ * 설계서 편직 사양이 기계 현황의 어느 묶음(종류 + 인치)인지
+ *  status: 'empty'(편직 칸 비어 있음) · 'incomplete'(인치 · 게이지가 없음) · 'no-factory' · 'no-machine' · 'ambiguous' · 'ok'
+ *  ok 일 때 exact = 설계서 기종이 기계 현황 종류 이름과 똑같은지 (예전 'SINGLE'이면 false)
+ */
+export const matchSheetKnitting = (knitting, factories, config) => {
+  const k = knitting || {};
+  const name = str(k.factory);
+  const gauge = numOrNull(k.gauge);
+  const inch = numOrNull(k.machineInch);
+  if (!name && !gauge && !inch && !str(k.machineType)) return { status: 'empty' };
+  const factory = name ? (factories || []).find(f => sameFactoryName(f.name, name)) || null : null;
+  if (!factory) return { status: 'no-factory', name };
+  const typeHint = typeFromSheetMachine(k.machineType, config);
+  if (!gauge || !inch) return { status: 'incomplete', factory, typeHint };
+  const blocks = buildBlocks(factory, config).filter(b => b.inch === inch && b.gauges.includes(gauge));
+  if (!blocks.length) return { status: 'no-machine', factory, typeHint, gauge, inch };
+  let pick = typeHint ? blocks.filter(b => b.type === typeHint) : [];
+  if (!pick.length && typeHint) pick = blocks.filter(b => b.family === familyOf(config, typeHint));
+  if (!pick.length && blocks.length === 1) pick = blocks;
+  if (pick.length === 1) return { status: 'ok', factory, block: pick[0], typeHint, exact: pick[0].type === str(k.machineType) };
+  return { status: 'ambiguous', factory, candidates: pick.length ? pick : blocks, typeHint };
+};
+
+/** 알람 글자 — 기계 현황에 없는 기계면 글자, 아니면 '' (목록 ⚠ · 설계서 편직 사양 위) */
+export const sheetKnitAlarm = (knitting, factories, config) => {
+  const m = matchSheetKnitting(knitting, factories, config);
+  const k = knitting || {};
+  if (m.status === 'no-factory') return m.name ? `편직처 '${m.name}'이(가) 기계 현황에 없어요` : '편직처가 비어 있어요';
+  if (m.status === 'no-machine') return `${m.factory.name}에 ${m.typeHint || str(k.machineType) || ''} ${inchLabel(m.inch)} ${m.gauge}G 기계 · 가마가 없어요`.replace(/\s+/g, ' ');
+  return '';
+};
+
+const feederKey = (f) => str(f).replace(/F/gi, '').replace(/\s+/g, '');
+/**
+ * 예전 설계서 하나를 기계 현황에 맞추는 안 (대표님 2026-11-24 결정)
+ *  · 편직처 이름 · 기종(종류 이름)을 기계 현황에 맞춤 · 침수 · 피더는 설계서 값이 있으면 그대로(다르면 diffs), 비었으면 기계 현황 값(침수 없으면 계산 값)
+ *  · 애매하고 기종이 비었으면 같은 편직처 · 같은 조직 설계서의 기종을 따름
+ *  반환: { sheet, status, match, changes: { 칸: [전, 후] }, diffs: [{ label, sheet, machine }], link, note }
+ */
+export const proposeSheetAlignment = (sheet, factories, config, allSheets = []) => {
+  const k = sheet?.knitting || {};
+  let m = matchSheetKnitting(k, factories, config);
+  let note = '';
+  if (m.status === 'ambiguous' && !m.typeHint && str(k.structure)) {
+    const sib = allSheets.find(x => x.id !== sheet.id && sameFactoryName(x.knitting?.factory, k.factory)
+      && squash(x.knitting?.structure) === squash(k.structure) && typeFromSheetMachine(x.knitting?.machineType, config));
+    const t = sib ? typeFromSheetMachine(sib.knitting.machineType, config) : '';
+    const hit = t ? m.candidates.filter(b => b.type === t) : [];
+    if (hit.length === 1) {
+      m = { status: 'ok', factory: m.factory, block: hit[0], typeHint: t, exact: false };
+      note = `기종이 비어서 같은 편직처 · 같은 조직(${k.structure}) 설계서 ${sib.eztexOrderNo || sib.articleNo || ''}처럼 ${t}`;
+    }
+  }
+  if (m.status !== 'ok') return { sheet, status: m.status, match: m, changes: {}, diffs: [], link: null, note };
+  const { factory, block } = m;
+  if (m.typeHint && m.typeHint !== block.type) note = `기종 '${k.machineType}' → 같은 계열의 ${block.type} (${factory.name}엔 ${m.typeHint} ${inchLabel(block.inch)} ${k.gauge}G가 없어요)`;
+  const g = numOrNull(k.gauge);
+  // 같은 게이지가 꽂힌 기계가 여럿이면 설계서 피더와 같은 기계 (명진 12G 36": 60/48F · 48F)
+  const withGauge = block.machines.filter(x => x.gauge === g);
+  const mounted = withGauge.find(x => str(k.feederCount) && feederKey(x.feeder) === feederKey(k.feederCount)) || withGauge[0];
+  const feeders = [...new Set(block.machines.map(x => str(x.feeder)).filter(Boolean))];
+  const machineFeeder = str(mounted?.feeder) || (feeders.length === 1 ? feeders[0] : '');
+  const needles = needlesFor(factory, block.type, block.inch, g, mounted?.needles || null);
+  const changes = {};
+  const diffs = [];
+  if (str(k.factory) !== factory.name) changes.factory = [str(k.factory), factory.name];
+  if (str(k.machineType) !== block.type) changes.machineType = [str(k.machineType), block.type];
+  let needleEstimated = false;
+  if (!str(k.needleCount)) {
+    if (needles) { changes.needleCount = ['', String(needles.value)]; needleEstimated = needles.estimated; }
+  } else if (needles && !needles.estimated && Number(k.needleCount) !== needles.value) {
+    diffs.push({ label: '침수', sheet: str(k.needleCount), machine: String(needles.value) });
+  }
+  if (!str(k.feederCount)) {
+    if (machineFeeder) changes.feederCount = ['', machineFeeder];
+  } else if (machineFeeder && feederKey(k.feederCount) !== feederKey(machineFeeder)) {
+    diffs.push({ label: '피더', sheet: str(k.feederCount), machine: machineFeeder });
+  }
+  const link = {
+    factoryId: factory.id || '', factoryName: factory.name, machineId: mounted?.id || block.machines[0]?.id || '', type: block.type,
+    inch: block.inch, gauge: g, needleEstimated: needleEstimated || !!(sheet.knitLink?.needleEstimated && !changes.needleCount && str(k.needleCount)),
+  };
+  return { sheet, status: 'ok', match: m, changes, diffs, link, note };
 };
 
 // ============================================================

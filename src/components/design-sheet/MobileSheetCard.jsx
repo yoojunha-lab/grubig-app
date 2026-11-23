@@ -6,6 +6,8 @@ import { STAGE_COLORS } from '../../constants/common';
 
 export const MobileSheetCard = ({
   sheet, 
+  knitAlarm = '',      // 편직 사양이 기계 현황에 없으면 글자 (2026-11-24)
+
   costData, 
   history = [], 
   viewMode, 
@@ -96,7 +98,8 @@ export const MobileSheetCard = ({
       {isExpanded && (
         <div className="border-t border-slate-100 bg-slate-50/50 p-3 text-[11px] space-y-3">
            <div className="grid grid-cols-2 gap-y-2 gap-x-3 text-slate-700 bg-white p-2.5 rounded border border-slate-100">
-             <div><span className="text-[9px] text-slate-400 block mb-0.5">편직처 / 기종</span> <span className="font-bold">{sheet.knitting?.factory || '-'}</span> <span className="text-slate-500">({sheet.knitting?.machineType || '-'})</span></div>
+             <div><span className="text-[9px] text-slate-400 block mb-0.5">편직처 / 기종</span> <span className="font-bold">{sheet.knitting?.factory || '-'}</span> <span className="text-slate-500">({sheet.knitting?.machineType || '-'})</span>
+               {knitAlarm && <p title={knitAlarm} className="mt-0.5 inline-flex items-center gap-0.5 text-[9px] font-extrabold px-1 py-px rounded bg-red-50 text-red-700 border border-red-200 whitespace-nowrap">⚠ 기계 현황에 없음</p>}</div>
              <div><span className="text-[9px] text-slate-400 block mb-0.5">염가공 / 후가공</span> <span className="font-bold">{sheet.dyeing?.factory || '-'}</span> <span className="text-slate-500">({sheet.finishing?.type || '-'})</span></div>
              <div><span className="text-[9px] text-slate-400 block mb-0.5">내폭 / 외폭</span> <span className="font-mono font-medium">"{sheet.costInput?.widthCut||'-'}" / "{sheet.costInput?.widthFull||'-'}"</span></div>
              <div><span className="text-[9px] text-slate-400 block mb-0.5">중량(GSM)</span> <span className="font-mono font-medium">{sheet.costInput?.gsm||'-'}g ({sheet.costInput?.costGYd||'-'}g/y)</span></div>
