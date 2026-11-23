@@ -211,8 +211,9 @@ export const KnitEquipmentEditor = ({
                 return (
                   <span key={c.id} className="inline-flex items-center gap-0.5 bg-sky-50/60 border border-sky-200 rounded-lg pl-1 pr-0.5 py-0.5">
                     <input value={c.gauge} onChange={e => set({ gauge: e.target.value })} inputMode="decimal" placeholder="G" title="게이지" className={`${cell} !w-12 font-mono font-bold text-right`} />
-                    <span className="text-[10px] text-slate-400">G ×</span>
-                    <input value={c.count} onChange={e => set({ count: e.target.value })} inputMode="numeric" placeholder="개" title="개수 (꽂힌 것 포함)" className={`${cell} !w-10 font-mono text-right`} />
+                    <span className="text-[10px] text-slate-500">G 가마</span>
+                    <input value={c.count} onChange={e => set({ count: e.target.value })} inputMode="numeric" placeholder="?" title="가마 개수 (꽂힌 것 포함)" className={`${cell} !w-10 font-mono text-right`} />
+                    <span className="text-[10px] text-slate-500 mr-0.5">개</span>
                     <input value={c.needles} onChange={e => set({ needles: e.target.value })} inputMode="numeric" placeholder={estimateNeedles(c.gauge, b.inch) ? `≈${estimateNeedles(c.gauge, b.inch)}침` : '침수'} title="침수" className={`${cell} !w-16 font-mono text-right`} />
                     <input value={c.note} onChange={e => set({ note: e.target.value })} placeholder="메모" title="메모" className={`${cell} !w-24`} />
                     <button type="button" onClick={() => removeRow(b.bid, 'cylinders', c.id)} title="이 가마 지우기" className="p-0.5 text-slate-400 hover:text-red-600"><X className="w-3.5 h-3.5" /></button>

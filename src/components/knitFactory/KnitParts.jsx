@@ -37,7 +37,7 @@ export const GaugeChips = ({ gauges, hit = [], mounted = [], onPick, counts = {}
         const cls = `font-mono text-[11px] font-bold px-1 py-px rounded border whitespace-nowrap ${on
           ? 'bg-violet-600 text-white border-violet-600'
           : isMounted ? 'bg-white text-slate-800 border-slate-600' : 'bg-white text-slate-500 border-slate-300'}`;
-        const label = `${g}G${counts[g] ? `×${counts[g]}` : ''}`;
+        const label = `${g}G${counts[g] ? ` ${counts[g]}개` : ''}`;
         const title = `${isMounted ? '지금 꼽혀 있음' : '보유 가마'}${counts[g] ? ` ${counts[g]}개` : ''}`;
         return onPick
           ? <button key={g} type="button" onClick={(e) => { e.stopPropagation(); onPick(g); }} title={`${g}G로 고르기 — ${title}`} className={`${cls} hover:ring-2 ring-violet-300`}>{label}</button>
@@ -226,9 +226,10 @@ export const KnitBlocks = ({ factory, config, onSetGauge }) => {
               {b.cylinders.map(c => (
                 <span key={c.id} title={[c.needles && `침수 ${fmtNum(c.needles)}`, c.note].filter(Boolean).join(' · ') || ''}
                   className={`inline-flex items-center gap-1 font-mono text-[11px] px-1.5 py-px rounded border ${b.mounted.includes(c.gauge) ? 'border-slate-600 text-slate-800' : 'border-slate-300 text-slate-600'}`}>
-                  <b>{c.gauge}G</b>{c.count ? `×${c.count}` : ''}
-                  {c.needles ? <span className="text-slate-400">({fmtNum(c.needles)}침)</span> : null}
-                  {c.note ? <span className="font-sans text-slate-400">{c.note}</span> : null}
+                  <b>{c.gauge}G</b>
+                  <span className="font-sans">가마 {c.count ? `${c.count}개` : '개수 모름'}</span>
+                  {c.needles ? <span className="text-slate-400">· {fmtNum(c.needles)}침</span> : null}
+                  {c.note ? <span className="font-sans text-slate-400">· {c.note}</span> : null}
                 </span>
               ))}
               <span className="text-[10px] text-slate-400">진한 테두리 = 지금 꼽혀 있는 게이지</span>
