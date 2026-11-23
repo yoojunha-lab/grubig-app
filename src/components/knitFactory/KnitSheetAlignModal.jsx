@@ -23,6 +23,7 @@ const AlignRow = ({ p, children }) => (
   <tr className="align-top">
     <td className="px-2 py-1.5 whitespace-nowrap">
       <b className="text-slate-800">{sheetNo(p.sheet)}</b>
+      {p.kind === 'temp' && <span className="ml-1 text-[9px] font-extrabold px-1 rounded bg-amber-50 text-amber-700 border border-amber-200">가설계서</span>}
       <span className="block text-[10px] text-slate-400">{stageLabel(p.sheet)}</span>
     </td>
     <td className="px-2 py-1.5 text-slate-600 max-w-[220px]"><span className="line-clamp-2">{p.sheet.fabricName || '원단명 없음'}</span></td>
@@ -33,6 +34,7 @@ const AlignRow = ({ p, children }) => (
 
 export const KnitSheetAlignModal = ({
   designSheets = [],
+  tempDesignSheets = [],   // 가설계서도 같이 (2026-11-24 — 변경 이력이 없어서 칸만 바뀜)
   knitFactories = [],
   config,
   onApply,     // (proposals) => 저장했으면 true
@@ -42,8 +44,9 @@ export const KnitSheetAlignModal = ({
   const busyRef = useRef(false);
   const groups = useMemo(() => {
     const out = { todo: [], done: [], alarm: [], other: [] };
-    designSheets.forEach(s => {
-      const p = proposeSheetAlignment(s, knitFactories, config, designSheets);
+    const all = [...designSheets.map(s => ({ s, kind: 'sheet', list: designSheets })), ...tempDesignSheets.map(s => ({ s, kind: 'temp', list: tempDesignSheets }))];
+    all.forEach(({ s, kind, list }) => {
+      const p = { ...proposeSheetAlignment(s, knitFactories, config, list), kind };
       if (p.status === 'ok') {
         if (Object.keys(p.changes).length || !sameLink(s.knitLink, p.link)) out.todo.push(p);
         else out.done.push(p);
@@ -51,12 +54,13 @@ export const KnitSheetAlignModal = ({
       else out.other.push(p);
     });
     return out;
-  }, [designSheets, knitFactories, config]);
+  }, [designSheets, tempDesignSheets, knitFactories, config]);
   const diffCount = groups.todo.reduce((n, p) => n + p.diffs.length, 0) + groups.done.reduce((n, p) => n + p.diffs.length, 0);
 
   const apply = async () => {
     if (busyRef.current || !groups.todo.length) return;
-    if (!window.confirm(`설계서 ${groups.todo.length}건의 편직 사양을 기계 현황에 맞춰요.\n바뀌는 칸은 설계서 변경 이력에 '편직처 기계 현황에 맞춤'으로 남아요.\n\n계속할까요?`)) return;
+    const temps = groups.todo.filter(p => p.kind === 'temp').length;
+    if (!window.confirm(`설계서 ${groups.todo.length - temps}건 · 가설계서 ${temps}건의 편직 사양을 기계 현황에 맞춰요.\n설계서는 바뀌는 칸이 변경 이력에 '편직처 기계 현황에 맞춤'으로 남아요.\n\n계속할까요?`)) return;
     busyRef.current = true;
     setBusy(true);
     try {
@@ -73,7 +77,7 @@ export const KnitSheetAlignModal = ({
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-200 shrink-0">
           <div>
             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Wand2 className="w-5 h-5 text-violet-600" /> 설계서 편직 사양 맞추기</h3>
-            <p className="text-[11px] text-slate-500">설계서 {designSheets.length}건을 편직처 기계 현황과 맞춰 봤어요. [맞추기]를 누르기 전엔 아무것도 안 바뀌어요.</p>
+            <p className="text-[11px] text-slate-500">설계서 {designSheets.length}건 · 가설계서 {tempDesignSheets.length}건을 편직처 기계 현황과 맞춰 봤어요. [맞추기]를 누르기 전엔 아무것도 안 바뀌어요.</p>
           </div>
           <button type="button" onClick={onClose} disabled={busy} className="text-slate-400 hover:text-slate-600" title="닫기"><X className="w-6 h-6" /></button>
         </div>
@@ -101,7 +105,7 @@ export const KnitSheetAlignModal = ({
                   </tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {groups.todo.map(p => (
-                      <AlignRow key={p.sheet.id} p={p}>
+                      <AlignRow key={`${p.kind}_${p.sheet.id}`} p={p}>
                         <td className="px-2 py-1.5">
                           {Object.keys(p.changes).length ? Object.entries(p.changes).map(([k, [from, to]]) => (
                             <div key={k} className="flex items-center gap-1 whitespace-nowrap">
@@ -133,7 +137,7 @@ export const KnitSheetAlignModal = ({
                 <table className="w-full min-w-[760px]">
                   <tbody className="divide-y divide-red-100">
                     {groups.alarm.map(p => (
-                      <AlignRow key={p.sheet.id} p={p}><td className="px-2 py-1.5 text-red-700 font-bold">{p.alarm}</td></AlignRow>
+                      <AlignRow key={`${p.kind}_${p.sheet.id}`} p={p}><td className="px-2 py-1.5 text-red-700 font-bold">{p.alarm}</td></AlignRow>
                     ))}
                   </tbody>
                 </table>
@@ -149,7 +153,7 @@ export const KnitSheetAlignModal = ({
                 <table className="w-full min-w-[760px]">
                   <tbody className="divide-y divide-slate-100">
                     {groups.other.map(p => (
-                      <AlignRow key={p.sheet.id} p={p}>
+                      <AlignRow key={`${p.kind}_${p.sheet.id}`} p={p}>
                         <td className="px-2 py-1.5 text-slate-500">
                           {p.status === 'empty' ? '편직 사양이 비어 있어요' : p.status === 'incomplete' ? '인치 · 게이지가 없어요' : `맞는 기계가 여러 개예요 (${(p.match.candidates || []).map(b => `${b.type} ${inchLabel(b.inch)}`).join(' · ')})`}
                         </td>

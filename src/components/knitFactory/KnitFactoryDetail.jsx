@@ -6,7 +6,7 @@ import {
 import { factoryTotals, sameFactoryName, checkState, fmtNum, kakaoLinkTo, kakaoLinkSearch, geocodeQuery } from '../../utils/knitFactoryModel';
 import { DESIGN_STAGES } from '../../constants/common';
 import { todayLocalISO } from '../../utils/helpers';
-import { CheckBadge, KnitBlocks } from './KnitParts';
+import { CheckBadge, KnitBlocks, KnitJobChips } from './KnitParts';
 import { KnitEquipmentEditor } from './KnitEquipmentEditor';
 
 // ============================================================
@@ -88,6 +88,7 @@ export const KnitFactoryDetail = ({
   onSaveEquipment,      // ({ machines, cylinders }) => 저장했으면 true — [기계 수정]
   knitFactories = [],   // 제조사 자동 완성
   onEquipDirtyChange,   // (편집 중 저장 안 한 변경 있음) — 편직처 화면이 나갈 때 묻기
+  jobs = [],            // 이 편직처의 편직 중 · 대기 오더 (knitJobsFor — 생산 현황 연결)
   onShowOnMap,          // 지도 화면에서 이 편직처 보기
   onOpenSheet,          // (설계서) => 설계서 열기
 }) => {
@@ -96,6 +97,9 @@ export const KnitFactoryDetail = ({
   const [checkBusy, setCheckBusy] = useState(false);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [editingEquip, setEditingEquip] = useState(false);   // [기계 수정] 중
+  const [showAllLog, setShowAllLog] = useState(false);       // 수정 기록 모두 보기
+  const changeLog = Array.isArray(factory.changeLog) ? factory.changeLog : [];
+  const unplacedJobs = jobs.filter(j => !j.blockKey);
   const totals = factoryTotals(factory, config);
   const closeEquipEditor = () => { setEditingEquip(false); onEquipDirtyChange?.(false); };
   const st = checkState(factory, today);
@@ -213,7 +217,17 @@ export const KnitFactoryDetail = ({
         {editingEquip
           ? <KnitEquipmentEditor factory={factory} config={config} knitFactories={knitFactories}
               onSave={onSaveEquipment} onCancel={closeEquipEditor} onDirtyChange={onEquipDirtyChange} />
-          : <KnitBlocks factory={factory} config={config} onSetGauge={onSetGauge} />}
+          : (
+            <>
+              {unplacedJobs.length > 0 && (
+                <div className="mb-2 text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 flex flex-wrap items-center gap-1.5">
+                  <span className="font-bold">생산 현황 오더 (어느 기계인지 모름 — 설계서 편직 사양이 없거나 기계 현황에 없어요)</span>
+                  <KnitJobChips jobs={unplacedJobs} />
+                </div>
+              )}
+              <KnitBlocks factory={factory} config={config} onSetGauge={onSetGauge} jobs={jobs} />
+            </>
+          )}
       </Section>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -295,6 +309,23 @@ export const KnitFactoryDetail = ({
           )}
         </Section>
       </div>
+
+      {/* 수정 기록 — 기계 · 가마를 누가 · 언제 · 무엇을 (2026-11-24 고도화) */}
+      {changeLog.length > 0 && (
+        <Section icon={History} title={`기계 수정 기록 (${changeLog.length})`}>
+          <ul className="border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white text-xs">
+            {(showAllLog ? changeLog : changeLog.slice(0, 5)).map((l, i) => (
+              <li key={`${l.at}_${i}`} className="px-3 py-1.5 flex gap-3">
+                <span className="text-[10px] text-slate-400 whitespace-nowrap w-28 shrink-0">{dateOf(l.at)} {l.at ? new Date(l.at).toTimeString().slice(0, 5) : ''}<span className="block">{l.by}</span></span>
+                <span className="text-slate-700">{(l.items || []).join(' · ')}</span>
+              </li>
+            ))}
+          </ul>
+          {changeLog.length > 5 && (
+            <button type="button" onClick={() => setShowAllLog(v => !v)} className="text-[11px] font-bold text-violet-700 hover:underline">{showAllLog ? '접기' : `모두 보기 (${changeLog.length})`}</button>
+          )}
+        </Section>
+      )}
 
       {factory.updatedAt && (
         <p className="text-[10px] text-slate-400 text-right">마지막 저장 {dateOf(factory.updatedAt)}{factory.updatedBy ? ` · ${factory.updatedBy}` : ''}{factory.source === 'excel' ? ' · 엑셀에서 옮김' : ''}</p>

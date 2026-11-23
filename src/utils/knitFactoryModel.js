@@ -549,6 +549,83 @@ export const proposeSheetAlignment = (sheet, factories, config, allSheets = []) 
   return { sheet, status: 'ok', match: m, changes, diffs, link, note };
 };
 
+// ── 이름으로 이어진 곳 (편직처 이름 바꾸기 — 2026-11-24 빈틈 막기) ──
+/** 설계서 · 가설계서가 이 편직처를 쓰는지 (knitLink 편직처 번호 또는 이름) */
+export const sheetUsesFactory = (sheet, factoryId, name) => (!!factoryId && sheet?.knitLink?.factoryId === factoryId)
+  || (!!str(name) && sameFactoryName(sheet?.knitting?.factory, name));
+/** 생산 오더가 이 편직처에 편직을 맡겼는지 (이름) */
+export const orderUsesFactory = (order, name) => !!str(name) && sameFactoryName(order?.steps?.knitting?.vendor, name);
+
+// ── 가마 메모에 섞인 피더 ('48F' · '104F') — 피더는 기계 것 (2026-11-24) ──
+const FEEDER_IN_NOTE = /(^|[\s·,(])(\d{2,3})\s*F(?=$|[\s·,)])/gi;
+export const feedersInNote = (note) => [...str(note).matchAll(FEEDER_IN_NOTE)].map(m => `${m[2]}F`);
+export const stripFeederFromNote = (note) => str(note).replace(FEEDER_IN_NOTE, '$1').replace(/\s*·\s*(·\s*)+/g, ' · ').replace(/^[\s·,]+|[\s·,]+$/g, '').replace(/\s{2,}/g, ' ');
+
+// ── 기계 수정 기록 — 바뀐 것을 짧은 글자로 (2026-11-24 고도화) ──
+const blockName = (type, inch) => `${type || '종류 없음'} ${inchLabel(inch) || '인치?'}`;
+/** 기계 · 가마 전 → 후 비교 → ['싱글 26" 기계 27대 → 8대', '싱글 32" 가마 30G 추가', …] (최대 12줄) */
+export const describeEquipmentChanges = (before, after) => {
+  const out = [];
+  const bm = new Map((before?.machines || []).map(normalizeMachine).filter(m => !isEmptyMachine(m)).map(m => [m.id, m]));
+  const am = new Map((after?.machines || []).map(normalizeMachine).filter(m => !isEmptyMachine(m)).map(m => [m.id, m]));
+  am.forEach((m, id) => {
+    const o = bm.get(id);
+    const where = blockName(m.type, m.inch);
+    if (!o) { out.push(`${where} 기계 줄 추가${m.count ? ` (${m.count}대)` : ''}${m.gauge ? ` ${m.gauge}G` : ''}`); return; }
+    if (o.type !== m.type || o.inch !== m.inch) out.push(`${blockName(o.type, o.inch)} 기계 → ${where}`);
+    if (o.count !== m.count) out.push(`${where} 기계 대수 ${o.count ?? '?'} → ${m.count ?? '?'}대`);
+    if (o.gauge !== m.gauge) out.push(`${where} 지금 가마 ${o.gauge ? `${o.gauge}G` : '모름'} → ${m.gauge ? `${m.gauge}G` : '모름'}`);
+    if (o.feeder !== m.feeder) out.push(`${where} 피더 ${o.feeder || '없음'} → ${m.feeder || '없음'}`);
+    if (o.needles !== m.needles) out.push(`${where} 침수 ${o.needles ?? '없음'} → ${m.needles ?? '없음'}`);
+    if (o.spandex !== m.spandex) out.push(`${where} 스판장치 ${spandexLabel(o.spandex)} → ${spandexLabel(m.spandex)}`);
+    if (o.maker !== m.maker) out.push(`${where} 제조사 ${o.maker || '없음'} → ${m.maker || '없음'}`);
+    if (o.note !== m.note) out.push(`${where} 기계 메모 고침`);
+  });
+  bm.forEach((o, id) => { if (!am.has(id)) out.push(`${blockName(o.type, o.inch)} 기계 줄 지움${o.count ? ` (${o.count}대)` : ''}`); });
+  const bc = new Map((before?.cylinders || []).map(normalizeCylinder).filter(c => !isEmptyCylinder(c)).map(c => [c.id, c]));
+  const ac = new Map((after?.cylinders || []).map(normalizeCylinder).filter(c => !isEmptyCylinder(c)).map(c => [c.id, c]));
+  ac.forEach((c, id) => {
+    const o = bc.get(id);
+    const where = blockName(c.type, c.inch);
+    if (!o) { out.push(`${where} 가마 ${c.gauge || '?'}G 추가${c.count ? ` (${c.count}개)` : ''}`); return; }
+    if (o.gauge !== c.gauge || o.type !== c.type || o.inch !== c.inch) out.push(`${blockName(o.type, o.inch)} 가마 ${o.gauge}G → ${where} ${c.gauge}G`);
+    if (o.count !== c.count) out.push(`${where} 가마 ${c.gauge}G 개수 ${o.count ?? '?'} → ${c.count ?? '?'}개`);
+    if (o.needles !== c.needles) out.push(`${where} 가마 ${c.gauge}G 침수 ${o.needles ?? '없음'} → ${c.needles ?? '없음'}`);
+    if (o.note !== c.note) out.push(`${where} 가마 ${c.gauge}G 메모 고침`);
+  });
+  bc.forEach((o, id) => { if (!ac.has(id)) out.push(`${blockName(o.type, o.inch)} 가마 ${o.gauge}G 지움`); });
+  return out.length > 12 ? [...out.slice(0, 11), `그 밖에 ${out.length - 11}가지`] : out;
+};
+/** 기록 한 줄 붙이기 (최신이 위 · 100개까지) */
+export const appendChangeLog = (factory, items, by) => (items && items.length
+  ? [{ at: new Date().toISOString(), by: str(by), items }, ...(Array.isArray(factory?.changeLog) ? factory.changeLog : [])].slice(0, 100)
+  : (factory?.changeLog || []));
+
+// ── 편직 중인 오더 (생산 현황 연결 — 2026-11-24 고도화) ──
+/**
+ * 이 편직처에 편직을 맡긴, 끝나지 않은 오더 → 어느 묶음(종류 + 인치) · 게이지인지
+ *  오더 → 연결 설계서(linkedSheetId) 또는 연결 원단의 설계서(fabric.linkedSheetId) → 그 설계서 편직 사양
+ *  반환: [{ order, state: 'knitting'(편직 중) | 'waiting'(편직 대기), blockKey | null, type, inch, gauge, sheet }]
+ */
+export const knitJobsFor = (factory, { orders = [], designSheets = [], fabrics = [] } = {}, config) => {
+  if (!factory) return [];
+  const sheetById = new Map(designSheets.map(s => [String(s.id), s]));
+  const fabricById = new Map(fabrics.map(f => [String(f.id), f]));
+  const blocks = buildBlocks(factory, config);
+  return orders.filter(o => o?.status === 'active' && orderUsesFactory(o, factory.name)
+    && !o?.steps?.knitting?.stock && ['in_progress', 'pending', 'issue'].includes(o?.steps?.knitting?.status || 'pending'))
+    .map(o => {
+      const sheet = sheetById.get(String(o.linkedSheetId || ''))
+        || sheetById.get(String(fabricById.get(String(o.linkedFabricId || ''))?.linkedSheetId || '')) || null;
+      const k = sheet?.knitting || {};
+      const type = sheet?.knitLink?.type || typeFromSheetMachine(k.machineType, config);
+      const inch = numOrNull(k.machineInch);
+      const gauge = numOrNull(k.gauge);
+      const block = blocks.find(b => b.type === type && b.inch === inch) || null;
+      return { order: o, state: o.steps.knitting.status === 'in_progress' ? 'knitting' : 'waiting', blockKey: block?.key || null, type, inch, gauge, sheet };
+    });
+};
+
 // ============================================================
 // 5. 지도 (카카오맵)
 // ============================================================

@@ -9,7 +9,7 @@ import { KnitMapView } from '../components/knitFactory/KnitMapView';
 import { KnitSheetAlignModal } from '../components/knitFactory/KnitSheetAlignModal';
 import { CheckBadge, BlockSummary } from '../components/knitFactory/KnitParts';
 import {
-  sortFactories, factoryMatches, factoryTotals, needsCheck, checkState, KNIT_CHECK_STALE_DAYS, EMPTY_MACHINE_FILTERS, fmtNum, sheetKnitAlarm,
+  sortFactories, factoryMatches, factoryTotals, needsCheck, checkState, KNIT_CHECK_STALE_DAYS, EMPTY_MACHINE_FILTERS, fmtNum, sheetKnitAlarm, knitJobsFor,
 } from '../utils/knitFactoryModel';
 import { todayLocalISO } from '../utils/helpers';
 
@@ -55,6 +55,8 @@ export const KnitFactoryPage = ({
   onOpenSheet,              // (설계서) => 설계서 열기
   navGuardRef,              // App 위 메뉴로 나갈 때 묻기 (기계 수정 중 저장 안 한 변경)
   onAlignSheets,            // (맞출 안 목록) => [설계서 맞추기] 저장
+  tempDesignSheets = [],    // 가설계서 — [설계서 맞추기]에 같이
+  savedFabrics = [],        // 원단 — 생산 오더 → 원단 → 설계서 (편직 중 기계 찾기)
 }) => {
   const today = todayLocalISO();
   const [view, setView] = useState('list');          // 'list' | 'machine' | 'map'
@@ -68,8 +70,16 @@ export const KnitFactoryPage = ({
   const [importOpen, setImportOpen] = useState(false);
   const [typeSettingsOpen, setTypeSettingsOpen] = useState(false);
   const [alignOpen, setAlignOpen] = useState(false);   // [설계서 맞추기]
+  // 생산 현황에서 편직 중 · 대기인 오더 → 편직처 · 묶음(종류 + 인치) (2026-11-24 고도화)
+  const jobsByFactory = useMemo(() => Object.fromEntries((knitFactories || []).map(f => [f.id, knitJobsFor(f, { orders, designSheets, fabrics: savedFabrics }, knitConfig)])),
+    [knitFactories, orders, designSheets, savedFabrics, knitConfig]);
+  const jobsByBlock = useMemo(() => {
+    const m = {};
+    Object.entries(jobsByFactory).forEach(([fid, js]) => js.forEach(j => { if (j.blockKey) (m[`${fid}__${j.blockKey}`] ||= []).push(j); }));
+    return m;
+  }, [jobsByFactory]);
   // 설계서 편직 사양이 기계 현황에 없는 것 (머리 버튼 숫자)
-  const sheetAlarmCount = useMemo(() => designSheets.filter(s => sheetKnitAlarm(s.knitting, knitFactories, knitConfig)).length, [designSheets, knitFactories, knitConfig]);
+  const sheetAlarmCount = useMemo(() => [...designSheets, ...tempDesignSheets].filter(s => sheetKnitAlarm(s.knitting, knitFactories, knitConfig)).length, [designSheets, tempDesignSheets, knitFactories, knitConfig]);
   const listScrollRef = useRef(0);
   const restoreScrollRef = useRef(false);
   const equipDirtyRef = useRef(false);   // 상세 [기계 수정] 중 저장 안 한 변경
@@ -183,7 +193,7 @@ export const KnitFactoryPage = ({
           </section>
         ) : view === 'machine' ? (
           <section className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4">
-            <KnitMachineSearch factories={sorted} config={knitConfig} filters={machineFilters} onFiltersChange={setMachineFilters}
+            <KnitMachineSearch factories={sorted} config={knitConfig} filters={machineFilters} onFiltersChange={setMachineFilters} jobsByBlock={jobsByBlock}
               onOpenFactory={openDetail} onShowMap={() => { setMapFocusId(null); setView('map'); }} />
           </section>
         ) : view === 'map' ? (
@@ -258,6 +268,7 @@ export const KnitFactoryPage = ({
               onMarkChecked={() => markChecked(detail.id)}
               onSetGauge={(machineId, g) => setMountedGauge(detail.id, machineId, g)}
               onSaveEquipment={(equip) => saveEquipment(detail.id, equip)}
+              jobs={jobsByFactory[detail.id] || []}
               knitFactories={knitFactories}
               onEquipDirtyChange={(d) => { equipDirtyRef.current = d; }}
               onShowOnMap={() => { if (!canLeave()) return; setMapFocusId(detail.id); setDetailId(null); setView('map'); }}
@@ -305,7 +316,13 @@ export const KnitFactoryPage = ({
                           {f.region || '지역 없음'} · 기계 <b className="text-slate-700">{t.total ? `${fmtNum(t.total)}대` : '?'}</b>
                           {t.cylinders ? <> · 가마 <b className="text-slate-700">{fmtNum(t.cylinders)}</b></> : null}
                         </p>
-                        <div className="mt-0.5"><CheckBadge factory={f} today={today} size="xs" /></div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                          <CheckBadge factory={f} today={today} size="xs" />
+                          {(() => {
+                            const n = (jobsByFactory[f.id] || []).filter(j => j.state === 'knitting').length;
+                            return n ? <span className="text-[10px] font-extrabold text-emerald-700" title="생산 현황에서 편직 중인 오더">● 편직 중 {n}</span> : null;
+                          })()}
+                        </div>
                       </div>
                       <div className="flex-1 min-w-0 pt-0.5"><BlockSummary blocks={t.blocks} config={knitConfig} /></div>
                       <ChevronRight className="hidden sm:block w-4 h-4 text-slate-300 shrink-0 mt-1" />
@@ -349,6 +366,7 @@ export const KnitFactoryPage = ({
       {alignOpen && (
         <KnitSheetAlignModal
           designSheets={designSheets}
+          tempDesignSheets={tempDesignSheets}
           knitFactories={knitFactories}
           config={knitConfig}
           onApply={onAlignSheets}

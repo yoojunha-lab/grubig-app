@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { CalendarCheck, CalendarClock, CalendarX, Check, AlertTriangle } from 'lucide-react';
 import {
   buildBlocks, checkState, KNIT_CHECK_STALE_DAYS, typeTone, isKnownType, fmtNum, feederLabel, inchLabel,
-  needlesFor, gaugeRangeLabel,
+  needlesFor, gaugeRangeLabel, feedersInNote,
 } from '../../utils/knitFactoryModel';
 
 // ============================================================
@@ -172,7 +172,16 @@ const GaugeSwitcher = ({ machine, block, onSave }) => {
 };
 
 /** 상세 화면 기계 현황 — 종류 + 인치 묶음마다 기계 줄 + 보유 가마 */
-export const KnitBlocks = ({ factory, config, onSetGauge }) => {
+// 편직 중 · 대기 오더 칩 (생산 현황 연결 — 2026-11-24)
+const JobChip = ({ job }) => (
+  <span title={`${job.order.orderNumber || '(order# 없음)'} ${job.order.articleNo || ''} — ${job.state === 'knitting' ? '편직 중' : '편직 대기'}${job.gauge ? ` · ${job.gauge}G` : ''} (생산 현황)`}
+    className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-px rounded-full border whitespace-nowrap ${job.state === 'knitting' ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-slate-50 text-slate-500 border-slate-300'}`}>
+    {job.state === 'knitting' ? '● 편직 중' : '○ 대기'} {job.order.orderNumber || '?'}{job.gauge ? ` · ${job.gauge}G` : ''}
+  </span>
+);
+export const KnitJobChips = ({ jobs = [] }) => (jobs.length ? <span className="inline-flex flex-wrap gap-1">{jobs.map(j => <JobChip key={j.order.id} job={j} />)}</span> : null);
+
+export const KnitBlocks = ({ factory, config, onSetGauge, jobs = [] }) => {
   const blocks = buildBlocks(factory, config);
   if (!blocks.length) return <p className="text-sm text-slate-400 py-6 text-center border border-dashed border-slate-200 rounded-xl">기계 · 가마가 아직 없어요. 위 [기계 수정]을 눌러 넣어 주세요.</p>;
   return (
@@ -185,6 +194,7 @@ export const KnitBlocks = ({ factory, config, onSetGauge }) => {
             <span className="text-xs font-bold text-slate-600">기계 {b.machines.length ? (b.countKnown ? `${fmtNum(b.count)}대` : '대수 미기재') : '없음'}</span>
             {b.cylinders.length > 0 && <span className="text-xs text-slate-500">· 보유 가마 {b.cylinderCount ? `${fmtNum(b.cylinderCount)}개` : `${b.cylinders.length}종`}</span>}
             {!b.machines.length && <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1">이 가마를 낄 기계 줄이 없어요</span>}
+            <span className="ml-auto"><KnitJobChips jobs={jobs.filter(j => j.blockKey === b.key)} /></span>
           </div>
           {b.machines.length > 0 && (
             <div className="overflow-x-auto">
@@ -233,6 +243,9 @@ export const KnitBlocks = ({ factory, config, onSetGauge }) => {
                 </span>
               ))}
               <span className="text-[10px] text-slate-400">진한 테두리 = 지금 꼽혀 있는 게이지</span>
+              {b.cylinders.some(c => feedersInNote(c.note).length) && (
+                <span className="text-[10px] font-bold text-amber-700" title="피더는 기계 것이에요 — [기계 수정]에서 기계 줄 피더 칸에 적고 가마 메모에서는 지워 주세요">⚠ 가마 메모에 피더가 있어요</span>
+              )}
             </div>
           )}
         </div>

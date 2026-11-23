@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Copy, Trash2, Save, X, Loader2, Info } from 'lucide-react';
 import {
   KNIT_MAKERS, SPANDEX_OPTIONS, buildBlocks, makeBlankMachine, makeBlankCylinder, estimateNeedles, isKnownType, UNGROUPED_FAMILY, typeTone,
+  feedersInNote, stripFeederFromNote,
 } from '../../utils/knitFactoryModel';
 
 // ============================================================
@@ -102,6 +103,10 @@ export const KnitEquipmentEditor = ({
     }));
     setBulk(prev => ({ ...prev, [b]: '' }));
   };
+  // 가마 메모에 섞인 피더(48F 등) 지우기 — 피더는 기계 것 (2026-11-24)
+  const stripFeeders = (b) => setDraft(prev => prev.map(x => (x.bid === b
+    ? { ...x, cylinders: x.cylinders.map(c => (feedersInNote(c.note).length ? { ...c, note: stripFeederFromNote(c.note) } : c)) }
+    : x)));
   const removeBlock = (b) => {
     const x = draft.find(y => y.bid === b);
     if (x && (x.machines.length || x.cylinders.length)
@@ -222,6 +227,15 @@ export const KnitEquipmentEditor = ({
               })}
               {!b.cylinders.length && <span className="text-[11px] text-slate-400">없음 (게이지가 안 바뀌는 기계면 '지금 가마'만 적어도 돼요)</span>}
             </div>
+            {(() => {
+              const found = [...new Set(b.cylinders.flatMap(c => feedersInNote(c.note)))];
+              return found.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
+                  가마 메모에 피더({found.join(' · ')})가 있어요 — 피더는 가마가 아니라 기계 것이라 위 기계 줄 피더 칸에 적어 주세요.
+                  <button type="button" onClick={() => stripFeeders(b.bid)} className="font-bold underline hover:text-amber-900">메모에서 피더 지우기</button>
+                </div>
+              );
+            })()}
             <div className="flex items-center gap-1.5">
               <input value={bulk[b.bid] || ''} onChange={e => setBulk(prev => ({ ...prev, [b.bid]: e.target.value }))}
                 onKeyDown={e => { if (e.key === 'Enter') addBulk(b.bid); }}

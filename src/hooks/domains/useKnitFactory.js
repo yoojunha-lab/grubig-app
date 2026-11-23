@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import {
   KNIT_FACTORY_COLLECTION, cleanFactoryForSave, equipmentChanged, sameFactoryName, needsGeocode, normalizeMachine,
-  normalizeCylinder, isEmptyMachine, isEmptyCylinder,
+  normalizeCylinder, isEmptyMachine, isEmptyCylinder, describeEquipmentChanges, appendChangeLog,
 } from '../../utils/knitFactoryModel';
 import { todayLocalISO } from '../../utils/helpers';
 
@@ -27,6 +27,8 @@ export const useKnitFactory = ({
   removeKnittingFactoryNames,  // (names) => 설계서 편직처 목록에서 빼기
   saveKnitConfig,              // (config) => 기계 종류 · 계열 설정 저장 (성공 true)
   geocode,                     // (factory) => 좌표 | null — 카카오맵 키가 없으면 null 함수
+  factoryRefCounts,            // (편직처 id, 예전 이름) => { sheets, temps, orders } — 이름 바꿀 때 같이 바뀔 곳 수 (2026-11-24)
+  renameFactoryRefs,           // (편직처 id, 예전 이름, 새 이름) => 설계서 · 가설계서 · 생산 오더의 편직처 이름도 같이
 }) => {
   const busyRef = useRef(false);
   const who = () => user?.displayName || user?.email?.split('@')[0] || 'Unknown';
@@ -73,12 +75,14 @@ export const useKnitFactory = ({
     const noType = [...clean.machines, ...clean.cylinders].filter(x => !x.type).length;
     if (noType) { showToast(`종류를 고르지 않은 줄이 ${noType}개 있어요. 기계 · 가마 줄마다 종류를 골라 주세요.`, 'error'); return null; }
 
-    // 이름을 바꾸면 — 예전 이름으로 적힌 설계서는 그대로라고 알림
-    if (existing && !sameFactoryName(existing.name, clean.name)) {
-      const used = (designSheets || []).filter(s => sameFactoryName(s?.knitting?.factory, existing.name)).length;
+    // 이름을 바꾸면 — 그 편직처로 적힌 설계서 · 가설계서 · 생산 오더의 편직처 이름도 같이 (2026-11-24 빈틈 막기 — 예전엔 설계서가 옛 이름으로 남아 알람이 떴음)
+    const renamed = !!existing && existing.name !== clean.name;
+    if (renamed) {
+      const c = factoryRefCounts ? factoryRefCounts(existing.id, existing.name) : { sheets: 0, temps: 0, orders: 0 };
+      const parts = [c.sheets && `설계서 ${c.sheets}건`, c.temps && `가설계서 ${c.temps}건`, c.orders && `생산 오더 ${c.orders}건`].filter(Boolean);
       if (!window.confirm(
         `편직처 이름을 '${existing.name}' → '${clean.name}'(으)로 바꿉니다.\n\n`
-        + (used ? `설계서 ${used}건에 적힌 '${existing.name}'은 그대로예요 (설계서 편직처 목록에도 예전 이름이 남아요).\n\n` : '')
+        + (parts.length ? `${parts.join(' · ')}에 적힌 편직처 이름도 같이 바꿔요 (설계서는 변경 이력에 남아요).\n\n` : '')
         + '계속할까요?',
       )) return null;
     }
@@ -103,6 +107,12 @@ export const useKnitFactory = ({
       const ok = await saveDocToCloud(KNIT_FACTORY_COLLECTION, docToSave);
       if (ok === false) return null;
       await syncNames([docToSave.name]);
+      if (renamed && renameFactoryRefs) {
+        try { await renameFactoryRefs(existing.id, existing.name, docToSave.name); } catch (e) {
+          console.error('편직처 이름 바꾸기 — 설계서 · 오더 반영 실패', e);
+          showToast('편직처 이름은 바꿨는데 설계서 · 오더에 같이 바꾸지 못한 곳이 있어요. 다시 저장해 주세요.', 'error');
+        }
+      }
       const notes = [
         changed && existing && hasEquip && '기계를 고쳐서 확인일이 오늘로 바뀌었어요.',
         geocode && docToSave.addresses.length && !docToSave.geo && '주소로 지도 위치를 못 찾았어요 — 지도에서 직접 찍어 주세요.',
@@ -165,7 +175,7 @@ export const useKnitFactory = ({
     if (!existing) return false;
     const g = Number(gauge) > 0 ? Number(gauge) : null;
     const machines = (existing.machines || []).map(m => (m.id === machineId ? { ...normalizeMachine(m), gauge: g, needles: null } : m));
-    const ok = await patchFactory(id, { machines, checkedAt: todayLocalISO() });
+    const ok = await patchFactory(id, { machines, checkedAt: todayLocalISO(), changeLog: appendChangeLog(existing, describeEquipmentChanges(existing, { ...existing, machines }), who()) });
     if (ok) showToast(g ? `지금 가마를 ${g}G로 바꿨어요.` : '지금 가마를 비웠어요.', 'success');
     return ok;
   };
@@ -184,7 +194,7 @@ export const useKnitFactory = ({
     if (next.machines.some(m => !m.type) || next.cylinders.some(c => !c.type)) { showToast('종류를 고르지 않은 카드가 있어요.', 'error'); return false; }
     const changed = equipmentChanged(existing, next);
     if (!changed) return true;
-    const ok = await patchFactory(id, { ...next, checkedAt: todayLocalISO() });
+    const ok = await patchFactory(id, { ...next, checkedAt: todayLocalISO(), changeLog: appendChangeLog(existing, describeEquipmentChanges(existing, next), who()) });
     if (ok) showToast(`'${existing.name}' 기계 현황을 저장했어요. 확인일이 오늘로 바뀌었어요.`, 'success');
     return ok;
   };
@@ -202,7 +212,10 @@ export const useKnitFactory = ({
     if (cylinders.some(c => c.type === type && c.inch === inch && c.gauge === gauge)) return true;
     const nextMachines = hasBlock ? machines : [...machines, { ...normalizeMachine({ type, inch, feeder }), note: '설계서 알람에서 추가' }];
     const nextCylinders = [...cylinders, normalizeCylinder({ type, inch, gauge, needles, note: '설계서 알람에서 추가' })];
-    const ok = await patchFactory(id, { machines: nextMachines, cylinders: nextCylinders });
+    const ok = await patchFactory(id, {
+      machines: nextMachines, cylinders: nextCylinders,
+      changeLog: appendChangeLog(existing, [`${type} ${inch}" 가마 ${gauge}G 추가 (설계서 알람에서)`], who()),
+    });
     if (ok) showToast(`${existing.name}에 ${type} ${inch}" ${gauge}G 가마를 더했어요.${hasBlock ? '' : ' 그 인치 기계 줄도 같이 만들었어요 (대수 모름).'}`, 'success');
     return ok;
   };
@@ -220,6 +233,7 @@ export const useKnitFactory = ({
     if (!targets.length) return true;
     const docs = targets.map(f => ({
       ...f,
+      changeLog: appendChangeLog(f, [`기계 종류 이름 ${oldName} → ${newName}`], who()),
       machines: (f.machines || []).map(m => (m.type === oldName ? { ...m, type: newName } : m)),
       cylinders: (f.cylinders || []).map(c => (c.type === oldName ? { ...c, type: newName } : c)),
     }));

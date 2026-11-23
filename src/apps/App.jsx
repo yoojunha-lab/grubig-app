@@ -62,7 +62,7 @@ import { ReportPage } from '../pages/ReportPage';
 import { ProductionCalcPage } from '../pages/ProductionCalcPage';
 import { HangerStickerPage } from '../pages/HangerStickerPage';
 import { KnitFactoryPage } from '../pages/KnitFactoryPage';
-import { sameFactoryName, resolveKnitConfig } from '../utils/knitFactoryModel';
+import { sameFactoryName, resolveKnitConfig, sheetUsesFactory, orderUsesFactory } from '../utils/knitFactoryModel';
 import { geocodeFactory } from '../utils/kakaoMap';
 import { CollectionPage } from '../pages/CollectionPage';
 import { ProformaInvoicePage } from '../pages/ProformaInvoicePage';
@@ -734,17 +734,49 @@ const App = () => {
     }
   };
   const geocodeKnitFactory = kakaoMapKey ? (factory) => geocodeFactory(kakaoMapKey, factory) : null;
+  // 편직처 이름을 바꾸면 그 이름으로 적힌 곳도 같이 (2026-11-24 빈틈 막기 — 예전엔 설계서가 옛 이름으로 남아 '기계 현황에 없음' 알람)
+  //  설계서(변경 이력 '편직처 이름 변경') · 가설계서 · 생산 오더(편직처) · 설계서 편직처 목록의 옛 이름은 뺌
+  const factoryRefCounts = (id, name) => ({
+    sheets: designSheets.filter(s => sheetUsesFactory(s, id, name)).length,
+    temps: tempDesignSheets.filter(s => sheetUsesFactory(s, id, name)).length,
+    orders: orders.filter(o => orderUsesFactory(o, name)).length,
+  });
+  const renameFactoryRefs = async (id, oldName, newName) => {
+    const now = new Date().toISOString();
+    const fixSheet = (s, withHistory) => (s.knitting?.factory === newName && (!s.knitLink || s.knitLink.factoryName === newName) ? null : {
+      ...s,
+      knitting: { ...(s.knitting || {}), factory: newName },
+      ...(s.knitLink ? { knitLink: { ...s.knitLink, factoryName: newName } } : {}),
+      ...(withHistory && s.knitting?.factory !== newName
+        ? { changeHistory: [{ date: now, fields: { 'knitting.factory': s.knitting?.factory || '' }, reason: '편직처 이름 변경' }, ...(s.changeHistory || [])] } : {}),
+      updatedAt: now,
+    });
+    const sheetDocs = designSheets.filter(s => sheetUsesFactory(s, id, oldName)).map(s => fixSheet(s, true)).filter(Boolean);
+    const tempDocs = tempDesignSheets.filter(s => sheetUsesFactory(s, id, oldName)).map(s => fixSheet(s, false)).filter(Boolean);
+    const orderDocs = orders.filter(o => orderUsesFactory(o, oldName) && o.steps.knitting.vendor !== newName)
+      .map(o => ({ ...o, steps: { ...o.steps, knitting: { ...o.steps.knitting, vendor: newName } }, updatedAt: now }));
+    if (sheetDocs.length && (await saveBatchToCloud('designSheets', sheetDocs)) === false) return false;
+    if (tempDocs.length && (await saveBatchToCloud('tempDesignSheets', tempDocs)) === false) return false;
+    if (orderDocs.length && (await saveBatchToCloud('orders', orderDocs)) === false) return false;
+    const old = knittingFactories.filter(n => n === oldName);
+    if (old.length) await removeKnittingFactoryNames(old);
+    const n = sheetDocs.length + tempDocs.length + orderDocs.length;
+    if (n) showToast(`설계서 ${sheetDocs.length}건 · 가설계서 ${tempDocs.length}건 · 생산 오더 ${orderDocs.length}건의 편직처 이름도 '${newName}'(으)로 바꿨어요.`, 'success');
+    return true;
+  };
   const knitFactoryHook = useKnitFactory({
     knitFactories, designSheets, orders, knittingFactories,
     saveDocToCloud, saveBatchToCloud, deleteDocFromCloud, showToast, user,
     addKnittingFactoryNames, removeKnittingFactoryNames, saveKnitConfig, geocode: geocodeKnitFactory,
+    factoryRefCounts, renameFactoryRefs,
   });
   // [설계서 맞추기] — 예전 설계서 편직 사양을 편직처 기계 현황에 맞춤 (대표님 2026-11-24)
   //  바뀐 칸은 설계서 변경 이력에 '편직처 기계 현황에 맞춤' (syncEztexFromOrder 와 같은 방식) · knitLink = 연결한 기계
+  //  가설계서(p.kind === 'temp')도 같이 — 가설계서는 변경 이력이 없어서 칸만 (2026-11-24 빈틈 막기)
   const alignSheetsToKnit = async (proposals) => {
     const now = new Date().toISOString();
-    const docs = (proposals || []).map(p => {
-      const s = designSheets.find(x => x.id === p.sheet.id) || p.sheet;
+    const build = (p, list, withHistory) => {
+      const s = list.find(x => x.id === p.sheet.id) || p.sheet;
       const knitting = { ...(s.knitting || {}) };
       const fields = {};
       Object.entries(p.changes || {}).forEach(([k, [from, to]]) => { knitting[k] = to; fields[`knitting.${k}`] = from; });
@@ -752,14 +784,15 @@ const App = () => {
         ...s,
         knitting,
         knitLink: { ...p.link, at: now },
-        ...(Object.keys(fields).length ? { changeHistory: [{ date: now, fields, reason: '편직처 기계 현황에 맞춤' }, ...(s.changeHistory || [])] } : {}),
+        ...(withHistory && Object.keys(fields).length ? { changeHistory: [{ date: now, fields, reason: '편직처 기계 현황에 맞춤' }, ...(s.changeHistory || [])] } : {}),
         updatedAt: now,
       };
-    });
-    if (!docs.length) return true;
-    const ok = await saveBatchToCloud('designSheets', docs);
-    if (ok === false) return false;
-    showToast(`설계서 ${docs.length}건의 편직 사양을 기계 현황에 맞췄어요.`, 'success');
+    };
+    const sheetDocs = (proposals || []).filter(p => p.kind !== 'temp').map(p => build(p, designSheets, true));
+    const tempDocs = (proposals || []).filter(p => p.kind === 'temp').map(p => build(p, tempDesignSheets, false));
+    if (sheetDocs.length && (await saveBatchToCloud('designSheets', sheetDocs)) === false) return false;
+    if (tempDocs.length && (await saveBatchToCloud('tempDesignSheets', tempDocs)) === false) return false;
+    if (sheetDocs.length + tempDocs.length) showToast(`설계서 ${sheetDocs.length}건 · 가설계서 ${tempDocs.length}건의 편직 사양을 기계 현황에 맞췄어요.`, 'success');
     return true;
   };
   // 기계 종류 설정 창 [저장] — 설정 저장 뒤, 이름을 바꾼 종류는 그 종류를 쓰는 편직처도 같이 바꿈
@@ -768,6 +801,26 @@ const App = () => {
     for (const r of renames.filter(x => x.used)) {
       const ok = await knitFactoryHook.renameTypeInFactories(r.from, r.to);
       if (!ok) { showToast(`'${r.from}' → '${r.to}' 편직처 줄 바꾸기에 실패했어요. 다시 저장해 주세요.`, 'error'); return false; }
+    }
+    // 설계서 · 가설계서 기종도 같이 (2026-11-24 빈틈 막기 — 예전엔 설계서에 '기종이 달라요'가 떴음)
+    const now = new Date().toISOString();
+    const retype = (s, withHistory) => {
+      const r = renames.find(x => x.from === s.knitting?.machineType || x.from === s.knitLink?.type);
+      if (!r) return null;
+      return {
+        ...s,
+        knitting: { ...(s.knitting || {}), machineType: s.knitting?.machineType === r.from ? r.to : s.knitting?.machineType },
+        ...(s.knitLink?.type === r.from ? { knitLink: { ...s.knitLink, type: r.to } } : {}),
+        ...(withHistory && s.knitting?.machineType === r.from
+          ? { changeHistory: [{ date: now, fields: { 'knitting.machineType': r.from }, reason: '기계 종류 이름 변경' }, ...(s.changeHistory || [])] } : {}),
+        updatedAt: now,
+      };
+    };
+    if (renames.length) {
+      const sheetDocs = designSheets.map(s => retype(s, true)).filter(Boolean);
+      const tempDocs = tempDesignSheets.map(s => retype(s, false)).filter(Boolean);
+      if (sheetDocs.length && (await saveBatchToCloud('designSheets', sheetDocs)) === false) return false;
+      if (tempDocs.length && (await saveBatchToCloud('tempDesignSheets', tempDocs)) === false) return false;
     }
     showToast('기계 종류 목록을 저장했어요.', 'success');
     return true;
@@ -1664,6 +1717,8 @@ const App = () => {
             geocode={geocodeKnitFactory}
             navGuardRef={navGuardRef}
             onAlignSheets={alignSheetsToKnit}
+            tempDesignSheets={tempDesignSheets}
+            savedFabrics={savedFabrics}
             {...knitFactoryHook}
             onOpenSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
           />

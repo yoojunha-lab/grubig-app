@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Search, X, ChevronRight, MapPin } from 'lucide-react';
 import {
-  KNIT_MAKERS, EMPTY_MACHINE_FILTERS, searchMachines, fmtNum, feederLabel, inchLabel, needlesFor, hasMachineFilter,
+  KNIT_MAKERS, EMPTY_MACHINE_FILTERS, searchMachines, fmtNum, feederLabel, inchLabel, needlesFor, hasMachineFilter, checkState,
 } from '../../utils/knitFactoryModel';
+import { todayLocalISO } from '../../utils/helpers';
 import { TypeChip, GaugeChips, NeedleText, SpandexText, Dash } from './KnitParts';
 
 // ============================================================
@@ -32,7 +33,9 @@ export const KnitMachineSearch = ({
   onShowMap,             // () => 찾은 편직처를 지도에서
   onPick,                // (factory, machine, gauge) => 고르기 화면
   maxHeight,
+  jobsByBlock = {},      // { '편직처id__묶음key': [편직 중 · 대기 오더] } — 생산 현황 연결 (2026-11-24)
 }) => {
+  const today = todayLocalISO();
   const [innerFilters, setInnerFilters] = useState(() => ({
     ...EMPTY_MACHINE_FILTERS,
     gauge: initial.gauge ? String(initial.gauge) : '',
@@ -174,7 +177,19 @@ export const KnitMachineSearch = ({
                     <td className="px-2 py-1.5 text-right font-mono">{inchLabel(m.inch) || <Dash />}</td>
                     <td className="px-2 py-1.5 text-right font-mono">{m.count ? fmtNum(m.count) : <Dash />}</td>
                     <td className="px-2 py-1.5 font-mono">{feederLabel(m.feeder) || <Dash />}</td>
-                    <td className="px-2 py-1.5 font-mono font-bold">{m.gauge ? `${m.gauge}G` : <span className="font-normal text-slate-300">모름</span>}</td>
+                    <td className="px-2 py-1.5 font-mono font-bold">
+                      {m.gauge ? `${m.gauge}G` : <span className="font-normal text-slate-300">모름</span>}
+                      {(() => {
+                        const js = jobsByBlock[`${factory.id}__${block.key}`] || [];
+                        const knitting = js.filter(j => j.state === 'knitting').length;
+                        return js.length ? (
+                          <span title={js.map(j => `${j.order.orderNumber || '?'} ${j.state === 'knitting' ? '편직 중' : '대기'}${j.gauge ? ` ${j.gauge}G` : ''}`).join('\n')}
+                            className={`block font-sans text-[9px] font-extrabold ${knitting ? 'text-emerald-700' : 'text-slate-400'}`}>
+                            {knitting ? `● 편직 중 ${knitting}` : ''}{js.length - knitting ? ` ○ 대기 ${js.length - knitting}` : ''}
+                          </span>
+                        ) : null;
+                      })()}
+                    </td>
                     <td className="px-2 py-1.5 text-right"><NeedleText needles={showGauge ? needlesFor(factory, m.type, m.inch, showGauge, showGauge === m.gauge ? m.needles : null) : null} /></td>
                     <td className="px-2 py-1.5"><SpandexText value={m.spandex} /></td>
                     <td className="px-2 py-1.5 whitespace-nowrap">{m.maker || <Dash />}</td>
@@ -182,6 +197,15 @@ export const KnitMachineSearch = ({
                     {searchedGauge && (
                       <td className="px-2 py-1.5">
                         {status && <span title={STATUS[status].title} className={`text-[10px] font-extrabold px-1.5 py-px rounded border whitespace-nowrap ${STATUS[status].cls}`}>{STATUS[status].label}</span>}
+                        {status === 'now' && (() => {
+                          // 지금 꼽힘은 확인일 기준 — 오래됐거나 확인일이 없으면 같이 보여 줌 (2026-11-24 고도화)
+                          const st = checkState(factory, today);
+                          return st.tone === 'ok' ? null : (
+                            <span className="block text-[9px] text-slate-400 whitespace-nowrap" title="편직처에 물어보고 [오늘 확인함]을 눌러 주세요">
+                              {st.tone === 'none' ? '확인일 없음' : `${Math.floor(st.days / 30)}개월 전 정보`}
+                            </span>
+                          );
+                        })()}
                       </td>
                     )}
                     <td className="px-2 py-1.5 text-slate-500 max-w-[200px] truncate" title={m.note}>{m.note}</td>
