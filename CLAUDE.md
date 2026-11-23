@@ -19,7 +19,7 @@
 | UI 용어 통일 (마진 단계 등) + 가설계서/저장·삭제·날짜 규약 + 목록 정렬(Article 순서 §3-A) + 팝업 창 규약(ModalBackdrop) | `docs/terminology.md` (용어 사전) |
 | 원단 원가 계산 (편직 정액·LOSS 구간·가공 유형·이화학/운임·수입 원사 운반비·원가 설정·공통 환율(내수·수출)/견적 환율·실시간 환율·원가 확인 필요·원가 표 6구간(300·500·700YD + 1,000·3,000·5,000YD)) + 견적서 (기준 견적·별도 견적·러닝 생지 견적·견적서 약관 문구(내수는 한글)·예전 800YD 견적 보존) + 개발 의뢰 원가 견적·Drop 사유 | `docs/costing-model.md` (원가 모델 & 설정, 구간 800 → 700YD는 §1-D, 환율은 §5-A, 견적서는 §5-B, 개발 의뢰 원가 견적은 §5-C) |
 | 기타 ▾ 헹거 스티커 (TAG 엑셀 양식 그대로 뽑기 — 아이템 필수·WIDTH·WEIGHT는 아이템 값 잠금(실제 G/YD), CATEGORY 고르기·CARE 체크([⚙ 설정] 목록), QR 그림 올리기(EZ-TEX 주소 읽기), 체크해서 여러 장 엑셀 다운로드) | `docs/hanger-sticker.md` (양식 칸 위치·QR 규칙·칸 규칙·설정·엑셀 만드는 법·확인한 것) |
-| 개발 ▾ 편직처 기계 현황 (예전 편직처 엑셀 — 목록(종류·인치 요약) → 상세 [← 목록으로], 기계 줄(종류는 [⚙ 기계 종류] 설정 — 계열도 직접·지금 꼽힌 가마·스판장치) + 보유 가마(같은 종류·인치끼리 돌려 씀), [기계로 찾기] 지금 꼽힘/가마 교체/근접, 카카오 [지도] 방문 순서·길찾기, 엑셀은 Claude가 판단한 정리본(.json) 가져오기, 설계서 [기계 현황에서 고르기], 메모·확인일·우리 작업 이력) | `docs/knit-factory.md` (정한 것·화면·데이터·정리본 판단·확인한 것) |
+| 개발 ▾ 편직처 기계 현황 (예전 편직처 엑셀 — 목록(요약 막대·계열 거르기·정렬, 줄마다 편직처·기계 종류별·연락처·우리 작업/메모) → 상세 [← 목록으로], 기계 줄(종류는 [⚙ 기계 종류] 설정 — 계열도 직접·지금 꼽힌 가마·스판장치) + 보유 가마(같은 종류·인치끼리 돌려 씀), [기계로 찾기] 지금 꼽힘/가마 교체/근접, 카카오 [지도] 방문 순서·길찾기, 엑셀은 Claude가 판단한 정리본(.json) 가져오기, 설계서 [기계 현황에서 고르기], 메모·확인일·우리 작업 이력) | `docs/knit-factory.md` (정한 것·화면·데이터·정리본 판단·확인한 것) |
 | 생산 ▾ LAB-DIP (예전 영업 ▾ Lab-Dip 발송 — 공장 의뢰 + 바이어 발송 묶음: L/D NO. GB26023~(연도마다 001)·공장에 의뢰/바이어 발송만(EZ-TEX)·원단 ARTICLE·ITEM NAME·GSM·폭·울 종류(원사 SW → 슈퍼워시)·광원·PANTONE/바이어 스와치, 컬러마다 공장 진행중→L/D 도착→컨펌대기→컨펌·리젝(같은 번호 2차)·Drop, 진행중·컨펌대기중·완료 탭·공장/바이어 납기, 공장 의뢰서(바이어 안 찍힘)·바이어 시트(공장 안 찍힘), 예전 기록) | `docs/labdip.md` (요청·정한 것·흐름·번호·상태·인쇄 규칙·데이터·예전 기록·확인한 것) |
 
 트리거 예시:
@@ -104,7 +104,7 @@ GRUBIG-APP/
 │   │   ├── quote/               # PDFRenderer (견적서 PDF), QuoteParts (견적서 화면 공용 부품), FabricPickerModal, RunningGreigeModal (러닝 생지 견적 창)
 │   │   ├── cost/                # 원가 표·원가 설정·'원가 확인 필요' 경고 (CostBreakdownTable, CostSettingsModal + costSettingsForm·CostSettingsParts, CostWarnings)
 │   │   ├── sticker/             # 헹거 스티커 — StickerEditModal(입력 창: 아이템·CATEGORY·CARE 체크·잠긴 WIDTH/WEIGHT·QR 그림 올리기), StickerPreview(엑셀 칸 크기 그대로 미리보기), StickerSettingsModal(CATEGORY·CARE 목록)
-│   │   ├── knitFactory/         # 편직처 기계 현황 — KnitFactoryDetail(상세·메모·작업 이력), KnitMachineSearch(기계로 찾기 — 보기·고르기 공용), KnitMapView(카카오 지도·방문 순서·키 안내), KnitFactoryEditModal(입력 창 — 기계·보유 가마), KnitTypeSettingsModal(기계 종류·계열), KnitImportModal(정리본 가져오기), KnitMachinePickerModal(설계서 [기계 현황에서 고르기] — body 포털), KnitParts(종류 칩·게이지 칩·침수·확인일·목록 요약·KnitBlocks 기계 현황·지금 가마 바꾸기)
+│   │   ├── knitFactory/         # 편직처 기계 현황 — KnitFactoryList(전체 목록 — 칸 4개 줄), KnitFactoryDetail(상세·메모·작업 이력), KnitMachineSearch(기계로 찾기 — 보기·고르기 공용), KnitMapView(카카오 지도·방문 순서·키 안내), KnitFactoryEditModal(입력 창 — 기계·보유 가마), KnitTypeSettingsModal(기계 종류·계열), KnitImportModal(정리본 가져오기), KnitMachinePickerModal(설계서 [기계 현황에서 고르기] — body 포털), KnitParts(종류 칩·게이지 칩·침수·확인일·목록 요약·KnitBlocks 기계 현황·지금 가마 바꾸기)
 │   │   ├── labdip/              # LAB-DIP — LabdipForm(작성 화면·진행 상황), LabdipColorCard(컬러 칸·[기록]·되돌리기·Drop), LabdipDialogs(L/D 도착·바이어 발송·결과·2차 의뢰 창), LabdipParts(단계 칩·[+ 새 L/D ▾]), LabdipRequestSheet(공장 의뢰서 인쇄), LabdipPrintSheet(바이어 시트 인쇄)
 │   │   └── domain/              # (도메인 컴포넌트 - 현재 비어있음)
 │   │

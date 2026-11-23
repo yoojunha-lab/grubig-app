@@ -10,7 +10,7 @@ import {
 //  · 카드 = 종류 + 인치 묶음 (가마를 돌려 쓰는 단위). 카드 머리에서 종류 · 인치를 바꾸면 그 카드의 기계 · 가마가 같이 바뀜
 //  · 기계 줄: 대수 · 피더 · 지금 가마 · 침수 · 스판장치 · 제조사 · 메모 — 줄 추가 · 복사 · 지우기 (피더는 기계마다, 가마에는 없음)
 //  · 보유 가마: 게이지 · 개수(꽂힌 것 포함) · 침수 · 메모 — 추가 · 지우기 · '18, 22, 24' 한 번에
-//  · [+ 종류 · 인치 추가] 새 카드 · [저장] 한 번에 저장(확인일 오늘) · [취소] 버림
+//  · [+ 종류 · 인치 추가] 새 카드 · [저장] 한 번에 저장(확인일 오늘) · [취소] 버림 — 저장 줄은 맨 위 (내려가면 위 메뉴 밑에 떠 있음)
 //  · 화면을 나가기 전에 저장 안 한 변경이 있으면 묻는 건 KnitFactoryDetail · KnitFactoryPage
 // ============================================================
 
@@ -70,6 +70,28 @@ export const KnitEquipmentEditor = ({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const busyRef = useRef(false);
+  // 저장 줄이 화면 위로 지나가면 위에 떠 있는 저장 줄을 보여 줌 (앱 화면 칸이 overflow-x-hidden 이라 CSS sticky 가 안 먹음)
+  const rootRef = useRef(null);
+  const barRef = useRef(null);
+  const [floatBox, setFloatBox] = useState(null);   // { left, width } | null
+  useEffect(() => {
+    const HEADER = 64;                                // 위 메뉴 높이
+    const check = () => {
+      const bar = barRef.current?.getBoundingClientRect();
+      const root = rootRef.current?.getBoundingClientRect();
+      if (!bar || !root) return;
+      const show = bar.bottom < HEADER && root.bottom > HEADER + 120;
+      setFloatBox(prev => {
+        if (!show) return null;
+        if (prev && prev.left === root.left && prev.width === root.width) return prev;
+        return { left: root.left, width: root.width };
+      });
+    };
+    check();
+    window.addEventListener('scroll', check, { passive: true });
+    window.addEventListener('resize', check);
+    return () => { window.removeEventListener('scroll', check); window.removeEventListener('resize', check); };
+  }, []);
   const listId = useMemo(() => `kme_${Math.random().toString(36).slice(2, 7)}`, []);
   const makerList = useMemo(() => [...new Set([...KNIT_MAKERS, ...knitFactories.flatMap(f => (f.machines || []).map(m => String(m.maker || '').trim()))].filter(Boolean))], [knitFactories]);
 
@@ -138,11 +160,37 @@ export const KnitEquipmentEditor = ({
     onCancel();
   };
 
+  // 저장 줄 (맨 위 · 떠 있는 것 같이 씀)
+  const saveBar = (extra) => (
+    <div className={`flex flex-wrap items-center justify-between gap-2 bg-white/95 backdrop-blur border border-slate-200 rounded-xl shadow-sm px-3 py-2 ${extra}`}>
+      <span className="text-xs">
+        {error ? <b className="text-red-600">{error}</b>
+          : dirty ? <b className="text-amber-600">● 저장 안 한 변경 있음</b>
+            : <span className="text-slate-400">고친 내용이 없어요</span>}
+        <span className="ml-2 text-[10px] text-slate-400">저장하면 확인일이 오늘로 바뀌어요</span>
+      </span>
+      <span className="flex gap-2">
+        <button type="button" onClick={cancel} className="bg-white border border-slate-300 text-slate-600 px-4 py-1.5 rounded-lg hover:bg-slate-50 text-sm font-bold">취소</button>
+        <button type="button" onClick={save} disabled={busy || !dirty}
+          className="bg-violet-600 text-white px-5 py-1.5 rounded-lg hover:bg-violet-700 text-sm font-bold inline-flex items-center gap-1.5 disabled:opacity-40">
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} 저장
+        </button>
+      </span>
+    </div>
+  );
+
   return (
-    <div className="space-y-2.5">
+    <div ref={rootRef} className="space-y-2.5">
+      {/* 저장 줄 — 맨 위 (대표님 요청 2026-11-24 '취소 · 저장 위로'). 내려가면 같은 줄이 위 메뉴 밑에 떠 있음 */}
+      <div ref={barRef}>{saveBar('')}</div>
+      {floatBox && (
+        <div className="fixed top-[68px] z-30" style={{ left: floatBox.left, width: floatBox.width }}>
+          {saveBar('shadow-xl ring-1 ring-violet-200')}
+        </div>
+      )}
       <p className="text-[11px] text-slate-500 flex items-start gap-1">
         <Info className="w-3.5 h-3.5 mt-px shrink-0" />
-        카드 = 종류 + 인치 (그 안의 기계끼리 가마를 돌려 써요). 칸을 고친 뒤 아래 [저장]을 눌러야 저장돼요. 침수를 비우면 게이지 × 3.14 × 인치로 보여 줘요.
+        카드 = 종류 + 인치 (그 안의 기계끼리 가마를 돌려 써요). 칸을 고친 뒤 위 [저장]을 눌러야 저장돼요. 침수를 비우면 게이지 × 3.14 × 인치로 보여 줘요.
       </p>
 
       {draft.map(b => (
@@ -263,22 +311,6 @@ export const KnitEquipmentEditor = ({
         </button>
       )}
 
-      {/* 저장 줄 — 화면 아래에 붙어 있게 */}
-      <div className="sticky bottom-2 z-10 flex flex-wrap items-center justify-between gap-2 bg-white/95 backdrop-blur border border-slate-200 rounded-xl shadow-lg px-3 py-2">
-        <span className="text-xs">
-          {error ? <b className="text-red-600">{error}</b>
-            : dirty ? <b className="text-amber-600">● 저장 안 한 변경 있음</b>
-              : <span className="text-slate-400">고친 내용이 없어요</span>}
-          <span className="ml-2 text-[10px] text-slate-400">저장하면 확인일이 오늘로 바뀌어요</span>
-        </span>
-        <span className="flex gap-2">
-          <button type="button" onClick={cancel} className="bg-white border border-slate-300 text-slate-600 px-4 py-1.5 rounded-lg hover:bg-slate-50 text-sm font-bold">취소</button>
-          <button type="button" onClick={save} disabled={busy || !dirty}
-            className="bg-violet-600 text-white px-5 py-1.5 rounded-lg hover:bg-violet-700 text-sm font-bold inline-flex items-center gap-1.5 disabled:opacity-40">
-            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} 저장
-          </button>
-        </span>
-      </div>
       <datalist id={`${listId}_maker`}>{makerList.map(m => <option key={m} value={m} />)}</datalist>
     </div>
   );

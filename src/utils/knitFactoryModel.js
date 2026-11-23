@@ -295,6 +295,33 @@ export const factoryTotals = (factory, config) => {
   };
 };
 
+/**
+ * 종류별 한 줄 요약 (편직처 목록 — 2026-11-24 '보기 쉽게')
+ *  반환: [{ type, family, total(대수 합), unknown(대수 모르는 줄 있음), inches: [{ inch, count, unknown }], gauges, mounted, spandex: 'yes'|'no'|'' (하나라도 있음이면 yes) }]
+ */
+export const typeSummaries = (blocks) => {
+  const map = new Map();
+  (blocks || []).forEach(b => {
+    if (!map.has(b.type)) map.set(b.type, { type: b.type, family: b.family, total: 0, unknown: false, inches: [], gauges: new Set(), mounted: new Set(), spandex: new Set() });
+    const t = map.get(b.type);
+    const unknown = b.machines.some(m => !m.count);
+    t.total += b.count;
+    t.unknown = t.unknown || unknown;
+    if (b.machines.length) t.inches.push({ inch: b.inch, count: b.count, unknown });
+    b.gauges.forEach(g => t.gauges.add(g));
+    b.mounted.forEach(g => t.mounted.add(g));
+    b.machines.forEach(m => t.spandex.add(m.spandex));
+  });
+  return [...map.values()].map(t => ({
+    ...t,
+    gauges: [...t.gauges].sort((a, b) => a - b),
+    mounted: [...t.mounted].sort((a, b) => a - b),
+    spandex: t.spandex.has('yes') ? 'yes' : (t.spandex.size === 1 && t.spandex.has('no') ? 'no' : ''),
+  }));
+};
+/** 계열별 대수 { 싱글: 41, 양면: 12 } */
+export const familyTotals = (blocks) => (blocks || []).reduce((acc, b) => { acc[b.family] = (acc[b.family] || 0) + b.count; return acc; }, {});
+
 /** 확인일 → 지난 날 수 (없으면 null) */
 export const daysSince = (ymd, today = todayLocalISO()) => {
   const a = /^\d{4}-\d{2}-\d{2}$/.test(str(ymd)) ? new Date(`${ymd}T00:00:00`) : null;

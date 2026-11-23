@@ -7,9 +7,11 @@ import { KnitImportModal } from '../components/knitFactory/KnitImportModal';
 import { KnitTypeSettingsModal } from '../components/knitFactory/KnitTypeSettingsModal';
 import { KnitMapView } from '../components/knitFactory/KnitMapView';
 import { KnitSheetAlignModal } from '../components/knitFactory/KnitSheetAlignModal';
-import { CheckBadge, BlockSummary } from '../components/knitFactory/KnitParts';
+import { CheckBadge } from '../components/knitFactory/KnitParts';
+import { KnitFactoryList } from '../components/knitFactory/KnitFactoryList';
 import {
   sortFactories, factoryMatches, factoryTotals, needsCheck, checkState, KNIT_CHECK_STALE_DAYS, EMPTY_MACHINE_FILTERS, fmtNum, sheetKnitAlarm, knitJobsFor,
+  familyTotals, familyTone, sameFactoryName, daysSince, UNGROUPED_FAMILY,
 } from '../utils/knitFactoryModel';
 import { todayLocalISO } from '../utils/helpers';
 
@@ -63,6 +65,8 @@ export const KnitFactoryPage = ({
   const [search, setSearch] = useState('');
   const [region, setRegion] = useState('');
   const [staleOnly, setStaleOnly] = useState(false);
+  const [family, setFamily] = useState('');         // 계열 거르기 ('' = 전체)
+  const [sortKey, setSortKey] = useState('name');   // 'name' | 'machines' | 'recent' | 'check'
   const [detailId, setDetailId] = useState(null);     // 상세로 연 편직처
   const [mapFocusId, setMapFocusId] = useState(null);
   const [machineFilters, setMachineFilters] = useState(EMPTY_MACHINE_FILTERS);
@@ -101,11 +105,48 @@ export const KnitFactoryPage = ({
   const sorted = useMemo(() => sortFactories(knitFactories), [knitFactories]);
   const regions = useMemo(() => [...new Set(sorted.map(f => String(f.region || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko')), [sorted]);
   const staleCount = sorted.filter(f => needsCheck(f, today)).length;
-  const rows = useMemo(() => sorted.filter(f => factoryMatches(f, search)
+  // 편직처마다 기계 합계 (한 번만 계산)
+  const totalsById = useMemo(() => new Map(sorted.map(f => [f.id, factoryTotals(f, knitConfig)])), [sorted, knitConfig]);
+  // 우리 작업 — 설계서 · 생산 오더 수 · 마지막 날짜 (상세 '우리 작업 이력'과 같은 기준: 이름)
+  const workByFactory = useMemo(() => Object.fromEntries(sorted.map(f => {
+    const sh = designSheets.filter(x => sameFactoryName(x?.knitting?.factory, f.name));
+    const od = orders.filter(o => sameFactoryName(o?.steps?.knitting?.vendor, f.name));
+    const lastAt = [...sh.map(x => String(x.updatedAt || x.createdAt || '')), ...od.map(o => String(o.createdAt || ''))]
+      .filter(Boolean).sort().pop() || '';
+    return [f.id, { sheets: sh.length, orders: od.length, lastAt }];
+  })), [sorted, designSheets, orders]);
+  // 검색 · 지역 · 확인 필요로 거른 것 (계열 칩 숫자는 여기서)
+  const baseRows = useMemo(() => sorted.filter(f => factoryMatches(f, search)
     && (!region || f.region === region)
     && (!staleOnly || needsCheck(f, today))), [sorted, search, region, staleOnly, today]);
+  const familyCounts = useMemo(() => {
+    const acc = {};
+    baseRows.forEach(f => Object.entries(familyTotals(totalsById.get(f.id)?.blocks)).forEach(([k, n]) => { acc[k] = (acc[k] || 0) + n; }));
+    return acc;
+  }, [baseRows, totalsById]);
+  const familyList = useMemo(() => [...(knitConfig?.families || []), UNGROUPED_FAMILY]
+    .filter(k => familyCounts[k] !== undefined), [knitConfig, familyCounts]);
+  const rows = useMemo(() => {
+    const list = baseRows.filter(f => !family || (totalsById.get(f.id)?.blocks || []).some(b => b.family === family));
+    if (sortKey === 'name') return list;
+    const key = {
+      machines: (f) => -(totalsById.get(f.id)?.total || 0),
+      recent: (f) => workByFactory[f.id]?.lastAt || '',
+      check: (f) => { const d = daysSince(f.checkedAt, today); return d === null ? -1 : -d; },
+    }[sortKey];
+    return [...list].sort((a, b) => {
+      const ka = key(a); const kb = key(b);
+      if (sortKey === 'recent') return kb.localeCompare(ka);   // 최근 먼저, 작업 없는 곳은 뒤
+      return ka - kb;
+    });
+  }, [baseRows, family, sortKey, totalsById, workByFactory, today]);
   const detail = detailId ? sorted.find(f => f.id === detailId) || null : null;
-  const allMachines = sorted.reduce((s, f) => s + factoryTotals(f, knitConfig).total, 0);
+  const allMachines = sorted.reduce((sum, f) => sum + (totalsById.get(f.id)?.total || 0), 0);
+  const rowMachines = rows.reduce((sum, f) => sum + (totalsById.get(f.id)?.total || 0), 0);
+  // 계열을 고르면 그 계열 기계만 센 대수도 (전체 대수와 같이 보여 줌)
+  const rowFamilyMachines = family ? rows.reduce((sum, f) => sum + (familyTotals(totalsById.get(f.id)?.blocks)[family] || 0), 0) : 0;
+  const rowCylinders = rows.reduce((sum, f) => sum + (totalsById.get(f.id)?.cylinders || 0), 0);
+  const rowKnitting = rows.reduce((sum, f) => sum + (jobsByFactory[f.id] || []).filter(j => j.state === 'knitting').length, 0);
 
   // 상세 열기 · 목록으로 (목록에서 보던 자리 그대로)
   const openDetail = (id) => {
@@ -278,7 +319,33 @@ export const KnitFactoryPage = ({
           </div>
         ) : (
           <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-            {/* 거르기 */}
+            {/* 요약 — 보이는 편직처 기준 (계열 칩을 누르면 그 계열 기계가 있는 곳만) */}
+            <div className="px-3 sm:px-4 py-2.5 border-b border-slate-100 bg-gradient-to-r from-violet-50/70 to-white flex flex-wrap items-center gap-x-5 gap-y-1.5">
+              <span className="text-sm text-slate-600">편직처 <b className="text-lg font-extrabold text-slate-800">{rows.length}</b>곳</span>
+              {family ? (
+                <span className="text-sm text-slate-600">{family} 기계 <b className="text-lg font-extrabold text-slate-800">{fmtNum(rowFamilyMachines) || 0}</b>대
+                  <span className="text-xs text-slate-400"> (이 편직처들 전체 {fmtNum(rowMachines) || 0}대)</span></span>
+              ) : (
+                <span className="text-sm text-slate-600">기계 <b className="text-lg font-extrabold text-slate-800">{fmtNum(rowMachines) || 0}</b>대</span>
+              )}
+              {rowCylinders > 0 && <span className="text-sm text-slate-600">보유 가마 <b className="text-lg font-extrabold text-slate-800">{fmtNum(rowCylinders)}</b>개</span>}
+              {rowKnitting > 0 && <span className="text-sm text-emerald-700 font-bold">● 편직 중 오더 {rowKnitting}건</span>}
+              {familyList.length > 0 && (
+                <span className="flex flex-wrap items-center gap-1 lg:ml-auto">
+                  <span className="text-[11px] font-bold text-slate-500 mr-0.5">계열</span>
+                  <button type="button" onClick={() => setFamily('')}
+                    className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${family === '' ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}>전체</button>
+                  {familyList.map(k => (
+                    <button key={k} type="button" onClick={() => setFamily(v => (v === k ? '' : k))}
+                      title={`${k} 계열 기계가 있는 편직처만`}
+                      className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${family === k ? 'ring-2 ring-offset-1 ring-violet-400' : 'opacity-90 hover:opacity-100'} ${familyTone(knitConfig, k)}`}>
+                      {k} {fmtNum(familyCounts[k]) || 0}대
+                    </button>
+                  ))}
+                </span>
+              )}
+            </div>
+            {/* 거르기 · 정렬 */}
             <div className="p-3 flex flex-wrap items-center gap-2 border-b border-slate-100">
               <div className="relative flex-1 min-w-[200px] max-w-sm">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
@@ -289,7 +356,7 @@ export const KnitFactoryPage = ({
                 {['', ...regions].map(r => (
                   <button key={r || 'all'} type="button" onClick={() => setRegion(r)}
                     className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${region === r ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'}`}>
-                    {r || '전체'}
+                    {r || '전체 지역'}
                   </button>
                 ))}
                 {staleCount > 0 && (
@@ -300,37 +367,19 @@ export const KnitFactoryPage = ({
                   </button>
                 )}
               </div>
-              <span className="ml-auto text-xs text-slate-400">{rows.length}곳</span>
+              <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-slate-500">
+                정렬
+                <select value={sortKey} onChange={e => setSortKey(e.target.value)}
+                  className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-700 outline-none focus:ring-2 ring-violet-200">
+                  <option value="name">이름 순</option>
+                  <option value="machines">기계 많은 순</option>
+                  <option value="recent">최근 우리 작업 순</option>
+                  <option value="check">확인 오래된 순</option>
+                </select>
+              </label>
             </div>
             {/* 목록 */}
-            <ul className="divide-y divide-slate-100">
-              {rows.length === 0 && <li className="px-3 py-10 text-center text-sm text-slate-400">찾는 편직처가 없어요.</li>}
-              {rows.map(f => {
-                const t = factoryTotals(f, knitConfig);
-                return (
-                  <li key={f.id}>
-                    <button type="button" onClick={() => openDetail(f.id)} className="w-full text-left px-3 sm:px-4 py-2.5 hover:bg-violet-50/50 flex flex-col sm:flex-row items-stretch sm:items-start gap-1.5 sm:gap-3">
-                      <div className="sm:w-44 shrink-0">
-                        <p className="font-extrabold text-slate-800 truncate">{f.name}</p>
-                        <p className="text-[11px] text-slate-500">
-                          {f.region || '지역 없음'} · 기계 <b className="text-slate-700">{t.total ? `${fmtNum(t.total)}대` : '?'}</b>
-                          {t.cylinders ? <> · 가마 <b className="text-slate-700">{fmtNum(t.cylinders)}</b></> : null}
-                        </p>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-1">
-                          <CheckBadge factory={f} today={today} size="xs" />
-                          {(() => {
-                            const n = (jobsByFactory[f.id] || []).filter(j => j.state === 'knitting').length;
-                            return n ? <span className="text-[10px] font-extrabold text-emerald-700" title="생산 현황에서 편직 중인 오더">● 편직 중 {n}</span> : null;
-                          })()}
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0 pt-0.5"><BlockSummary blocks={t.blocks} config={knitConfig} /></div>
-                      <ChevronRight className="hidden sm:block w-4 h-4 text-slate-300 shrink-0 mt-1" />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            <KnitFactoryList rows={rows} config={knitConfig} today={today} family={family} jobsByFactory={jobsByFactory} workByFactory={workByFactory} onOpen={openDetail} />
           </section>
         )}
       </div>
