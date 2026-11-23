@@ -101,7 +101,6 @@ export const KnitFactoryPage = ({
   });
   const selectedRowRef = useRef(null);   // 상세 왼쪽 목록에서 고른 줄
   const listBoxRef = useRef(null);       // 상세 왼쪽 목록 스크롤 칸
-  const tableScrollRef = useRef({ top: 0, left: 0 });   // 전체 목록 표 — 상세에 갔다 와도 보던 자리 (위아래 · 옆)
 
   const sorted = useMemo(() => sortFactories(knitFactories), [knitFactories]);
   const regions = useMemo(() => [...new Set(sorted.map(f => String(f.region || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko')), [sorted]);
@@ -380,7 +379,7 @@ export const KnitFactoryPage = ({
               </label>
             </div>
             {/* 목록 */}
-            <KnitFactoryList rows={rows} config={knitConfig} today={today} family={family} jobsByFactory={jobsByFactory} workByFactory={workByFactory} onOpen={openDetail} scrollMemoRef={tableScrollRef} />
+            <KnitFactoryList rows={rows} config={knitConfig} today={today} family={family} jobsByFactory={jobsByFactory} workByFactory={workByFactory} onOpen={openDetail} />
           </section>
         )}
       </div>

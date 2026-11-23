@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  MapPin, Loader2, KeyRound, ExternalLink, Navigation, ArrowUp, ArrowDown, X, Crosshair, Route, Filter, Check, Info,
+  MapPin, Loader2, KeyRound, ExternalLink, Navigation, ArrowUp, ArrowDown, X, Crosshair, Route, Filter, Check, Info, RotateCcw,
 } from 'lucide-react';
 import { loadKakaoMaps } from '../../utils/kakaoMap';
 import {
@@ -96,6 +96,7 @@ export const KnitMapView = ({
   const [visit, setVisit] = useState([]);           // 방문 순서 (편직처 id)
   const [pinMode, setPinMode] = useState(null);     // 지도에서 찍을 편직처 id
   const [geoProgress, setGeoProgress] = useState(null); // { done, total }
+  const [regeo, setRegeo] = useState(null);         // [주소로 다시 찾기] { id, busy, error }
   const failedRef = useRef(new Set());
 
   // ── 보일 편직처 ──
@@ -139,6 +140,27 @@ export const KnitMapView = ({
     setSelectedId(id);
   };
   handlersRef.current.markerClick = (id) => setSelectedId(id);
+
+  // [주소로 다시 찾기] — 직접 찍은 위치 · 이름으로 찾은 위치 · 못 찾은 곳을 적혀 있는 대표 주소로 다시 (대표님 2026-11-24 '다시 못 돌아가네')
+  const relocateByAddress = async (f) => {
+    if (!f || regeo?.busy) return;
+    if (!geocode) { setRegeo({ id: f.id, busy: false, error: '카카오맵 키가 없어서 주소로 찾을 수 없어요.' }); return; }
+    setPinMode(null);
+    setRegeo({ id: f.id, busy: true, error: '' });
+    let geo = null;
+    try { geo = await geocode(f); } catch { geo = null; }
+    if (!geo) {
+      setRegeo({ id: f.id, busy: false, error: '적혀 있는 주소로 위치를 못 찾았어요. 주소를 고치거나 지도에서 직접 찍어 주세요.' });
+      return;
+    }
+    const ok = await setGeo(f.id, geo);
+    setRegeo(ok ? null : { id: f.id, busy: false, error: '저장하지 못했어요. 다시 해 주세요.' });
+    if (!ok) return;
+    failedRef.current.delete(f.id);
+    const kakao = window.kakao;
+    const map = mapRef.current;
+    if (kakao?.maps && map) map.setCenter(new kakao.maps.LatLng(geo.lat, geo.lng));
+  };
   useEffect(() => { pinModeRef.current = pinMode; }, [pinMode]);
 
   // ── 핀 그리기 ──
@@ -366,6 +388,7 @@ export const KnitMapView = ({
                   <span>기계 {fmtNum(factoryTotals(selected, config).total) || '?'}대</span>
                   {selected.phone && <a href={`tel:${selected.phone.split('/')[0].replace(/[^\d+]/g, '')}`} className="font-bold text-slate-700">{selected.phone}</a>}
                   {selected.geo?.byName && <span className="text-amber-700 inline-flex items-center gap-0.5"><Info className="w-3 h-3" /> 이름으로 찾은 위치 — 맞는지 확인</span>}
+                  {selected.geo?.manual && <span className="text-amber-700 inline-flex items-center gap-0.5" title="지도에서 직접 찍은 위치예요. [주소로 다시 찾기]로 적혀 있는 주소 위치로 돌아갈 수 있어요."><MapPin className="w-3 h-3" /> 직접 찍은 위치</span>}
                 </div>
                 <div className="max-h-24 overflow-y-auto"><BlockSummary blocks={factoryTotals(selected, config).blocks} config={config} /></div>
                 <div className="flex flex-wrap gap-1.5">
@@ -373,7 +396,16 @@ export const KnitMapView = ({
                   <button type="button" onClick={() => toggleVisit(selected.id)} className="text-xs font-bold text-sky-700 border border-sky-200 rounded-lg px-2.5 py-1 hover:bg-sky-50">{visit.includes(selected.id) ? '방문에서 빼기' : '방문에 넣기'}</button>
                   {selected.geo && <a href={kakaoLinkTo(selected.name, selected.geo)} target="_blank" rel="noreferrer" className="text-xs font-bold text-amber-800 bg-yellow-50 border border-yellow-300 rounded-lg px-2.5 py-1 inline-flex items-center gap-1"><Navigation className="w-3 h-3" /> 카카오맵 길찾기</a>}
                   <button type="button" onClick={() => setPinMode(selected.id)} className="text-xs font-bold text-amber-700 border border-amber-200 rounded-lg px-2.5 py-1 hover:bg-amber-50 inline-flex items-center gap-1"><MapPin className="w-3 h-3" /> {selected.geo ? '위치 다시 찍기' : '위치 찍기'}</button>
+                  {/* 직접 찍었거나 · 이름으로 찾았거나 · 위치가 없으면 → 적혀 있는 주소로 다시 */}
+                  {(selected.addresses || [])[0] && (!selected.geo || selected.geo.manual || selected.geo.byName) && (
+                    <button type="button" onClick={() => relocateByAddress(selected)} disabled={regeo?.id === selected.id && regeo.busy}
+                      title={`'${(selected.addresses || [])[0]}' 로 위치를 다시 찾아요`}
+                      className="text-xs font-bold text-slate-600 border border-slate-300 rounded-lg px-2.5 py-1 hover:bg-slate-50 inline-flex items-center gap-1 disabled:opacity-50">
+                      {regeo?.id === selected.id && regeo.busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />} 주소로 다시 찾기
+                    </button>
+                  )}
                 </div>
+                {regeo?.id === selected.id && regeo.error && <p className="text-[11px] font-bold text-red-600">{regeo.error}</p>}
               </div>
             )}
           </>
