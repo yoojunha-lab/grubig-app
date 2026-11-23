@@ -391,6 +391,7 @@
 | **대표 주소 · 지도 위치** | 주소 첫 줄 / 그 주소의 좌표 (저장할 때 찾음, 못 찾으면 [찍기]) | `addresses[0]`, `geo` |
 | **방문 순서 · 가까운 순서로** | 지도에서 [방문]을 누른 차례 (번호 · 직선 거리 · 길찾기) / 가까운 곳부터 다시 정렬 | `KnitMapView` |
 | **카카오맵 키** | 카카오 개발자 사이트 앱의 JavaScript 키 (회사 공통) | `settings/general.kakaoMapKey` |
+| **기계 수정 · 정보 수정** | 상세에서 기계 · 보유 가마를 그 자리에서 고치기(카드 = 종류 + 인치, [저장] 한 번에) / 이름 · 연락처 · 주소 · 편직료 창 | `KnitEquipmentEditor` · `KnitFactoryEditModal` |
 | **기계 현황에서 고르기** | 설계서 편직 사양 버튼 — 고른 기계 · 게이지로 편직처 · 게이지 · 인치 · 침수 · 피더 채움 | `KnitMachinePickerModal` |
 | **정리본 · 정리본 가져오기 · 확인할 것** | 예전 엑셀을 Claude가 한 줄씩 판단해 만든 .json / 가져오는 창 / 판단한 내용(노란 칸) | `KnitImportModal`, `readSeedFile`, 편직처 `review`(저장 안 함) |
 

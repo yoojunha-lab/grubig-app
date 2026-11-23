@@ -49,9 +49,10 @@ export const KnitFactoryPage = ({
   kakaoMapKey,
   onSaveKakaoMapKey,
   geocode,                  // (factory) => 좌표 | null
-  saveFactory, deleteFactory, addMemo, updateMemo, deleteMemo, markChecked, setMountedGauge, setGeo,
+  saveFactory, deleteFactory, addMemo, updateMemo, deleteMemo, markChecked, setMountedGauge, saveEquipment, setGeo,
   typeUsage, importSeed,
   onOpenSheet,              // (설계서) => 설계서 열기
+  navGuardRef,              // App 위 메뉴로 나갈 때 묻기 (기계 수정 중 저장 안 한 변경)
 }) => {
   const today = todayLocalISO();
   const [view, setView] = useState('list');          // 'list' | 'machine' | 'map'
@@ -66,6 +67,19 @@ export const KnitFactoryPage = ({
   const [typeSettingsOpen, setTypeSettingsOpen] = useState(false);
   const listScrollRef = useRef(0);
   const restoreScrollRef = useRef(false);
+  const equipDirtyRef = useRef(false);   // 상세 [기계 수정] 중 저장 안 한 변경
+  // 기계 수정 중에 다른 곳으로 가려 하면 한 번 묻기 (왼쪽 목록 · ← · 위 보기 단추 · 위 메뉴)
+  const canLeave = () => {
+    if (!equipDirtyRef.current) return true;
+    if (!window.confirm('저장 안 한 기계 수정이 있어요. 버리고 나갈까요?')) return false;
+    equipDirtyRef.current = false;
+    return true;
+  };
+  useEffect(() => {
+    if (!navGuardRef) return undefined;
+    navGuardRef.current = (proceed) => { if (canLeave()) proceed(); };
+    return () => { if (navGuardRef) navGuardRef.current = null; };
+  });
   const selectedRowRef = useRef(null);   // 상세 왼쪽 목록에서 고른 줄
   const listBoxRef = useRef(null);       // 상세 왼쪽 목록 스크롤 칸
 
@@ -80,12 +94,13 @@ export const KnitFactoryPage = ({
 
   // 상세 열기 · 목록으로 (목록에서 보던 자리 그대로)
   const openDetail = (id) => {
+    if (id !== detailId && !canLeave()) return;
     if (view === 'list' && !detailId) listScrollRef.current = window.scrollY;
     setDetailId(id);
     setView('list');
     window.scrollTo(0, 0);
   };
-  const backToList = () => { restoreScrollRef.current = true; setDetailId(null); };
+  const backToList = () => { if (!canLeave()) return; restoreScrollRef.current = true; setDetailId(null); };
   useLayoutEffect(() => {
     if (!detailId && restoreScrollRef.current) {
       restoreScrollRef.current = false;
@@ -102,7 +117,7 @@ export const KnitFactoryPage = ({
       box.scrollTop = Math.max(0, top - box.clientHeight / 2 + row.offsetHeight / 2);
     }
   }, [detailId]);
-  const switchView = (v) => { setView(v); setDetailId(null); if (v !== 'map') setMapFocusId(null); };
+  const switchView = (v) => { if (!canLeave()) return; setView(v); setDetailId(null); if (v !== 'map') setMapFocusId(null); };
   const openEditor = (id = null) => setEditor({ id, key: `${id || 'new'}_${Date.now()}` });
 
   return (
@@ -230,7 +245,10 @@ export const KnitFactoryPage = ({
               onDeleteMemo={(memoId) => deleteMemo(detail.id, memoId)}
               onMarkChecked={() => markChecked(detail.id)}
               onSetGauge={(machineId, g) => setMountedGauge(detail.id, machineId, g)}
-              onShowOnMap={() => { setMapFocusId(detail.id); setDetailId(null); setView('map'); }}
+              onSaveEquipment={(equip) => saveEquipment(detail.id, equip)}
+              knitFactories={knitFactories}
+              onEquipDirtyChange={(d) => { equipDirtyRef.current = d; }}
+              onShowOnMap={() => { if (!canLeave()) return; setMapFocusId(detail.id); setDetailId(null); setView('map'); }}
               onOpenSheet={onOpenSheet}
             />
           </section>
@@ -302,7 +320,6 @@ export const KnitFactoryPage = ({
             return ok;
           }}
           onSaved={(doc) => { if (view === 'list') setDetailId(doc.id); }}
-          onOpenTypeSettings={() => setTypeSettingsOpen(true)}
           onClose={() => setEditor(null)}
         />
       )}

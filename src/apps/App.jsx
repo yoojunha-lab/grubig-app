@@ -1633,6 +1633,7 @@ const App = () => {
             kakaoMapKey={kakaoMapKey}
             onSaveKakaoMapKey={saveKakaoMapKey}
             geocode={geocodeKnitFactory}
+            navGuardRef={navGuardRef}
             {...knitFactoryHook}
             onOpenSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
           />

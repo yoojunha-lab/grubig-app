@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import {
   KNIT_FACTORY_COLLECTION, cleanFactoryForSave, equipmentChanged, sameFactoryName, needsGeocode, normalizeMachine,
+  normalizeCylinder, isEmptyMachine, isEmptyCylinder,
 } from '../../utils/knitFactoryModel';
 import { todayLocalISO } from '../../utils/helpers';
 
@@ -169,6 +170,25 @@ export const useKnitFactory = ({
     return ok;
   };
 
+  /**
+   * 상세 화면 [기계 수정] 저장 — 기계 줄 · 보유 가마만 통째로 바꿈 (대표님 요청 2026-11-24 '이 화면에서 바로')
+   *  고친 게 있으면 확인일 오늘. 반환: 저장했으면 true
+   */
+  const saveEquipment = async (id, { machines, cylinders }) => {
+    const existing = findFactory(id);
+    if (!existing) { showToast('편직처를 찾을 수 없어요. 다른 곳에서 지웠을 수 있어요.', 'error'); return false; }
+    const next = {
+      machines: (machines || []).map(normalizeMachine).filter(m => !isEmptyMachine(m)),
+      cylinders: (cylinders || []).map(normalizeCylinder).filter(c => !isEmptyCylinder(c)),
+    };
+    if (next.machines.some(m => !m.type) || next.cylinders.some(c => !c.type)) { showToast('종류를 고르지 않은 카드가 있어요.', 'error'); return false; }
+    const changed = equipmentChanged(existing, next);
+    if (!changed) return true;
+    const ok = await patchFactory(id, { ...next, checkedAt: todayLocalISO() });
+    if (ok) showToast(`'${existing.name}' 기계 현황을 저장했어요. 확인일이 오늘로 바뀌었어요.`, 'success');
+    return ok;
+  };
+
   /** 지도 위치 — 직접 찍기(manual) · 자동으로 찾은 좌표 저장(auto: '마지막 저장'은 안 바꿈) */
   const setGeo = async (id, geo, { auto = false } = {}) => {
     const ok = await patchFactory(id, { geo }, { touch: !auto });
@@ -260,7 +280,7 @@ export const useKnitFactory = ({
   };
 
   return {
-    saveFactory, deleteFactory, addMemo, updateMemo, deleteMemo, markChecked, setMountedGauge, setGeo,
+    saveFactory, deleteFactory, addMemo, updateMemo, deleteMemo, markChecked, setMountedGauge, saveEquipment, setGeo,
     renameTypeInFactories, typeUsage, importSeed,
   };
 };

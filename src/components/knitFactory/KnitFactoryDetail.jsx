@@ -7,6 +7,7 @@ import { factoryTotals, sameFactoryName, checkState, fmtNum, kakaoLinkTo, kakaoL
 import { DESIGN_STAGES } from '../../constants/common';
 import { todayLocalISO } from '../../utils/helpers';
 import { CheckBadge, KnitBlocks } from './KnitParts';
+import { KnitEquipmentEditor } from './KnitEquipmentEditor';
 
 // ============================================================
 // 편직처 기계 현황 — 편직처 한 곳 보기 (대표님 요청 2026-11-23, 2차: 목록에서 눌러서 열고 ← 로 목록으로 — 견적서 화면과 같은 모양)
@@ -84,6 +85,9 @@ export const KnitFactoryDetail = ({
   today,
   onBack,               // [← 목록으로]
   onEdit, onAddMemo, onUpdateMemo, onDeleteMemo, onMarkChecked, onSetGauge,
+  onSaveEquipment,      // ({ machines, cylinders }) => 저장했으면 true — [기계 수정]
+  knitFactories = [],   // 제조사 자동 완성
+  onEquipDirtyChange,   // (편집 중 저장 안 한 변경 있음) — 편직처 화면이 나갈 때 묻기
   onShowOnMap,          // 지도 화면에서 이 편직처 보기
   onOpenSheet,          // (설계서) => 설계서 열기
 }) => {
@@ -91,7 +95,9 @@ export const KnitFactoryDetail = ({
   const [memoBusy, setMemoBusy] = useState(false);
   const [checkBusy, setCheckBusy] = useState(false);
   const [showAllHistory, setShowAllHistory] = useState(false);
+  const [editingEquip, setEditingEquip] = useState(false);   // [기계 수정] 중
   const totals = factoryTotals(factory, config);
+  const closeEquipEditor = () => { setEditingEquip(false); onEquipDirtyChange?.(false); };
   const st = checkState(factory, today);
 
   const sheets = useMemo(() => designSheets
@@ -144,7 +150,7 @@ export const KnitFactoryDetail = ({
           </button>
           <button type="button" onClick={onEdit}
             className="bg-violet-600 text-white px-3 py-1.5 rounded-lg hover:bg-violet-700 text-xs font-bold inline-flex items-center gap-1">
-            <Pencil className="w-3.5 h-3.5" /> 수정
+            <Pencil className="w-3.5 h-3.5" /> 정보 수정
           </button>
         </div>
       </div>
@@ -192,9 +198,22 @@ export const KnitFactoryDetail = ({
       </div>
 
       {/* 기계 현황 */}
-      <Section icon={Factory} title="기계 현황"
-        right={<span className="hidden sm:inline text-[10px] text-slate-400 text-right">같은 종류 · 같은 인치 기계끼리 가마를 돌려 써요 · '지금 가마'를 누르면 바로 바꿔요 · 침수 ≈ 회색 = 계산 값</span>}>
-        <KnitBlocks factory={factory} config={config} onSetGauge={onSetGauge} />
+      <Section icon={Factory} title={editingEquip ? '기계 현황 — 수정 중' : '기계 현황'}
+        right={editingEquip ? null : (
+          <span className="flex items-center gap-2">
+            <span className="hidden md:inline text-[10px] text-slate-400 text-right">같은 종류 · 같은 인치 기계끼리 가마를 돌려 써요 · '지금 가마'를 누르면 바로 바꿔요 · 침수 ≈ 회색 = 계산 값</span>
+            {onSaveEquipment && (
+              <button type="button" onClick={() => setEditingEquip(true)}
+                className="shrink-0 text-xs font-bold text-white bg-violet-600 rounded-lg px-3 py-1.5 hover:bg-violet-700 inline-flex items-center gap-1">
+                <Pencil className="w-3.5 h-3.5" /> 기계 수정
+              </button>
+            )}
+          </span>
+        )}>
+        {editingEquip
+          ? <KnitEquipmentEditor factory={factory} config={config} knitFactories={knitFactories}
+              onSave={onSaveEquipment} onCancel={closeEquipEditor} onDirtyChange={onEquipDirtyChange} />
+          : <KnitBlocks factory={factory} config={config} onSetGauge={onSetGauge} />}
       </Section>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">

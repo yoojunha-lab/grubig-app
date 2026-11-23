@@ -174,7 +174,7 @@ const GaugeSwitcher = ({ machine, block, onSave }) => {
 /** 상세 화면 기계 현황 — 종류 + 인치 묶음마다 기계 줄 + 보유 가마 */
 export const KnitBlocks = ({ factory, config, onSetGauge }) => {
   const blocks = buildBlocks(factory, config);
-  if (!blocks.length) return <p className="text-sm text-slate-400 py-6 text-center border border-dashed border-slate-200 rounded-xl">기계 · 가마가 아직 없어요. [수정]에서 넣어 주세요.</p>;
+  if (!blocks.length) return <p className="text-sm text-slate-400 py-6 text-center border border-dashed border-slate-200 rounded-xl">기계 · 가마가 아직 없어요. 위 [기계 수정]을 눌러 넣어 주세요.</p>;
   return (
     <div className="space-y-2.5">
       {blocks.map(b => (
