@@ -19,7 +19,7 @@
 | UI 용어 통일 (마진 단계 등) + 가설계서/저장·삭제·날짜 규약 + 목록 정렬(Article 순서 §3-A) + 팝업 창 규약(ModalBackdrop) | `docs/terminology.md` (용어 사전) |
 | 원단 원가 계산 (편직 정액·LOSS 구간·가공 유형·이화학/운임·수입 원사 운반비·원가 설정·공통 환율(내수·수출)/견적 환율·실시간 환율·원가 확인 필요·원가 표 6구간(300·500·700YD + 1,000·3,000·5,000YD)) + 견적서 (기준 견적·별도 견적·러닝 생지 견적·견적서 약관 문구(내수는 한글)·예전 800YD 견적 보존) + 개발 의뢰 원가 견적·Drop 사유 | `docs/costing-model.md` (원가 모델 & 설정, 구간 800 → 700YD는 §1-D, 환율은 §5-A, 견적서는 §5-B, 개발 의뢰 원가 견적은 §5-C) |
 | 기타 ▾ 헹거 스티커 (TAG 엑셀 양식 그대로 뽑기 — 아이템 필수·WIDTH·WEIGHT는 아이템 값 잠금(실제 G/YD), CATEGORY 고르기·CARE 체크([⚙ 설정] 목록), QR 그림 올리기(EZ-TEX 주소 읽기), 체크해서 여러 장 엑셀 다운로드) | `docs/hanger-sticker.md` (양식 칸 위치·QR 규칙·칸 규칙·설정·엑셀 만드는 법·확인한 것) |
-| 개발 ▾ 편직처 기계 현황 (예전 편직처 엑셀 — 편직처 연락처·주소·편직료·메모·확인일, 기계 줄: 싱글/더블/자카드/기타 · 세부 종류 · 대수 · 인치 · 피더 · 침수(빈 칸은 ≈게이지×3.14×인치) · 게이지(가마 = 갈아 끼우는 실린더, 여러 개) · 가마수 · 제조사, [기계로 찾기] 게이지·인치(근접 ±1G·±2"), 엑셀 가져오기, 설계서 편직처 목록과 이름 합침, 설계서 [기계 현황에서 고르기], 우리 작업 이력) | `docs/knit-factory.md` (정한 것·화면·데이터·엑셀 읽는 규칙·확인한 것) |
+| 개발 ▾ 편직처 기계 현황 (예전 편직처 엑셀 — 목록(종류·인치 요약) → 상세 [← 목록으로], 기계 줄(종류는 [⚙ 기계 종류] 설정 — 계열도 직접·지금 꼽힌 가마·스판장치) + 보유 가마(같은 종류·인치끼리 돌려 씀), [기계로 찾기] 지금 꼽힘/가마 교체/근접, 카카오 [지도] 방문 순서·길찾기, 엑셀은 Claude가 판단한 정리본(.json) 가져오기, 설계서 [기계 현황에서 고르기], 메모·확인일·우리 작업 이력) | `docs/knit-factory.md` (정한 것·화면·데이터·정리본 판단·확인한 것) |
 | 생산 ▾ LAB-DIP (예전 영업 ▾ Lab-Dip 발송 — 공장 의뢰 + 바이어 발송 묶음: L/D NO. GB26023~(연도마다 001)·공장에 의뢰/바이어 발송만(EZ-TEX)·원단 ARTICLE·ITEM NAME·GSM·폭·울 종류(원사 SW → 슈퍼워시)·광원·PANTONE/바이어 스와치, 컬러마다 공장 진행중→L/D 도착→컨펌대기→컨펌·리젝(같은 번호 2차)·Drop, 진행중·컨펌대기중·완료 탭·공장/바이어 납기, 공장 의뢰서(바이어 안 찍힘)·바이어 시트(공장 안 찍힘), 예전 기록) | `docs/labdip.md` (요청·정한 것·흐름·번호·상태·인쇄 규칙·데이터·예전 기록·확인한 것) |
 
 트리거 예시:
@@ -27,7 +27,7 @@
 - "원가 계산 바꾸자" / "편직비·LOSS·운임 수정" / "원가 설정에 항목 추가" / "수량 직접 입력 칸 만들자" / "원사 운반비·수입사·수입 국가" / "환율·내수/수출 환율·실시간 환율·견적 다시 계산" / "원가 확인 경고·혼용률" / "견적서 구간·기준 견적·별도 견적" / "러닝 생지 견적·생지 짠 수량·컬러별 수량·소량 추가분(서차지)" / "개발 의뢰 원가 견적·Drop 사유·의뢰 견적서" / "원가 표·견적 구간 바꾸기(800 → 700YD)·예전 구간 견적" → `docs/costing-model.md` 먼저 읽고 작업 시작
 - "헹거 스티커 칸 추가·양식 바꾸기" / "TAG 엑셀·스티커 QR" / "스티커 여러 장 뽑기" / "CATEGORY·CARE 목록·스티커 설정" / "스티커 WIDTH·WEIGHT·G/YD" → `docs/hanger-sticker.md` 먼저 읽고 작업 시작
 - "L/D·랩딥·LAB-DIP" / "L/D 의뢰서·공장 의뢰" / "바이어 시트·L/D 발송" / "L/D 번호·GB 번호" / "슈퍼워시·울 종류" / "컨펌대기·리젝·2차 의뢰" / "EZ-TEX L/D" / "L/D를 생산 현황에 연결" → `docs/labdip.md` 먼저 읽고 작업 시작
-- "편직처·편직처 기계·가마·게이지로 편직처 찾기" / "편직처 엑셀 가져오기" / "설계서 기계 현황에서 고르기" / "편직처 메모·확인일" → `docs/knit-factory.md` 먼저 읽고 작업 시작
+- "편직처·편직처 기계·가마(지금/보유)·게이지로 편직처 찾기" / "기계 종류·계열" / "스판장치" / "편직처 지도·방문 순서·카카오맵 키" / "편직처 정리본 가져오기" / "설계서 기계 현황에서 고르기" / "편직처 메모·확인일" → `docs/knit-factory.md` 먼저 읽고 작업 시작
 - 라벨/용어를 바꾸거나 새 화면을 만들 때 → `docs/terminology.md` 를 먼저 확인하고 같은 기능은 같은 용어로 맞출 것
 - 새 팝업 창을 만들 때 → 배경은 `components/common/ModalBackdrop`, 입력하는 창이면 `useUnsavedGuard` + `UnsavedChangesDialog`로 '저장할까요?' (`docs/terminology.md` §4 팝업 창 규약)
 - 새 도메인 문서가 추가되면 이 표에 계속 업데이트할 것
@@ -67,7 +67,7 @@ GRUBIG-APP/
 │   │   ├── QuotationPage.jsx           # 견적서 작성
 │   │   ├── QuoteHistoryPage.jsx        # 견적 이력
 │   │   ├── ProductionCalcPage.jsx      # 생산 ▾ 계산기 (선염 — 스트라이프 원사 배분·멜란지 수량 비율, 저장 목록)
-│   │   ├── KnitFactoryPage.jsx         # 개발 ▾ 편직처 기계 현황 ([편직처별] 목록·한 곳 보기 / [기계로 찾기] · 엑셀 가져오기)
+│   │   ├── KnitFactoryPage.jsx         # 개발 ▾ 편직처 기계 현황 ([편직처] 목록 → 상세 / [기계로 찾기] / [지도] · 기계 종류 설정 · 정리본 가져오기)
 │   │   ├── LabdipPage.jsx              # 생산 ▾ LAB-DIP (진행중·컨펌대기중·완료 탭 · 목록 · 작성 화면 · 진행 창)
 │   │   └── HangerStickerPage.jsx       # 기타 ▾ 헹거 스티커 (저장된 스티커 목록 · 체크해서 엑셀 다운로드)
 │   │
@@ -87,7 +87,7 @@ GRUBIG-APP/
 │   │       ├── useExcelIO.js           # 원단·원사 엑셀 (백업·양식·일괄 등록)
 │   │       ├── useQuoteExport.js       # 견적서 PDF 인쇄·엑셀 내보내기
 │   │       ├── useYarnDyeCalc.js       # 생산 ▾ 계산기 — 선염 계산 저장·불러오기·삭제 (Firestore yarnDyeCalcs)
-│   │       ├── useKnitFactory.js       # 개발 ▾ 편직처 기계 현황 — 저장·삭제·메모·확인일·엑셀 가져오기 (Firestore knitFactories) + 설계서 편직처 목록에 이름 넣기
+│   │       ├── useKnitFactory.js       # 개발 ▾ 편직처 기계 현황 — 저장·삭제·메모·확인일·지금 가마 바꾸기·지도 위치·종류 이름 바꾸기·정리본 가져오기 (Firestore knitFactories) + 설계서 편직처 목록 이름 넣기/빼기
 │   │       ├── useLabdip.js            # 생산 ▾ LAB-DIP — 저장(L/D NO. 붙이기)·진행 버튼(도착·발송·결과·2차 의뢰·Drop·되돌리기)·복제·삭제 (Firestore labdips)
 │   │       ├── useHangerSticker.js     # 헹거 스티커 저장·삭제 (Firestore hangerStickers) + 엑셀 다운로드 (양식 그대로)
 │   │       └── useQuotation.js         # 견적
@@ -104,7 +104,7 @@ GRUBIG-APP/
 │   │   ├── quote/               # PDFRenderer (견적서 PDF), QuoteParts (견적서 화면 공용 부품), FabricPickerModal, RunningGreigeModal (러닝 생지 견적 창)
 │   │   ├── cost/                # 원가 표·원가 설정·'원가 확인 필요' 경고 (CostBreakdownTable, CostSettingsModal + costSettingsForm·CostSettingsParts, CostWarnings)
 │   │   ├── sticker/             # 헹거 스티커 — StickerEditModal(입력 창: 아이템·CATEGORY·CARE 체크·잠긴 WIDTH/WEIGHT·QR 그림 올리기), StickerPreview(엑셀 칸 크기 그대로 미리보기), StickerSettingsModal(CATEGORY·CARE 목록)
-│   │   ├── knitFactory/         # 편직처 기계 현황 — KnitFactoryDetail(한 곳 보기·메모·작업 이력), KnitMachineSearch(기계로 찾기 — 보기·고르기 공용), KnitFactoryEditModal(입력 창), KnitImportModal(엑셀 가져오기 미리보기), KnitMachinePickerModal(설계서 [기계 현황에서 고르기] — body 포털), KnitParts(종류 칩·게이지 칩·침수·확인일 배지·기계 표)
+│   │   ├── knitFactory/         # 편직처 기계 현황 — KnitFactoryDetail(상세·메모·작업 이력), KnitMachineSearch(기계로 찾기 — 보기·고르기 공용), KnitMapView(카카오 지도·방문 순서·키 안내), KnitFactoryEditModal(입력 창 — 기계·보유 가마), KnitTypeSettingsModal(기계 종류·계열), KnitImportModal(정리본 가져오기), KnitMachinePickerModal(설계서 [기계 현황에서 고르기] — body 포털), KnitParts(종류 칩·게이지 칩·침수·확인일·목록 요약·KnitBlocks 기계 현황·지금 가마 바꾸기)
 │   │   ├── labdip/              # LAB-DIP — LabdipForm(작성 화면·진행 상황), LabdipColorCard(컬러 칸·[기록]·되돌리기·Drop), LabdipDialogs(L/D 도착·바이어 발송·결과·2차 의뢰 창), LabdipParts(단계 칩·[+ 새 L/D ▾]), LabdipRequestSheet(공장 의뢰서 인쇄), LabdipPrintSheet(바이어 시트 인쇄)
 │   │   └── domain/              # (도메인 컴포넌트 - 현재 비어있음)
 │   │
@@ -119,7 +119,8 @@ GRUBIG-APP/
 │   │   ├── costFields.js        # 원가 칸 초기값 (원단·설계서·가설계서 공통)
 │   │   ├── devQuoteModel.js     # 개발 의뢰 원가 견적 (양식·원단 모양 변환·저장 전 확인·예상가·견적서 배지·설계서 이어받기)
 │   │   ├── yarnDyeCalc.js       # 선염 계산 (스트라이프 원사 컬러 배분·같은 컬러 합치기 / 멜란지 수량 비율 / O/D·ARTICLE(원사) 불러오기 / 결과 복사)
-│   │   ├── knitFactoryModel.js  # 편직처 기계 현황 (문서 모양·침수 계산·지역·합계·기계로 찾기·설계서에 넣을 값·엑셀 읽기 parseKnitFactorySheet)
+│   │   ├── knitFactoryModel.js  # 편직처 기계 현황 (문서 모양·종류/계열 설정·종류+인치 묶음·침수 계산·기계로 찾기·설계서에 넣을 값·카카오 링크·정리본 읽기)
+│   │   ├── kakaoMap.js          # 카카오맵 SDK 불러오기 · 편직처 주소 → 좌표 (브라우저 전용)
 │   │   ├── labdipModel.js       # LAB-DIP 계산 (L/D NO.·컬러 단계·탭·납기·울 종류(SW)·차수·예전 기록 읽기·공장 의뢰서/바이어 시트 인쇄 모양)
 │   │   ├── hangerSticker.js     # 헹거 스티커 칸 계산 (WIDTH 내폭/외폭 · WEIGHT 실제 G/YD — 늘 아이템 값 · CATEGORY·CARE 설정 목록 · QR 번호 → EZ-TEX 주소 · 저장 모양)
 │   │   ├── hangerStickerExcel.js # 헹거 스티커 엑셀 만들기 (양식 첫 시트를 스티커마다 복사해 값만 바꿈 — fflate, Node에서도 돌아감)

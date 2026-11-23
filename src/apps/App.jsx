@@ -62,7 +62,8 @@ import { ReportPage } from '../pages/ReportPage';
 import { ProductionCalcPage } from '../pages/ProductionCalcPage';
 import { HangerStickerPage } from '../pages/HangerStickerPage';
 import { KnitFactoryPage } from '../pages/KnitFactoryPage';
-import { sameFactoryName } from '../utils/knitFactoryModel';
+import { sameFactoryName, resolveKnitConfig } from '../utils/knitFactoryModel';
+import { geocodeFactory } from '../utils/kakaoMap';
 import { CollectionPage } from '../pages/CollectionPage';
 import { ProformaInvoicePage } from '../pages/ProformaInvoicePage';
 import { PIPrintSheet } from '../components/pi/PIPrintSheet';
@@ -146,6 +147,10 @@ const App = () => {
   const [yarnDyeCalcs, setYarnDyeCalcs] = useState([]); // 생산 ▾ 계산기 — 저장된 선염 계산 (yarnDyeCalcs)
   const [hangerStickers, setHangerStickers] = useState([]); // 기타 ▾ 헹거 스티커 (hangerStickers)
   const [knitFactories, setKnitFactories] = useState([]);   // 개발 ▾ 편직처 기계 현황 (knitFactories, 2026-11-23)
+  // 편직처 기계 종류 · 계열 (settings/general.knitMachineConfig, null = 아직 저장 전 → 기본 목록) · 카카오맵 JavaScript 키 (settings/general.kakaoMapKey)
+  const [knitConfigRaw, setKnitConfigRaw] = useState(null);
+  const knitConfig = useMemo(() => resolveKnitConfig(knitConfigRaw), [knitConfigRaw]);
+  const [kakaoMapKey, setKakaoMapKey] = useState('');
   // 헹거 스티커 설정 — CATEGORY · CARE 목록 (settings/general.hangerStickerOptions, null = 아직 저장 전 → 기본 목록)
   const [hangerStickerOptionsRaw, setHangerStickerOptionsRaw] = useState(null);
   const hangerStickerOptions = useMemo(() => resolveStickerOptions(hangerStickerOptionsRaw), [hangerStickerOptionsRaw]);
@@ -258,6 +263,12 @@ const App = () => {
           const next = d.hangerStickerOptions || null;
           return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
         });
+        // 편직처 기계 종류 · 계열 · 카카오맵 키 (2026-11-23) — 내용이 같으면 그대로 둠
+        setKnitConfigRaw(prev => {
+          const next = d.knitMachineConfig || null;
+          return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+        });
+        setKakaoMapKey(typeof d.kakaoMapKey === 'string' ? d.kakaoMapKey : '');
         // 원가 설정 — 내용이 같으면 그대로 둠 (바이어 추가 등 다른 칸이 바뀔 때마다 새 객체가 되어
         //  원단·원사 목록 전체가 원가를 다시 계산하던 것 방지)
         setCostSettingsRaw(prev => {
@@ -676,16 +687,68 @@ const App = () => {
   const { saveSticker, deleteSticker, downloadStickers } =
     useHangerSticker(hangerStickers, savedFabrics, hangerStickerOptions, saveDocToCloud, deleteDocFromCloud, showToast, user);
 
-  // ⚓️ 개발 ▾ 편직처 기계 현황 — 저장·메모·확인일·엑셀 가져오기 (2026-11-23)
+  // ⚓️ 개발 ▾ 편직처 기계 현황 — 저장·메모·확인일·지금 가마·지도 위치·정리본 가져오기 (2026-11-23, 2차)
   //  편직처를 저장하면 이름을 설계서 편직처 목록(settings/general.knittingFactories)에도 넣음 (대표님 결정 — 없는 이름만)
   const addKnittingFactoryNames = async (names) => {
     const missing = [...new Set((names || []).map(n => String(n || '').trim()).filter(Boolean))]
       .filter(n => !knittingFactories.some(k => sameFactoryName(k, n)));
     if (missing.length) await writeSettingsList('knittingFactories', { add: missing });
   };
+  const removeKnittingFactoryNames = async (names) => {
+    if (names?.length) await writeSettingsList('knittingFactories', { remove: names });
+  };
+  // 기계 종류 · 계열 저장 (회사 공통 — 통째로 바꿈)
+  const saveKnitConfig = async (config) => {
+    if (!DEV_BYPASS && !settingsLoaded) {
+      showToast('설정을 불러오는 중이에요. 잠시 후 다시 해 주세요.', 'error');
+      return false;
+    }
+    const prevRaw = knitConfigRaw;
+    const next = { families: config.families, types: config.types };
+    setKnitConfigRaw(next); // 낙관적 반영
+    if (DEV_BYPASS) { setSyncStatus('saved'); return true; }
+    setSyncStatus('syncing');
+    try {
+      await setDoc(doc(db, 'settings', 'general'), { knitMachineConfig: next }, { merge: true });
+      setSyncStatus('saved');
+      return true;
+    } catch (e) {
+      setKnitConfigRaw(prevRaw);
+      setSyncStatus('error');
+      showToast(`기계 종류 저장 실패: ${e?.message || '네트워크 오류'}`, 'error');
+      return false;
+    }
+  };
+  // 카카오맵 JavaScript 키 저장 (회사 공통)
+  const saveKakaoMapKey = async (key) => {
+    const k = String(key || '').trim();
+    setKakaoMapKey(k);
+    if (DEV_BYPASS) { showToast('카카오맵 키를 넣었어요 (DEV — 이 화면에서만).', 'success'); return true; }
+    try {
+      await setDoc(doc(db, 'settings', 'general'), { kakaoMapKey: k }, { merge: true });
+      showToast('카카오맵 키를 저장했어요.', 'success');
+      return true;
+    } catch (e) {
+      showToast(`카카오맵 키 저장 실패: ${e?.message || '네트워크 오류'}`, 'error');
+      return false;
+    }
+  };
+  const geocodeKnitFactory = kakaoMapKey ? (factory) => geocodeFactory(kakaoMapKey, factory) : null;
   const knitFactoryHook = useKnitFactory({
-    knitFactories, designSheets, saveDocToCloud, saveBatchToCloud, deleteDocFromCloud, showToast, user, addKnittingFactoryNames,
+    knitFactories, designSheets, orders, knittingFactories,
+    saveDocToCloud, saveBatchToCloud, deleteDocFromCloud, showToast, user,
+    addKnittingFactoryNames, removeKnittingFactoryNames, saveKnitConfig, geocode: geocodeKnitFactory,
   });
+  // 기계 종류 설정 창 [저장] — 설정 저장 뒤, 이름을 바꾼 종류는 그 종류를 쓰는 편직처도 같이 바꿈
+  const saveKnitConfigWithRenames = async (config, renames = []) => {
+    if (!(await saveKnitConfig(config))) return false;
+    for (const r of renames.filter(x => x.used)) {
+      const ok = await knitFactoryHook.renameTypeInFactories(r.from, r.to);
+      if (!ok) { showToast(`'${r.from}' → '${r.to}' 편직처 줄 바꾸기에 실패했어요. 다시 저장해 주세요.`, 'error'); return false; }
+    }
+    showToast('기계 종류 목록을 저장했어요.', 'success');
+    return true;
+  };
 
   // ⚓️ 거래처(Partner) 훅 — 모든 거래처 선택/등록 공통
   const { makeEmptyPartner, savePartner, deletePartner } =
@@ -1385,6 +1448,7 @@ const App = () => {
                 designSheets={designSheets}
                 knittingFactories={knittingFactories}
                 knitFactories={knitFactories}
+                knitConfig={knitConfig}
                 dyeingFactories={dyeingFactories}
                 machineTypes={machineTypes}
                 structures={structures}
@@ -1459,6 +1523,7 @@ const App = () => {
             exchangeRates={exchangeRates}
             knittingFactories={knittingFactories}
             knitFactories={knitFactories}
+            knitConfig={knitConfig}
             dyeingFactories={dyeingFactories}
             machineTypes={machineTypes}
             structures={structures}
@@ -1563,7 +1628,11 @@ const App = () => {
             designSheets={designSheets}
             orders={orders}
             knittingFactories={knittingFactories}
-            isXlsxReady={isXlsxReady}
+            knitConfig={knitConfig}
+            onSaveKnitConfig={saveKnitConfigWithRenames}
+            kakaoMapKey={kakaoMapKey}
+            onSaveKakaoMapKey={saveKakaoMapKey}
+            geocode={geocodeKnitFactory}
             {...knitFactoryHook}
             onOpenSheet={(sheet) => { handleEditSheet(sheet); setIsDesignSheetModalOpen(true); }}
           />

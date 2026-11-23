@@ -131,6 +131,7 @@ export const DesignSheetPage = ({
   // 마스터 데이터 프롭스
   knittingFactories,
   knitFactories = [],           // 편직처 기계 현황 (편직 사양 [기계 현황에서 고르기] — 2026-11-23)
+  knitConfig,                   // 편직처 기계 종류 · 계열 (같은 창에서)
   dyeingFactories,
   machineTypes: machineTypesList,
   structures: structuresList,
@@ -1036,6 +1037,7 @@ export const DesignSheetPage = ({
       {knitPickerOpen && (
         <KnitMachinePickerModal
           knitFactories={knitFactories}
+          config={knitConfig}
           knitting={sheetInput.knitting || {}}
           onApply={(fields) => Object.entries(fields).forEach(([k, v]) => handleSectionChange('knitting', k, v))}
           onClose={() => setKnitPickerOpen(false)}

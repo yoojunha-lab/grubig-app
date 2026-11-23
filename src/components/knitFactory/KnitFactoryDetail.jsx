@@ -1,17 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import {
   Phone, Printer, MapPin, User, Pencil, CalendarCheck, Coins, StickyNote, Send, Trash2, Check, X, FileText, Factory, History, Loader2,
+  ArrowLeft, Map as MapIcon, Navigation,
 } from 'lucide-react';
-import { factoryTotals, KNIT_CATEGORIES, sameFactoryName, checkState, fmtNum } from '../../utils/knitFactoryModel';
+import { factoryTotals, sameFactoryName, checkState, fmtNum, kakaoLinkTo, kakaoLinkSearch, geocodeQuery } from '../../utils/knitFactoryModel';
 import { DESIGN_STAGES } from '../../constants/common';
 import { todayLocalISO } from '../../utils/helpers';
-import { CheckBadge, CategoryChip, KnitMachineTable } from './KnitParts';
+import { CheckBadge, KnitBlocks } from './KnitParts';
 
 // ============================================================
-// 편직처 기계 현황 — 오른쪽 편직처 한 곳 보기 (대표님 요청 2026-11-23)
-//  · 연락처 · 주소 · 편직료 / 기계 현황 표(종류 → 세부 종류) / 메모(날짜 — 누르면 바로 저장) / 우리 작업 이력
-//  · [오늘 확인함] = 기계 현황을 편직처에 확인한 날 남기기 (6개월 넘으면 '오래됨')
-//  · 우리 작업 이력 = 이 편직처로 적힌 설계서 · 생산 현황 오더 (편직처 이름이 같은 것 — 띄어쓰기·대소문자 무시)
+// 편직처 기계 현황 — 편직처 한 곳 보기 (대표님 요청 2026-11-23, 2차: 목록에서 눌러서 열고 [← 목록으로])
+//  · 연락처 · 주소(카카오맵 링크) · 편직료 / 기계 현황(종류 + 인치 묶음 — 기계 줄 + 보유 가마) / 메모 / 우리 작업 이력
+//  · '지금 가마' 칸을 누르면 바로 바꿈 (확인일 오늘로) · [오늘 확인함]
 // ============================================================
 
 const Section = ({ icon: Icon, title, right, children }) => (
@@ -78,17 +78,20 @@ const MemoItem = ({ memo, onSave, onDelete }) => {
 
 export const KnitFactoryDetail = ({
   factory,
+  config,
   designSheets = [],
   orders = [],
   today,
-  onEdit, onAddMemo, onUpdateMemo, onDeleteMemo, onMarkChecked,
+  onBack,               // [← 목록으로]
+  onEdit, onAddMemo, onUpdateMemo, onDeleteMemo, onMarkChecked, onSetGauge,
+  onShowOnMap,          // 지도 화면에서 이 편직처 보기
   onOpenSheet,          // (설계서) => 설계서 열기
 }) => {
   const [memoText, setMemoText] = useState('');
   const [memoBusy, setMemoBusy] = useState(false);
   const [checkBusy, setCheckBusy] = useState(false);
   const [showAllHistory, setShowAllHistory] = useState(false);
-  const totals = factoryTotals(factory);
+  const totals = factoryTotals(factory, config);
   const st = checkState(factory, today);
 
   const sheets = useMemo(() => designSheets
@@ -112,27 +115,29 @@ export const KnitFactoryDetail = ({
 
   const contacts = (factory.contacts || []).filter(c => c.name || c.mobile);
   const addresses = (factory.addresses || []).filter(Boolean);
+  const routeLink = factory.geo ? kakaoLinkTo(factory.name, factory.geo) : '';
+  const searchLink = kakaoLinkSearch(geocodeQuery(factory));
 
   return (
     <div className="space-y-4">
+      <button type="button" onClick={onBack} className="text-sm font-bold text-slate-600 hover:text-violet-700 inline-flex items-center gap-1">
+        <ArrowLeft className="w-4 h-4" /> 목록으로
+      </button>
+
       {/* 머리 */}
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-2 flex-wrap">
+          <h3 className="text-xl font-extrabold text-slate-800 flex items-center gap-2 flex-wrap">
             <Factory className="w-5 h-5 text-violet-600 shrink-0" /> {factory.name}
             {factory.region && <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">{factory.region}</span>}
           </h3>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
             <CheckBadge factory={factory} today={today} />
-            <span className="text-[11px] text-slate-500">
-              {totals.total ? `기계 ${fmtNum(totals.total)}대` : '대수 미기재'} · {totals.lines}줄
-            </span>
-            {KNIT_CATEGORIES.filter(c => totals.linesByCategory[c.key]).map(c => (
-              <CategoryChip key={c.key} category={c.key} suffix={totals.byCategory[c.key] ? ` ${totals.byCategory[c.key]}대` : ` ${totals.linesByCategory[c.key]}줄`} />
-            ))}
+            <span>기계 <b className="text-slate-700">{totals.total ? `${fmtNum(totals.total)}대` : '대수 미기재'}</b> · {totals.lines}줄</span>
+            {totals.cylinderLines > 0 && <span>· 보유 가마 <b className="text-slate-700">{totals.cylinders ? `${fmtNum(totals.cylinders)}개` : `${totals.cylinderLines}종`}</b></span>}
           </div>
         </div>
-        <div className="flex gap-1.5 shrink-0">
+        <div className="flex gap-1.5 shrink-0 flex-wrap">
           <button type="button" onClick={check} disabled={checkBusy || st.days === 0}
             title={st.days === 0 ? '오늘 이미 확인했어요' : '편직처에 기계 현황을 확인했으면 눌러 주세요 (확인일이 오늘로)'}
             className="bg-white border border-emerald-300 text-emerald-700 px-2.5 py-1.5 rounded-lg hover:bg-emerald-50 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-40">
@@ -161,8 +166,25 @@ export const KnitFactoryDetail = ({
         </div>
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5 text-xs">
           {addresses.length ? addresses.map((a, i) => (
-            <p key={i} className="flex items-start gap-1.5"><MapPin className="w-3.5 h-3.5 text-slate-400 mt-px shrink-0" /><span className="text-slate-800">{a}</span></p>
+            <p key={i} className="flex items-start gap-1.5">
+              <MapPin className="w-3.5 h-3.5 text-slate-400 mt-px shrink-0" />
+              <span className="text-slate-800">{a}{i === 0 && addresses.length > 1 && <span className="ml-1 text-[10px] text-slate-400">(대표)</span>}</span>
+            </p>
           )) : <p className="text-slate-400 flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> 주소가 없어요.</p>}
+          {addresses.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {onShowOnMap && (
+                <button type="button" onClick={onShowOnMap} className="text-[11px] font-bold text-violet-700 bg-white border border-violet-200 rounded px-1.5 py-0.5 inline-flex items-center gap-1 hover:bg-violet-50">
+                  <MapIcon className="w-3 h-3" /> 지도에서 보기
+                </button>
+              )}
+              <a href={routeLink || searchLink} target="_blank" rel="noreferrer"
+                className="text-[11px] font-bold text-amber-800 bg-yellow-50 border border-yellow-300 rounded px-1.5 py-0.5 inline-flex items-center gap-1 hover:bg-yellow-100">
+                <Navigation className="w-3 h-3" /> {routeLink ? '카카오맵 길찾기' : '카카오맵에서 찾기'}
+              </a>
+              {factory.geo?.byName && <span className="text-[10px] text-amber-700" title="주소로 못 찾아서 편직처 이름으로 찾은 위치예요">지도 위치는 이름으로 찾음 — 확인 필요</span>}
+            </div>
+          )}
         </div>
         <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs">
           <p className="font-bold text-slate-500 flex items-center gap-1.5 mb-1"><Coins className="w-3.5 h-3.5 text-slate-400" /> 편직료</p>
@@ -171,8 +193,9 @@ export const KnitFactoryDetail = ({
       </div>
 
       {/* 기계 현황 */}
-      <Section icon={Factory} title="기계 현황" right={<span className="hidden sm:inline text-[10px] text-slate-400 text-right">침수 ≈ 회색 = 게이지 × 3.14 × 인치 계산 값 · 가마 = 갈아 끼우는 실린더(게이지)</span>}>
-        <KnitMachineTable machines={factory.machines} />
+      <Section icon={Factory} title="기계 현황"
+        right={<span className="hidden sm:inline text-[10px] text-slate-400 text-right">같은 종류 · 같은 인치 기계끼리 가마를 돌려 써요 · '지금 가마'를 누르면 바로 바꿔요 · 침수 ≈ 회색 = 계산 값</span>}>
+        <KnitBlocks factory={factory} config={config} onSetGauge={onSetGauge} />
       </Section>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
