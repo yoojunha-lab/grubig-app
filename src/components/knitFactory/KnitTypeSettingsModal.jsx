@@ -14,7 +14,8 @@ import { UNGROUPED_FAMILY, familyTone } from '../../utils/knitFactoryModel';
 //  · 회사 공통 (settings/general.knitMachineConfig) — [저장]을 눌러야 저장
 // ============================================================
 
-const cellCls = 'w-full bg-white border border-slate-300 rounded-lg px-2 py-1 text-sm outline-none focus:ring-2 ring-violet-200';
+// 너비는 칸마다 따로 (예전엔 여기 w-full이 있어서 계열 칸의 w-28을 이겨 계열 칸이 가득 차고 종류 이름 칸이 납작해졌음 — 대표님 제보 2026-11-24)
+const cellCls = 'bg-white border border-slate-300 rounded-lg px-2 py-1 text-sm outline-none focus:ring-2 ring-violet-200';
 const rid = () => `r_${Math.random().toString(36).slice(2, 8)}`;
 const move = (list, i, d) => {
   const j = i + d;
@@ -113,7 +114,7 @@ export const KnitTypeSettingsModal = ({
               {form.families.map((f, i) => (
                 <div key={f.id} className="flex items-center gap-1">
                   <span className={`w-2.5 h-2.5 rounded-full border shrink-0 ${familyTone({ families: famNames }, f.name.trim())}`} />
-                  <input value={f.name} onChange={e => setFamily(f.id, e.target.value)} placeholder="계열 이름" className={cellCls} />
+                  <input value={f.name} onChange={e => setFamily(f.id, e.target.value)} placeholder="계열 이름" className={`${cellCls} w-full min-w-0`} />
                   <button type="button" onClick={() => setForm(p => ({ ...p, families: move(p.families, i, -1) }))} className="p-1 text-slate-400 hover:text-slate-700" title="위로"><ArrowUp className="w-3.5 h-3.5" /></button>
                   <button type="button" onClick={() => setForm(p => ({ ...p, families: move(p.families, i, 1) }))} className="p-1 text-slate-400 hover:text-slate-700" title="아래로"><ArrowDown className="w-3.5 h-3.5" /></button>
                   <button type="button" onClick={() => removeFamily(f.id)} className="p-1 text-slate-400 hover:text-red-600" title="지우기"><Trash2 className="w-3.5 h-3.5" /></button>
@@ -129,8 +130,8 @@ export const KnitTypeSettingsModal = ({
                 const used = t.orig ? typeUsage?.(t.orig) || 0 : 0;
                 return (
                   <div key={t.id} className="flex items-center gap-1">
-                    <input value={t.name} onChange={e => setType(t.id, { name: e.target.value })} placeholder="예: 싱글 자카드" className={`${cellCls} flex-1`} />
-                    <select value={famNames.includes(t.family) ? t.family : ''} onChange={e => setType(t.id, { family: e.target.value })} className={`${cellCls} w-28 ${famNames.includes(t.family) ? '' : 'border-red-300'}`}>
+                    <input value={t.name} onChange={e => setType(t.id, { name: e.target.value })} placeholder="예: 싱글 자카드" className={`${cellCls} flex-1 min-w-0 font-bold`} />
+                    <select value={famNames.includes(t.family) ? t.family : ''} onChange={e => setType(t.id, { family: e.target.value })} className={`${cellCls} w-28 shrink-0 ${famNames.includes(t.family) ? '' : 'border-red-300'}`}>
                       <option value="">계열 고르기</option>
                       {famNames.map(f => <option key={f} value={f}>{f}</option>)}
                     </select>

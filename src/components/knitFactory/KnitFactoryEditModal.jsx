@@ -19,6 +19,7 @@ import {
 //  · 저장 안 한 변경이 있으면 닫기 전에 '저장할까요?' (팝업 창 규약 — 새 편직처는 빈 양식 기준)
 // ============================================================
 
+// 너비 w-full이 기본 — 다른 너비를 줄 때는 !w-○○ 로 (그냥 w-○○는 w-full에 져서 안 먹음, 2026-11-24)
 const inputCls = 'w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:ring-2 ring-violet-200';
 const cellCls = 'w-full bg-white border border-slate-200 rounded px-1.5 py-1 text-xs outline-none focus:ring-2 ring-violet-200 focus:border-violet-300';
 const labelCls = 'block text-[11px] font-bold text-slate-500 mb-0.5';
@@ -194,8 +195,8 @@ export const KnitFactoryEditModal = ({
                 <div className="space-y-1.5">
                   {form.contacts.map(c => (
                     <div key={c.id} className="flex gap-1.5">
-                      <input value={c.name} onChange={e => patchRow('contacts', c.id, { name: e.target.value })} placeholder="이름 · 직함 (예: 최기숙 실장)" className={`${inputCls} flex-1`} />
-                      <input value={c.mobile} onChange={e => patchRow('contacts', c.id, { mobile: e.target.value })} placeholder="010-0000-0000" className={`${inputCls} w-40 font-mono`} />
+                      <input value={c.name} onChange={e => patchRow('contacts', c.id, { name: e.target.value })} placeholder="이름 · 직함 (예: 최기숙 실장)" className={`${inputCls} flex-1 min-w-0`} />
+                      <input value={c.mobile} onChange={e => patchRow('contacts', c.id, { mobile: e.target.value })} placeholder="010-0000-0000" className={`${inputCls} !w-40 shrink-0 font-mono`} />
                       <button type="button" onClick={() => removeContact(c.id)} title="이 담당자 빼기" className="px-1.5 text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   ))}
@@ -207,7 +208,7 @@ export const KnitFactoryEditModal = ({
                 <div className="space-y-1.5">
                   {form.addresses.map((a, i) => (
                     <div key={i} className="flex gap-1.5">
-                      <input value={a} onChange={e => setAddress(i, e.target.value)} placeholder="경기도 포천시 …" className={`${inputCls} flex-1`} />
+                      <input value={a} onChange={e => setAddress(i, e.target.value)} placeholder="경기도 포천시 …" className={`${inputCls} flex-1 min-w-0`} />
                       <button type="button" onClick={() => removeAddress(i)} title="이 주소 빼기" className="px-1.5 text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   ))}
@@ -215,7 +216,7 @@ export const KnitFactoryEditModal = ({
                     <button type="button" onClick={addAddress} className="text-xs font-bold text-violet-700 hover:underline inline-flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> 주소 추가</button>
                     <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500">
                       지역
-                      <input value={form.region} onChange={e => patch({ region: e.target.value })} placeholder={autoRegion ? `${autoRegion} (주소에서 자동)` : '예: 포천'} className={`${cellCls} w-36 !text-sm`} />
+                      <input value={form.region} onChange={e => patch({ region: e.target.value })} placeholder={autoRegion ? `${autoRegion} (주소에서 자동)` : '예: 포천'} className={`${cellCls} !w-36 shrink-0 !text-sm`} />
                     </label>
                   </div>
                 </div>
