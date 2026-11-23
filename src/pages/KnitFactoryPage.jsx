@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Factory, Plus, FileJson, Search, List, Cpu, CalendarClock, Map as MapIcon, Layers, ChevronRight } from 'lucide-react';
 import { KnitFactoryDetail } from '../components/knitFactory/KnitFactoryDetail';
 import { KnitMachineSearch } from '../components/knitFactory/KnitMachineSearch';
@@ -8,18 +8,29 @@ import { KnitTypeSettingsModal } from '../components/knitFactory/KnitTypeSetting
 import { KnitMapView } from '../components/knitFactory/KnitMapView';
 import { CheckBadge, BlockSummary } from '../components/knitFactory/KnitParts';
 import {
-  sortFactories, factoryMatches, factoryTotals, needsCheck, KNIT_CHECK_STALE_DAYS, EMPTY_MACHINE_FILTERS, fmtNum,
+  sortFactories, factoryMatches, factoryTotals, needsCheck, checkState, KNIT_CHECK_STALE_DAYS, EMPTY_MACHINE_FILTERS, fmtNum,
 } from '../utils/knitFactoryModel';
 import { todayLocalISO } from '../utils/helpers';
 
 // ============================================================
 // 개발 ▾ 편직처 기계 현황 (대표님 요청 2026-11-23 — 예전 '편직처..xls' 엑셀을 옮김, 2차 개편 같은 날)
-//  · [편직처] 목록 — 편직처마다 '종류 · 인치 · 대수 · 지금 가마 · 보유 가마' 한 줄 요약 → 누르면 상세, [← 목록으로]
+//  · [편직처] 목록 — 편직처마다 '종류 · 인치 · 대수 · 지금 가마 · 보유 가마' 한 줄 요약 → 누르면 상세
+//    상세는 견적서 화면처럼 왼쪽 좁은 편직처 목록 + 오른쪽 상세 (대표님 요청 2026-11-23), ← 를 누르면 전체 목록(보던 자리)으로
 //  · [기계로 찾기] 게이지 · 인치 · 계열 · 종류 · 스판장치 … → 지금 꼽힘 / 가마 교체 / 근접
 //  · [지도] 카카오맵 — 편직처 분포 · 방문 순서 · 길찾기 (기계로 찾기 조건 그대로 거를 수 있음)
 //  · [⚙ 기계 종류] 종류 · 계열 목록 / [정리본 가져오기] 예전 엑셀 정리본 / [+ 편직처 추가]
 //  · 저장 · 메모 · 확인일 · 지금 가마 · 위치는 hooks/domains/useKnitFactory.js, 계산은 utils/knitFactoryModel.js
 // ============================================================
+
+// 왼쪽 좁은 목록의 한 줄 요약 — 종류마다 인치들 ('싱글 30·32·36" · 양면 자카드 30·36"')
+const typeInchSummary = (blocks) => {
+  const byType = new Map();
+  blocks.forEach(b => {
+    if (!byType.has(b.type)) byType.set(b.type, []);
+    if (b.inch) byType.get(b.type).push(b.inch);
+  });
+  return [...byType.entries()].map(([type, inches]) => `${type}${inches.length ? ` ${inches.join('·')}"` : ''}`).join(' · ');
+};
 
 const ViewTab = ({ active, onClick, icon: Icon, children }) => (
   <button type="button" onClick={onClick}
@@ -55,6 +66,8 @@ export const KnitFactoryPage = ({
   const [typeSettingsOpen, setTypeSettingsOpen] = useState(false);
   const listScrollRef = useRef(0);
   const restoreScrollRef = useRef(false);
+  const selectedRowRef = useRef(null);   // 상세 왼쪽 목록에서 고른 줄
+  const listBoxRef = useRef(null);       // 상세 왼쪽 목록 스크롤 칸
 
   const sorted = useMemo(() => sortFactories(knitFactories), [knitFactories]);
   const regions = useMemo(() => [...new Set(sorted.map(f => String(f.region || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko')), [sorted]);
@@ -77,6 +90,16 @@ export const KnitFactoryPage = ({
     if (!detailId && restoreScrollRef.current) {
       restoreScrollRef.current = false;
       window.scrollTo(0, listScrollRef.current);
+    }
+  }, [detailId]);
+  // 상세를 열면 왼쪽 목록에서 그 편직처 줄이 보이게 — 목록 칸만 스크롤 (화면 전체는 그대로)
+  useEffect(() => {
+    const box = listBoxRef.current;
+    const row = selectedRowRef.current;
+    if (!box || !row) return;
+    const top = row.offsetTop;
+    if (top < box.scrollTop || top + row.offsetHeight > box.scrollTop + box.clientHeight) {
+      box.scrollTop = Math.max(0, top - box.clientHeight / 2 + row.offsetHeight / 2);
     }
   }, [detailId]);
   const switchView = (v) => { setView(v); setDetailId(null); if (v !== 'map') setMapFocusId(null); };
@@ -150,7 +173,49 @@ export const KnitFactoryPage = ({
             geocode={geocode}
           />
         ) : detail ? (
-          <section className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-5">
+          // 견적서 화면처럼 — 왼쪽 편직처 목록(좁게, 따로 스크롤) + 오른쪽 상세. 휴대폰은 상세만 (← 로 목록)
+          <div className="flex flex-col lg:flex-row gap-4 items-start">
+            <aside className="hidden lg:block w-72 shrink-0 lg:sticky lg:top-20">
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col max-h-[calc(100vh-230px)]">
+                <div className="px-3 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
+                  <span className="text-xs font-extrabold text-slate-500">편직처 목록 ({rows.length}{rows.length !== sorted.length ? `/${sorted.length}` : ''})</span>
+                  <button type="button" onClick={() => openEditor(null)} className="text-[11px] font-bold text-violet-600 hover:text-violet-800 flex items-center gap-0.5">
+                    <Plus className="w-3.5 h-3.5" /> 추가
+                  </button>
+                </div>
+                <div className="px-2 py-1.5 border-b border-slate-100 shrink-0">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2" />
+                    <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="편직처 · 종류 · 메모 검색"
+                      className="w-full bg-white border border-slate-200 rounded-lg pl-7 pr-2 py-1 text-xs outline-none focus:ring-2 ring-violet-200" />
+                  </div>
+                </div>
+                <div ref={listBoxRef} className="relative overflow-y-auto flex-1">
+                  {rows.length === 0 && <div className="py-10 text-center text-slate-400 text-xs">찾는 편직처가 없어요.</div>}
+                  {rows.map(f => {
+                    const t = factoryTotals(f, knitConfig);
+                    const on = f.id === detail.id;
+                    const st = checkState(f, today);
+                    const summary = typeInchSummary(t.blocks);
+                    return (
+                      <button key={f.id} type="button" ref={on ? selectedRowRef : undefined} onClick={() => openDetail(f.id)}
+                        className={`w-full text-left px-3 py-2 border-b border-slate-100 hover:bg-violet-50/60 transition-colors border-l-[3px] ${on ? 'bg-violet-50 border-l-violet-500' : 'border-l-transparent'}`}>
+                        <div className="flex items-center justify-between gap-2 mb-0.5">
+                          <span className="text-[13px] font-bold text-slate-800 truncate">{f.name}</span>
+                          {f.region && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700 shrink-0">{f.region}</span>}
+                        </div>
+                        <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400">
+                          <span className={st.tone === 'ok' ? '' : 'text-amber-600 font-bold'}>{st.tone === 'ok' ? `${f.checkedAt.slice(5).replace('-', '/')} 확인` : '확인 필요'}</span>
+                          <span className="text-slate-500">기계 {t.total ? `${fmtNum(t.total)}대` : '?'}{t.cylinders ? ` · 가마 ${fmtNum(t.cylinders)}` : ''}</span>
+                        </div>
+                        {summary && <p className="mt-0.5 text-[10px] text-slate-500 truncate" title={summary}>{summary}</p>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </aside>
+          <section className="flex-1 min-w-0 w-full bg-white border border-slate-200 rounded-2xl p-3 sm:p-5">
             <KnitFactoryDetail
               key={detail.id}
               factory={detail}
@@ -169,6 +234,7 @@ export const KnitFactoryPage = ({
               onOpenSheet={onOpenSheet}
             />
           </section>
+          </div>
         ) : (
           <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
             {/* 거르기 */}

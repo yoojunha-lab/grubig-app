@@ -9,7 +9,7 @@ import { todayLocalISO } from '../../utils/helpers';
 import { CheckBadge, KnitBlocks } from './KnitParts';
 
 // ============================================================
-// 편직처 기계 현황 — 편직처 한 곳 보기 (대표님 요청 2026-11-23, 2차: 목록에서 눌러서 열고 [← 목록으로])
+// 편직처 기계 현황 — 편직처 한 곳 보기 (대표님 요청 2026-11-23, 2차: 목록에서 눌러서 열고 ← 로 목록으로 — 견적서 화면과 같은 모양)
 //  · 연락처 · 주소(카카오맵 링크) · 편직료 / 기계 현황(종류 + 인치 묶음 — 기계 줄 + 보유 가마) / 메모 / 우리 작업 이력
 //  · '지금 가마' 칸을 누르면 바로 바꿈 (확인일 오늘로) · [오늘 확인함]
 // ============================================================
@@ -120,18 +120,17 @@ export const KnitFactoryDetail = ({
 
   return (
     <div className="space-y-4">
-      <button type="button" onClick={onBack} className="text-sm font-bold text-slate-600 hover:text-violet-700 inline-flex items-center gap-1">
-        <ArrowLeft className="w-4 h-4" /> 목록으로
-      </button>
-
-      {/* 머리 */}
+      {/* 머리 — 견적서 화면처럼 ← 를 누르면 편직처 목록으로 */}
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="text-xl font-extrabold text-slate-800 flex items-center gap-2 flex-wrap">
+            <button type="button" onClick={onBack} title="편직처 목록으로" className="text-slate-400 hover:text-violet-600 hover:bg-slate-100 p-1.5 -ml-1.5 rounded-lg transition-colors">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
             <Factory className="w-5 h-5 text-violet-600 shrink-0" /> {factory.name}
             {factory.region && <span className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">{factory.region}</span>}
           </h3>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+          <div className="mt-1 sm:pl-9 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
             <CheckBadge factory={factory} today={today} />
             <span>기계 <b className="text-slate-700">{totals.total ? `${fmtNum(totals.total)}대` : '대수 미기재'}</b> · {totals.lines}줄</span>
             {totals.cylinderLines > 0 && <span>· 보유 가마 <b className="text-slate-700">{totals.cylinders ? `${fmtNum(totals.cylinders)}개` : `${totals.cylinderLines}종`}</b></span>}
