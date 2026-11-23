@@ -320,6 +320,31 @@ export const typeSummaries = (blocks) => {
   }));
 };
 /** 계열별 대수 { 싱글: 41, 양면: 12 } */
+/**
+ * 편직처 목록 표의 종류 열 (2026-11-24 '줄 맞추고 옆으로 넘겨 보기')
+ *  · 보이는 편직처들이 가진 종류만, 설정 순서(계열 → 종류)로, 계열마다 묶음
+ *  · summaryLists = 편직처마다 typeSummaries(...) 결과
+ *  반환: [{ family, types: [{ type, family, total(보이는 편직처 대수 합), unknown }] }]
+ */
+export const typeColumns = (summaryLists, config) => {
+  const map = new Map();
+  (summaryLists || []).forEach(list => (list || []).forEach(t => {
+    if (!map.has(t.type)) map.set(t.type, { type: t.type, family: t.family, total: 0, unknown: false });
+    const c = map.get(t.type);
+    c.total += t.total;
+    c.unknown = c.unknown || t.unknown;
+  }));
+  const cols = [...map.values()].sort((a, b) => (familyIndex(config, a.family) - familyIndex(config, b.family))
+    || (typeIndex(config, a.type) - typeIndex(config, b.type))
+    || str(a.type).localeCompare(str(b.type), 'ko'));
+  const groups = [];
+  cols.forEach(c => {
+    const last = groups[groups.length - 1];
+    if (last && last.family === c.family) last.types.push(c);
+    else groups.push({ family: c.family, types: [c] });
+  });
+  return groups;
+};
 export const familyTotals = (blocks) => (blocks || []).reduce((acc, b) => { acc[b.family] = (acc[b.family] || 0) + b.count; return acc; }, {});
 
 /** 확인일 → 지난 날 수 (없으면 null) */
