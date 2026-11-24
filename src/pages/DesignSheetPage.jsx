@@ -1,10 +1,12 @@
 import React from 'react';
-import { AlertTriangle, Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download, ChevronDown, DollarSign, RotateCcw, Copy, Printer } from 'lucide-react';
+import { AlertTriangle, Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download, ChevronDown, RotateCcw, Copy, Printer } from 'lucide-react';
 import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
 import { MainDetailFormModal } from '../components/main-detail/MainDetailFormModal';
-import { num, roundUsd, calculateGYd, computeSellPrice, rateForMarket, rateLabel, todayLocalISO } from '../utils/helpers';
+import { num, calculateGYd, todayLocalISO } from '../utils/helpers';
+import { TempQuotePanel, TempMarketToggle } from '../components/design-sheet/TempQuotePanel';
+import { tempMarket } from '../utils/tempQuoteModel';
 import { computeCostAtQty, resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete } from '../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
@@ -159,7 +161,9 @@ export const DesignSheetPage = ({
   onOpenProductionOrder,        // (order#) => 설계서 창을 닫고 생산 현황으로
   // === 원가 설정 (편직 정액·LOSS 구간·가공 유형 등 — 원가 표 / 소요 중량 계산용) ===
   costSettings = null,
-  onOpenCostSettings
+  onOpenCostSettings,
+  // === 가견적서 (가설계서 전용 — 2026-11-24) ===
+  onExportTempQuote             // (가설계서, 'pdf' | 'excel') => 지금 화면 값으로 가견적서 PDF·엑셀
 }) => {
   const STAGE_ORDER = ['draft', 'eztex', 'sampling', 'articled'];
   const stageIdx = STAGE_ORDER.indexOf(sheetInput.stage || 'draft');
@@ -376,26 +380,9 @@ export const DesignSheetPage = ({
     ? `가공 ${calcFlow.processLossPct + calcFlow.finishingLossPct}% + 편직 ${calcFlow.knitLossPct}% · 생지 ${num(calcFlow.greige)}kg`
     : `가공 LOSS ${(costData?.processLossPct ?? 0) + (costData?.finishingLossPct ?? 0)}% + 편직 LOSS(생지 kg 구간)`;
 
-  // [가설계서 영업견적] 최종 판매가 — 공용 헬퍼 computeSellPrice (화면 통화 기준, YD당 정액은 원화 저장 → 수출 보기에서 환율 환산)
-  //  환율 = 보기에 맞는 공통 환율 (수출 보기 = 수출 환율)
-  const viewRate = rateForMarket(exchangeRates, viewMode);
-  const quoteSym = viewMode === 'export' ? '$' : '₩';
-  const quoteSellPrice = (tierKey) => computeSellPrice(costData, sheetInput, viewMode, tierKey, viewRate);
-
-  // [가설계서] 구간별 매출이익율/정액 — 레거시 단일값·빈값도 안전하게 읽고, 항상 구간별 객체로 기록
-  const readQuoteTier = (field, tier) => {
-    const v = sheetInput?.[field];
-    if (v && typeof v === 'object') return v[tier] ?? '';
-    return v ?? ''; // 레거시 단일값 → 세 구간 동일 표시
-  };
-  const setQuoteTier = (field, tier, value) => setSheetInput?.(prev => {
-    const cur = prev[field];
-    const obj = (cur && typeof cur === 'object')
-      ? { ...cur }
-      : { '1k': cur ?? '', '3k': cur ?? '', '5k': cur ?? '' }; // 레거시 단일 → 펼친 뒤 편집
-    obj[tier] = value;
-    return { ...prev, [field]: obj };
-  });
+  // [가설계서] 원가 표·판매가는 그 가설계서의 시장 구분으로 (화면 위 [내수|수출] 보기와 상관없이 — 2026-11-24)
+  //  판매가 시뮬레이션·가견적서는 components/design-sheet/TempQuotePanel (utils/tempQuoteModel — 견적서와 같은 계산)
+  const sheetViewMode = isTempMode ? tempMarket(sheetInput) : viewMode;
 
   const handleSaveAndGo = async () => {
     // [REF-2] 가설계서 모드에서는 의뢰 연결(onLink) 불필요
@@ -845,14 +832,16 @@ export const DesignSheetPage = ({
         )}
         <div className="mt-0 flex items-end justify-between mb-1.5">
           <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-slate-800 block" /> 최종 스펙 및 원가 (Actual & Cost)</h3>
-          <p className="text-[9px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200">※ 색칠된 칸이 최종 거래 스펙 및 가격의 기준이 됩니다.</p>
+          {isTempMode
+            ? <TempMarketToggle sheet={sheetInput} setSheet={setSheetInput} exchangeRates={exchangeRates} />
+            : <p className="text-[9px] text-slate-500 font-bold bg-slate-100 px-2 py-0.5 rounded border border-slate-200">※ 색칠된 칸이 최종 거래 스펙 및 가격의 기준이 됩니다.</p>}
         </div>
 
         <CostBreakdownTable
           cost={sheetInput.costInput || {}}
           yarns={sheetInput.yarns}
           calc={costData}
-          viewMode={viewMode}
+          viewMode={sheetViewMode}
           exchangeRates={exchangeRates}
           showMaterial={false}
           compact={true}
@@ -862,58 +851,9 @@ export const DesignSheetPage = ({
           onOpenCostSettings={onOpenCostSettings}
         />
 
-        {/* [가설계서 전용] 영업 견적 시뮬레이션 — 매출이익율 넣으면 최종 판매가 */}
+        {/* [가설계서 전용] 영업 견적 시뮬레이션 · 가견적서 — 견적서와 같은 계산 (시장 구분·외관검사/시험성적서 제외·6구간) */}
         {isTempMode && (
-          <div className="mt-3 border-2 border-emerald-300 bg-emerald-50/40 rounded-lg p-3">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-extrabold text-emerald-800 flex items-center gap-1.5">
-                <DollarSign className="w-3.5 h-3.5" /> 영업 견적 시뮬레이션 — 구간별 마진 → 최종 판매가
-              </h3>
-              <span className="text-[10px] text-slate-400">판매가 = 영업기준원가 ÷ (1 − 매출이익율%) + YD당 정액</span>
-            </div>
-            <div className="grid grid-cols-4 gap-px bg-slate-200 border border-slate-200 rounded-lg overflow-hidden text-center">
-              {/* 헤더 */}
-              <div className="bg-slate-100 py-1 text-[10px] font-bold text-slate-500 flex items-center justify-center">구분</div>
-              {[['1k', '1,000'], ['3k', '3,000'], ['5k', '5,000']].map(([tk, lbl], i) => (
-                <div key={tk} className={`py-1 text-[10px] font-bold ${i === 1 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{lbl} YD</div>
-              ))}
-              {/* 영업 기준원가 */}
-              <div className="bg-white py-1 text-[10px] font-bold text-slate-500 flex items-center justify-center">영업 기준원가</div>
-              {['tier1k', 'tier3k', 'tier5k'].map((tk, i) => (
-                <div key={tk} className={`py-1 text-[11px] font-mono text-slate-600 ${i === 1 ? 'bg-emerald-50/50' : 'bg-white'}`}>{quoteSym}{num(costData?.[tk]?.[viewMode]?.finalCostYd || 0, viewMode)}</div>
-              ))}
-              {/* 매출이익율(%) 입력 — 구간별 */}
-              <div className="bg-white py-1 text-[10px] font-bold text-slate-500 flex items-center justify-center">매출이익율(%)</div>
-              {['1k', '3k', '5k'].map((tk, i) => (
-                <div key={tk} className={`py-0.5 flex items-center justify-center ${i === 1 ? 'bg-emerald-50/50' : 'bg-white'}`}>
-                  <input type="number" min="0" max="99" value={readQuoteTier('quoteMarginRate', tk)} onChange={e => setQuoteTier('quoteMarginRate', tk, e.target.value)} placeholder="0" className="w-16 border border-emerald-300 rounded px-1 py-0.5 text-center font-mono text-[11px] outline-none focus:ring-2 ring-emerald-200 bg-white" />
-                </div>
-              ))}
-              {/* YD당 정액 입력 — 구간별 */}
-              <div className="bg-white py-1 text-[10px] font-bold text-slate-500 flex flex-col items-center justify-center leading-tight" title="YD당 정액은 원화로 적어요. 수출 보기에서는 판매가를 낼 때 수출 환율로 나눠 $로 더해요.">
-                <span>YD당 정액(₩)</span>
-                {viewMode === 'export' && <span className="text-[9px] font-semibold text-slate-400">{rateLabel('export')} ₩{num(viewRate)}로 $ 환산</span>}
-              </div>
-              {['1k', '3k', '5k'].map((tk, i) => {
-                const krw = readQuoteTier('quoteMarginAdd', tk);
-                const rate = viewRate;
-                return (
-                  <div key={tk} className={`py-0.5 flex flex-col items-center justify-center ${i === 1 ? 'bg-emerald-50/50' : 'bg-white'}`}>
-                    <input type="number" min="0" value={krw} onChange={e => setQuoteTier('quoteMarginAdd', tk, e.target.value === '' ? '' : Number(e.target.value))} placeholder="0"
-                      className="w-16 border border-emerald-300 rounded px-1 py-0.5 text-center font-mono text-[11px] outline-none focus:ring-2 ring-emerald-200 bg-white" />
-                    {viewMode === 'export' && krw !== '' && Number(krw) > 0 && (
-                      <span className="text-[9px] text-slate-400 font-mono">≈ ${roundUsd(Number(krw) / rate).toFixed(2)}</span>
-                    )}
-                  </div>
-                );
-              })}
-              {/* 최종 판매가 */}
-              <div className="bg-emerald-600 py-1.5 text-[10px] font-extrabold text-white flex items-center justify-center">최종 판매가</div>
-              {['tier1k', 'tier3k', 'tier5k'].map((tk, i) => (
-                <div key={tk} className={`py-1.5 text-xs font-mono font-black ${i === 1 ? 'bg-emerald-100 text-emerald-900' : 'bg-emerald-50 text-emerald-700'}`}>{quoteSym}{num(quoteSellPrice(tk), viewMode)}</div>
-              ))}
-            </div>
-          </div>
+          <TempQuotePanel sheet={sheetInput} setSheet={setSheetInput} calc={costData} exchangeRates={exchangeRates} onExport={onExportTempQuote} />
         )}
 
         {/* 메모 및 서명 영역 — [BUG-2] 가설계서 모드에서는 이력 관리 불필요하므로 숨김 */}

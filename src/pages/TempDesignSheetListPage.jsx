@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Plus, Edit2, Trash2, FlaskConical, User, FileText, X, ArrowRight, Download } from 'lucide-react';
-import { num, computeSellPrice, toTierRate, rateForMarket } from '../utils/helpers';
+import { Search, Plus, Edit2, Trash2, FlaskConical, User, FileText, X, ArrowRight, Download, FileSpreadsheet } from 'lucide-react';
+import { num } from '../utils/helpers';
+import { buildTempQuote, tempSellPrice, tempQuoteFileName, validateTempSheetForQuote } from '../utils/tempQuoteModel';
 import { DESIGN_STAGES, STAGE_COLORS } from '../constants/common';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
 import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
@@ -9,6 +10,24 @@ import { promotedSheetsOfTemp, sheetShortLabel } from '../utils/devFlowModel';
 
 // 단계 key → 한국어 라벨 (설계서 화면과 용어 통일)
 const STAGE_LABEL = Object.fromEntries(DESIGN_STAGES.map(s => [s.key, s.label]));
+
+// 시장 · 외관검사/시험성적서 제외 표시 (2026-11-24 — 가설계서마다 저장)
+const QuoteCondChips = ({ sheet, market }) => (
+  <>
+    {market === 'export' && <span className="ml-1.5 text-[9px] font-bold text-white bg-emerald-600 rounded px-1 whitespace-nowrap" title="수출 가설계서 — 관세 제외 · 수출 환율로 $">수출 $</span>}
+    {sheet.excludeVisual === true && <span className="ml-1 text-[9px] font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded px-1 whitespace-nowrap" title="외관검사 비용을 뺀 판매가">외관검사 제외</span>}
+    {sheet.excludeChem === true && <span className="ml-1 text-[9px] font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded px-1 whitespace-nowrap" title="시험성적서(이화학) 비용을 뺀 판매가">성적서 제외</span>}
+  </>
+);
+
+// 이익율 범위 글자 — 6구간 중 가장 낮은~높은 값 (같으면 하나)
+const marginRangeLabel = (rates) => {
+  const vals = Object.values(rates || {}).map(Number).filter(Number.isFinite);
+  if (!vals.length) return { hi: 0, label: '' };
+  const lo = Math.min(...vals);
+  const hi = Math.max(...vals);
+  return { hi, label: lo === hi ? `${hi}%` : `${lo}~${hi}%` };
+};
 
 /**
  * 가설계서(레시피) 관리 페이지
@@ -72,7 +91,10 @@ export const TempDesignSheetListPage = ({
   loadSheetToTemp,
   // 원가 설정 (원가 표의 편직 난이도·가공 유형 선택 + ⚙ 원가 설정 버튼)
   costSettings,
-  onOpenCostSettings
+  onOpenCostSettings,
+  // 가견적서 PDF·엑셀 — 견적서와 같은 내보내기 (useQuoteExport)
+  onDownloadPDF,
+  onDownloadQuoteExcel
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   // 가설계서 편집 창 — 닫기(닫기 버튼·배경) 때 저장 안 한 변경이 있으면 '저장할까요?' (원단 편집과 같음)
@@ -94,7 +116,16 @@ export const TempDesignSheetListPage = ({
   const [importPickerOpen, setImportPickerOpen] = useState(false);
   const [importSearch, setImportSearch] = useState('');
 
-  const quoteSym = viewMode === 'export' ? '$' : '₩';
+  // 가견적서 PDF·엑셀 (대표님 요청 2026-11-24) — 가설계서 값(편집 창은 지금 화면 값, 목록은 저장된 값)을
+  //  지금 원가로 견적서 모양으로 만들어 견적서와 같은 양식으로 내보냄. 견적 이력에는 남기지 않음
+  const exportTempQuote = (sheet, type) => {
+    const cost = getTempDesignCost?.(sheet);
+    const { quote } = buildTempQuote(sheet, cost, exchangeRates);
+    const opts = { docLabel: '가견적서', fileName: tempQuoteFileName(sheet, quote), extraErrors: validateTempSheetForQuote(sheet) };
+    if (type === 'excel') onDownloadQuoteExcel?.(quote, 'standard', opts);
+    else onDownloadPDF?.(quote, 'standard', opts);
+  };
+  const canExport = typeof onDownloadPDF === 'function' && typeof onDownloadQuoteExcel === 'function';
 
   // 불러오기 후보: 정식 설계서 검색(원단명·관리번호) → 최신 등록순
   const importCandidates = useMemo(() => {
@@ -113,24 +144,33 @@ export const TempDesignSheetListPage = ({
     setIsTempModalOpen(true);
   };
 
-  // 검색 → 판매가 계산(시트당 1회, 공용 computeSellPrice) → 정렬
+  // 검색 → 판매가 계산(시트당 1회 — 견적서와 같은 계산, 가설계서마다 자기 시장·제외 조건) → 정렬
+  //  목록 칸은 1,000 · 3,000 · 5,000YD 판매가 (전체 6구간은 편집 창)
   const rows = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    const viewRate = rateForMarket(exchangeRates, viewMode); // 보기에 맞는 공통 환율 (수출 보기 = 수출 환율)
     const list = (tempDesignSheets || [])
       .filter(s => !q || String(s.fabricName || '').toLowerCase().includes(q) || String(s.buyerName || '').toLowerCase().includes(q))
       .map(sheet => {
-        const cost = getTempDesignCost?.(sheet);
-        return { sheet, p1: computeSellPrice(cost, sheet, viewMode, 'tier1k', viewRate), p3: computeSellPrice(cost, sheet, viewMode, 'tier3k', viewRate), p5: computeSellPrice(cost, sheet, viewMode, 'tier5k', viewRate) };
+        const built = buildTempQuote(sheet, getTempDesignCost?.(sheet), exchangeRates);
+        const p3 = tempSellPrice(built, '3k');
+        return {
+          sheet,
+          market: built.market,
+          mode: built.market,                                   // num() 표시 통화
+          sym: built.market === 'export' ? '$' : '₩',
+          margin: marginRangeLabel(built.quote.bulkMarginRate),
+          p1: tempSellPrice(built, '1k'), p3, p5: tempSellPrice(built, '5k'),
+          p3Krw: (Number(p3) || 0) * (built.market === 'export' ? built.rate : 1), // 판매가 정렬 — 수출($)은 원화로 바꿔 비교
+        };
       });
     list.sort((a, b) => {
       if (sortBy === 'name') return String(a.sheet.fabricName || '').localeCompare(String(b.sheet.fabricName || ''), 'ko');
       if (sortBy === 'buyer') return String(a.sheet.buyerName || '').localeCompare(String(b.sheet.buyerName || ''), 'ko');
-      if (sortBy === 'price') return (b.p3 || 0) - (a.p3 || 0);
+      if (sortBy === 'price') return b.p3Krw - a.p3Krw;
       return (b.sheet.createdAt || '').localeCompare(a.sheet.createdAt || ''); // 생성날짜 최신순 (기본)
     });
     return list;
-  }, [tempDesignSheets, searchTerm, sortBy, viewMode, getTempDesignCost, exchangeRates]);
+  }, [tempDesignSheets, searchTerm, sortBy, getTempDesignCost, exchangeRates]);
 
   // 날짜 포맷
   const formatDate = (isoStr) => {
@@ -222,7 +262,7 @@ export const TempDesignSheetListPage = ({
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left min-w-[880px] border-collapse">
+              <table className="w-full text-xs text-left min-w-[940px] border-collapse">
                 <thead className="bg-slate-50 text-slate-400 font-bold border-b-2 border-slate-200">
                   <tr className="text-[10px] uppercase tracking-wide divide-x divide-slate-200">
                     <th className="py-2 px-3 w-[120px]">생성 날짜</th>
@@ -232,15 +272,11 @@ export const TempDesignSheetListPage = ({
                     <th className="py-2 px-3 w-[90px] text-right">1K 판매가</th>
                     <th className="py-2 px-3 w-[95px] text-right text-emerald-600">3K 판매가</th>
                     <th className="py-2 px-3 w-[90px] text-right">5K 판매가</th>
-                    <th className="py-2 px-3 w-[130px] text-center">관리</th>
+                    <th className="py-2 px-3 w-[190px] text-center">관리</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {rows.map(({ sheet, p1, p3, p5 }) => {
-                    const mr = toTierRate(sheet.quoteMarginRate);
-                    const mLo = Math.min(mr['1k'], mr['3k'], mr['5k']);
-                    const mHi = Math.max(mr['1k'], mr['3k'], mr['5k']);
-                    const marginLabel = mLo === mHi ? `${mHi}%` : `${mLo}~${mHi}%`;
+                  {rows.map(({ sheet, market, mode, sym, margin, p1, p3, p5 }) => {
                     return (
                       <tr key={sheet.id} className="divide-x divide-slate-100 bg-white hover:bg-amber-50/30 transition-colors group">
                         <td className="py-1.5 px-3 whitespace-nowrap">
@@ -249,7 +285,8 @@ export const TempDesignSheetListPage = ({
                         </td>
                         <td className="py-1.5 px-3">
                           <span className="text-[13px] font-extrabold text-slate-800">{sheet.fabricName || '(이름없음)'}</span>
-                          {mHi > 0 && <span className="ml-1.5 text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 whitespace-nowrap">마진 {marginLabel}</span>}
+                          {margin.hi > 0 && <span className="ml-1.5 text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 whitespace-nowrap">마진 {margin.label}</span>}
+                          <QuoteCondChips sheet={sheet} market={market} />
                           <PromotedChip tempId={sheet.id} designSheets={designSheets} />
                         </td>
                         <td className="py-1.5 px-3 text-xs text-slate-600 uppercase">{sheet.buyerName || <span className="text-slate-300">-</span>}</td>
@@ -257,11 +294,25 @@ export const TempDesignSheetListPage = ({
                           <span className="text-xs font-mono font-bold text-indigo-700">{sheet.costInput?.gsm || '-'}g</span>
                           <div className="text-[9px] text-slate-400">{sheet.costInput?.widthCut || '-'}/{sheet.costInput?.widthFull || '-'}"</div>
                         </td>
-                        <td className="py-1.5 px-3 text-right font-mono text-slate-500 whitespace-nowrap">{quoteSym}{num(p1, viewMode)}</td>
-                        <td className="py-1.5 px-3 text-right font-mono font-black text-emerald-800 bg-emerald-50/40 whitespace-nowrap">{quoteSym}{num(p3, viewMode)}</td>
-                        <td className="py-1.5 px-3 text-right font-mono text-slate-500 whitespace-nowrap">{quoteSym}{num(p5, viewMode)}</td>
+                        <td className="py-1.5 px-3 text-right font-mono text-slate-500 whitespace-nowrap">{sym}{num(p1, mode)}</td>
+                        <td className="py-1.5 px-3 text-right font-mono font-black text-emerald-800 bg-emerald-50/40 whitespace-nowrap">{sym}{num(p3, mode)}</td>
+                        <td className="py-1.5 px-3 text-right font-mono text-slate-500 whitespace-nowrap">{sym}{num(p5, mode)}</td>
                         <td className="py-1.5 px-3">
                           <div className="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {canExport && (
+                              <>
+                                <button onClick={() => exportTempQuote(sheet, 'pdf')}
+                                  className="flex items-center gap-1 px-1.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 text-[10px] font-bold rounded"
+                                  title="가견적서 PDF (견적서와 같은 양식 — 저장된 값으로)">
+                                  <Download className="w-3 h-3" /> PDF
+                                </button>
+                                <button onClick={() => exportTempQuote(sheet, 'excel')}
+                                  className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded"
+                                  title="가견적서 엑셀">
+                                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
                             <button onClick={() => handleSendToFullSheet(sheet)}
                               className="flex items-center gap-1 px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded shadow-sm"
                               title="이 가설계서의 스펙으로 정식 설계서를 작성합니다">
@@ -287,16 +338,12 @@ export const TempDesignSheetListPage = ({
 
           {/* 모바일 카드 */}
           <div className="block md:hidden space-y-3">
-            {rows.map(({ sheet, p1, p3, p5 }) => {
-              const mr = toTierRate(sheet.quoteMarginRate);
-              const mLo = Math.min(mr['1k'], mr['3k'], mr['5k']);
-              const mHi = Math.max(mr['1k'], mr['3k'], mr['5k']);
-              const marginLabel = mLo === mHi ? `${mHi}%` : `${mLo}~${mHi}%`;
+            {rows.map(({ sheet, market, mode, sym, margin, p1, p3, p5 }) => {
               return (
                 <div key={sheet.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-amber-300 transition-colors">
                   <div className="flex justify-between items-start mb-2">
                     <div>
-                      <h4 className="text-sm font-extrabold text-slate-800 flex items-center gap-1.5 flex-wrap">{sheet.fabricName || '(이름없음)'}{mHi > 0 && <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1">마진 {marginLabel}</span>}<PromotedChip tempId={sheet.id} designSheets={designSheets} /></h4>
+                      <h4 className="text-sm font-extrabold text-slate-800 flex items-center gap-1.5 flex-wrap">{sheet.fabricName || '(이름없음)'}{margin.hi > 0 && <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1">마진 {margin.label}</span>}<QuoteCondChips sheet={sheet} market={market} /><PromotedChip tempId={sheet.id} designSheets={designSheets} /></h4>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-[10px] text-slate-500 flex items-center gap-1">
                           <User className="w-3 h-3" /> {sheet.buyerName || '-'}
@@ -305,6 +352,13 @@ export const TempDesignSheetListPage = ({
                       </div>
                     </div>
                     <div className="flex gap-1">
+                      {canExport && (
+                        <button onClick={() => exportTempQuote(sheet, 'pdf')}
+                          className="flex items-center gap-1 px-2 py-1.5 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded"
+                          title="가견적서 PDF">
+                          <Download className="w-3 h-3" /> PDF
+                        </button>
+                      )}
                       <button onClick={() => handleSendToFullSheet(sheet)}
                         className="flex items-center gap-1 px-2 py-1.5 bg-indigo-600 text-white text-[10px] font-bold rounded shadow-sm"
                         title="정식 설계서로 보내기">
@@ -321,7 +375,7 @@ export const TempDesignSheetListPage = ({
                     {[['1K', p1], ['3K', p3], ['5K', p5]].map(([lbl, p], i) => (
                       <div key={lbl} className={`py-1 ${i === 1 ? 'bg-emerald-50' : 'bg-white'}`}>
                         <div className="text-[9px] font-bold text-slate-400">{lbl} 판매가</div>
-                        <div className={`text-xs font-mono font-black ${i === 1 ? 'text-emerald-800' : 'text-slate-600'}`}>{quoteSym}{num(p, viewMode)}</div>
+                        <div className={`text-xs font-mono font-black ${i === 1 ? 'text-emerald-800' : 'text-slate-600'}`}>{sym}{num(p, mode)}</div>
                       </div>
                     ))}
                   </div>
@@ -439,6 +493,7 @@ export const TempDesignSheetListPage = ({
               onTempBuyerChange={(val) => setTempInput(prev => ({ ...prev, buyerName: val }))}
               costSettings={costSettings}
               onOpenCostSettings={onOpenCostSettings}
+              onExportTempQuote={canExport ? exportTempQuote : undefined}
             />
           </div>
         </ModalBackdrop>

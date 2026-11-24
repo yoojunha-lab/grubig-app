@@ -110,58 +110,6 @@ export const applyGrossMargin = (cost, margin) =>
   margin >= 100 ? 0 : cost / (1 - (margin / 100));
 
 /**
- * 가설계서 영업견적 판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액.
- * DesignSheetPage(isTempMode)·TempDesignSheetListPage 공용 (중복 제거).
- * YD당 정액(quoteMarginAdd)은 항상 원화로 저장 → 수출 보기에서는 환율로 나눠 $로 더함
- *  (예전엔 화면 통화 그대로 더해서 내수/수출 보기를 바꾸면 ₩300이 $300이 되던 문제 수정)
- * @param {Object} cost   calculateCost 결과
- * @param {Object} sheet  quoteMarginRate·quoteMarginAdd 보유 시트 (구간별 {'1k','3k','5k'} 또는 레거시 단일값)
- * @param {string} viewMode 'domestic' | 'export'
- * @param {string} tierKey 'tier1k' | 'tier3k' | 'tier5k'
- * @param {number} exchangeRate 원/$ (수출 보기에서 YD당 정액 환산용)
- */
-export const computeSellPrice = (cost, sheet, viewMode, tierKey, exchangeRate = 1450) => {
-  const base = cost?.[tierKey]?.[viewMode]?.finalCostYd || 0;
-  const t = tierKey.replace('tier', '');                   // 'tier1k' → '1k'
-  const rate = toTierRate(sheet?.quoteMarginRate)[t] || 0; // 구간별 매출이익율(%)
-  const addKrw = toTierAdd(sheet?.quoteMarginAdd)[t] || 0; // 구간별 YD당 정액 (원화)
-  const isExport = viewMode === 'export';
-  const add = isExport ? addKrw / (Number(exchangeRate) > 0 ? Number(exchangeRate) : 1450) : addKrw;
-  return smartRound(applyGrossMargin(base, rate) + add, isExport ? 'USD' : 'KRW');
-};
-
-/**
- * [가설계서 판매가 시뮬레이션 전용] 견적서는 utils/quoteModel.js 의 toQuoteTierRate (300~5,000YD 6구간)
- * 매출이익율(%) 값을 구간별 객체 { '1k', '3k', '5k' } 로 정규화합니다. (0~99 clamp)
- *  - 숫자(레거시 단일값) → 세 구간 모두 같은 값으로 펼침
- *  - 객체(신규 구간별) → 각 구간값을 clamp
- *  - null/undefined/빈값 → { '1k':0, '3k':0, '5k':0 }
- */
-export const toTierRate = (val) => {
-  const clamp = (n) => Math.min(99, Math.max(0, Number(n) || 0));
-  if (val && typeof val === 'object') {
-    return { '1k': clamp(val['1k']), '3k': clamp(val['3k']), '5k': clamp(val['5k']) };
-  }
-  const v = clamp(val);
-  return { '1k': v, '3k': v, '5k': v };
-};
-
-/**
- * YD당 정액을 구간별 객체 { '1k', '3k', '5k' } 로 정규화합니다. (정액이므로 상한 clamp 없음)
- *  - 숫자(레거시 단일값) → 세 구간 모두 같은 값으로 펼침
- *  - 객체(신규 구간별) → 각 구간값을 숫자화
- *  - null/undefined/빈값 → { '1k':0, '3k':0, '5k':0 }
- */
-export const toTierAdd = (val) => {
-  const n = (x) => Number(x) || 0;
-  if (val && typeof val === 'object') {
-    return { '1k': n(val['1k']), '3k': n(val['3k']), '5k': n(val['5k']) };
-  }
-  const v = n(val);
-  return { '1k': v, '3k': v, '5k': v };
-};
-
-/**
  * 날짜 → 'YYYY-MM-DD' (이 PC의 현지 시간 기준). 기본은 오늘.
  * toISOString()은 UTC라 한국 시간 오전 9시 전에는 어제 날짜가 나옴 → 날짜만 필요한 곳은 이 함수로.
  */

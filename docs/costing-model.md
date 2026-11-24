@@ -45,7 +45,8 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
   처음(2026-10-02)에는 가공지 기준이었다가 바꿈.
 - 100kg는 원가 설정 **④ 염색 최소 청구 (컬러당)** 에서 수정 (0이면 최소 청구 없음).
 - 예) 면스판 립 300YD: 컬러당 150YD = 생지 55kg → 100kg로 청구 × 2컬러 = 200kg → 염가공비 YD당 3,252원 → 5,867원.
-- **원단 목록·가설계서 판매가 시뮬레이션은 1K/3K/5K 그대로** (MCQ 충족 기준이라 최소 청구 없음 — 6구간 추가로 바뀐 값 없음).
+- **원단 목록은 1K/3K/5K 그대로** (MCQ 충족 기준이라 최소 청구 없음 — 6구간 추가로 바뀐 값 없음).
+  가설계서 판매가 시뮬레이션은 2026-11-24부터 견적서와 같은 6구간 (§5-D).
   견적서는 2026-10-05부터 6구간 모두 (§5-B).
 - 처음(2026-10-02)에는 셋째 구간이 800YD였고, 2026-10-21에 **700YD**로 바꿈 (§1-D).
 
@@ -59,7 +60,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 견적서 기준 견적 | 구간 `700` — 기본 이익율·정액은 800YD 값 그대로 **23% · 1,500원** (대표님 지정). 견적서 표시 기본값 500·**700**·1,000·3,000YD |
 | 별도 견적·러닝 생지 이익율 빈칸 | 수량이 속한 구간 → **700~999YD는 700YD 구간**(예전: 700~799YD는 500YD 구간 25%) |
 | 개발 의뢰 원가 견적 | 판매가 미리보기 6구간 700YD. 저장된 원가 견적의 800YD 이익율·정액은 700YD로 이어받음 (창은 열 때마다 지금 원가·지금 구간) |
-| 가설계서 판매가 시뮬레이션 · 원단 목록 | 바뀐 것 없음 (원래 1K/3K/5K만) |
+| 가설계서 판매가 시뮬레이션 · 원단 목록 | 바뀐 것 없음 (원래 1K/3K/5K만) — 가설계서는 2026-11-24부터 견적서와 같은 6구간 (§5-D) |
 
 - 700YD와 800YD는 수량이 달라 원가가 다름: 편직 정액·운임·이화학의 YD당 몫(÷ 수량)과 염색 최소 청구뿐 아니라,
   kg 구간으로 정하는 **편직 LOSS**(생지 kg 100/300/1,000)·**수입 원사 운반비**(원사 kg 300/1,000/2,000)·편직 kg단가 구간도 그 수량의 kg로 다시 정해짐
@@ -83,7 +84,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 
 | # | 내용 | 결정 | 반영 |
 |---|---|---|---|
-| 1 | YD당 정액이 통화가 바뀌어도 숫자 그대로 (₩300 → $300) | 환율로 환산 | 견적 시장 구분 전환, 가설계서 수출 보기 (§5) |
+| 1 | YD당 정액이 통화가 바뀌어도 숫자 그대로 (₩300 → $300) | 환율로 환산 | 견적 시장 구분 전환, 가설계서 수출 (§5, §5-D) |
 | 2 | 혼용률 합계가 100%가 아니어도 원가가 계산됨 | **저장 막기** + 그 밖의 문제는 '원가 확인 필요' 경고 | §4-B |
 | 3 | 편직 LOSS·수입 운반비 구간 경계를 넘으면 총액이 줄어드는 지점 | 그대로 (수량이 많으면 싸지는 게 맞음) | 손대지 않음 (§7) |
 | 4 | 염가공료는 가공지, MCQ는 생지 기준으로 서로 달랐음 | **염색소 청구는 생지 기준** (더 나올 수 있어 보수적으로) | 염가공비·염색 최소 청구 모두 생지 kg (§2) |
@@ -288,10 +289,11 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
   작성자·작성일은 복제한 사람·지금으로.
 - 아주 옛날 방식(추가 마크업 `extraMargin`) 견적은 시장 구분 전환·다시 계산을 막고 새 견적으로 작성하라고 안내 (`isNewMarginModel`).
   원단 추가(기준·별도 — 팝업·Article 입력·복붙·별도 견적으로 복사)도 막음 (2026-10-06: 더 넣으면 기존 품목 단가가 새 방식으로 바뀌어서).
-- **가설계서 YD당 정액**(판매가 시뮬레이션): 원화로 입력·저장(`quoteMarginAdd`). 수출 보기에서도 원화로 입력하고,
+- **가설계서 YD당 정액**(판매가 시뮬레이션): 원화로 입력·저장(`quoteMarginAdd`). 수출 가설계서에서도 원화로 입력하고 (2026-11-24부터 보기 대신 가설계서마다 시장 구분 — §5-D),
   칸 아래에 수출 환율로 환산한 $를 보여 줌 (견적서와 같은 방식, 2026-10-05).
 - **생산 오더 / PI**: 원가를 저장하지 않음 → 영향 없음.
 - **원단 리스트·설계서·가설계서**: 열 때마다 공통 환율(내수 보기 = 내수 환율, 수출 보기 = 수출 환율)로 계산하는 화면이라 새 방식 숫자로 보임.
+  가설계서는 2026-11-24부터 화면 위 보기 대신 **그 가설계서의 시장 구분**(내수 = 내수 환율, 수출 = 수출 환율 — §5-D).
 
 ### 5-A. 공통 환율 — 내수 환율 · 수출 환율 (대표님 결정 2026-10-03, 두 칸은 2026-10-07)
 
@@ -521,6 +523,29 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 - 의뢰 문서는 통째로 덮어써서 저장(setDoc)되므로 **의뢰 수정 저장도 기존 문서를 먼저 깔고 폼 값을 얹음** → 수정해도 원가 견적·Drop 사유가 지워지지 않음.
   단계는 목록에서 바로 바뀌는 값이라 수정 창이 열려 있는 동안 바뀌었어도 저장된 값을 씀 (2026-10-06).
 
+### 5-D. 가설계서 판매가 · 가견적서 (대표님 요청 2026-11-24 — "가설계서 costing을 견적서처럼")
+
+가설계서 편집 창의 '영업 견적 시뮬레이션'을 **견적서와 같은 계산**으로 바꾸고, 가설계서 값으로 바이어에게 보낼 **가견적서** PDF·엑셀을 만듦.
+
+| 무엇 | 정한 것 |
+|---|---|
+| **시장 구분** [내수 ₩ \| 수출 $] | 가설계서마다 저장 (`marketType`). 원가 표 머리줄('최종 스펙 및 원가' 오른쪽). **원가 표·판매가·가견적서가 같이** 그 시장으로 — 내수 = 관세 포함·내수 환율, 수출 = 관세 제외·수출 환율 $. 화면 위 [내수\|수출] 보기와는 상관없음. 값이 없는 예전 가설계서 = 내수 |
+| **외관검사 제외 · 시험성적서(이화학) 제외** | 가설계서마다 저장 (`excludeVisual`·`excludeChem`). 견적서와 같은 원가 조각 방식 — `기준원가 = 반올림((raw − 뺄 항목) × (1 + 위험마진%))`. 판매가 표에 뺀 값 + 빼기 전 값(취소선). 가견적서 약관에 '외관검사 비용 미포함'·'시험성적서 비용 미포함' (수출은 영문) |
+| **구간** | 견적서와 같은 6구간 300·500·700YD(2컬러 기준) / 1,000·3,000·5,000YD(MCQ 충족 기준) — 원가 표 구간 그대로 |
+| **매출이익율 · YD당 정액** | 6구간 각각 (`quoteMarginRate`·`quoteMarginAdd` — 키 `300`·`500`·`700`·`1k`·`3k`·`5k`). 새 가설계서 = **견적서 기본값** (25/25/23/20/20/20% · 2,000/2,000/1,500/1,000/800/500원 — 대표님 결정, 예전 22/20/18% · 0원). [기본값으로] 버튼. 정액은 늘 원화로 적고 수출이면 수출 환율로 나눠 $ |
+| **예전 가설계서** | 1K/3K/5K 값은 그대로 (빈칸 = 0, 예전과 같음), 새 구간(300·500·700)만 견적서 기본값으로 채움 → **예전 판매가 그대로** (2026-11-24 대조: 무작위 가설계서 400개 × 내수·수출 × 1K/3K/5K = 2,400칸 모두 예전 `computeSellPrice`와 같은 값). 편집 창을 열 때 6구간으로 맞춰 보여 주고 저장하면 그 모양으로 기록 (열기만 해서는 '저장할까요?' 안 뜸) |
+| **목록** | 판매가 칸은 1K/3K/5K 그대로, 가설계서마다 **자기 시장 통화**(₩/$) + '수출 $'·'외관검사 제외'·'성적서 제외' 표시. 마진 배지 = 6구간 범위. 판매가 정렬은 $를 그 가설계서 환율로 원화로 바꿔 비교 |
+
+**가견적서** (대표님 결정 — 스펙 확정 전 가설계서로 내는 견적이라 이름은 '가견적서'. 개발 의뢰의 '원가 견적'과는 다름)
+
+- 버튼: 편집 창 판매가 칸 머리 **[가견적서 PDF] [엑셀]** (지금 화면 값 — 저장 전이어도), 목록 줄 **[PDF] [엑셀]**(모바일은 PDF) (저장된 값).
+- 양식 = 견적서의 **기준 견적서**와 같음 (`PDFRenderer`·`handleDownloadQuoteExcel` 그대로) — FABRIC QUOTATION, 내수는 약관만 한글.
+  - **Article = 원단명**, Spec = **가견적서 Spec** 칸(선택, `quoteSpec` — 비우면 빈칸), Cut·Full·GSM·g/YD = 가설계서 내폭·외폭·GSM·이론 G/YD, MCQ = 견적서 자동값(100kg 기준, 최소 300YD).
+  - 구간 = 판매가 표의 **'가견적서 표시'** 체크(`quoteShownTiers`, 기본 500·700·1,000·3,000YD — 1개 이상), 유효기간 = 칸 아래 선택(`quoteValidityOption`, 기본 2주), 견적일 = 오늘, 환율 = 그 시장의 지금 공통 환율.
+- 막음: 바이어명·원단명 없음, 원사 혼용률 ≠ 100%. 물어봄: '원가 확인 필요'(원사 미선택 칸·단가 0원 등).
+- 파일 이름: `Quotation_바이어_원단명_날짜` (PDF·엑셀 같음). **견적 이력에는 남기지 않음** (대표님 결정 — 내보낼 때마다 지금 원가로 만듦).
+- 정식 설계서로 보낼 때(`loadTempToSheet`) 판매가 칸(시장·제외·이익율·정액·가견적서 칸)은 넘어가지 않음 (설계서에는 판매가가 없음).
+
 ---
 
 ## 6. 코드 위치
@@ -553,7 +578,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 견적 환율·다시 계산·복제 | `src/hooks/domains/useQuotation.js` — `currentRateFor`(시장의 공통 환율), `rebuildItems`, `handleRecalcQuote`, `handleQuoteSettingChange`(시장 구분), `handleDuplicateQuote` / `quoteModel.js` — `quoteMarket`, `convertMarginAdd`, `convertBasePrice`(원가 조각 없는 기준원가 환산), `isNewMarginModel` |
 | 공통 환율(내수·수출) 저장·입력 | `src/apps/App.jsx` — `exchangeRates`·`exchangeRatesMeta`, `saveExchangeRate(market, value)` / `src/components/layout/Sidebar.jsx` (두 칸 입력·확인 창) / `helpers.js` — `rateForMarket`·`rateLabel`·`DEFAULT_EXCHANGE_RATE` / `costModel.js` — `resolveRates` |
 | 실시간 환율 (참고용) | `src/hooks/useMarketRate.js` (서비스·주기·네이버 바로가기) → `Sidebar.jsx` 환율 칸 옆 |
-| 가설계서 YD당 정액 환산 | `src/pages/DesignSheetPage.jsx` — 정액 칸(원화 입력 + '≈ $' 안내, 수출 환율) / `helpers.js` — `computeSellPrice(..., exchangeRate)` (부르는 쪽이 보기에 맞는 환율을 넘김) |
+| 가설계서 판매가 · 가견적서 (§5-D) | `src/utils/tempQuoteModel.js` — 시장 `tempMarket`, 6구간 이익율·정액 `toTempTierRate`·`toTempTierAdd`(예전 1k/3k/5k 빈칸 0 · 새 구간 견적서 기본값), 새 양식 `makeTempQuoteDefaults`·편집 창 `normalizeTempQuoteFields`, 견적서 모양 `buildTempQuoteItem`·`buildTempQuote`(→ `calcQuotePrice`·PDF·엑셀 그대로), 판매가 `tempSellPrice`, 막는 사유 `validateTempSheetForQuote`, 파일 이름 `tempQuoteFileName` / `src/components/design-sheet/TempQuotePanel.jsx`(판매가 표·제외 버튼·가견적서 표시·Spec·유효기간 + `TempMarketToggle` 원가 표 머리줄) / `DesignSheetPage.jsx` 가설계서면 원가 표 `sheetViewMode` = 그 시장 / `TempDesignSheetListPage.jsx` 목록 시장·제외 표시·[PDF]·[엑셀] `exportTempQuote` / `useQuoteExport.js` `opts`(`docLabel`·`extraErrors`·`fileName`) / `useTempDesignSheet.js` 새 칸 |
 | 원가 칸 초기값 (원단·설계서·가설계서 새 양식) | `src/utils/costFields.js` — `makeInitialCostFields()` |
 | 개발 의뢰 원가 견적 (순수 함수) | `src/utils/devQuoteModel.js` — 양식(`makeBlankDevCostQuote`·`toDevCostQuoteForm`·`normalizeDevQuoteForm`), 원단 모양 변환(`devQuoteToFabric`·`toEngineYarns`·`cleanDevQuoteYarns`), 저장 전 확인(`validateDevCostQuote`), 미리보기·저장값(`makeDevPreviewQuote`·`buildDevQuoteSnapshot`), 견적서 연결·배지(`indexDevQuotes`·`findDevQuotes`·`getDevQuoteBadge`), 설계서 이어받기(`devQuoteToSheetFields`) |
 | 원가 견적 창 · Drop 사유 창 · 배지 | `src/components/dashboard/DevCostQuoteModal.jsx`(+ 원사 한 칸 `YarnSlotRow`·판매가 미리보기 `PricePreview`), `DevDropModal.jsx`, 공용 배지 `DevQuoteBadge.jsx` / 보관함 사유별 보기 `DevArchiveModal.jsx` / 사유 목록 `constants/common.js` `DEV_DROP_REASONS` / 짧은 날짜 `helpers.formatMonthDay` |

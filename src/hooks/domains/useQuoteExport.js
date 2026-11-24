@@ -21,24 +21,28 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
   const [pdfQuote, setPdfQuote] = useState(null);     // 인쇄할 견적 (목록에서 고른 견적) — 편집 중인 견적(quoteInput)은 건드리지 않음
 
   // 바이어 견적서로 내보내기 전 확인 — 못 보내는 문제(errors)는 막고, 확인할 것(warnings)은 물어봄. 진행하면 true
-  const confirmQuoteExport = (quote, kind) => {
+  //  opts (가설계서 가견적서 — 2026-11-24): docLabel 안내 문구의 문서 이름('가견적서'), extraErrors 부르는 쪽이 먼저 찾은 막는 사유
+  const confirmQuoteExport = (quote, kind, opts = {}) => {
     const { errors, warnings } = validateQuoteForExport(quote, kind);
-    if (errors.length > 0) {
-      alert(`${kind === 'special' ? '별도' : '기준'} 견적서를 만들 수 없어요.\n\n• ${errors.join('\n• ')}`);
+    const allErrors = [...(opts.extraErrors || []), ...errors];
+    const docLabel = opts.docLabel || `${kind === 'special' ? '별도' : '기준'} 견적서`;
+    if (allErrors.length > 0) {
+      alert(`${docLabel}를 만들 수 없어요.\n\n• ${allErrors.join('\n• ')}`);
       return false;
     }
     if (warnings.length > 0) {
-      return window.confirm(`확인해 주세요.\n\n• ${warnings.join('\n• ')}\n\n그래도 견적서를 만들까요?`);
+      return window.confirm(`확인해 주세요.\n\n• ${warnings.join('\n• ')}\n\n그래도 ${opts.docLabel || '견적서'}를 만들까요?`);
     }
     return true;
   };
 
   // kind: 'standard' 기준 견적서 / 'special' 별도 견적서 — 바이어에게 따로 보냄 (대표님 요청 2026-10-05)
-  const handleDownloadPDF = (targetQuoteFromHistory = null, kind = 'standard') => {
+  //  opts: { docLabel, extraErrors, fileName } — 가설계서 가견적서처럼 견적 모양을 따로 만들어 넘길 때 (파일 이름도 그쪽에서)
+  const handleDownloadPDF = (targetQuoteFromHistory = null, kind = 'standard', opts = {}) => {
     // History 페이지 등에서 특정 견적서 출력 시 해당 견적서 데이터를 최우선으로 적용합니다.
     const targetQuote = (targetQuoteFromHistory && targetQuoteFromHistory.id) ? targetQuoteFromHistory : quoteInput;
 
-    if (!confirmQuoteExport(targetQuote, kind)) return;
+    if (!confirmQuoteExport(targetQuote, kind, opts)) return;
 
     // 인쇄할 견적은 따로 담음 — 예전엔 편집 중인 견적(quoteInput)을 목록의 견적으로 덮어썼음
     setPdfQuote(targetQuote);
@@ -53,7 +57,7 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
     setTimeout(() => {
       const oldTitle = document.title;
       const safeBuyer = String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9\s-가-힣]/g, '');
-      const filename = `${quoteFilePrefix(targetQuote, kind === 'special')}_${safeBuyer}_${targetQuote.date || ''}`.trim();
+      const filename = opts.fileName || `${quoteFilePrefix(targetQuote, kind === 'special')}_${safeBuyer}_${targetQuote.date || ''}`.trim();
       try {
         document.title = filename;
         window.print();
@@ -70,16 +74,17 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
   //   - PDF와 동일한 내용(바이어/날짜/통화/유효기간 + 품목별 스펙·단가)
   //   - 단가는 판매가(calcQuotePrice / calcCustomQuotePrice — 아주 옛날 견적의 추가 마크업 포함) — PDF와 같은 값
   //   - History 행에서 호출 시 해당 견적서, 작성 화면에서 호출 시 현재 quoteInput 사용
-  const handleDownloadQuoteExcel = (targetQuoteFromHistory = null, kind = 'standard') => {
+  const handleDownloadQuoteExcel = (targetQuoteFromHistory = null, kind = 'standard', opts = {}) => {
     if (!isXlsxReady || !window.XLSX) {
       showToast('엑셀 모듈을 불러오는 중입니다. 잠시 후 다시 시도해주세요.', 'error');
       return;
     }
     const targetQuote = (targetQuoteFromHistory && targetQuoteFromHistory.id) ? targetQuoteFromHistory : quoteInput;
     // kind: 'standard' 기준 견적서 / 'special' 별도 견적서 — PDF와 같이 따로 내보냄
+    //  opts: { docLabel, extraErrors, fileName } — PDF와 같음 (가설계서 가견적서)
     const isSpecial = kind === 'special';
     const specialRows = getShownCustomItems(targetQuote);
-    if (!confirmQuoteExport(targetQuote, kind)) return;
+    if (!confirmQuoteExport(targetQuote, kind, opts)) return;
 
     const cur = targetQuote.currency;
     const priceBasis = quotePriceBasis(cur);
@@ -153,8 +158,8 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
     window.XLSX.utils.book_append_sheet(wb, ws, isSpecial ? 'Special Quotation' : 'Quotation');
     const safeBuyer = String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim();
     const fileParts = [quoteFilePrefix(targetQuote, isSpecial), safeBuyer, targetQuote.date].filter(Boolean);
-    window.XLSX.writeFile(wb, `${fileParts.join('_')}.xlsx`);
-    showToast(`${rows.length}개 ${isSpecial ? '별도 견적 줄' : '품목'}을 엑셀로 내보냈습니다.`, 'success');
+    window.XLSX.writeFile(wb, `${opts.fileName || fileParts.join('_')}.xlsx`);
+    showToast(opts.docLabel ? `${opts.docLabel}를 엑셀로 내보냈습니다.` : `${rows.length}개 ${isSpecial ? '별도 견적 줄' : '품목'}을 엑셀로 내보냈습니다.`, 'success');
   };
 
   return { isPdfGenerating, pdfKind, pdfQuote, handleDownloadPDF, handleDownloadQuoteExcel };

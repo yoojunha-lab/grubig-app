@@ -1670,6 +1670,8 @@ const App = () => {
             loadSheetToTemp={loadSheetToTemp}
             costSettings={costSettings}
             onOpenCostSettings={openCostSettings}
+            onDownloadPDF={handleDownloadPDF}
+            onDownloadQuoteExcel={handleDownloadQuoteExcel}
           />
         )}
 

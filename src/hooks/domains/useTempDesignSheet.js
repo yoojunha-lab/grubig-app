@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
 import { makeInitialCostFields } from '../../utils/costFields';
 import { resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete, normalizeYarnSlots, clampYarnRatio } from '../../utils/costModel';
+import { makeTempQuoteDefaults, normalizeTempQuoteFields } from '../../utils/tempQuoteModel';
 
 // [원가 개편] 다른 문서의 costInput에서 새 원가 필드를 꺼냄 — 값이 없는 옛 문서는 기본값(A · 옛 편직료 · 일반)
 const pickCostAttrs = (ci = {}) => ({
@@ -25,10 +26,13 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
     buyerName: '',       // 가설계서 전용 바이어명 (정식에서는 의뢰 참조)
     fabricName: '',      // 원단명
 
-    // === 영업 견적 시뮬레이션 (가설계서 전용) ===
-    // 판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액
-    quoteMarginRate: { '1k': 22, '3k': 20, '5k': 18 }, // 매출이익율(%) — 구간별 (신규 가설계서 기본값)
-    quoteMarginAdd: { '1k': 0, '3k': 0, '5k': 0 },     // YD당 정액(원/$) — 구간별, 화면 통화 기준
+    // === 영업 견적 시뮬레이션 · 가견적서 (가설계서 전용 — 견적서와 같은 계산, 2026-11-24) ===
+    // 판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액 (utils/tempQuoteModel.js)
+    //  · marketType: 시장 구분 'domestic' 내수 ₩ / 'export' 수출 $ (그 시장의 공통 환율로 계산)
+    //  · excludeVisual · excludeChem: 외관검사 제외 · 시험성적서(이화학) 제외
+    //  · quoteMarginRate · quoteMarginAdd: 6구간(300·500·700·1k·3k·5k) 매출이익율(%) · YD당 정액(원화) — 견적서 기본값으로 시작
+    //  · quoteShownTiers: 가견적서에 나갈 구간 · quoteValidityOption: 유효기간 · quoteSpec: 가견적서 Spec 칸(선택)
+    ...makeTempQuoteDefaults(),
 
     // (1) 원사 정보 (가설계서 전용: priceOverride 추가)
     // priceOverride: 가설계서에서만 사용하는 슬롯별 단가(KRW/kg) override.
@@ -240,7 +244,9 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
         ratio: i === 0 ? 100 : 0,
         priceOverride: '',
         ...(s || {})
-      }))
+      })),
+      // 판매가·가견적서 칸 — 6구간으로 맞춤 (예전 가설계서: 1K/3K/5K 값 그대로 + 새 구간은 견적서 기본값, 시장은 내수)
+      ...normalizeTempQuoteFields(tempSheet)
     });
     setEditingTempId(tempSheet.id);
   };
@@ -344,7 +350,7 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
   // ⚠️ 정식 설계서·원단 원본은 절대 수정하지 않음 (읽어서 새 가설계서로 복사만).
   //  - 추적 필드(관리번호·단계·이력·연결정보)는 제외 (getInitialTempInput 기본값 사용)
   //  - 원사 슬롯엔 가설계서 전용 priceOverride('')를 부여 (라이브러리 단가로 계산, 필요시 직접 입력)
-  //  - 영업견적 마진(quoteMarginRate/Add)은 신규 가설계서 기본값(22/20/18%) 사용
+  //  - 판매가 칸(시장 구분·제외·구간별 이익율/정액)은 새 가설계서 기본값 (견적서 기본 이익율·정액, 내수)
   const loadSheetToTemp = (designSheet) => {
     if (!designSheet) return false;
     const initial = getInitialTempInput();
