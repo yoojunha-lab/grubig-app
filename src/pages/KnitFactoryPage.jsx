@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Factory, Plus, FileJson, Search, List, Cpu, CalendarClock, Map as MapIcon, Layers, ChevronRight, Wand2 } from 'lucide-react';
+import { Factory, Plus, FileJson, Search, List, Cpu, CalendarClock, Map as MapIcon, Layers, ChevronRight, Wand2, Download } from 'lucide-react';
 import { KnitFactoryDetail } from '../components/knitFactory/KnitFactoryDetail';
 import { KnitMachineSearch } from '../components/knitFactory/KnitMachineSearch';
 import { KnitFactoryEditModal } from '../components/knitFactory/KnitFactoryEditModal';
@@ -23,6 +23,8 @@ import { todayLocalISO } from '../utils/helpers';
 //  · [지도] 카카오맵 — 편직처 분포 · 방문 순서 · 길찾기 (기계로 찾기 조건 그대로 거를 수 있음)
 //  · [⚙ 기계 종류] 종류 · 계열 목록 / [정리본 가져오기] 예전 엑셀 정리본 / [+ 편직처 추가]
 //  · 저장 · 메모 · 확인일 · 지금 가마 · 위치는 hooks/domains/useKnitFactory.js, 계산은 utils/knitFactoryModel.js
+//  · 2026-11-24 개발 고도화 3단계: [엑셀로 내보내기](머리줄 — 거르기와 상관없이 전부) · [기계로 찾기] 피더 · 메모 종류(방문 · 통화 → 확인일)
+//    · 검색 칸에 '96F'처럼 넣으면 피더가 96인 기계가 있는 편직처
 // ============================================================
 
 // 왼쪽 좁은 목록의 한 줄 요약 — 종류마다 인치들 ('싱글 30·32·36" · 양면 자카드 30·36"')
@@ -54,6 +56,7 @@ export const KnitFactoryPage = ({
   geocode,                  // (factory) => 좌표 | null
   saveFactory, deleteFactory, addMemo, updateMemo, deleteMemo, markChecked, setMountedGauge, saveEquipment, setGeo,
   typeUsage, importSeed,
+  exportKnitExcel,          // (config) => 엑셀로 내보내기 (useKnitFactory — App이 훅 값을 통째로 넘김)
   onOpenSheet,              // (설계서) => 설계서 열기
   navGuardRef,              // App 위 메뉴로 나갈 때 묻기 (기계 수정 중 저장 안 한 변경)
   onAlignSheets,            // (맞출 안 목록) => [설계서 맞추기] 저장
@@ -205,6 +208,13 @@ export const KnitFactoryPage = ({
               className="bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded-lg hover:bg-emerald-50 hover:border-emerald-300 flex items-center justify-center gap-1.5 text-sm font-bold">
               <FileJson className="w-4 h-4 text-emerald-600" /> 정리본 가져오기
             </button>
+            {exportKnitExcel && (
+              <button type="button" onClick={() => exportKnitExcel(knitConfig)} disabled={!sorted.length}
+                title={'편직처 · 기계 · 보유 가마 · 메모를 엑셀 파일로 받아요 (시트 4개).\n목록의 검색 · 지역 · 계열 거르기와 상관없이 전부 나가요.'}
+                className="bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded-lg hover:bg-emerald-50 hover:border-emerald-300 flex items-center justify-center gap-1.5 text-sm font-bold disabled:opacity-40">
+                <Download className="w-4 h-4 text-emerald-600" /> 엑셀로 내보내기
+              </button>
+            )}
             <button type="button" onClick={() => openEditor(null)}
               className="flex-1 sm:flex-none bg-violet-600 text-white px-4 py-2 rounded-lg hover:bg-violet-700 flex items-center justify-center gap-1.5 text-sm font-bold">
               <Plus className="w-4 h-4" /> 편직처 추가
@@ -264,7 +274,7 @@ export const KnitFactoryPage = ({
                 <div className="px-2 py-1.5 border-b border-slate-100 shrink-0">
                   <div className="relative">
                     <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2" />
-                    <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="편직처 · 종류 · 메모 검색"
+                    <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="편직처 · 종류 · 메모 · 피더(96F) 검색"
                       className="w-full bg-white border border-slate-200 rounded-lg pl-7 pr-2 py-1 text-xs outline-none focus:ring-2 ring-violet-200" />
                   </div>
                 </div>
@@ -303,8 +313,8 @@ export const KnitFactoryPage = ({
               today={today}
               onBack={backToList}
               onEdit={() => openEditor(detail.id)}
-              onAddMemo={(text) => addMemo(detail.id, text)}
-              onUpdateMemo={(memoId, text) => updateMemo(detail.id, memoId, text)}
+              onAddMemo={(text, opts) => addMemo(detail.id, text, opts)}
+              onUpdateMemo={(memoId, text, opts) => updateMemo(detail.id, memoId, text, opts)}
               onDeleteMemo={(memoId) => deleteMemo(detail.id, memoId)}
               onMarkChecked={() => markChecked(detail.id)}
               onSetGauge={(machineId, g) => setMountedGauge(detail.id, machineId, g)}
@@ -349,7 +359,7 @@ export const KnitFactoryPage = ({
             <div className="p-3 flex flex-wrap items-center gap-2 border-b border-slate-100">
               <div className="relative flex-1 min-w-[200px] max-w-sm">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-                <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="편직처 · 담당자 · 주소 · 메모 · 종류 검색"
+                <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="편직처 · 담당자 · 주소 · 메모 · 종류 · 피더(96F) 검색"
                   className="w-full bg-white border border-slate-200 rounded-lg pl-8 pr-2 py-1.5 text-sm outline-none focus:ring-2 ring-violet-200" />
               </div>
               <div className="flex flex-wrap gap-1">

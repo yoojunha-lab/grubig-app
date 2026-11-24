@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Search, X, ChevronRight, MapPin } from 'lucide-react';
 import {
   KNIT_MAKERS, EMPTY_MACHINE_FILTERS, searchMachines, fmtNum, feederLabel, inchLabel, needlesFor, hasMachineFilter, checkState,
+  feederQuery, FEEDER_NEAR_RATIO,
 } from '../../utils/knitFactoryModel';
 import { todayLocalISO } from '../../utils/helpers';
 import { TypeChip, GaugeChips, NeedleText, SpandexText, Dash } from './KnitParts';
@@ -13,6 +14,9 @@ import { TypeChip, GaugeChips, NeedleText, SpandexText, Dash } from './KnitParts
 //  · 보기 화면: 줄을 누르면 그 편직처로 (onOpenFactory) · [찾은 곳 지도에서 보기] (onShowMap)
 //  · 고르기 화면(설계서 [기계 현황에서 고르기]): 게이지 칩 또는 줄을 누르면 onPick(factory, machine, gauge)
 //  · filters/onFiltersChange 를 주면 바깥(편직처 화면)과 거르기를 같이 씀 — 지도의 '찾기 조건으로 거르기'
+//  · 피더 칸 (2026-11-24, 개발 고도화 3단계): '96' · '96F' → 기계 줄 피더 숫자가 같은 것('36/48'은 둘 다, '12*3'은 36)
+//    근접 포함이면 ±10%도 (상태 '근접') · 피더가 안 적힌 기계는 빠지고 [피더 모르는 기계도 보기 (N줄)]로 같이 볼 수 있음
+//  · 상태 칸은 상태가 있는 줄이 하나라도 있으면 (게이지 · 인치 근접 · 피더 근접)
 // ============================================================
 
 const inputCls = 'bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 ring-violet-200';
@@ -20,7 +24,11 @@ const inputCls = 'bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-s
 const STATUS = {
   now: { label: '지금 꼽힘', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', title: '그 게이지 가마가 지금 꼽혀 있어요 (확인일 기준)' },
   swap: { label: '가마 교체', cls: 'bg-sky-50 text-sky-700 border-sky-200', title: '같은 종류 · 같은 인치 보유 가마에 그 게이지가 있어요 — 가마를 바꾸면 돼요' },
-  near: { label: '근접', cls: 'bg-amber-50 text-amber-700 border-amber-200', title: '게이지 ±1G 또는 인치 ±2" 로 걸린 줄' },
+  near: { label: '근접', cls: 'bg-amber-50 text-amber-700 border-amber-200', title: `게이지 ±1G · 인치 ±2" · 피더 ±${FEEDER_NEAR_RATIO * 100}% 로 걸린 줄` },
+};
+const FEEDER_CELL = {
+  exact: 'text-emerald-700 font-extrabold',
+  near: 'text-amber-700 font-bold',
 };
 
 export const KnitMachineSearch = ({
@@ -53,11 +61,16 @@ export const KnitMachineSearch = ({
   }, [factories]);
   const typeChoices = (config?.types || []).filter(t => !f.family || t.family === f.family);
 
-  const rows = useMemo(() => searchMachines(factories, f, config), [factories, f, config]);
+  const searchedFeeder = feederQuery(f.feeder);
+  // 피더를 넣었으면 '피더 모름' 줄도 같이 찾아서 세고, 끄면 뺌 (한 번만 계산)
+  const allRows = useMemo(() => searchMachines(factories, { ...f, feederUnknown: true }, config), [factories, f, config]);
+  const rows = useMemo(() => (f.feederUnknown ? allRows : allRows.filter(r => r.feederHit !== 'unknown')), [allRows, f.feederUnknown]);
+  const feederUnknownCount = searchedFeeder !== null ? allRows.filter(r => r.feederHit === 'unknown').length : 0;
   const byStatus = rows.reduce((acc, r) => { acc[r.status || 'none'] = (acc[r.status || 'none'] || 0) + 1; return acc; }, {});
   const factoryCount = new Set(rows.map(r => r.factory.id)).size;
   const totalMachines = rows.reduce((s, r) => s + (r.machine.count || 0), 0);
   const searchedGauge = Number(f.gauge) > 0 ? Number(f.gauge) : null;
+  const showStatus = rows.some(r => r.status);
 
   return (
     <div className="space-y-2">
@@ -71,6 +84,11 @@ export const KnitMachineSearch = ({
           <label className="block">
             <span className="block text-[10px] font-bold text-slate-500 mb-0.5">인치 (")</span>
             <input type="number" inputMode="decimal" value={f.inch} onChange={e => set('inch', e.target.value)} placeholder="30" className={`${inputCls} w-20 font-mono`} />
+          </label>
+          <label className="block" title="기계 줄에 적힌 피더로 찾아요 — '96' 또는 '96F'">
+            <span className="block text-[10px] font-bold text-slate-500 mb-0.5">피더 (F)</span>
+            <input type="text" inputMode="numeric" value={f.feeder || ''} onChange={e => set('feeder', e.target.value)} placeholder="96"
+              className={`${inputCls} w-20 font-mono ${String(f.feeder || '').trim() && searchedFeeder === null ? 'border-red-300 ring-2 ring-red-100' : ''}`} />
           </label>
           <label className="block">
             <span className="block text-[10px] font-bold text-slate-500 mb-0.5">종류</span>
@@ -118,15 +136,21 @@ export const KnitMachineSearch = ({
           <label className="ml-2 inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer">
             <input type="checkbox" checked={f.spandex === 'yes'} onChange={e => set('spandex', e.target.checked ? 'yes' : '')} className="w-4 h-4 accent-pink-600" /> 스판장치 있는 기계만
           </label>
-          <label className="ml-auto inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer" title="게이지 ±1G · 인치 ±2인치도 같이 보여 줘요">
-            <input type="checkbox" checked={f.near} onChange={e => set('near', e.target.checked)} className="w-4 h-4 accent-violet-600" /> 근접 포함 (±1G · ±2")
+          {searchedFeeder !== null && (
+            <label className="ml-2 inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer" title="기계 줄에 피더가 안 적힌 기계 — 편직처에 물어봐야 해요">
+              <input type="checkbox" checked={!!f.feederUnknown} onChange={e => set('feederUnknown', e.target.checked)} className="w-4 h-4 accent-slate-500" />
+              피더 모르는 기계도 보기{feederUnknownCount ? ` (${feederUnknownCount}줄)` : ''}
+            </label>
+          )}
+          <label className="ml-auto inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer" title={`게이지 ±1G · 인치 ±2인치 · 피더 ±${FEEDER_NEAR_RATIO * 100}%도 같이 보여 줘요`}>
+            <input type="checkbox" checked={f.near} onChange={e => set('near', e.target.checked)} className="w-4 h-4 accent-violet-600" /> 근접 포함 (±1G · ±2"{searchedFeeder !== null ? ` · 피더 ±${FEEDER_NEAR_RATIO * 100}%` : ''})
           </label>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
         <span>{factoryCount}곳 · {rows.length}줄{totalMachines ? ` · 적힌 대수 ${fmtNum(totalMachines)}대` : ''}</span>
-        {searchedGauge && ['now', 'swap', 'near'].filter(s => byStatus[s]).map(s => (
+        {showStatus && ['now', 'swap', 'near'].filter(s => byStatus[s]).map(s => (
           <span key={s} className={`text-[10px] font-extrabold px-1.5 py-px rounded border ${STATUS[s].cls}`}>{STATUS[s].label} {byStatus[s]}줄</span>
         ))}
         {onPick && <span className="text-violet-700 font-bold">게이지 칩이나 줄을 눌러 설계서에 넣을 기계를 골라요</span>}
@@ -139,7 +163,11 @@ export const KnitMachineSearch = ({
 
       <div className="overflow-auto border border-slate-200 rounded-xl" style={maxHeight ? { maxHeight } : undefined}>
         {rows.length === 0 ? (
-          <p className="text-sm text-slate-400 py-10 text-center">{factories.length ? '맞는 기계가 없어요. 근접 포함을 켜거나 거르기를 줄여 보세요.' : '등록된 편직처가 없어요.'}</p>
+          <p className="text-sm text-slate-400 py-10 text-center">
+            {!factories.length ? '등록된 편직처가 없어요.'
+              : feederUnknownCount && !f.feederUnknown ? `피더가 맞는 기계가 없어요. 피더가 안 적힌 기계 ${feederUnknownCount}줄은 [피더 모르는 기계도 보기]를 켜면 보여요.`
+                : '맞는 기계가 없어요. 근접 포함을 켜거나 거르기를 줄여 보세요.'}
+          </p>
         ) : (
           <table className="w-full text-xs min-w-[980px]">
             <thead className="sticky top-0 z-10">
@@ -154,13 +182,13 @@ export const KnitMachineSearch = ({
                 <th className="font-bold px-2 py-1.5">스판</th>
                 <th className="font-bold px-2 py-1.5">제조사</th>
                 <th className="font-bold px-2 py-1.5">쓸 수 있는 가마</th>
-                {searchedGauge && <th className="font-bold px-2 py-1.5">상태</th>}
+                {showStatus && <th className="font-bold px-2 py-1.5">상태</th>}
                 <th className="font-bold px-2 py-1.5">메모</th>
                 <th className="w-12" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map(({ factory, machine: m, block, status, hitGauges }) => {
+              {rows.map(({ factory, machine: m, block, status, hitGauges, feederHit }) => {
                 const pickGauge = (g) => onPick?.(factory, m, g);
                 const defaultGauge = searchedGauge && hitGauges.includes(searchedGauge) ? searchedGauge : (hitGauges[0] || m.gauge || null);
                 const counts = Object.fromEntries(block.cylinders.map(c => [c.gauge, c.count]));
@@ -176,7 +204,10 @@ export const KnitMachineSearch = ({
                     <td className="px-2 py-1.5"><TypeChip config={config} type={m.type} /></td>
                     <td className="px-2 py-1.5 text-right font-mono">{inchLabel(m.inch) || <Dash />}</td>
                     <td className="px-2 py-1.5 text-right font-mono">{m.count ? fmtNum(m.count) : <Dash />}</td>
-                    <td className="px-2 py-1.5 font-mono">{feederLabel(m.feeder) || <Dash />}</td>
+                    <td className={`px-2 py-1.5 font-mono whitespace-nowrap ${FEEDER_CELL[feederHit] || ''}`}
+                      title={feederHit === 'exact' ? `피더 ${searchedFeeder}F와 같아요` : feederHit === 'near' ? `피더 ${searchedFeeder}F 근처 (±${FEEDER_NEAR_RATIO * 100}%)` : ''}>
+                      {feederLabel(m.feeder) || (feederHit === 'unknown' ? <span className="font-sans text-[10px] text-slate-400">피더 모름</span> : <Dash />)}
+                    </td>
                     <td className="px-2 py-1.5 font-mono font-bold">
                       {m.gauge ? `${m.gauge}G` : <span className="font-normal text-slate-300">모름</span>}
                       {(() => {
@@ -194,7 +225,7 @@ export const KnitMachineSearch = ({
                     <td className="px-2 py-1.5"><SpandexText value={m.spandex} /></td>
                     <td className="px-2 py-1.5 whitespace-nowrap">{m.maker || <Dash />}</td>
                     <td className="px-2 py-1.5"><GaugeChips gauges={block.gauges} hit={searchedGauge ? hitGauges : []} mounted={m.gauge ? [m.gauge] : []} counts={counts} onPick={onPick ? pickGauge : undefined} /></td>
-                    {searchedGauge && (
+                    {showStatus && (
                       <td className="px-2 py-1.5">
                         {status && <span title={STATUS[status].title} className={`text-[10px] font-extrabold px-1.5 py-px rounded border whitespace-nowrap ${STATUS[status].cls}`}>{STATUS[status].label}</span>}
                         {status === 'now' && (() => {
@@ -220,6 +251,7 @@ export const KnitMachineSearch = ({
         )}
       </div>
       {searchedGauge && <p className="text-[10px] text-slate-400">'지금 꼽힘'은 마지막 확인일 기준이에요. 가마는 같은 편직처 · 같은 종류 · 같은 인치 기계끼리 돌려 쓴다고 보고 찾아요.</p>}
+      {searchedFeeder !== null && <p className="text-[10px] text-slate-400">피더는 기계 줄에 적힌 값으로 찾아요 — '36/48'처럼 둘 적힌 기계는 둘 다, '12*3'은 36F로 봐요. 피더는 가마가 아니라 기계 것이에요.</p>}
     </div>
   );
 };

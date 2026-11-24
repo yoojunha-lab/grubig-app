@@ -4,6 +4,7 @@ import { SearchableSelect } from '../common/SearchableSelect';
 import { ModalBackdrop } from '../common/ModalBackdrop';
 import { UnsavedChangesDialog } from '../common/UnsavedChangesDialog';
 import { useUnsavedGuard } from '../../hooks/useUnsavedGuard';
+import { OrderLotPicker } from './OrderLotPicker';
 
 /**
  * 메인 디테일 시트 작성/수정 공용 모달
@@ -27,6 +28,7 @@ export const MainDetailFormModal = ({
   resetDetailForm,
   savedFabrics,
   getBlankDetailInput, // 새 시트의 빈 양식 (저장 안 한 변경 확인 기준)
+  productionOrders = [], // 생산 현황 오더 — '생산 현황에서 고르기' (2026-11-24)
 }) => {
   const [formTab, setFormTab] = useState('greige');       // 'greige' | 'finished'
   const [keepIdentityNext, setKeepIdentityNext] = useState(false); // 저장 후 같은 Order/Article로 연속 작성
@@ -73,6 +75,20 @@ export const MainDetailFormModal = ({
         <div className="space-y-4">
           {/* 식별자 */}
           <div className="grid grid-cols-2 gap-3">
+            <OrderLotPicker
+              key={editingDetailId || 'new'}
+              orders={productionOrders}
+              value={{ orderId: detailInput.orderId, colorId: detailInput.colorId, lotId: detailInput.lotId }}
+              onPick={(p) => setDetailInput(prev => ({
+                ...prev,
+                orderNo: p.orderNo,
+                articleNo: p.articleNo || prev.articleNo || '',
+                colorInfo: p.colorInfo,
+                lotNo: p.lotNo,
+                type: p.type,
+                orderId: p.orderId, colorId: p.colorId, lotId: p.lotId,
+              }))}
+            />
             <div className="col-span-2">
               <label className="block text-xs font-bold text-slate-500 mb-1">유형 (Type)</label>
               <div className="flex bg-slate-100 p-1 rounded-lg">

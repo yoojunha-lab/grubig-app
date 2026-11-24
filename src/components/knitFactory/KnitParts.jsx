@@ -2,13 +2,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import { CalendarCheck, CalendarClock, CalendarX, Check, AlertTriangle } from 'lucide-react';
 import {
   buildBlocks, checkState, KNIT_CHECK_STALE_DAYS, typeTone, isKnownType, fmtNum, feederLabel, inchLabel,
-  needlesFor, gaugeRangeLabel, feedersInNote,
+  needlesFor, gaugeRangeLabel, feedersInNote, memoKindInfo, memoKindOf,
 } from '../../utils/knitFactoryModel';
 
 // ============================================================
 // 편직처 기계 현황 — 여러 화면이 같이 쓰는 부품 (대표님 요청 2026-11-23, 2차)
 //  · TypeChip(종류 — 계열 색) · GaugeChips(게이지 칩) · NeedleText(침수 — 계산 값은 회색 ≈)
 //  · CheckBadge(확인일) · SpandexText · BlockSummary(목록 한 줄 요약)
+//  · MemoKindChip(메모 · 방문 · 통화 — 2026-11-24, 개발 고도화 3단계)
 //  · KnitBlocks — 상세 화면 기계 현황: '종류 + 인치' 묶음(가마를 돌려 쓰는 단위)마다 기계 줄 + 보유 가마
 //    onSetGauge 가 있으면 '지금 가마' 칸을 눌러 바로 바꿈
 // ============================================================
@@ -76,6 +77,16 @@ export const CheckBadge = ({ factory, today, size = 'sm' }) => {
   return (
     <span title={title} className={`inline-flex items-center gap-1 font-bold rounded border whitespace-nowrap ${size === 'xs' ? 'text-[10px] px-1 py-px' : 'text-[11px] px-1.5 py-0.5'} ${cls}`}>
       <Icon className={size === 'xs' ? 'w-3 h-3' : 'w-3.5 h-3.5'} /> {st.label}
+    </span>
+  );
+};
+
+/** 메모 종류 칩 — 메모 · 방문 · 통화 (kind 없는 예전 메모 = 메모, 2026-11-24 개발 고도화 3단계) */
+export const MemoKindChip = ({ memo, kind, size = 'sm' }) => {
+  const k = memoKindInfo(kind || memoKindOf(memo));
+  return (
+    <span className={`inline-flex items-center font-extrabold rounded border whitespace-nowrap ${size === 'xs' ? 'text-[9px] px-1 py-0' : 'text-[10px] px-1.5 py-px'} ${k.tone}`}>
+      {k.label}
     </span>
   );
 };

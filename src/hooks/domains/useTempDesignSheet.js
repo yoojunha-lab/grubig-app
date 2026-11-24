@@ -296,6 +296,9 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
 
       return {
         ...prev,
+        // 어느 가설계서에서 왔는지 (개발 고도화 3단계 2026-11-24) — 가설계서 목록 '정식 전환됨' · 두 번 전환 경고 · 바이어
+        //  저장된 설계서에는 넣지 않음 (새 설계서에서만 불러오기가 보임 — 2026-11-24 1단계)
+        fromTemp: { tempId: tempSheet.id, fabricName: tempSheet.fabricName || '', buyerName: tempSheet.buyerName || '', at: new Date().toISOString() },
         // 스펙 데이터만 덮어쓰기 (관리번호·연결정보는 유지)
         fabricName: tempSheet.fabricName || prev.fabricName,
         yarns: cleanYarns,

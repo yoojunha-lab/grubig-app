@@ -81,6 +81,9 @@ export const DevSampleProgress = ({
                   <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-bold text-slate-700 max-w-[130px]"><Buyer row={row} /></td>
                   <td className="px-2 py-1.5 border-r border-slate-100 text-xs font-bold text-slate-800">
                     <div className="truncate">{title(row)}</div>
+                    {row.labdip?.total > 0 && (
+                      <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded border bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200" title="이 개발 건으로 의뢰한 L/D">L/D {row.labdip.label}</span>
+                    )}
                     {sheetName(row) && (
                       <div className="flex items-center gap-1 text-[10px] font-semibold text-indigo-700 min-w-0">
                         <FileText className="w-3 h-3 shrink-0" /><span className="truncate">{sheetName(row)}</span>

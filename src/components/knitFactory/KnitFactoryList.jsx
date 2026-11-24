@@ -1,7 +1,7 @@
 import React from 'react';
 import { ChevronRight, FileText, ClipboardList, StickyNote } from 'lucide-react';
-import { factoryTotals, typeSummaries, fmtNum, inchLabel, gaugeRangeLabel } from '../../utils/knitFactoryModel';
-import { TypeChip, CheckBadge } from './KnitParts';
+import { factoryTotals, typeSummaries, fmtNum, inchLabel, gaugeRangeLabel, sortMemos, memoKindOf } from '../../utils/knitFactoryModel';
+import { TypeChip, CheckBadge, MemoKindChip } from './KnitParts';
 
 // ============================================================
 // 편직처 기계 현황 — [편직처] 전체 목록 (대표님 요청 2026-11-24 '보기 쉽게 · 정보 더')
@@ -9,7 +9,7 @@ import { TypeChip, CheckBadge } from './KnitParts';
 //   ① 편직처 — 이름 · 지역 · 확인일 · 편직 중
 //   ② 기계 — 총 대수 · 가마 수, 종류마다 한 줄 (종류 · 게이지 범위 · 스판 · 인치별 대수)
 //      종류 · 게이지 칸 너비를 정해 둬서 편직처가 달라도 인치가 같은 자리에서 시작 (같은 날 '줄 좀 맞춰')
-//   ③ 우리 작업 · 메모 — 설계서 N · 오더 N · 최근 메모
+//   ③ 우리 작업 · 메모 — 설계서 N · 오더 N · 최근 메모 (날짜 최신 · 방문 · 통화는 칩 — 2026-11-24, 개발 고도화 3단계)
 //  · 연락처 칸은 뺌 (대표님 2026-11-24 '연락처 필요없어' — 상세에 있음)
 //  · 종류별 열 표(옆으로 넘겨 보기)도 해 봤는데 이 모양이 낫다고 하셔서 되돌림 (2026-11-24)
 //  줄을 누르면 상세
@@ -30,7 +30,7 @@ const FactoryRow = ({ factory: f, config, today, family = '', jobs = [], work, o
   const types = typeSummaries(t.blocks);
   const knitting = jobs.filter(j => j.state === 'knitting').length;
   const waiting = jobs.length - knitting;
-  const memo = (f.memos || [])[0] || null;
+  const memo = sortMemos(f.memos)[0] || null;
   const open = () => onOpen(f.id);
   return (
     <div role="button" tabIndex={0} onClick={open} onKeyDown={e => { if (e.key === 'Enter') open(); }}
@@ -93,7 +93,10 @@ const FactoryRow = ({ factory: f, config, today, family = '', jobs = [], work, o
         {memo ? (
           <p className="flex items-start gap-1 text-slate-500" title={memo.text}>
             <StickyNote className="w-3 h-3 text-amber-400 shrink-0 mt-0.5" />
-            <span className="line-clamp-2"><span className="text-[10px] text-slate-400">{shortDate(memo.date)}</span> {memo.text.replace(/\n+/g, ' ')}</span>
+            <span className="line-clamp-2">
+              {memoKindOf(memo) !== 'memo' && <><MemoKindChip memo={memo} size="xs" />{' '}</>}
+              <span className="text-[10px] text-slate-400">{shortDate(memo.date)}</span> {String(memo.text || '').replace(/\n+/g, ' ')}
+            </span>
           </p>
         ) : <p className="text-[11px] text-slate-300">메모 없음</p>}
       </div>

@@ -3,17 +3,54 @@ import {
   Phone, Printer, MapPin, User, Pencil, CalendarCheck, Coins, StickyNote, Send, Trash2, Check, X, FileText, Factory, History, Loader2,
   ArrowLeft, Map as MapIcon, Navigation,
 } from 'lucide-react';
-import { factoryTotals, sameFactoryName, checkState, fmtNum, kakaoLinkTo, kakaoLinkSearch, geocodeQuery } from '../../utils/knitFactoryModel';
+import {
+  factoryTotals, sameFactoryName, checkState, fmtNum, kakaoLinkTo, kakaoLinkSearch, geocodeQuery,
+  MEMO_KINDS, memoKindOf, memoKindInfo, isContactKind, sortMemos, lastContactRecord,
+} from '../../utils/knitFactoryModel';
 import { DESIGN_STAGES } from '../../constants/common';
 import { todayLocalISO } from '../../utils/helpers';
-import { CheckBadge, KnitBlocks, KnitJobChips } from './KnitParts';
+import { CheckBadge, KnitBlocks, KnitJobChips, MemoKindChip } from './KnitParts';
 import { KnitEquipmentEditor } from './KnitEquipmentEditor';
 
 // ============================================================
 // 편직처 기계 현황 — 편직처 한 곳 보기 (대표님 요청 2026-11-23, 2차: 목록에서 눌러서 열고 ← 로 목록으로 — 견적서 화면과 같은 모양)
 //  · 연락처 · 주소(카카오맵 링크) · 편직료 / 기계 현황(종류 + 인치 묶음 — 기계 줄 + 보유 가마) / 메모 / 우리 작업 이력
 //  · '지금 가마' 칸을 누르면 바로 바꿈 (확인일 오늘로) · [오늘 확인함]
+//  · 메모 종류 메모 / 방문 / 통화 (2026-11-24, 개발 고도화 3단계) — 방문 · 통화는 날짜를 고르고, 남기면 확인일도 그 날로(더 최근일 때만)
+//    메모 목록은 날짜 최신 순 · 칩으로 종류 표시 (예전 메모 = 메모)
 // ============================================================
+
+const MEMO_ICONS = { memo: StickyNote, visit: MapPin, call: Phone };
+const MEMO_PLACEHOLDER = {
+  memo: '거래 관계 · 잘하는 원단 · 통화 내용 … (Ctrl+Enter로 남기기)',
+  visit: '다녀온 내용 — 본 기계 · 가마 · 만난 사람 … (Ctrl+Enter로 남기기)',
+  call: '통화 내용 — 물어본 기계 · 가마 · 일정 … (Ctrl+Enter로 남기기)',
+};
+
+/** 메모 · 방문 · 통화 고르기 + 방문 · 통화한 날 */
+const MemoKindPicker = ({ kind, onKind, date, onDate, today }) => (
+  <div className="flex flex-wrap items-center gap-1.5">
+    <span className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 gap-0.5">
+      {MEMO_KINDS.map(k => {
+        const Icon = MEMO_ICONS[k.key];
+        const on = kind === k.key;
+        return (
+          <button key={k.key} type="button" onClick={() => onKind(k.key)}
+            className={`text-[11px] font-bold px-2 py-0.5 rounded-md border inline-flex items-center gap-1 ${on ? `${k.tone} shadow-sm` : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+            <Icon className="w-3 h-3" /> {k.label}
+          </button>
+        );
+      })}
+    </span>
+    {isContactKind(kind) && (
+      <label className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500">
+        {kind === 'visit' ? '다녀온 날' : '통화한 날'}
+        <input type="date" value={date} max={today} onChange={e => onDate(e.target.value)}
+          className="border border-slate-300 rounded-md px-1.5 py-0.5 text-[11px] font-mono outline-none focus:ring-2 ring-violet-200" />
+      </label>
+    )}
+  </div>
+);
 
 const Section = ({ icon: Icon, title, right, children }) => (
   <section className="space-y-1.5">
@@ -37,34 +74,44 @@ const dateOf = (iso) => {
 };
 const ORDER_STATUS = { active: '진행 중', on_hold: '보류', completed: '완료' };
 
-const MemoItem = ({ memo, onSave, onDelete }) => {
+const MemoItem = ({ memo, today, onSave, onDelete }) => {
+  const kind0 = memoKindOf(memo);
+  const date0 = memo.date || today;
   const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(memo.text);
+  const [text, setText] = useState(memo.text || '');
+  const [kind, setKind] = useState(kind0);
+  const [date, setDate] = useState(date0);
   const [busy, setBusy] = useState(false);
+  const reset = () => { setEditing(false); setText(memo.text || ''); setKind(kind0); setDate(date0); };
   const save = async () => {
-    if (!text.trim() || text.trim() === memo.text) { setEditing(false); setText(memo.text); return; }
+    const same = text.trim() === (memo.text || '') && kind === kind0 && (!isContactKind(kind) || date === date0);
+    if (!text.trim() || same) { reset(); return; }
     setBusy(true);
-    try { if (await onSave(text)) setEditing(false); } finally { setBusy(false); }
+    // 날짜는 방문 · 통화일 때만 넘김 (메모는 남긴 날 그대로)
+    try { if (await onSave(text, { kind, ...(isContactKind(kind) ? { date } : {}) })) setEditing(false); } finally { setBusy(false); }
   };
   return (
     <li className="group border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white">
       <div className="flex items-center gap-2 text-[10px] text-slate-400">
+        <MemoKindChip memo={memo} />
         <span className="font-bold text-slate-500">{memo.date}</span>
         {memo.by && <span>{memo.by}</span>}
+        {memo.writtenAt && <span title="날짜를 골라 나중에 남긴 기록">· {memo.writtenAt} 남김</span>}
         {memo.editedAt && <span>· {memo.editedAt} 고침</span>}
         {!editing && (
           <span className="ml-auto flex gap-1 opacity-60 group-hover:opacity-100">
-            <button type="button" onClick={() => setEditing(true)} title="메모 고치기" className="p-0.5 hover:text-violet-600"><Pencil className="w-3 h-3" /></button>
+            <button type="button" onClick={() => setEditing(true)} title="메모 고치기 (종류 · 날짜도)" className="p-0.5 hover:text-violet-600"><Pencil className="w-3 h-3" /></button>
             <button type="button" onClick={onDelete} title="메모 지우기" className="p-0.5 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
           </span>
         )}
       </div>
       {editing ? (
         <div className="mt-1 space-y-1">
+          <MemoKindPicker kind={kind} onKind={setKind} date={date} onDate={setDate} today={today} />
           <textarea value={text} onChange={e => setText(e.target.value)} rows={Math.min(8, Math.max(2, text.split('\n').length))}
             className="w-full border border-slate-300 rounded-md px-2 py-1 text-xs outline-none focus:ring-2 ring-violet-200" autoFocus />
           <div className="flex justify-end gap-1">
-            <button type="button" onClick={() => { setEditing(false); setText(memo.text); }} className="text-[11px] font-bold text-slate-500 px-2 py-0.5 rounded hover:bg-slate-100 inline-flex items-center gap-1"><X className="w-3 h-3" /> 취소</button>
+            <button type="button" onClick={reset} className="text-[11px] font-bold text-slate-500 px-2 py-0.5 rounded hover:bg-slate-100 inline-flex items-center gap-1"><X className="w-3 h-3" /> 취소</button>
             <button type="button" onClick={save} disabled={busy} className="text-[11px] font-bold text-white bg-violet-600 px-2 py-0.5 rounded hover:bg-violet-700 inline-flex items-center gap-1 disabled:opacity-50">
               {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} 저장
             </button>
@@ -92,8 +139,13 @@ export const KnitFactoryDetail = ({
   onShowOnMap,          // 지도 화면에서 이 편직처 보기
   onOpenSheet,          // (설계서) => 설계서 열기
 }) => {
+  const todayISO = today || todayLocalISO();
   const [memoText, setMemoText] = useState('');
+  const [memoKind, setMemoKind] = useState('memo');       // 메모 · 방문 · 통화 (2026-11-24, 개발 고도화 3단계)
+  const [memoDate, setMemoDate] = useState(todayISO);     // 방문 · 통화한 날
   const [memoBusy, setMemoBusy] = useState(false);
+  const memos = useMemo(() => sortMemos(factory.memos), [factory.memos]);
+  const lastContact = lastContactRecord(factory.memos);
   const [checkBusy, setCheckBusy] = useState(false);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [editingEquip, setEditingEquip] = useState(false);   // [기계 수정] 중
@@ -115,7 +167,11 @@ export const KnitFactoryDetail = ({
   const submitMemo = async () => {
     if (!memoText.trim() || memoBusy) return;
     setMemoBusy(true);
-    try { if (await onAddMemo(memoText)) setMemoText(''); } finally { setMemoBusy(false); }
+    try {
+      if (await onAddMemo(memoText, { kind: memoKind, date: isContactKind(memoKind) ? memoDate : todayISO })) {
+        setMemoText(''); setMemoKind('memo'); setMemoDate(todayISO);
+      }
+    } finally { setMemoBusy(false); }
   };
   const check = async () => {
     if (checkBusy) return;
@@ -144,6 +200,7 @@ export const KnitFactoryDetail = ({
             <CheckBadge factory={factory} today={today} />
             <span>기계 <b className="text-slate-700">{totals.total ? `${fmtNum(totals.total)}대` : '대수 미기재'}</b> · {totals.lines}줄</span>
             {totals.cylinderLines > 0 && <span>· 보유 가마 <b className="text-slate-700">{totals.cylinders ? `${fmtNum(totals.cylinders)}개` : `${totals.cylinderLines}종`}</b></span>}
+            {lastContact && <span title="메모에 남긴 마지막 방문 · 통화 기록">· 최근 {memoKindInfo(lastContact.kind).label} <b className="text-slate-700">{lastContact.date}</b></span>}
           </div>
         </div>
         <div className="flex gap-1.5 shrink-0 flex-wrap">
@@ -232,21 +289,27 @@ export const KnitFactoryDetail = ({
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         {/* 메모 */}
-        <Section icon={StickyNote} title={`메모 ${(factory.memos || []).length ? `(${factory.memos.length})` : ''}`}>
+        <Section icon={StickyNote} title={`메모 · 방문 · 통화 ${memos.length ? `(${memos.length})` : ''}`}>
+          <MemoKindPicker kind={memoKind} onKind={setMemoKind} date={memoDate} onDate={setMemoDate} today={todayISO} />
+          {isContactKind(memoKind) && (
+            <p className="text-[10px] text-slate-500">
+              {memoKindInfo(memoKind).label} 기록을 남기면 확인일도 그 날로 바뀌어요 (지금 확인일{factory.checkedAt ? ` ${factory.checkedAt}` : ''}보다 최근일 때만).
+            </p>
+          )}
           <div className="flex gap-1.5">
             <textarea value={memoText} onChange={e => setMemoText(e.target.value)} rows={2}
               onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submitMemo(); }}
-              placeholder="거래 관계 · 잘하는 원단 · 통화 내용 … (Ctrl+Enter로 남기기)"
+              placeholder={MEMO_PLACEHOLDER[memoKind] || MEMO_PLACEHOLDER.memo}
               className="flex-1 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-2 ring-violet-200 resize-y" />
             <button type="button" onClick={submitMemo} disabled={!memoText.trim() || memoBusy}
               className="self-stretch bg-violet-600 text-white px-3 rounded-lg hover:bg-violet-700 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-40">
               {memoBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} 남기기
             </button>
           </div>
-          {(factory.memos || []).length > 0 ? (
+          {memos.length > 0 ? (
             <ul className="space-y-1.5 max-h-[320px] overflow-y-auto pr-0.5">
-              {factory.memos.map(m => (
-                <MemoItem key={m.id} memo={m} onSave={(t) => onUpdateMemo(m.id, t)} onDelete={() => onDeleteMemo(m.id)} />
+              {memos.map(m => (
+                <MemoItem key={m.id} memo={m} today={todayISO} onSave={(t, opts) => onUpdateMemo(m.id, t, opts)} onDelete={() => onDeleteMemo(m.id)} />
               ))}
             </ul>
           ) : <p className="text-xs text-slate-400">메모가 없어요.</p>}

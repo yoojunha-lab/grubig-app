@@ -5,6 +5,7 @@ import { makeInitialCostFields } from '../../utils/costFields';
 import { resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete, normalizeYarnSlots, clampYarnRatio } from '../../utils/costModel';
 import { todayLocalISO, num } from '../../utils/helpers';
 import { devQuoteToSheetFields } from '../../utils/devQuoteModel';
+import { feederSummary } from '../../utils/sheetHistory';
 
 // GRUBIG ERP - 원단 설계서 도메인 로직 훅
 //
@@ -66,6 +67,12 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   const [editingSheetId, setEditingSheetId] = useState(null);
   // 편집 창을 열 때의 연결 칸 값 (LINK_KEYS) — 저장 때 '이 창에서 바꿨는지' 비교용
   const loadedLinksRef = useRef(null);
+  // 변경 이력용 — 원사 id → 이름 (없으면 '(빈 칸)') (2026-11-24)
+  const yarnNameOfId = (yarnId) => {
+    const id = String(yarnId || '').split('::')[0];
+    if (!id) return '';
+    return (yarnLibrary || []).find(y => String(y.id) === id)?.name || `(지운 원사 ${id})`;
+  };
 
   // 설계서 초기 입력 폼
   const getInitialSheetInput = () => ({
@@ -784,6 +791,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     // === 변경 이력 감지 (수정 모드에서만) ===
     if (!isNew && existing) {
       const changedFields = {};
+      // 바뀐 뒤 값도 같이 남김 (개발 고도화 3단계 2026-11-24 — 예전엔 '옛 값 ▶ 변경됨'만 보였음)
+      const changedTo = {};
       // [요청5·2] 칸별 감사 정보 — 기존 fieldMeta 유지하며 변경된 확인칸만 갱신
       const fieldMeta = { ...(existing.fieldMeta || {}) };
       const editorEmail = user?.email || '';
@@ -797,6 +806,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         const oldVal = String(existing[key] || '');
         if (newVal !== oldVal) {
           changedFields[key] = existing[key] || '';
+          changedTo[key] = newVal;
           // [요청2] 원단명은 확인칸이므로 감사 기록
           if (key === 'fabricName') stampMeta('fabricName', oldVal, newVal);
         }
@@ -804,11 +814,12 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       // 중첩 섹션 비교 (knitting, dyeing, finishing, actualData)
       ['knitting', 'dyeing', 'finishing', 'actualData'].forEach(section => {
         Object.keys(finalInput[section] || {}).forEach(field => {
-          if (field === 'feeders') return; // 배열은 별도 비교 제외
+          if (field === 'feeders') return; // 배열은 아래에서 따로 (조직도 피더 줄)
           const newVal = String(finalInput[section]?.[field] || '');
           const oldVal = String(existing[section]?.[field] || '');
           if (newVal !== oldVal) {
             changedFields[`${section}.${field}`] = oldVal;
+            changedTo[`${section}.${field}`] = newVal;
             // 편직/염색/후가공 칸은 '누가·언제·무엇→무엇'을 칸별로 기록 (마우스오버 툴팁용)
             if (section === 'knitting' || section === 'dyeing' || section === 'finishing') {
               stampMeta(`${section}.${field}`, oldVal, newVal);
@@ -832,6 +843,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         const oldVal = String(prevCostValue(key) ?? '');
         if (newVal !== oldVal) {
           changedFields[`costInput.${key}`] = prevCostValue(key) ?? '';
+          changedTo[`costInput.${key}`] = newVal;
           // [요청2] 내폭·외폭·GSM은 확인칸이므로 감사 기록
           if (key === 'widthCut' || key === 'widthFull' || key === 'gsm') stampMeta(`costInput.${key}`, oldVal, newVal);
         }
@@ -839,7 +851,10 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       // 원가 표의 나머지 항목 — 위험마진(%)·kg단가 구간·후가공·추가비용 (예전엔 바꿔도 이력에 안 남았음)
       //  목록은 내용을 통째로 비교하고(줄 id 제외), 이력에는 바뀌기 전 내용을 짧은 글자로
       const prevRisk = existing.costInput?.riskMarginPct ?? '';
-      if (String(finalInput.costInput?.riskMarginPct ?? '') !== String(prevRisk)) changedFields['costInput.riskMarginPct'] = prevRisk;
+      if (String(finalInput.costInput?.riskMarginPct ?? '') !== String(prevRisk)) {
+        changedFields['costInput.riskMarginPct'] = prevRisk;
+        changedTo['costInput.riskMarginPct'] = String(finalInput.costInput?.riskMarginPct ?? '');
+      }
       const toList = (v) => (Array.isArray(v) ? v : []);
       const costLists = {
         knitKgRateTiers: { read: toList, summary: (list) => list.map(t => `${num(t.fromKg)}kg~ ${num(t.rate)}원`).join(', ') },
@@ -850,7 +865,10 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         const comparable = (list) => JSON.stringify(list.map(({ id: _id, ...rest }) => rest));
         const oldList = read(existing.costInput?.[key]);
         const newList = read(finalInput.costInput?.[key]);
-        if (comparable(oldList) !== comparable(newList)) changedFields[`costInput.${key}`] = summary(oldList) || '(없음)';
+        if (comparable(oldList) !== comparable(newList)) {
+          changedFields[`costInput.${key}`] = summary(oldList) || '(없음)';
+          changedTo[`costInput.${key}`] = summary(newList) || '(없음)';
+        }
       });
       // [원사 배합] 비율 확인칸 — 원사별 비율 변경 감사 기록
       (finalInput.yarns || []).forEach((y, idx) => {
@@ -858,15 +876,33 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         const oldVal = String(existing.yarns?.[idx]?.ratio ?? '');
         if (newVal !== oldVal) {
           changedFields[`yarns.${idx}.ratio`] = oldVal;
+          changedTo[`yarns.${idx}.ratio`] = newVal;
           stampMeta(`yarns.${idx}.ratio`, oldVal, newVal);
         }
+        // 원사를 다른 원사로 바꾼 것 (2026-11-24 — 예전엔 비율만 봐서 원사를 바꿔도 이력에 안 남았음) — 원사 이름으로 남김
+        const newYarn = String(y?.yarnId || '');
+        const oldYarn = String(existing.yarns?.[idx]?.yarnId || '');
+        if (newYarn.split('::')[0] !== oldYarn.split('::')[0]) {
+          changedFields[`yarns.${idx}.yarnId`] = yarnNameOfId(oldYarn);
+          changedTo[`yarns.${idx}.yarnId`] = yarnNameOfId(newYarn);
+          stampMeta(`yarns.${idx}.yarnId`, yarnNameOfId(oldYarn), yarnNameOfId(newYarn));
+        }
       });
+      // 조직도 피더 줄 (부호 · 루프장 · 사용 원사) — 통째로 비교, 이력에는 짧은 글자 (2026-11-24)
+      const oldFeeders = feederSummary(existing.knitting?.feeders);
+      const newFeeders = feederSummary(finalInput.knitting?.feeders);
+      if (oldFeeders !== newFeeders) {
+        changedFields['knitting.feeders'] = oldFeeders;
+        changedTo['knitting.feeders'] = newFeeders;
+      }
       itemToSave.fieldMeta = fieldMeta;
-      // 변경사항이 있으면 이력에 추가
+      // 변경사항이 있으면 이력에 추가 (누가 · 바뀐 뒤 값도 — 2026-11-24)
       if (Object.keys(changedFields).length > 0) {
         const historyEntry = {
           date: now,
           fields: changedFields,
+          to: changedTo,
+          by: editorName,
           reason: finalInput.changeReason || ''
         };
         itemToSave.changeHistory = [
@@ -1285,9 +1321,10 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
   //   confirm: false = 확인 창 없이 (의뢰 Drop 사유 창에서 이미 확인함)
   //   quiet: true   = 알림 안 띄움 (의뢰 Drop 알림에 합침)
   //   keepDevLink: true = 의뢰 쪽 연결을 여기서 풀지 않음 (바로 뒤 의뢰 Drop 저장이 같이 풂 — 두 번 덮어쓰지 않게)
+  //   reason · memo: 자체개발 설계서 Drop 사유 (DEV_DROP_REASONS key — 개발/설계 현황 사유 창, 2026-11-24). 의뢰와 같이 Drop하면 사유는 의뢰에
   //  반환: Drop 했으면 { order: 생산 현황 샘플 오더 처리 결과(없으면 null) } — quiet 일 때 부른 쪽 알림에 붙이려고
   //        못 했으면(막힘·취소·저장 실패) false
-  const dropDesignSheet = async (sheetId, { confirm = true, quiet = false, keepDevLink = false } = {}) => {
+  const dropDesignSheet = async (sheetId, { confirm = true, quiet = false, keepDevLink = false, reason = '', memo = '' } = {}) => {
     const sheet = designSheets.find(s => s.id === sheetId);
     if (!sheet) return false;
 
@@ -1304,7 +1341,12 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     }
 
     // 설계서를 먼저 Drop으로 저장하고, 저장됐을 때만 연결 정리 (저장 실패인데 의뢰 연결만 풀리는 일 방지)
-    const dropPatch = { status: 'dropped', updatedAt: new Date().toISOString() };
+    //  Drop 날짜 · 사유도 남김 (설계서 보관함 DROP 카드 — 2026-11-24)
+    const droppedAt = new Date().toISOString();
+    const dropPatch = {
+      status: 'dropped', droppedAt, updatedAt: droppedAt,
+      ...(reason ? { dropReason: reason, dropMemo: String(memo || '').trim() } : {}),
+    };
     const ok = await saveDocToCloud('designSheets', { ...sheet, ...dropPatch });
     if (ok === false) return false; // saveDocToCloud가 실패 알림
     syncOpenSheet(sheetId, dropPatch);
@@ -1367,7 +1409,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       fields: { status: 'dropped' },
       reason: 'DROP 복원'
     };
-    const restorePatch = { status: 'active', changeHistory: [restoreHistory, ...(sheet.changeHistory || [])], updatedAt: now };
+    const restorePatch = { status: 'active', droppedAt: null, dropReason: null, dropMemo: null, changeHistory: [restoreHistory, ...(sheet.changeHistory || [])], updatedAt: now };
     const saved = await saveDocToCloud('designSheets', { ...sheet, ...restorePatch });
     if (saved === false) return false; // saveDocToCloud가 실패 알림
     syncOpenSheet(sheetId, restorePatch);

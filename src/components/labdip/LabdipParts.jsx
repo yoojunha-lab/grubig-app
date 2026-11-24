@@ -1,11 +1,36 @@
 import React, { useState } from 'react';
-import { Factory, Send } from 'lucide-react';
+import { Factory, Send, Activity } from 'lucide-react';
 import { PopoverShell } from '../order/common/PopoverShell';
 import { LD_STAGES, LD_MODES, LD_LETTERS_PICK, letterOf } from '../../utils/labdipModel';
 
 // ============================================================
 // LAB-DIP 화면 공용 부품 — 단계 칩 · 납기 글자 · 입력 칸 · 낱장 고르기 · [+ 새 L/D ▾] 메뉴 · 진행 창 틀
+//  · 개발 건 칩 '개발 F-26D011' (+ 그 뒤 아이템화됐으면 '→ PW1060') — 2026-11-24 개발 고도화 3단계
 // ============================================================
+
+/**
+ * 개발 건 칩 — link = labdipDevLink(…) (null이면 안 보임)
+ *  보라 = 개발 메뉴 색 · 아이템화됐으면 초록 '→ PW1060' · Drop · 찾을 수 없음은 회색 점선
+ *  size: 'sm'(목록) | 'md'(작성 화면)
+ */
+export const LabdipDevChip = ({ link, size = 'sm' }) => {
+  if (!link) return null;
+  const text = size === 'sm' ? 'text-[9px] px-1' : 'text-[10px] px-1.5';
+  const dim = link.missing || link.dropped;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1 align-middle" title={link.title}>
+      <span className={`inline-flex items-center gap-0.5 py-px rounded border font-extrabold whitespace-nowrap ${text} ${dim ? 'bg-white text-slate-400 border-slate-300 border-dashed' : 'bg-violet-50 text-violet-700 border-violet-200'}`}>
+        <Activity className={size === 'sm' ? 'w-2.5 h-2.5' : 'w-3 h-3'} />
+        {link.label}{link.dropped ? ' · Drop' : link.missing ? ' · 없음' : ''}
+      </span>
+      {link.articled && (
+        <span className={`py-px rounded border font-extrabold whitespace-nowrap bg-emerald-50 text-emerald-700 border-emerald-200 ${text}`}>
+          → {link.articledArticle || '아이템화'}
+        </span>
+      )}
+    </span>
+  );
+};
 
 /** 컬러 단계 칩 (공장 진행중 · L/D 도착 · 리젝 · 컨펌대기 · 컨펌 · Drop · 예전 기록) */
 export const StageChip = ({ stage, label, title, dim = false, className = '' }) => {

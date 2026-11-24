@@ -18,11 +18,16 @@ export const FIELD_LABELS = {
   // 원가 표의 나머지 항목 (2026-10-06부터 이력에 남김 — 값은 바뀌기 전 내용을 요약한 글자)
   'costInput.riskMarginPct': '위험마진(%)', 'costInput.knitKgRateTiers': '편직 kg단가 구간',
   'costInput.finishing': '후가공(원가)', 'costInput.etcCosts': '품목별 추가비용',
+  // 2026-11-24부터 이력에 남김 (개발 고도화 3단계)
+  'knitting.hasOpenWidth': '개폭선', 'knitting.isOpenWidth': '오픈개폭', 'knitting.feeders': '조직도(피더 줄)',
+  'knitting.structureDiagram': '조직도 메모',
 };
 
 /** 변경 이력 항목 이름 — 이름표에 없으면 원사 혼용률(yarns.0.ratio → '원사1 혼용률') 또는 키 그대로 */
 export const fieldLabel = (key) => {
   if (FIELD_LABELS[key]) return FIELD_LABELS[key];
   const m = /^yarns\.(\d+)\.ratio$/.exec(String(key));
-  return m ? `원사${Number(m[1]) + 1} 혼용률` : key;
+  if (m) return `원사${Number(m[1]) + 1} 혼용률`;
+  const y = /^yarns\.(\d+)\.yarnId$/.exec(String(key));
+  return y ? `원사${Number(y[1]) + 1}` : key;
 };

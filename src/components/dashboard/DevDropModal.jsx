@@ -21,7 +21,8 @@ const BLANK_DROP = { reason: '', memo: '' };
  * @param {string}   orderNo   그 설계서의 생산 현황 샘플 오더 order# (생산 현황에서 샘플을 Drop할 때 — 'Drop'으로 닫힘 안내)
  * @param {Function} onConfirm async (reason, memo) => 저장됐으면 true (그때 부르는 쪽이 창을 닫음)
  */
-export const DevDropModal = ({ devReq, quoteInfo, sheet = null, orderNo = '', onClose, onConfirm }) => {
+//  selfSheet: 의뢰 없는 자체개발 설계서를 Drop할 때 (개발 고도화 3단계 2026-11-24 — 예전엔 사유 없이 확인 창만) — devReq 대신
+export const DevDropModal = ({ devReq, quoteInfo, sheet = null, orderNo = '', selfSheet = null, onClose, onConfirm }) => {
   const [draft, setDraft] = useState(BLANK_DROP);
   const [needReason, setNeedReason] = useState(false); // 사유 없이 Drop 처리를 누르면 빨갛게 안내
   const [leavePending, setLeavePending] = useState(false);
@@ -53,14 +54,23 @@ export const DevDropModal = ({ devReq, quoteInfo, sheet = null, orderNo = '', on
             <div className="min-w-0">
               <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
                 <XCircle className="w-4 h-4 text-red-600" /> Drop (미진행) 처리
-                <span className="font-mono text-violet-700">{devReq?.devOrderNo || '-'}</span>
+                <span className="font-mono text-violet-700">{selfSheet ? '자체개발 설계서' : (devReq?.devOrderNo || '-')}</span>
               </h3>
-              <p className="text-[11px] text-slate-500 mt-0.5 truncate">{devReq?.buyerName || '-'} · {devReq?.devItem || devReq?.targetSpec?.composition || '품목명 미입력'}</p>
+              <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                {selfSheet
+                  ? `${selfSheet.fabricName || '원단명 미입력'}${selfSheet.eztexOrderNo ? ` · ${selfSheet.eztexOrderNo}` : ''}`
+                  : `${devReq?.buyerName || '-'} · ${devReq?.devItem || devReq?.targetSpec?.composition || '품목명 미입력'}`}
+              </p>
             </div>
             <button type="button" onClick={requestClose} className="p-1.5 hover:bg-slate-100 rounded-lg shrink-0"><X className="w-5 h-5 text-slate-400" /></button>
           </div>
 
           <div className="p-4 space-y-3 overflow-y-auto">
+            {selfSheet && orderNo && (
+              <div className="px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-[11px] text-indigo-800 leading-snug">
+                <b>생산 현황 샘플 오더({orderNo})는 'Drop'으로 닫혀요.</b> 복원하면 Drop 전 상태로 돌아와요.
+              </div>
+            )}
             {sheet && (
               <div className="px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-[11px] text-indigo-800 leading-snug">
                 <b>설계서({sheet.fabricName || '원단명 미입력'}){orderNo ? `와 생산 현황 샘플 오더(${orderNo})` : ''}도 같이 Drop돼요.</b>
@@ -108,8 +118,10 @@ export const DevDropModal = ({ devReq, quoteInfo, sheet = null, orderNo = '', on
                 className="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-xs outline-none focus:ring-2 ring-red-200 resize-none" />
             </div>
             <p className="text-[10px] text-slate-400 leading-relaxed">
-              Drop한 의뢰는 목록에서 빠지고 [보관함 → Drop된 의뢰]에서 사유별로 볼 수 있어요.
-              {sheet ? ' [복원]하면 설계서와 같이 \'개발 확정\'으로 돌아가고 사유는 지워져요.' : ' [복원]하면 다시 \'의뢰 접수\'로 돌아가고 사유는 지워져요.'}
+              {selfSheet
+                ? 'Drop한 설계서는 [설계서 보관함 → DROP 보관함]에서 사유와 같이 볼 수 있어요. [복원]하면 사유는 지워져요.'
+                : <>Drop한 의뢰는 목록에서 빠지고 [보관함 → Drop된 의뢰]에서 사유별로 볼 수 있어요.
+                  {sheet ? ' [복원]하면 설계서와 같이 \'개발 확정\'으로 돌아가고 사유는 지워져요.' : ' [복원]하면 다시 \'의뢰 접수\'로 돌아가고 사유는 지워져요.'}</>}
             </p>
           </div>
 

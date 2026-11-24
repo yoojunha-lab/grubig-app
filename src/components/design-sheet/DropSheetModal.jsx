@@ -8,7 +8,8 @@ export const DropSheetModal = ({
   droppedSheets,
   restoreFromDrop,
   handleDeleteSheet,
-  getCompositionText
+  getCompositionText,
+  dropInfoOf,          // (설계서) => { at, reason, memo, viaDev } — DROP 날짜 · 사유 (2026-11-24)
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedId, setExpandedId] = useState(null);
@@ -80,6 +81,7 @@ export const DropSheetModal = ({
                   restoreFromDrop={restoreFromDrop}
                   handleDeleteSheet={handleDeleteSheet}
                   history={sheet.changeHistory || []}
+                  dropInfo={dropInfoOf ? dropInfoOf(sheet) : null}
                 />
               ))}
             </div>

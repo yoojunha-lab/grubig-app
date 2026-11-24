@@ -1,14 +1,15 @@
 import React, { useMemo } from 'react';
 import {
-  Save, X, Printer, Copy, Trash2, Plus, Palette, PackageCheck, Send, ClipboardCheck, RotateCcw, Undo2, Sparkles,
+  Save, X, Printer, Copy, Trash2, Plus, Palette, PackageCheck, Send, ClipboardCheck, RotateCcw, Undo2, Sparkles, RefreshCw,
 } from 'lucide-react';
 import { PartnerSelectField } from '../common/PartnerSelectField';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { LabdipColorCard } from './LabdipColorCard';
-import { StageChip, LdField, ldInputCls } from './LabdipParts';
+import { StageChip, LdField, ldInputCls, LabdipDevChip } from './LabdipParts';
 import {
   LD_MODES, WOOL_TYPES, LIGHT_SOURCES, ldModeOf, woolTypeOf, makeColor, detectWoolType, fieldsFromFabric, fabricYarnList,
   findLdNoOwner, realColors, stageCounts, isAllDropped, colorStage, isBlankColor,
+  labdipDevOptions, fieldsFromDev, labdipDevLink, devRefreshFields,
 } from '../../utils/labdipModel';
 
 // ============================================================
@@ -17,9 +18,14 @@ import {
 //  진행 상황 (저장된 L/D만): 공장 진행중 → [L/D 도착] / 도착 → [바이어 발송] / 컨펌대기 → [결과 넣기] / 리젝 → [2차 의뢰]
 //                          진행 버튼은 누르면 바로 저장
 //  기본 정보: L/D NO.(저장할 때 자동) · 의뢰 방식 · EZ-TEX 번호 · 바이어 · 공장 · 의뢰일 · 공장 납기 · 바이어 납기
-//  원단: 원단 관리에서 고르기 → ARTICLE · ITEM NAME · GSM · 폭 / 울 종류(원사 SW → 슈퍼워시 자동) / 광원
+//  원단: 원단 관리에서 고르기 / 또는 개발 건에서 고르기(개발 의뢰 · 아이템화 전 설계서 — 2026-11-24 개발 고도화 3단계)
+//        → ARTICLE · ITEM NAME · GSM · 폭 / 울 종류(원사 SW → 슈퍼워시 자동) / 광원
+//        둘 중 하나만 연결 (하나를 고르면 다른 쪽 연결은 풀림). 개발 건 칩 '개발 F-26D011' · 그 뒤 아이템화됐으면 '→ PW1060'
 //  컬러: LabdipColorCard / 메모: 특이사항(공장 의뢰서) · 내부 메모(안 찍힘)
 // ============================================================
+
+const sameBuyer = (a, b) => String(a || '').replace(/\s+/g, '').toUpperCase() === String(b || '').replace(/\s+/g, '').toUpperCase();
+const NOTE_CLS = { ok: 'text-emerald-700 font-bold', warn: 'text-amber-700 font-bold', muted: 'text-slate-500' };
 
 const SectionTitle = ({ children, right }) => (
   <div className="flex items-center justify-between mb-3">
@@ -44,7 +50,7 @@ const StepBox = ({ stage, count, label, actionLabel, icon: Icon, onClick, enable
 
 export const LabdipForm = ({
   ld, setLd, isSaved, dirty, busy, nextNo, labdips = [], editingId,
-  savedFabrics = [], yarnLibrary = [], dyeingFactories = [],
+  savedFabrics = [], yarnLibrary = [], dyeingFactories = [], devRequests = [], designSheets = [],
   partners = [], savePartner, deletePartner, makeEmptyPartner, onOpenFactoryMaster,
   onSave, onClose, onPrintFactory, onPrintBuyer, onDuplicate, onDelete,
   onArrival, onSend, onResult, onRedip, onStepBack, onDropColor, onDropOpen, onRestoreDropped, onReopenLegacy,
@@ -73,20 +79,67 @@ export const LabdipForm = ({
     .filter(f => String(f?.article || '').trim())
     .map(f => ({ id: String(f.id), name: `${f.article}${f.itemName ? ` · ${f.itemName}` : ''}` })), [savedFabrics]);
   const linkedFabric = ld.fabricId ? (savedFabrics || []).find(f => String(f.id) === String(ld.fabricId)) || null : null;
-  const yarnHint = linkedFabric ? fabricYarnList(linkedFabric, yarnLibrary).map(y => `${y.name || y.category} ${y.ratio}%`).join(' · ') : '';
-  const autoWool = detectWoolType({ fabric: linkedFabric, yarnLibrary, itemName: ld.itemName });
 
-  // 원단을 고르면 ARTICLE · ITEM NAME · GSM · 폭을 복사 + 울 종류 자동 / 칸을 비우면 연결만 풂 (적어 둔 값은 그대로)
+  // ── 개발 건 (개발 의뢰 · 아이템화 전 설계서 — 2026-11-24 개발 고도화 3단계) ──
+  const devPick = useMemo(() => labdipDevOptions({
+    devRequests, designSheets,
+    current: { devRequestId: ld.devRequestId, designSheetId: ld.designSheetId, devOrderNo: ld.devOrderNo },
+  }), [devRequests, designSheets, ld.devRequestId, ld.designSheetId, ld.devOrderNo]);
+  const devLink = useMemo(() => labdipDevLink(ld, { devRequests, designSheets, savedFabrics }),
+    [ld, devRequests, designSheets, savedFabrics]);
+  const devRefresh = devLink ? devRefreshFields(ld, devLink) : null;
+
+  // 원사 · 울 종류는 연결된 원단, 없으면 연결된 설계서의 원사로 (설계서 원사 칸도 원단과 같은 모양)
+  const yarnSource = linkedFabric || devLink?.sheet || null;
+  const yarnHint = yarnSource ? fabricYarnList(yarnSource, yarnLibrary).map(y => `${y.name || y.category} ${y.ratio}%`).join(' · ') : '';
+  const autoWool = detectWoolType({ fabric: yarnSource, yarnLibrary, itemName: ld.itemName });
+
+  // 원단을 고르면 ARTICLE · ITEM NAME · GSM · 폭을 복사 + 울 종류 자동 + 개발 건 연결은 풂 / 칸을 비우면 연결만 풂 (적어 둔 값은 그대로)
   const applyFabric = (fabricId) => {
     const f = (savedFabrics || []).find(x => String(x.id) === String(fabricId)) || null;
     if (!f) { patch({ fabricId: '' }); return; }
     const fields = fieldsFromFabric(f);
     patch({ ...fields, woolType: detectWoolType({ fabric: f, yarnLibrary, itemName: fields.itemName }).type, woolManual: false });
   };
+  // 개발 건을 고르면 같은 칸을 복사 + 원단 연결은 풂 + L/D 바이어가 비어 있으면 의뢰 바이어로 / 칸을 비우면 연결만 풂
+  const applyDev = (optionId) => {
+    const opt = devPick.options.find(o => o.id === optionId) || null;
+    if (!opt) { patch({ devRequestId: null, designSheetId: null, devOrderNo: '' }); return; }
+    if (opt.closed) return; // 지금 연결(아이템화 · Drop돼 목록에서 빠진 건)을 다시 고름 — 그대로
+    const fields = fieldsFromDev(opt);
+    const buyer = !String(ld.buyerName || '').trim() && opt.dev?.buyerName ? { buyerName: opt.dev.buyerName } : {};
+    patch({ ...fields, ...buyer, woolType: detectWoolType({ fabric: opt.sheet, yarnLibrary, itemName: fields.itemName }).type, woolManual: false });
+  };
+  // 연결된 설계서 값이 그 사이 바뀌었으면 (GSM을 채웠거나 아이템화돼 Article이 생김) — 다른 칸만 다시 복사
+  const refreshFromDev = () => {
+    if (!devRefresh) return;
+    setLd(prev => {
+      const next = { ...prev, ...devRefresh.fields };
+      return prev.woolManual ? next : { ...next, woolType: detectWoolType({ fabric: devLink?.sheet, yarnLibrary, itemName: next.itemName }).type };
+    });
+  };
   // ITEM NAME을 고치면 울 종류도 다시 (담당자가 직접 고른 뒤에는 그대로)
   const changeItemName = (value) => setLd(prev => (prev.woolManual
     ? { ...prev, itemName: value }
-    : { ...prev, itemName: value, woolType: detectWoolType({ fabric: linkedFabric, yarnLibrary, itemName: value }).type }));
+    : { ...prev, itemName: value, woolType: detectWoolType({ fabric: yarnSource, yarnLibrary, itemName: value }).type }));
+
+  // 개발 건 안내 한 줄 (연결이 있을 때)
+  const devNotes = (() => {
+    if (!devLink) return [];
+    const notes = [];
+    if (devLink.missing) notes.push({ tone: 'warn', text: '연결된 개발 의뢰 · 설계서를 찾을 수 없어요 (지워졌어요) — 적어 둔 값은 그대로예요.' });
+    else if (devLink.articled) notes.push({ tone: 'ok', text: '그 뒤 아이템화됐어요 (원단 관리에 등록) — 개발 건 연결은 그대로 둬요' });
+    else if (devLink.dropped) notes.push({ tone: 'muted', text: 'Drop된 개발 건이에요 — 적어 둔 값은 그대로예요.' });
+    else notes.push({ tone: 'muted', text: devLink.stageLabel });
+    if (!devLink.missing && !devLink.sheet) {
+      const ww = String(devLink.dev?.targetSpec?.widthWeight || '').trim();
+      notes.push({ tone: 'muted', text: `아직 설계서가 없어서 GSM · 폭은 직접 넣어 주세요${ww ? ` (의뢰서 폭 / 중량: ${ww})` : ''}` });
+    }
+    if (devLink.buyer && String(ld.buyerName || '').trim() && !sameBuyer(devLink.buyer, ld.buyerName)) {
+      notes.push({ tone: 'warn', text: `의뢰 바이어는 ${devLink.buyer}예요 (이 L/D 바이어: ${ld.buyerName})` });
+    }
+    return notes;
+  })();
   const toggleLight = (l) => setLd(prev => ({
     ...prev,
     lightSources: (prev.lightSources || []).includes(l) ? prev.lightSources.filter(x => x !== l) : [...(prev.lightSources || []), l],
@@ -109,7 +162,7 @@ export const LabdipForm = ({
     if (!ld.woolManual) {
       if (autoWool.type && autoWool.type === ld.woolType) return { tone: 'auto', text: autoWool.reason };
       if (autoWool.type) return { tone: 'suggest', text: `자동으로는 '${woolTypeOf(autoWool.type)?.label}' — ${autoWool.reason}` };
-      return { tone: 'muted', text: '원단을 고르거나 ITEM NAME을 넣으면 자동으로 골라요 (원사 이름에 SW → 슈퍼워시)' };
+      return { tone: 'muted', text: '원단 · 개발 건을 고르거나 ITEM NAME을 넣으면 자동으로 골라요 (원사 이름에 SW → 슈퍼워시)' };
     }
     if (autoWool.type && autoWool.type !== ld.woolType) return { tone: 'suggest', text: `담당자가 바꿨어요 — 자동으로는 '${woolTypeOf(autoWool.type)?.label}' (${autoWool.reason})` };
     return { tone: 'muted', text: '담당자가 골랐어요' };
@@ -124,6 +177,7 @@ export const LabdipForm = ({
             <span className="font-mono">{ld.ldNo || (isSaved ? '번호 없음' : '새 L/D')}</span>
             <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded border ${ld.mode === 'direct' ? 'text-indigo-700 bg-indigo-50 border-indigo-200' : 'text-teal-700 bg-teal-50 border-teal-200'}`}>{ldModeOf(ld.mode).short}</span>
             {ld.legacy && <StageChip stage="legacy" />}
+            <LabdipDevChip link={devLink} size="md" />
           </h3>
           <p className="text-[11px] text-slate-500 mt-0.5">
             {isSaved
@@ -272,10 +326,27 @@ export const LabdipForm = ({
         <section>
           <SectionTitle>원단</SectionTitle>
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-            <LdField label="원단 관리에서 고르기" hint="고르면 ARTICLE · ITEM NAME · GSM · 폭이 채워져요 (없는 원단은 아래에 직접)" className="col-span-2 md:col-span-6">
+            <LdField label="원단 관리에서 고르기" hint="고르면 ARTICLE · ITEM NAME · GSM · 폭이 채워져요" className="col-span-2 md:col-span-3">
               <SearchableSelect value={ld.fabricId || ''} options={fabricOptions} onChange={applyFabric} placeholder="Article · 원단명으로 검색" />
               {ld.fabricId && !linkedFabric && <p className="text-[10px] text-amber-600 mt-0.5">연결된 원단을 원단 관리에서 찾을 수 없어요 — 적어 둔 값은 그대로예요.</p>}
-              {yarnHint && <p className="text-[10px] text-slate-400 mt-0.5">원사: {yarnHint}</p>}
+              {linkedFabric && yarnHint && <p className="text-[10px] text-slate-400 mt-0.5">원사: {yarnHint}</p>}
+            </LdField>
+            <LdField label="또는 개발 건에서 고르기" hint="아직 Article이 없을 때 — 개발 의뢰 · 아이템화 전 설계서" className="col-span-2 md:col-span-3">
+              <SearchableSelect value={devPick.selectedId} options={devPick.options} onChange={applyDev} placeholder="개발번호 · 바이어 · 품목명으로 검색" />
+              {devLink && (
+                <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px]">
+                  <LabdipDevChip link={devLink} size="md" />
+                  {devNotes.map((nt, i) => <span key={i} className={NOTE_CLS[nt.tone]}>{nt.text}</span>)}
+                  {devRefresh && (
+                    <button type="button" onClick={refreshFromDev} title="설계서에 지금 적힌 값으로 다시 채워요 (설계서 칸이 빈 곳은 그대로) — [저장]해야 반영돼요"
+                      className="inline-flex items-center gap-0.5 font-bold text-teal-700 hover:underline">
+                      <RefreshCw className="w-3 h-3" /> 설계서 값 다시 가져오기 ({devRefresh.labels.join(' · ')})
+                    </button>
+                  )}
+                </div>
+              )}
+              {!linkedFabric && devLink?.sheet && yarnHint && <p className="text-[10px] text-slate-400 mt-0.5">원사 (설계서): {yarnHint}</p>}
+              {!devLink && <p className="text-[10px] text-slate-400 mt-0.5">원단 관리에도 개발 건에도 없으면 아래에 직접 적어요.</p>}
             </LdField>
             <LdField label="ARTICLE" className="col-span-1 md:col-span-2">
               <input value={ld.article || ''} onChange={e => patch({ article: e.target.value })} placeholder="PW1050" className={`${ldInputCls} font-bold uppercase`} />

@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { loadKakaoMaps } from '../../utils/kakaoMap';
 import {
-  searchMachines, hasMachineFilter, needsGeocode, needsCheck, distanceKm, kakaoLinkTo, kakaoLinkFromTo, factoryTotals, fmtNum,
+  searchMachines, hasMachineFilter, machineFilterLabel, needsGeocode, needsCheck, distanceKm, kakaoLinkTo, kakaoLinkFromTo, factoryTotals, fmtNum,
 } from '../../utils/knitFactoryModel';
 import { BlockSummary, CheckBadge } from './KnitParts';
 
@@ -286,10 +286,10 @@ export const KnitMapView = ({
             <label className="flex items-start gap-1.5 text-xs font-bold text-slate-600 cursor-pointer">
               <input type="checkbox" checked={useMachine} onChange={e => setUseMachine(e.target.checked)} className="w-4 h-4 accent-violet-600 mt-px" />
               <span>[기계로 찾기] 조건에 맞는 곳만
-                <span className="block font-medium text-[11px] text-violet-700">{[machineFilters.gauge && `${machineFilters.gauge}G`, machineFilters.inch && `${machineFilters.inch}"`, machineFilters.family && `${machineFilters.family} 계열`, machineFilters.type, machineFilters.maker, machineFilters.spandex === 'yes' && '스판장치', machineFilters.text].filter(Boolean).join(' · ')}</span>
+                <span className="block font-medium text-[11px] text-violet-700">{machineFilterLabel(machineFilters)}</span>
               </span>
             </label>
-          ) : <p className="text-[11px] text-slate-400">[기계로 찾기]에서 게이지 · 인치를 넣으면 그 기계가 있는 곳만 볼 수 있어요.</p>}
+          ) : <p className="text-[11px] text-slate-400">[기계로 찾기]에서 게이지 · 인치 · 피더를 넣으면 그 기계가 있는 곳만 볼 수 있어요.</p>}
           <p className="text-[11px] text-slate-500">지도에 {located.length}곳{unlocated.length ? ` · 위치 없음 ${unlocated.length}곳` : ''}{geoProgress ? ` · 위치 찾는 중 ${geoProgress.done}/${geoProgress.total}` : ''}</p>
         </div>
 

@@ -2,6 +2,8 @@ import { useRef } from 'react';
 import {
   KNIT_FACTORY_COLLECTION, cleanFactoryForSave, equipmentChanged, sameFactoryName, needsGeocode, normalizeMachine,
   normalizeCylinder, isEmptyMachine, isEmptyCylinder, describeEquipmentChanges, appendChangeLog,
+  normalizeMemoKind, memoKindOf, memoKindInfo, isContactKind, memoDateError, checkedAtFromRecord,
+  buildKnitExportSheets, knitExportFileName,
 } from '../../utils/knitFactoryModel';
 import { todayLocalISO } from '../../utils/helpers';
 
@@ -14,6 +16,8 @@ import { todayLocalISO } from '../../utils/helpers';
 //  - 기계 · 보유 가마를 고쳐 저장하면 '확인일'이 오늘로 (기계 현황을 확인하고 고친 것으로 봄)
 //  - 대표 주소가 바뀌면(또는 처음) 카카오맵으로 좌표를 찾아 같이 저장 (geocode — 키가 없거나 못 찾으면 좌표 없이 저장)
 //  - 메모 · [오늘 확인함] · 지금 가마 바꾸기 · 지도에서 위치 찍기는 누르면 바로 저장 (입력 창 밖)
+//  - 2026-11-24 개발 고도화 3단계: 메모 종류(메모 / 방문 / 통화) — 방문 · 통화 기록은 확인일도 그 날로(더 최근일 때만)
+//    · [엑셀로 내보내기] 편직처 · 기계 · 보유 가마 · 메모 시트 (exportKnitExcel — 화면 거르기와 상관없이 전부)
 // ============================================================
 
 const newFactoryId = () => `kf_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -138,22 +142,49 @@ export const useKnitFactory = ({
     return true;
   };
 
-  /** 메모 추가 (맨 위에) */
-  const addMemo = async (id, text) => {
+  /**
+   * 메모 추가 (맨 위에) — opts: { kind: 'memo'|'visit'|'call', date(방문 · 통화한 날 — 메모는 늘 오늘) }
+   *  방문 · 통화면 확인일도 그 날로 (지금 확인일보다 최근일 때만 — 2026-11-24, 개발 고도화 3단계)
+   */
+  const addMemo = async (id, text, { kind = 'memo', date = '' } = {}) => {
     const t = String(text || '').trim();
     if (!t) return false;
     const existing = findFactory(id);
     if (!existing) return false;
-    const memo = { id: newMemoId(), date: todayLocalISO(), text: t, by: who() };
-    const ok = await patchFactory(id, { memos: [memo, ...(existing.memos || [])] });
-    if (ok) showToast('메모를 남겼어요.', 'success');
+    const k = normalizeMemoKind(kind);
+    const today = todayLocalISO();
+    const d = isContactKind(k) ? (String(date || '').trim() || today) : today;
+    const err = memoDateError(k, d, today);
+    if (err) { showToast(err, 'error'); return false; }
+    const memo = { id: newMemoId(), date: d, kind: k, text: t, by: who(), ...(d !== today ? { writtenAt: today } : {}) };
+    const nextChecked = checkedAtFromRecord(existing.checkedAt, k, d);
+    const ok = await patchFactory(id, { memos: [memo, ...(existing.memos || [])], ...(nextChecked ? { checkedAt: nextChecked } : {}) });
+    if (ok) {
+      const label = memoKindInfo(k).label;
+      if (!isContactKind(k)) showToast('메모를 남겼어요.', 'success');
+      else if (nextChecked) showToast(`${label} 기록을 남겼어요. 확인일이 ${nextChecked}(으)로 바뀌었어요.`, 'success');
+      else showToast(`${label} 기록을 남겼어요. 확인일은 이미 더 최근(${existing.checkedAt})이라 그대로예요.`, 'success');
+    }
     return ok;
   };
-  const updateMemo = async (id, memoId, text) => {
+  /** 메모 고치기 — opts: { kind, date } (주면 종류 · 날짜도). 방문 · 통화로 바꾸면 확인일도 (더 최근일 때만) */
+  const updateMemo = async (id, memoId, text, opts = {}) => {
     const t = String(text || '').trim();
     const existing = findFactory(id);
     if (!existing || !t) return false;
-    return patchFactory(id, { memos: (existing.memos || []).map(m => (m.id === memoId ? { ...m, text: t, editedAt: todayLocalISO(), editedBy: who() } : m)) });
+    const old = (existing.memos || []).find(m => m.id === memoId);
+    if (!old) { showToast('메모를 찾을 수 없어요. 다른 곳에서 지웠을 수 있어요.', 'error'); return false; }
+    const k = opts.kind ? normalizeMemoKind(opts.kind) : memoKindOf(old);
+    const d = opts.date !== undefined && String(opts.date || '').trim() ? String(opts.date).trim() : (old.date || '');
+    const err = memoDateError(k, d, todayLocalISO());
+    if (err) { showToast(err, 'error'); return false; }
+    const nextChecked = checkedAtFromRecord(existing.checkedAt, k, d);
+    const ok = await patchFactory(id, {
+      memos: (existing.memos || []).map(m => (m.id === memoId ? { ...m, text: t, kind: k, date: d, editedAt: todayLocalISO(), editedBy: who() } : m)),
+      ...(nextChecked ? { checkedAt: nextChecked } : {}),
+    });
+    if (ok && nextChecked) showToast(`${memoKindInfo(k).label} 기록으로 고쳤어요. 확인일이 ${nextChecked}(으)로 바뀌었어요.`, 'success');
+    return ok;
   };
   const deleteMemo = async (id, memoId) => {
     const existing = findFactory(id);
@@ -311,8 +342,39 @@ export const useKnitFactory = ({
     }
   };
 
+  /**
+   * [엑셀로 내보내기] — 편직처 · 기계 · 보유 가마 · 메모 시트 4개 (2026-11-24, 개발 고도화 3단계)
+   *  화면 거르기(검색 · 지역 · 계열)와 상관없이 전부. SheetJS는 App이 불러 둔 window.XLSX (다른 엑셀 내보내기와 같음)
+   *  config = 기계 종류 · 계열 설정 (계열 칸). 반환: 내보냈으면 true
+   */
+  const exportKnitExcel = (config) => {
+    const XLSX = typeof window !== 'undefined' ? window.XLSX : null;
+    if (!XLSX) { showToast('엑셀 모듈을 불러오는 중입니다. 잠시 후 다시 시도해주세요.', 'error'); return false; }
+    if (!(knitFactories || []).length) { showToast('내보낼 편직처가 없어요.', 'error'); return false; }
+    try {
+      const today = todayLocalISO();
+      const sheets = buildKnitExportSheets(knitFactories, config, { designSheets, orders, today });
+      const wb = XLSX.utils.book_new();
+      sheets.forEach(s => {
+        const ws = XLSX.utils.aoa_to_sheet([s.header, ...s.rows]);
+        ws['!cols'] = s.widths.map(wch => ({ wch }));
+        // 머리 줄에 거르기 단추 (엑셀에서 편직처 · 종류로 바로 거르기)
+        if (s.rows.length) ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: s.rows.length, c: s.header.length - 1 } }) };
+        XLSX.utils.book_append_sheet(wb, ws, s.name);
+      });
+      XLSX.writeFile(wb, knitExportFileName(today));
+      const [f, m, c, memo] = sheets;
+      showToast(`편직처 ${f.rows.length}곳 · 기계 ${m.rows.length}줄 · 보유 가마 ${c.rows.length}줄 · 메모 ${memo.rows.length}개를 엑셀로 내보냈어요.`, 'success');
+      return true;
+    } catch (e) {
+      console.error('편직처 엑셀 내보내기 실패', e);
+      showToast('엑셀을 만들지 못했어요. 다시 해 주세요.', 'error');
+      return false;
+    }
+  };
+
   return {
     saveFactory, deleteFactory, addMemo, updateMemo, deleteMemo, markChecked, setMountedGauge, saveEquipment, addCylinderFromSheet, setGeo,
-    renameTypeInFactories, typeUsage, importSeed,
+    renameTypeInFactories, typeUsage, importSeed, exportKnitExcel,
   };
 };

@@ -145,6 +145,7 @@ export const OrderListPage = ({
   yarnLibrary = [],     // 원사 라이브러리 — 원사 창 사종 제안 · 원단 원사 이름
   partners = [], savePartner, deletePartner, makeEmptyPartner,
   designSheets,         // 설계서 (샘플 오더의 '설계서' 표시·아이템화)
+  mainDetails = [],     // 메인/QC 디테일 시트 — 상세창 '메인/QC 결과' (2026-11-24)
   devRequests,          // 설계서의 바이어 이름 · 샘플 Drop 때 같이 Drop 할 개발 의뢰
   savedQuotes,          // 견적서 — 샘플 Drop 사유 창에 원가 견적·견적가 표시 (개발/설계 현황 Drop 창과 같게)
   // { open(sheetId), itemize(sheetId), drop(sheetId), dropWithDev(devId, sheetId, reason, memo), restore(sheetId, opts),
@@ -845,6 +846,7 @@ export const OrderListPage = ({
           sheetLink={sheetLink}
           yieldSpecOf={yieldSpecOf}
           yarnHelpers={yarnHelpers}
+          mainDetails={mainDetails}
         />
       )}
 

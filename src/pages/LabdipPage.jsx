@@ -3,11 +3,11 @@ import { SwatchBook, FilePlus, Search, Copy, Trash2, ChevronDown, Plus } from 'l
 import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
 import { LabdipForm } from '../components/labdip/LabdipForm';
 import { ArrivalDialog, SendDialog, ResultDialog, RedipDialog } from '../components/labdip/LabdipDialogs';
-import { StageChip, DueLine, NewLabdipMenu } from '../components/labdip/LabdipParts';
+import { StageChip, DueLine, NewLabdipMenu, LabdipDevChip } from '../components/labdip/LabdipParts';
 import { todayLocalISO, formatMonthDay } from '../utils/helpers';
 import {
   normalizeLabdip, labdipTabKeys, labdipTiming, labdipSearchText, realColors, colorStage, currentRound, isFinishedStage,
-  dueBadge, nextLdNo, buildBuyerSheet, buildFactorySheet, factoryPrintColorIds, buyerReprint, isAllDropped,
+  dueBadge, nextLdNo, buildBuyerSheet, buildFactorySheet, factoryPrintColorIds, buyerReprint, isAllDropped, labdipDevLink,
   LD_TABS, LD_STAGES, LD_STAGE_ORDER, WAITING_WARN_DAYS,
 } from '../utils/labdipModel';
 
@@ -19,6 +19,8 @@ import {
 //  - 작성 화면(LabdipForm) + 진행 창 4개(LabdipDialogs) — 진행 버튼은 바로 저장
 //  - 인쇄: 공장 의뢰서(바이어 안 찍힘) / 바이어 시트(공장 안 찍힘) — App.handlePrintLabdip
 //  - 저장 안 한 변경이 있으면 다른 L/D · 목록 · 다른 메뉴로 갈 때 '저장할까요?' (navGuardRef)
+//  - (2026-11-24, 개발 고도화 3단계) 개발 건에 연결된 L/D는 ARTICLE 칸 · 좁은 목록에 '개발 F-26D011' 칩
+//    (그 뒤 아이템화됐으면 '→ PW1060'), 검색에 개발번호 · 아이템화된 Article도 — devRequests · designSheets는 App에서
 // ============================================================
 
 /** 탭마다 줄 순서 — 진행중: 납기 급한 순 / 컨펌대기중: 오래 기다린 순 / 완료: 최근에 끝난 순 */
@@ -92,7 +94,7 @@ const NoCell = ({ ld }) => (
 );
 
 export const LabdipPage = ({
-  labdips = [], savedFabrics = [], yarnLibrary = [], dyeingFactories = [],
+  labdips = [], savedFabrics = [], yarnLibrary = [], dyeingFactories = [], devRequests = [], designSheets = [],
   partners = [], savePartner, deletePartner, makeEmptyPartner,
   onOpenFactoryMaster, onPrint, navGuardRef, user,
   labdipInput, setLabdipInput, editingLabdipId, labdipDirty,
@@ -130,8 +132,10 @@ export const LabdipPage = ({
   // ── 목록 ──
   const items = useMemo(() => (labdips || []).map(raw => {
     const ld = normalizeLabdip(raw);
-    return { id: raw.id, ld, tabs: labdipTabKeys(ld), timing: labdipTiming(ld, today), text: labdipSearchText(ld) };
-  }), [labdips, today]);
+    const devLink = labdipDevLink(ld, { devRequests, designSheets, savedFabrics }); // 개발 건 칩 (연결 없으면 null)
+    const text = [labdipSearchText(ld), devLink?.devNo, devLink?.articledArticle].filter(Boolean).join(' ').toUpperCase();
+    return { id: raw.id, ld, devLink, tabs: labdipTabKeys(ld), timing: labdipTiming(ld, today), text };
+  }), [labdips, today, devRequests, designSheets, savedFabrics]);
   const term = search.trim().toUpperCase();
   const matched = useMemo(() => items.filter(it => !term || it.text.includes(term)), [items, term]);
   const tabCounts = useMemo(() => Object.fromEntries(LD_TABS.map(t => [t.key, matched.filter(it => it.tabs.includes(t.key)).length])), [matched]);
@@ -203,7 +207,7 @@ export const LabdipPage = ({
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="L/D NO.·바이어·아티클·컬러·공장 검색"
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="L/D NO.·바이어·아티클·컬러·공장 검색" title="개발번호(F-26D011)로도 찾아요"
               className="border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-sm w-64 focus:ring-2 focus:ring-teal-500 outline-none" />
           </div>
           <NewLabdipMenu onPick={openNew}
@@ -269,6 +273,7 @@ export const LabdipPage = ({
                   <td className="py-2.5 px-3 max-w-[240px]">
                     <div className="font-bold text-slate-700 uppercase">{it.ld.article || '-'}</div>
                     {it.ld.itemName && <div className="text-[11px] text-slate-400 truncate" title={it.ld.itemName}>{it.ld.itemName}</div>}
+                    {it.devLink && <div className="mt-0.5"><LabdipDevChip link={it.devLink} /></div>}
                   </td>
                   <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">{it.ld.factory || <span className="text-slate-300">—</span>}</td>
                   <td className="py-2.5 px-3 max-w-[320px]"><ColorChips ld={it.ld} tab={tab} /></td>
@@ -311,6 +316,7 @@ export const LabdipPage = ({
                 <span className="text-[10px] text-slate-400 truncate">{it.ld.factory || ''}</span>
               </div>
               <div className="text-[12px] font-bold text-slate-700 truncate uppercase">{it.ld.buyerName || '(바이어 미입력)'} · {it.ld.article || '-'}</div>
+              {it.devLink && <div className="mt-0.5"><LabdipDevChip link={it.devLink} /></div>}
               <div className="mt-1"><ColorChips ld={it.ld} tab={tab} max={6} /></div>
             </button>
           );
@@ -335,6 +341,7 @@ export const LabdipPage = ({
                 ld={labdipInput} setLd={setLabdipInput} isSaved={isSaved} dirty={labdipDirty} busy={busy}
                 nextNo={nextNo} labdips={labdips} editingId={editingLabdipId}
                 savedFabrics={savedFabrics} yarnLibrary={yarnLibrary} dyeingFactories={dyeingFactories}
+                devRequests={devRequests} designSheets={designSheets}
                 partners={partners} savePartner={savePartner} deletePartner={deletePartner} makeEmptyPartner={makeEmptyPartner}
                 onOpenFactoryMaster={onOpenFactoryMaster}
                 onSave={handleSave} onClose={backToList} onPrintFactory={() => printFactory()} onPrintBuyer={reprintBuyer}

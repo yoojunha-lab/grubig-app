@@ -18,6 +18,10 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
     colorInfo: '',
     lotNo: '',
     type: 'main', // 'main' | 'sample'
+    // 생산 현황에서 고른 오더 · 컬러 · LOT (2026-11-24 — 없으면 null, 손으로 친 예전 시트는 글자로만 이어짐)
+    orderId: null,
+    colorId: null,
+    lotId: null,
     
     // 생지 정보
     greigeWidthFull: '',
@@ -55,9 +59,16 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
     setEditingDetailId(null);
   };
 
+  //  Order No · 컬러 · LOT 글자를 손으로 고치면 '생산 현황에서 고르기'로 붙인 연결(id)도 그만큼 풂 — 엉뚱한 오더에 QC가 붙지 않게 (2026-11-24)
   const handleDetailChange = (e) => {
     const { name, value } = e.target;
-    setDetailInput(prev => ({ ...prev, [name]: value }));
+    setDetailInput(prev => {
+      const next = { ...prev, [name]: value };
+      if (name === 'orderNo') Object.assign(next, { orderId: null, colorId: null, lotId: null });
+      if (name === 'colorInfo') Object.assign(next, { colorId: null, lotId: null });
+      if (name === 'lotNo') next.lotId = null;
+      return next;
+    });
   };
 
   const handleTestChange = (index, field, value) => {
@@ -152,7 +163,8 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
           ...fresh,
           orderNo: prev.orderNo || '',
           articleNo: prev.articleNo || '',
-          type: prev.type || 'main'
+          type: prev.type || 'main',
+          orderId: prev.orderId || null, // 같은 오더의 다른 컬러를 이어서 (2026-11-24)
         };
       });
       setEditingDetailId(null);

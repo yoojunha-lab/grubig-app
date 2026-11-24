@@ -1,6 +1,8 @@
 import { todayLocalISO, fabricYarnEntries } from './helpers';
 import { diffDaysYmd, isYmd } from './orderCalculations';
 import { DONE_TONE } from '../constants/production';
+import { DEV_REQUEST_STATUS_LABELS } from '../constants/common';
+import { liveSheetOfDev } from './devFlowModel';
 
 // ============================================================
 // GRUBIG ERP - LAB-DIP (생산 ▾ LAB-DIP) 계산 모음 — 대표님 요청 2026-10-27
@@ -12,6 +14,8 @@ import { DONE_TONE } from '../constants/production';
 //    공장 의뢰서에는 바이어 · STYLE을 안 찍음 (대표님 결정 2026-10-27 — 공장에도 바이어를 숨김)
 //  · 예전 'Lab-Dip 발송' 기록(schemaVersion 없음)은 normalizeLabdip이 새 모양으로 바꿔 읽음 → '완료'(예전 기록)
 //  · 화면 · 인쇄 · 저장이 모두 이 함수들을 씀 (React 없음 — Node에서도 시험 가능)
+//  · (2026-11-24, 개발 고도화 3단계) 원단 대신 '개발 건'(개발 의뢰 · 아이템화 전 설계서)에서도 ARTICLE · ITEM NAME · GSM · 폭을 가져옴
+//    → devRequestId · designSheetId 로 연결 (아래 '개발 건 연결'). 다른 화면용: labdipsOfDev · labdipDevSummary
 // ============================================================
 
 export const LD_SCHEMA_VERSION = 2;
@@ -142,6 +146,9 @@ export const makeBlankLabdip = (mode = 'factory', today = todayLocalISO()) => ({
   factoryDue: '',        // 공장 납기 (1차 — L/D가 와야 하는 날)
   buyerDue: '',          // 바이어 납기 (바이어에게 보내기로 한 날, 선택)
   fabricId: '',          // 원단 관리 연결 (고를 때 아래 값을 복사 — 의뢰서에 적은 값이 그대로 남게)
+  devRequestId: null,    // 개발 의뢰 연결 (개발 건에서 골랐을 때 — 원단 연결과 둘 중 하나만, 2026-11-24 개발 고도화 3단계)
+  designSheetId: null,   // 설계서 연결 (아이템화 전 설계서에서 골랐을 때 — 의뢰만 있으면 null)
+  devOrderNo: '',        // 고를 때 복사한 개발번호 (F-26D011 — 의뢰 · 설계서를 지워도 칩 · 검색에 남게)
   article: '',
   itemName: '',
   gsm: '',
@@ -372,15 +379,235 @@ export const detectWoolType = ({ fabric = null, yarnLibrary = [], itemName } = {
   return { type: '', reason: '' };
 };
 
-/** 원단 관리 원단 → 의뢰 칸 (고를 때 복사) */
+/** GSM · 폭 칸 값 — 0보다 큰 숫자만 글자로, 아니면 빈칸 (원단 · 개발 건 같은 규칙) */
+const positiveText = (v) => (Number(v) > 0 ? str(v) : '');
+
+/** 원단 관리 원단 → 의뢰 칸 (고를 때 복사) — 개발 건 연결은 풂 (원단 · 개발 건 둘 중 하나만, 2026-11-24) */
 export const fieldsFromFabric = (fabric) => ({
   fabricId: str(fabric?.id),
+  devRequestId: null,
+  designSheetId: null,
+  devOrderNo: '',
   article: str(fabric?.article).trim(),
   itemName: str(fabric?.itemName).trim(),
-  gsm: Number(fabric?.gsm) > 0 ? str(fabric.gsm) : '',
-  widthCut: Number(fabric?.widthCut) > 0 ? str(fabric.widthCut) : '',
-  widthFull: Number(fabric?.widthFull) > 0 ? str(fabric.widthFull) : '',
+  gsm: positiveText(fabric?.gsm),
+  widthCut: positiveText(fabric?.widthCut),
+  widthFull: positiveText(fabric?.widthFull),
 });
+
+// ── 개발 건 연결 (2026-11-24, 개발 고도화 3단계 — 대표님 OK) ──────────
+//  L/D는 원단이 아직 개발 중일 때(Article이 생기기 전) 의뢰하는 일이 많아서 → 원단 대신 '개발 건'을 고를 수 있게
+//  · 개발 건 = 개발 의뢰(Drop · 아이템화 완료 빼고) 또는 아이템화 전 설계서(Drop 빼고). 설계서가 있는 의뢰는 한 줄 (설계서 값)
+//  · 고르면 ARTICLE · ITEM NAME · GSM · 폭을 복사 (원단과 같은 규칙 — 의뢰서에 적은 값이 그대로 남게) + devRequestId · designSheetId
+//  · 원단을 고르면 개발 연결이 풀리고, 개발 건을 고르면 원단 연결이 풀림 (둘 중 하나만)
+//  · 설계서가 그 뒤 아이템화되면(sheet.linkedFabricId) 목록 · 작성 화면 칩에 '→ PW1060'
+//  · 예전 L/D (연결 칸이 없음) = 연결 안 됨
+const sameId = (a, b) => !!str(a) && str(a) === str(b);
+const SHEET_STAGE_TEXT = { draft: '설계서 작성', eztex: 'EZ-TEX 등록', sampling: '샘플 진행', articled: '아이템화' };
+const isOpenDevSheet = (s) => !!s && s.status !== 'dropped' && s.stage !== 'articled';
+const isOpenDevRequest = (d) => !!d && d.status !== 'rejected' && d.status !== 'articled';
+
+/** 설계서의 개발 의뢰 — 설계서의 devRequestId, 없으면 의뢰의 linkedDesignSheetId (없으면 null — 자체개발) */
+const devOfSheet = (sheet, devRequests = []) => {
+  if (!sheet) return null;
+  const list = (devRequests || []).filter(Boolean);
+  return (sheet.devRequestId && list.find(d => sameId(d.id, sheet.devRequestId)))
+    || list.find(d => sameId(d.linkedDesignSheetId, sheet.id)) || null;
+};
+
+/** 개발 건 한 줄의 글자 — 개발번호 · 바이어 · 품목명/원단명 · 단계 */
+const devEntryOf = ({ dev = null, sheet = null }) => {
+  const devNo = str(dev?.devOrderNo || sheet?.devOrderNo).trim();
+  const eztex = str(sheet?.eztexOrderNo).trim();
+  const buyer = str(dev?.buyerName).trim();
+  const item = str(sheet?.fabricName || dev?.devItem || dev?.targetSpec?.composition).trim();
+  const stageLabel = sheet
+    ? (SHEET_STAGE_TEXT[sheet.stage] || '설계서')
+    : `설계서 전 (${DEV_REQUEST_STATUS_LABELS[dev?.status] || '의뢰'})`;
+  const head = [devNo || (sheet ? '자체개발' : '번호 없음'), eztex ? `EZ-TEX ${eztex}` : '', buyer, item || '품목명 없음'].filter(Boolean).join(' · ');
+  return {
+    id: sheet ? `sheet:${str(sheet.id)}` : `dev:${str(dev?.id)}`,
+    kind: sheet ? 'sheet' : 'dev',
+    dev, sheet, devNo, eztex, buyer, item, stageLabel, head,
+    name: `${head} · ${stageLabel}`,
+  };
+};
+
+// 개발번호 큰 순 (최근 의뢰가 위) → 번호 없는 건은 아래, 같으면 최근에 고친 순
+const byDevNoDesc = (a, b) => {
+  if (!!a.devNo !== !!b.devNo) return a.devNo ? -1 : 1;
+  const c = b.devNo.localeCompare(a.devNo, 'en', { numeric: true });
+  if (c) return c;
+  const t = (e) => str(e.sheet?.updatedAt || e.dev?.updatedAt || e.sheet?.createdAt || e.dev?.createdAt);
+  return t(b).localeCompare(t(a));
+};
+
+/**
+ * 작성 화면 [개발 건에서 고르기] 목록
+ *  current: { devRequestId, designSheetId, devOrderNo } — 지금 L/D에 연결된 건 (그 사이 아이템화 · Drop · 삭제돼 목록에서 빠졌으면
+ *           맨 위에 '— 아이템화됨' 같은 줄로 넣어 칸에 계속 보이게, 그 줄은 다시 골라도 아무 일 없음 — closed: true)
+ *  반환 { options: [{ id: 'sheet:…' | 'dev:…' | 'current:…', kind, dev, sheet, devNo, buyer, item, stageLabel, name, closed }], selectedId }
+ */
+export const labdipDevOptions = ({ devRequests = [], designSheets = [], current = null } = {}) => {
+  const devs = (devRequests || []).filter(Boolean);
+  const sheets = (designSheets || []).filter(Boolean);
+  const options = [
+    ...sheets.filter(isOpenDevSheet).map(sheet => devEntryOf({ sheet, dev: devOfSheet(sheet, devs) })),
+    // 설계서가 있는 의뢰는 설계서 줄로만 (설계서가 아이템화됐으면 의뢰도 끝난 걸로 — 예전 '개발 확정'에 남은 의뢰)
+    ...devs.filter(d => isOpenDevRequest(d) && !liveSheetOfDev(d, sheets)).map(dev => devEntryOf({ dev })),
+  ].sort(byDevNoDesc);
+
+  const sid = str(current?.designSheetId);
+  const did = str(current?.devRequestId);
+  if (!sid && !did) return { options, selectedId: '' };
+  // 설계서로 연결 → 그 설계서 줄만 / 의뢰만 연결 → 그 의뢰 줄 (그 뒤 설계서가 생겼으면 그 설계서 줄)
+  const hit = sid
+    ? options.find(o => o.sheet && sameId(o.sheet.id, sid))
+    : options.find(o => o.dev && sameId(o.dev.id, did));
+  if (hit) return { options, selectedId: hit.id };
+
+  const sheet = sid ? sheets.find(s => sameId(s.id, sid)) || null : null;
+  const dev = (did ? devs.find(d => sameId(d.id, did)) : null) || devOfSheet(sheet, devs);
+  const why = !sheet && !dev ? '찾을 수 없음'
+    : (sheet?.stage === 'articled' || dev?.status === 'articled' || (dev && liveSheetOfDev(dev, sheets)?.stage === 'articled')) ? '아이템화됨'
+      : (sheet?.status === 'dropped' || dev?.status === 'rejected') ? 'Drop' : '목록에 없음';
+  const base = sheet || dev ? devEntryOf({ dev, sheet })
+    : { kind: sid ? 'sheet' : 'dev', dev: null, sheet: null, devNo: str(current?.devOrderNo).trim(), buyer: '', item: '', stageLabel: '', head: str(current?.devOrderNo).trim() || '개발 건' };
+  const closed = { ...base, id: `current:${sid || did}`, closed: true, name: `${base.head} — ${why}` };
+  return { options: [closed, ...options], selectedId: closed.id };
+};
+
+/**
+ * 개발 건 → 의뢰 칸 (고를 때 복사 — 원단과 같은 규칙) · 원단 연결은 풂
+ *  ARTICLE = 설계서 Article → EZ-TEX O/D NO. → 개발번호 / ITEM NAME = 설계서 원단명 → 의뢰 품목명(→ 혼용률)
+ *  GSM · 폭 = 설계서 원가 칸 (costInput — 의뢰만 있으면 빈칸)
+ *  바이어는 여기서 안 넣음 — 작성 화면이 'L/D 바이어가 비어 있을 때만' 의뢰 바이어로 채움
+ */
+export const fieldsFromDev = ({ dev = null, sheet = null } = {}) => {
+  const devNo = str(dev?.devOrderNo || sheet?.devOrderNo).trim();
+  const ci = sheet?.costInput || {};
+  return {
+    fabricId: '',
+    devRequestId: str(dev?.id) || null,
+    designSheetId: str(sheet?.id) || null,
+    devOrderNo: devNo,
+    article: str(sheet?.articleNo || sheet?.eztexOrderNo || devNo).trim(),
+    itemName: str(sheet?.fabricName || dev?.devItem || dev?.targetSpec?.composition).trim(),
+    gsm: positiveText(ci.gsm),
+    widthCut: positiveText(ci.widthCut),
+    widthFull: positiveText(ci.widthFull),
+  };
+};
+
+/**
+ * L/D의 개발 건 연결 — 칩 · 작성 화면 안내용 (연결이 없으면 null)
+ *  의뢰만 골랐는데 그 뒤 설계서가 생겼으면 그 설계서, 설계서만 있으면 그 설계서의 의뢰도 같이 찾음
+ *  반환 {
+ *    dev, sheet, fabric,       // 지금 찾은 문서 (없으면 null)
+ *    devNo, label, title,      // 'F-26D011' · '개발 F-26D011' · 마우스를 올리면 보이는 글자
+ *    buyer, stageLabel,        // 의뢰 바이어 · '샘플 진행' | '설계서 전 (분석 중)' | '아이템화' | 'Drop' | '찾을 수 없음'
+ *    articled, articledArticle, // 설계서가 그 뒤 아이템화됐는지 (sheet.linkedFabricId) · 그 Article ('PW1060')
+ *    dropped, missing,         // 의뢰 · 설계서 Drop / 둘 다 못 찾음 (지워짐)
+ *  }
+ */
+export const labdipDevLink = (ld, { devRequests = [], designSheets = [], savedFabrics = [] } = {}) => {
+  const did = str(ld?.devRequestId);
+  const sid = str(ld?.designSheetId);
+  if (!did && !sid) return null;
+  const devs = (devRequests || []).filter(Boolean);
+  const sheets = (designSheets || []).filter(Boolean);
+  let dev = did ? devs.find(d => sameId(d.id, did)) || null : null;
+  let sheet = sid ? sheets.find(s => sameId(s.id, sid)) || null : null;
+  if (!sheet && dev) sheet = liveSheetOfDev(dev, sheets);
+  if (!dev && sheet) dev = devOfSheet(sheet, devs);
+
+  const devNo = str(dev?.devOrderNo || sheet?.devOrderNo || ld?.devOrderNo).trim();
+  const fabricId = str(sheet?.linkedFabricId || dev?.articledInfo?.fabricId);
+  const fabric = fabricId ? (savedFabrics || []).find(f => sameId(f?.id, fabricId)) || null : null;
+  const articled = !!str(sheet?.linkedFabricId) || dev?.status === 'articled';
+  const articledArticle = articled ? str(fabric?.article || sheet?.articleNo || dev?.articledInfo?.articleNo).trim().toUpperCase() : '';
+  const dropped = !articled && (sheet?.status === 'dropped' || dev?.status === 'rejected');
+  const missing = !dev && !sheet;
+  const label = devNo ? `개발 ${devNo}`
+    : sheet ? `자체개발 ${str(sheet.eztexOrderNo || sheet.fabricName).trim()}`.trim() : '개발 건';
+  const stageLabel = missing ? '찾을 수 없음'
+    : articled ? '아이템화' : dropped ? 'Drop' : devEntryOf({ dev, sheet }).stageLabel;
+  const buyer = str(dev?.buyerName).trim();
+  const item = str(sheet?.fabricName || dev?.devItem || dev?.targetSpec?.composition).trim();
+  const title = [
+    [label, buyer, item].filter(Boolean).join(' · '),
+    missing ? '연결된 개발 의뢰 · 설계서를 찾을 수 없어요 (지워졌어요)' : `지금: ${stageLabel}${articledArticle ? ` → Article ${articledArticle}` : ''}`,
+  ].join('\n');
+  return { dev, sheet, fabric, devNo, label, title, buyer, stageLabel, articled, articledArticle, dropped, missing };
+};
+
+/**
+ * 연결된 설계서 값이 L/D에 적힌 값과 다른 칸 — 작성 화면 [설계서 값 다시 가져오기] (설계서 값이 빈칸인 칸은 안 건드림)
+ *  반환 { fields: { article, gsm, … , designSheetId }, labels: ['ARTICLE', 'GSM'] } (다른 칸이 없으면 null)
+ */
+export const devRefreshFields = (ld, link) => {
+  if (!link?.sheet) return null;
+  const fresh = fieldsFromDev({ dev: link.dev, sheet: link.sheet });
+  const KEYS = [['article', 'ARTICLE'], ['itemName', 'ITEM NAME'], ['gsm', 'GSM'], ['widthCut', '내폭'], ['widthFull', '외폭']];
+  const same = (k) => {
+    const mine = str(ld?.[k]).trim();
+    if (k === 'article') return mine.toUpperCase() === fresh[k].toUpperCase();
+    if (k === 'itemName') return mine === fresh[k];
+    return Number(mine) === Number(fresh[k]); // GSM · 폭은 숫자로 (145 = '145.0')
+  };
+  const diff = KEYS.filter(([k]) => fresh[k] && !same(k));
+  if (!diff.length) return null;
+  return {
+    fields: { ...Object.fromEntries(diff.map(([k]) => [k, fresh[k]])), designSheetId: fresh.designSheetId, devRequestId: fresh.devRequestId || str(ld?.devRequestId) || null, devOrderNo: fresh.devOrderNo || str(ld?.devOrderNo) },
+    labels: diff.map(([, label]) => label),
+  };
+};
+
+/**
+ * (다른 화면용) 개발 건에 연결된 L/D — 개발 의뢰 id 또는 설계서 id 중 하나라도 맞으면
+ *  labdips: 저장소 문서 그대로 (예전 L/D는 연결 칸이 없어서 안 나옴) / 반환: 같은 문서들 (순서 그대로)
+ */
+export const labdipsOfDev = (labdips, { devRequestId, sheetId } = {}) => {
+  const did = str(devRequestId);
+  const sid = str(sheetId);
+  if (!did && !sid) return [];
+  return (labdips || []).filter(d => d && ((did && sameId(d.devRequestId, did)) || (sid && sameId(d.designSheetId, sid))));
+};
+
+/**
+ * (다른 화면용) L/D 여러 건의 컬러 요약 — colorStage 기준
+ *  total: 컬러 수 (빈 줄 빼고) · confirmed: 컨펌 · waiting: 아직 결과 전 (공장 진행중 · L/D 도착 · 컨펌대기)
+ *  rejectedOrDropped: 리젝(2차 의뢰 전) + Drop · (덤) ldCount · ldNos · rejected · dropped · legacy(예전 기록) · stages(단계별 수)
+ *  label: '3컬러 · 컨펌 1 · 진행 2' (0인 칸은 빼고, 리젝 · Drop은 따로 — L/D가 없으면 '')
+ */
+export const labdipDevSummary = (list) => {
+  const lds = (list || []).filter(Boolean).map(normalizeLabdip);
+  const stages = {};
+  lds.forEach(ld => realColors(ld).forEach(c => {
+    const s = colorStage(c, ld);
+    stages[s] = (stages[s] || 0) + 1;
+  }));
+  const n = (k) => stages[k] || 0;
+  const confirmed = n('confirm');
+  const waiting = n('factory') + n('arrived') + n('waiting');
+  const rejected = n('reject');
+  const dropped = n('drop');
+  const legacy = n('legacy');
+  const total = confirmed + waiting + rejected + dropped + legacy;
+  const label = total ? [
+    `${total}컬러`,
+    confirmed ? `컨펌 ${confirmed}` : '',
+    waiting ? `진행 ${waiting}` : '',
+    rejected ? `리젝 ${rejected}` : '',
+    dropped ? `Drop ${dropped}` : '',
+    legacy ? `예전 기록 ${legacy}` : '',
+  ].filter(Boolean).join(' · ') : '';
+  return {
+    ldCount: lds.length,
+    ldNos: lds.map(ld => normalizeLdNo(ld.ldNo)).filter(Boolean),
+    total, confirmed, waiting, rejectedOrDropped: rejected + dropped, rejected, dropped, legacy, stages, label,
+  };
+};
 
 const fmtNum = (v) => {
   const t = str(v).trim();
@@ -442,6 +669,10 @@ export const cleanLabdipForSave = (ld) => ({
   factoryDue: str(ld?.factoryDue),
   buyerDue: str(ld?.buyerDue),
   fabricId: str(ld?.fabricId),
+  // 개발 건 연결 (2026-11-24, 개발 고도화 3단계) — 없으면 null, 개발번호 글자는 연결이 있을 때만
+  devRequestId: str(ld?.devRequestId) || null,
+  designSheetId: str(ld?.designSheetId) || null,
+  devOrderNo: str(ld?.devRequestId) || str(ld?.designSheetId) ? str(ld?.devOrderNo).trim().toUpperCase() : '',
   article: str(ld?.article).trim().toUpperCase(),
   itemName: str(ld?.itemName).trim(),
   gsm: numOrText(ld?.gsm),
@@ -585,6 +816,9 @@ export const duplicateLabdip = (src, today = todayLocalISO()) => {
     buyerName: ld.buyerName,
     factory: ld.factory,
     fabricId: ld.fabricId,
+    devRequestId: ld.devRequestId || null,   // 개발 건 연결도 같이 (2026-11-24)
+    designSheetId: ld.designSheetId || null,
+    devOrderNo: ld.devOrderNo || '',
     article: ld.article,
     itemName: ld.itemName,
     gsm: ld.gsm,
@@ -682,6 +916,6 @@ export const buildFactorySheet = (ld, colorIds, { author = '' } = {}) => {
 
 /** 검색용 글자 (대문자) */
 export const labdipSearchText = (ld) => [
-  ld?.ldNo, ld?.buyerName, ld?.article, ld?.itemName, ld?.factory, ld?.style, ld?.eztexNo, ld?.remarks, ld?.memo,
+  ld?.ldNo, ld?.buyerName, ld?.article, ld?.itemName, ld?.factory, ld?.style, ld?.eztexNo, ld?.remarks, ld?.memo, ld?.devOrderNo,
   ...(ld?.colors || []).flatMap(c => [c.name, c.pantone, ...(c.rounds || []).map(r => r.factoryNo)]),
 ].map(str).join(' ').toUpperCase();

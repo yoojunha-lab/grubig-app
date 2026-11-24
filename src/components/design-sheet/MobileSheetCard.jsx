@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, Edit2, Trash2, History, RotateCcw } from 'lucide-react';
 import { num, roundUsd } from '../../utils/helpers';
-import { fieldLabel } from './constants';
+import { HistoryFieldLine, HistoryWho } from './HistoryFieldLine';
 import { STAGE_COLORS } from '../../constants/common';
 
 export const MobileSheetCard = ({
@@ -17,7 +17,8 @@ export const MobileSheetCard = ({
   handleDeleteSheet, 
   getCompositionText,
   isDropped = false,
-  restoreFromDrop
+  restoreFromDrop,
+  dropInfo = null,     // DROP 카드 — { at, reason, memo, viaDev } (2026-11-24)
 }) => {
   const [showHistory, setShowHistory] = useState(false);
 
@@ -81,6 +82,15 @@ export const MobileSheetCard = ({
 
         <div>
           <h4 className="text-sm font-extrabold text-slate-800 break-words pr-2">{sheet.fabricName || '원단명 미입력'}</h4>
+          {isDropped && dropInfo && (
+            <div className="flex flex-wrap items-center gap-1 mt-1 text-[10px]">
+              <span className="text-slate-400">Drop {dropInfo.at ? new Date(dropInfo.at).toLocaleDateString('ko-KR', { year: '2-digit', month: 'numeric', day: 'numeric' }) : '-'}</span>
+              {dropInfo.reason
+                ? <span className={`font-bold px-1.5 py-0.5 rounded border ${dropInfo.reason.cls}`} title={dropInfo.viaDev ? '같이 Drop된 개발 의뢰의 사유' : 'Drop 사유'}>{dropInfo.reason.label}{dropInfo.viaDev ? ' (의뢰)' : ''}</span>
+                : <span className="text-slate-300">사유 없음</span>}
+              {dropInfo.memo && <span className="text-slate-500 break-words">📝 {dropInfo.memo}</span>}
+            </div>
+          )}
           <div className="flex justify-between items-end mt-1 text-[11px]">
             <div className="text-slate-500 line-clamp-2 w-[60%] leading-tight break-words">
               {getCompositionText(sheet.yarns) || '혼용률 없음'}
@@ -145,14 +155,12 @@ export const MobileSheetCard = ({
                         <div className="absolute -left-[5px] top-1 w-2 h-2 rounded-full bg-amber-400" />
                         <p className="text-[9px] font-bold text-amber-600 mb-0.5">
                           {new Date(entry.date).toLocaleString('ko-KR', { month: 'short', day: 'numeric' })}
+                          <HistoryWho entry={entry} />
                         </p>
                         {entry.reason && <p className="text-[9px] text-slate-600 bg-amber-50/50 px-1 py-0.5 rounded inline-block mb-1 italic">사유: {entry.reason}</p>}
                         <div className="space-y-0.5">
-                           {Object.keys(entry.fields || {}).map((fieldKey) => (
-                             <div key={fieldKey} className="text-[9px] flex flex-wrap gap-1">
-                               <span className="font-bold text-slate-500">{fieldLabel(fieldKey)}:</span>
-                               <span className="text-emerald-600">수정됨</span>
-                             </div>
+                           {Object.entries(entry.fields || {}).map(([fieldKey, oldValue]) => (
+                             <HistoryFieldLine key={fieldKey} fieldKey={fieldKey} oldValue={oldValue} entry={entry} size="xs" />
                            ))}
                         </div>
                       </div>

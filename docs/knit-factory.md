@@ -23,7 +23,7 @@
 | 설계서 편직처 목록과 합치기 | 합침 — 저장한 편직처 이름이 설계서 편직처 목록에도 들어감 (없는 이름만, 예전 이름은 지우지 않음) |
 | 편직처 상태 칩 | 만들지 않음 — **메모**로 |
 | 확인일 · 지역 · 설계서 [기계 현황에서 고르기] · 우리 작업 이력 | 넣음 |
-| 엑셀 내보내기 | 안 함 |
+| 엑셀 내보내기 | 처음엔 안 함 → **개발 고도화 3단계(2026-11-24)에서 넣음** — 시트 4개 · 화면 거르기와 상관없이 전부 |
 
 ## 2. 화면
 
@@ -91,19 +91,49 @@
 - **'지금 꼽힘' 정보 나이**: [기계로 찾기] '지금 꼽힘' 아래 '확인일 없음' 또는 '○개월 전 정보' (확인일이 6개월 넘으면)
 - 편직료는 원단마다 달라서 구조화하지 않음 (대표님 2026-11-24)
 
+### 개발 고도화 3단계 (2026-11-24 — 대표님 승인)
+- **[기계로 찾기] 피더 칸** (게이지 · 인치 칸 옆, 설계서 [기계 현황에서 고르기] 창에도 같이 나옴)
+  - '96' 또는 '96F'를 넣으면 기계 줄 피더 숫자가 같은 기계 (피더는 글자로 저장돼 있어서 숫자만 뽑음 — `feederNumbers`)
+    · '36/48'(바꿔 쓰는 기계)은 36 · 48 둘 다 · '12*3'은 12 × 3 = 36 · '60/48F'는 60 · 48 · '3본 96F'처럼 F가 붙은 숫자가 있으면 그 숫자
+  - **근접 포함**이면 피더 ±10%(적어도 ±2F — 96F면 86~106F)도 → 상태 '근접' (게이지 · 인치 근접과 같은 칸) · 체크 글자 '근접 포함 (±1G · ±2" · 피더 ±10%)'
+  - 맞은 피더 칸은 초록(같음) · 주황(근처)
+  - **피더가 안 적힌 기계는 뺌** (정리본 177줄 중 93줄이 피더 없음) → 피더를 넣으면 **[피더 모르는 기계도 보기 (N줄)]** 체크가 나옴 — 켜면 '피더 모름'으로 같은 상태 안 맨 뒤에
+  - 상태 칸은 상태가 있는 줄이 하나라도 있으면 보임 (예전엔 게이지를 넣었을 때만 — 인치 · 피더 근접만 있어도 '근접'이 보이게)
+  - 지도 '[기계로 찾기] 조건에 맞는 곳만' 아래 글자에도 '피더 96F' (`machineFilterLabel`)
+  - **편직처 목록 검색 칸**에 '96F'처럼 숫자 + F를 넣으면 피더가 96인 기계가 있는 편직처 ('36/48' 기계는 48F로도 찾힘). '방문' · '통화'로 그 기록이 있는 편직처도 찾힘
+- **[엑셀로 내보내기]** (화면 위 머리줄, [정리본 가져오기] 옆) → `편직처_기계현황_YYYY-MM-DD.xlsx`
+  - **화면의 검색 · 지역 · 계열 거르기와 상관없이 전부** (버튼에 마우스를 올리면 그렇게 써 있음)
+  - 시트 ① **편직처**(한 곳 한 줄): 편직처 · 지역 · 대표 주소 · 다른 주소 · 전화 · 팩스 · 담당자 · 기계 대수 · 기계 줄 · 보유 가마(개) · 기계 종류(종류 · 인치 · 게이지 범위) · 확인일 · 확인 필요 · 최근 방문 · 통화 · 최근 메모 · 메모 수 · 설계서 · 생산 오더(상세 '우리 작업 이력'과 같은 기준 — 이름) · 편직료 · 마지막 저장
+  - ② **기계**(기계 줄 한 줄): 편직처 · 지역 · 계열 · 종류 · 인치 · 지금 게이지 · 대수 · 피더 · 침수 · 침수 ≈계산 · 스판장치 · 제조사 · 쓸 수 있는 가마 · 메모
+  - ③ **보유 가마**(가마 줄 한 줄): 편직처 · 지역 · 계열 · 종류 · 인치 · 게이지 · 가마 개수 · 지금 꼽힌 기계(대 — 대수 모르면 '+?') · 침수 · 침수 ≈계산 · 메모 (가마에는 피더가 없음 — 피더는 기계 것)
+  - ④ **메모**: 편직처 · 날짜 · 종류(메모 · 방문 · 통화) · 내용 · 쓴 사람 · 남김 · 고침
+  - 숫자 칸은 숫자로(엑셀에서 더하기 · 정렬), 피더는 숫자 하나면 숫자('96F' → 96), '36/48' · '12*3'은 글자 그대로. 침수는 적힌 값과 계산 값을 칸을 나눔. 머리 줄에 거르기 단추(`!autofilter`)
+  - SheetJS는 App이 불러 둔 `window.XLSX` (다른 엑셀 내보내기와 같음) — 아직 못 불러왔으면 '엑셀 모듈을 불러오는 중입니다…'
+  - 계산 `buildKnitExportSheets` · 파일 이름 `knitExportFileName` (모델), 만들기 `useKnitFactory.exportKnitExcel`
+- **메모 종류 — 메모 / 방문 / 통화** (상세 '메모 · 방문 · 통화' 칸)
+  - 남기기 칸 위에서 메모 · 방문 · 통화를 고름 (처음은 메모). 방문 · 통화는 **다녀온 날 · 통화한 날**을 고름 (처음은 오늘, 앞으로 날짜는 안 됨)
+  - **방문 · 통화 기록을 남기면 확인일도 그 날로** — 지금 확인일보다 최근일 때만 (예전 날짜로 남긴 기록이 확인일을 되돌리지 않게). 아니면 '확인일은 이미 더 최근(…)이라 그대로예요'
+  - 오늘이 아닌 날짜로 남기면 '○○ 남김'(writtenAt)도 남김
+  - 메모 고치기(연필)에서 종류 · 날짜도 바꿀 수 있음 — 메모를 방문으로 바꾸면 확인일도 같은 규칙으로
+  - 메모 목록은 **날짜 최신 순** · 줄마다 종류 칩 (kind 없는 예전 메모 = 메모). 상세 제목 아래 '최근 방문 2026-11-20'
+  - 편직처 목록 '최근 메모'도 날짜 최신 순 · 방문 · 통화면 칩
+  - 기록을 지워도 확인일은 그대로 (되돌리지 않음)
+
 ## 3. 데이터
 
 ```
 knitFactories/{id} = { schema: 2, name, phone, fax, contacts: [{ id, name, mobile }], addresses: [..], region, knitFee,
   machines:  [{ id, type, inch, feeder, count, gauge(지금 꼽힌 가마), needles, spandex: 'yes'|'no'|'', maker, note }],
   cylinders: [{ id, type, inch, gauge, count(꼽힌 것 포함), needles, note }],
-  memos: [{ id, date, text, by }], checkedAt, geo: { lat, lng, address, manual, byName } | null, source, created/updated… }
+  memos: [{ id, date, kind: 'memo'|'visit'|'call'(없으면 메모), text, by, writtenAt?, editedAt?, editedBy? }], checkedAt, geo: { lat, lng, address, manual, byName } | null, source, created/updated… }
 settings/general.knitMachineConfig = { families: [..], types: [{ name, family }] }   (저장 전이면 DEFAULT_KNIT_CONFIG)
 settings/general.kakaoMapKey = '카카오 JavaScript 키'
 ```
 
-- 계산: `utils/knitFactoryModel.js` (buildBlocks — 종류+인치 묶음, searchMachines — now/swap/near, needlesFor — 기계 > 가마 > 계산 값, sheetFieldsFromPick, geocodeQuery, kakaoLink*, readSeedFile)
-- 저장: `hooks/domains/useKnitFactory.js` (saveFactory · deleteFactory · 메모 · markChecked · setMountedGauge · setGeo · renameTypeInFactories · typeUsage · importSeed)
+- 계산: `utils/knitFactoryModel.js` (buildBlocks — 종류+인치 묶음, searchMachines — now/swap/near + 피더 feederHit, needlesFor — 기계 > 가마 > 계산 값, sheetFieldsFromPick, geocodeQuery, kakaoLink*, readSeedFile,
+  feederNumbers · feederQuery · feederNearTolerance, MEMO_KINDS · memoKindOf · checkedAtFromRecord · memoDateError · sortMemos · lastContactRecord, buildKnitExportSheets · knitExportFileName — 3단계)
+- [기계로 찾기] 거르기 `EMPTY_MACHINE_FILTERS`에 `feeder`(글자) · `feederUnknown`(피더 모르는 기계도) — 화면 상태만, 저장 안 함
+- 저장: `hooks/domains/useKnitFactory.js` (saveFactory · deleteFactory · 메모(addMemo · updateMemo — 종류 · 날짜 · 확인일) · markChecked · setMountedGauge · setGeo · renameTypeInFactories · typeUsage · importSeed · exportKnitExcel)
 - 지도: `utils/kakaoMap.js` (SDK 한 번만 불러오기 · 주소 → 좌표: 주소 검색 → 못 찾으면 '지역 + 이름' 장소 검색(byName 표시))
 - App: `saveKnitConfig` · `saveKnitConfigWithRenames` · `saveKakaoMapKey` · `addKnittingFactoryNames` · `removeKnittingFactoryNames` · `geocodeKnitFactory`
 - 침수 빈 칸은 회색 **≈ 계산 값**(게이지 × 3.14 × 인치) — 저장 안 함, 설계서에도 안 넣음
@@ -132,9 +162,16 @@ settings/general.kakaoMapKey = '카카오 JavaScript 키'
 - 편직처 목록 다시 그림 (2026-11-24): 1024 · 1600 · 휴대폰(375) 폭 모두 확인. 계열 '양면' → 11곳 · 양면 기계 212대(전체 373대) · 다른 계열 줄 흐림. 정렬 '최근 우리 작업 순' → 한성섬유(오더 3 · 26.9.5) 맨 위
 - 기계 수정 저장 줄 맨 위 (2026-11-24): 한성섬유 [기계 수정] → 맨 위 [취소] [저장], 아래로 800px 내리면 위 메뉴 밑에 떠 있는 저장 줄, 다시 올리면 사라짐. [취소] → 수정 닫힘
 - 상세 [기계 수정] (2026-11-24): 태성 26" 대수 27 → 8 · 기계 줄 추가(1대 28G) · 가마 '30, 32' 넣기 → 저장 → 기계 9대 · 가마 6종 · 확인일 오늘. 고친 채 왼쪽 목록 · 위 메뉴(원단 관리)로 가면 '버리고 나갈까요?' — 아니오면 그대로, 예면 버리고 이동. [취소]도 '버릴까요?'
+- **개발 고도화 3단계** (2026-11-24 — 브라우저 화면은 아직 안 봄: 다른 작업이 미리보기를 쓰는 중이라 `npx vite build` · `npx eslint` · Node 시험만)
+  - 피더 읽기: '96' · '96F' · ' 96 f ' → 96 / '36/48' → 36 · 48 / '60/48F' → 60 · 48 / '12*3' · '12 × 3' → 36 / '3본 96F' → 96 / 빈 칸 · 'abc' → 못 읽음. 정리본 피더 글자 중 못 읽는 것 0개
+  - 정리본(19곳 · 177줄)으로 피더 찾기: 96F 같음 16줄 · 근접 포함 25줄 · 피더 모름 93줄 / 48F 17줄(36/48 · 60/48 포함) / 36F 13줄('12*3' 2줄 포함) / 108F 10줄 · 근접 15줄. 22G 30" 96F → 미건섬유 싱글 30" 22G 96F '지금 꼽힘'
+  - 게이지 + 피더: 게이지 32G · 피더 96 → 32G 가마가 있는 96F 기계 '가마 교체', 90F 기계 '근접' / 근접 끄면 같은 피더만 / 피더 모르는 기계는 체크해야 나오고 맨 뒤
+  - 목록 검색 '96F' → 8곳, '48f' → '36/48' 기계 있는 곳도, '104F' 없는 곳은 안 나옴. '방문' → 방문 기록 있는 곳, '메모'로는 다 걸리지 않음
+  - 엑셀: 정리본 → 편직처 19 · 기계 177 · 보유 가마 95 · 메모 8줄, 편직처 시트 기계 대수 합 537 = 기계 시트 대수 합 537 (위 정리본 537대와 같음). 줄마다 칸 수 = 머리 칸 수. 침수 안 적힌 기계는 '침수 ≈계산' 칸에만. 파일 이름 `편직처_기계현황_2026-11-24.xlsx`, 시트 4개 · 머리 줄 거르기 (가짜 XLSX로 부르는 순서만 확인 — 실제 엑셀 파일은 화면에서 받아 봐야 함)
+  - 메모 종류 (훅을 가짜 저장소로): 메모 → 확인일 그대로 · 종류 memo · 오늘 / 방문(3일 전, 확인일 10일 전) → 확인일 3일 전 · '○○ 남김' 오늘 / 통화(20일 전) → 확인일 그대로 '이미 더 최근' / 앞으로 날짜 → 안 남김 '앞으로 날짜는…' / 통화 날짜 빈 칸 → 오늘 / 저장 실패 → 성공 알림 없음 / 예전 메모를 방문으로 고침 → 확인일 바뀜, 글자만 고치면 예전 메모 종류 · 날짜 그대로
 
 ## 6. 나중 아이디어
 
 - 생산 현황 편직 칸에서 편직처를 고를 때 이 목록 · 기계 줄 연결 (편직 기계별 생산량과 같은 기계 이름)
 - 편직료를 원가 설정의 편직 정액과 비교
-- 방문 일정 저장 (날짜 · 다녀온 기록 → 확인일 자동)
+- 방문 일정 저장 (앞으로 갈 날짜) — '다녀온 기록 → 확인일 자동'은 3단계 메모 종류(방문 · 통화)로 함 (2026-11-24)

@@ -19,16 +19,19 @@
 | UI 용어 통일 (마진 단계 등) + 가설계서/저장·삭제·날짜 규약 + 목록 정렬(Article 순서 §3-A) + 팝업 창 규약(ModalBackdrop) | `docs/terminology.md` (용어 사전) |
 | 원단 원가 계산 (편직 정액·LOSS 구간·가공 유형·이화학/운임·수입 원사 운반비·원가 설정·공통 환율(내수·수출)/견적 환율·실시간 환율·원가 확인 필요·원가 표 6구간(300·500·700YD + 1,000·3,000·5,000YD)) + 견적서 (기준 견적·별도 견적·러닝 생지 견적·견적서 약관 문구(내수는 한글)·예전 800YD 견적 보존) + 개발 의뢰 원가 견적·Drop 사유 | `docs/costing-model.md` (원가 모델 & 설정, 구간 800 → 700YD는 §1-D, 환율은 §5-A, 견적서는 §5-B, 개발 의뢰 원가 견적은 §5-C) |
 | 기타 ▾ 헹거 스티커 (TAG 엑셀 양식 그대로 뽑기 — 아이템 필수·WIDTH·WEIGHT는 아이템 값 잠금(실제 G/YD), CATEGORY 고르기·CARE 체크([⚙ 설정] 목록), QR 그림 올리기(EZ-TEX 주소 읽기), 체크해서 여러 장 엑셀 다운로드) | `docs/hanger-sticker.md` (양식 칸 위치·QR 규칙·칸 규칙·설정·엑셀 만드는 법·확인한 것) |
-| 개발 ▾ 편직처 기계 현황 (예전 편직처 엑셀 — 목록(요약 막대·계열 거르기·정렬, 줄마다 편직처·기계 종류별(게이지·인치 줄 맞춤)·우리 작업/메모 — 연락처는 상세에만) → 상세 [← 목록으로], 기계 줄(종류는 [⚙ 기계 종류] 설정 — 계열도 직접·지금 꼽힌 가마·스판장치) + 보유 가마(같은 종류·인치끼리 돌려 씀), [기계로 찾기] 지금 꼽힘/가마 교체/근접, 카카오 [지도] 방문 순서·길찾기·[주소로 다시 찾기](직접 찍은 위치 → 적힌 주소), 엑셀은 Claude가 판단한 정리본(.json) 가져오기, 설계서 [기계 현황에서 고르기], 메모·확인일·우리 작업 이력) | `docs/knit-factory.md` (정한 것·화면·데이터·정리본 판단·확인한 것) |
-| 개발 ▾ 고도화 — 의뢰 → 설계서 → 샘플 → 아이템화 (메인/QC 저장 결과·비고·중복 확인, 설계서 확인칸 값 바뀌면 노랑·새 설계서 폭/GSM 빈칸·내폭≤외폭·가설계서 불러오기는 새 설계서만·아이템화 설계서 🗑 없음, 의뢰서 폭/중량·바이어 특이사항 칸, 원사 삭제 전 가설계서·원가 견적 확인, 개발/설계 현황 '샘플 진행 (생산 현황)' 표·지연/임박 합산, 의뢰 '아이템화 완료' 자동·원단 devSource, 개발 통계(의뢰→아이템화 %·일수·Drop 사유·바이어별), 의뢰 고치면 설계서·샘플 오더 납기/바이어 묻기, 회신 대기 N일·담당자 거르기, 3단계 이후 제안) | `docs/dev-flow.md` (정한 것·1단계 빈틈 표·2단계 ①~⑤·3단계 제안·파일·확인한 것) |
-| 생산 ▾ LAB-DIP (예전 영업 ▾ Lab-Dip 발송 — 공장 의뢰 + 바이어 발송 묶음: L/D NO. GB26023~(연도마다 001)·공장에 의뢰/바이어 발송만(EZ-TEX)·원단 ARTICLE·ITEM NAME·GSM·폭·울 종류(원사 SW → 슈퍼워시)·광원·PANTONE/바이어 스와치, 컬러마다 공장 진행중→L/D 도착→컨펌대기→컨펌·리젝(같은 번호 2차)·Drop, 진행중·컨펌대기중·완료 탭·공장/바이어 납기, 공장 의뢰서(바이어 안 찍힘)·바이어 시트(공장 안 찍힘), 예전 기록) | `docs/labdip.md` (요청·정한 것·흐름·번호·상태·인쇄 규칙·데이터·예전 기록·확인한 것) |
+| 개발 ▾ 편직처 기계 현황 (예전 편직처 엑셀 — 목록(요약 막대·계열 거르기·정렬, 줄마다 편직처·기계 종류별(게이지·인치 줄 맞춤)·우리 작업/메모 — 연락처는 상세에만) → 상세 [← 목록으로], 기계 줄(종류는 [⚙ 기계 종류] 설정 — 계열도 직접·지금 꼽힌 가마·스판장치) + 보유 가마(같은 종류·인치끼리 돌려 씀), [기계로 찾기] 지금 꼽힘/가마 교체/근접, 카카오 [지도] 방문 순서·길찾기·[주소로 다시 찾기](직접 찍은 위치 → 적힌 주소), 엑셀은 Claude가 판단한 정리본(.json) 가져오기, 설계서 [기계 현황에서 고르기], 메모·확인일·우리 작업 이력 · [기계로 찾기] 피더 칸(96F · 근접 ±10% · 피더 모르는 기계도 보기) · [엑셀로 내보내기](편직처·기계·보유 가마·메모 시트) · 메모 종류 메모/방문/통화(방문·통화 → 확인일)) | `docs/knit-factory.md` (정한 것·화면·데이터·정리본 판단·확인한 것) |
+| 개발 ▾ 고도화 — 의뢰 → 설계서 → 샘플 → 아이템화 (메인/QC 저장 결과·비고·중복 확인, 설계서 확인칸 값 바뀌면 노랑·새 설계서 폭/GSM 빈칸·내폭≤외폭·가설계서 불러오기는 새 설계서만·아이템화 설계서 🗑 없음, 의뢰서 폭/중량·바이어 특이사항 칸, 원사 삭제 전 가설계서·원가 견적 확인, 개발/설계 현황 '샘플 진행 (생산 현황)' 표·지연/임박 합산, 의뢰 '아이템화 완료' 자동·원단 devSource, 개발 통계(의뢰→아이템화 %·일수·Drop 사유·바이어별), 의뢰 고치면 설계서·샘플 오더 납기/바이어 묻기, 회신 대기 N일·담당자 거르기 / 3단계: 설계서 인쇄(편직처용·염색소용, 원가 없이, 제 N판)·설계서 안 샘플 오더 칸(실측 vs 설계 ±5%)·메인/QC 생산 현황에서 고르기(오더·컬러·LOT)·상세창 메인/QC 결과·변경 이력 옛 값→새 값·원사 교체·피더·원단 관리 수정·가설계서 정식 전환됨·보관함 원사/바이어/GSM 찾기·정렬·Drop 사유·자체개발 Drop 사유) | `docs/dev-flow.md` (정한 것·1단계 빈틈 표·2단계 ①~⑤·3단계 ①~⑩·4단계 후보·파일·확인한 것) |
+| 생산 ▾ LAB-DIP (예전 영업 ▾ Lab-Dip 발송 — 공장 의뢰 + 바이어 발송 묶음: L/D NO. GB26023~(연도마다 001)·공장에 의뢰/바이어 발송만(EZ-TEX)·원단 ARTICLE·ITEM NAME·GSM·폭·울 종류(원사 SW → 슈퍼워시)·광원·PANTONE/바이어 스와치, 컬러마다 공장 진행중→L/D 도착→컨펌대기→컨펌·리젝(같은 번호 2차)·Drop, 진행중·컨펌대기중·완료 탭·공장/바이어 납기, 공장 의뢰서(바이어 안 찍힘)·바이어 시트(공장 안 찍힘), 예전 기록, 개발 건 연결(원단 없이 개발 의뢰·아이템화 전 설계서에서 ARTICLE·ITEM NAME·GSM·폭 — '개발 F-26D011' 칩·아이템화 → PW1060, 개발/설계 현황·설계서에 L/D 요약 배지)) | `docs/labdip.md` (요청·정한 것·흐름·번호·상태·인쇄 규칙·데이터·예전 기록·확인한 것, 개발 건 연결은 §13) |
 
 트리거 예시:
 - "생산 스케줄 다음 단계 하자" / "오더 관련 기능 추가해줘" / "간트 차트 만들자" / "알람 붙이자" / "선염 계산기·원사 컬러 배분·멜란지 비율" / "가납기·간트 메모" / "가납기 일수·기준일" / "편직 예상 종료일·기계별 생산량·프리세팅·공정 추가" / "생지 부분출고·시험성적서·브랜드 컨펌·외관검사·LOT" / "배색량·예상 YD·프리세팅·외관검사 1차 2차·재가공" / "남은 배색량·생지kg(예전 작지kg)·와이드 모니터에서 현황표·간트 넓게" / "원사 사종·발주대기·발주완료·입고완료·중지·재고 사용·원사염색" / "오더 마무리·원사재고정리·EZTEX 종결·마무리 대기" / "선염/후염·생지 출고 한 번에·출고 kg" / "간트 날짜 눌러 공정 넣기" / "샘플 오더·메인/샘플·설계서 샘플 진행·생산 현황에서 아이템화" / "개발 의뢰 현황·EZ-TEX 등록·자체개발 설계서" / "샘플 Drop·복원·아이템화 대기·샘플 끝내기·리포트 메인/샘플" / "샘플/메인 바꾸기·구분 잠금·신제품/재샘플·종류 미정·설계서 없음·아이템 선택·구분 바꾸기" / "편직 재고 사용·생지 재고·컨펌/외관검사 안 함·진행 안 함·마무리 안 됨 모아 보기·메모 칸 위치" / "완료 탭으로 언제 가나·출고 끝 자동 완료·마무리 대기·완료로 넘기기" → 위 docs 2개를 먼저 읽고 작업 시작
 - "원가 계산 바꾸자" / "편직비·LOSS·운임 수정" / "원가 설정에 항목 추가" / "수량 직접 입력 칸 만들자" / "원사 운반비·수입사·수입 국가" / "환율·내수/수출 환율·실시간 환율·견적 다시 계산" / "원가 확인 경고·혼용률" / "견적서 구간·기준 견적·별도 견적" / "러닝 생지 견적·생지 짠 수량·컬러별 수량·소량 추가분(서차지)" / "개발 의뢰 원가 견적·Drop 사유·의뢰 견적서" / "원가 표·견적 구간 바꾸기(800 → 700YD)·예전 구간 견적" → `docs/costing-model.md` 먼저 읽고 작업 시작
 - "헹거 스티커 칸 추가·양식 바꾸기" / "TAG 엑셀·스티커 QR" / "스티커 여러 장 뽑기" / "CATEGORY·CARE 목록·스티커 설정" / "스티커 WIDTH·WEIGHT·G/YD" → `docs/hanger-sticker.md` 먼저 읽고 작업 시작
+- "L/D를 개발 의뢰·설계서에 연결" / "개발 건 칩·L/D 요약 배지" → `docs/labdip.md` §13 먼저
 - "L/D·랩딥·LAB-DIP" / "L/D 의뢰서·공장 의뢰" / "바이어 시트·L/D 발송" / "L/D 번호·GB 번호" / "슈퍼워시·울 종류" / "컨펌대기·리젝·2차 의뢰" / "EZ-TEX L/D" / "L/D를 생산 현황에 연결" → `docs/labdip.md` 먼저 읽고 작업 시작
+- "설계서 인쇄·편직처용·염색소용·판 번호" / "설계서 안 샘플 오더·실측 vs 설계" / "QC 오더·LOT 고르기·메인/QC 결과" / "변경 이력 옛 값 새 값" / "가설계서 정식 전환됨" / "설계서 보관함 찾기·정렬·Drop 사유" → `docs/dev-flow.md` 3단계 먼저 읽고 작업 시작
 - "개발 고도화·개발 메뉴 점검" / "메인/QC 저장·비고·중복" / "설계서 확인칸·폭/GSM 기본값·내폭 외폭·가설계서 불러오기" / "의뢰서 폭/중량·바이어 특이사항" / "원사 삭제 막기" / "샘플 진행 표·EZ-TEX 뒤에도 보기" / "의뢰 아이템화 완료·의뢰 닫기" / "개발 통계·Drop 비율·바이어별" / "의뢰 고치면 설계서·샘플 오더 납기" / "회신 대기·담당자" / "설계서 인쇄·변경 이력·가설계서 전환(3단계)" → `docs/dev-flow.md` 먼저 읽고 작업 시작
+- "피더로 찾기·편직처 엑셀 내보내기·방문 기록·통화 기록·확인일 자동" → `docs/knit-factory.md` 먼저
 - "편직처·편직처 기계·가마(지금/보유)·게이지로 편직처 찾기" / "기계 종류·계열" / "스판장치" / "편직처 지도·방문 순서·카카오맵 키" / "편직처 정리본 가져오기" / "설계서 기계 현황에서 고르기" / "편직처 메모·확인일" → `docs/knit-factory.md` 먼저 읽고 작업 시작
 - 라벨/용어를 바꾸거나 새 화면을 만들 때 → `docs/terminology.md` 를 먼저 확인하고 같은 기능은 같은 용어로 맞출 것
 - 새 팝업 창을 만들 때 → 배경은 `components/common/ModalBackdrop`, 입력하는 창이면 `useUnsavedGuard` + `UnsavedChangesDialog`로 '저장할까요?' (`docs/terminology.md` §4 팝업 창 규약)
@@ -98,9 +101,10 @@ GRUBIG-APP/
 │   │   ├── common/              # 공통 UI (Toast, SearchableSelect, MasterDataModal, ModalBackdrop(팝업 배경), UnsavedChangesDialog(저장할까요?) 등)
 │   │   ├── layout/              # Sidebar, LoginScreen
 │   │   ├── dashboard/           # 개발 의뢰 — DevRequestFormModal(폭/중량·바이어 특이사항 칸), DevArchiveModal(보관함·Drop 사유별 보기·아이템화 카드 걸린 날), DevCostQuoteModal(원가 견적), DevDropModal(Drop 사유), DevQuoteBadge(견적·예상 배지 공용), DevSampleProgress(샘플 진행 (생산 현황) 표), DevStatsPanel(개발 통계), DevReqSummaryCard(현재 안 씀)
-│   │   ├── order/               # 생산 현황 — sheet/(현황표·⋯ 메뉴·입력 창: Process·ProvisionalDue·GreigeOut(선염/후염·kg)·LotEditor(배색량·예상 YD·프리세팅)·ColorPopovers(컨펌·성적서)·Inspection(LOT별 1차·2차)·Ship·Closing(마무리)·StepManager(공정 추가)·Yarn(원사 — 사종 줄·재고 사용·원사염색)), gantt/(간트·GanttAddMenu [+]·GanttDateMenu 날짜 → 그 날에 넣기), common/(SheetLinkChips '설계서' 표시·SampleCloseDialog 샘플 끝내기·OrderKindChip 구분 표시·AddOrderMenu [+ 오더 추가 ▾]·OrderKindDialog 구분 바꾸기·LinkSheetDialog 작성 중인 설계서 연결·SkipBar 컨펌/외관검사 '안 함'(SkippedPopover 창)·SkipChip 회색 '안 함·재고 사용·생지 재고'·PopoverShell(저장할까요?)·StatusSelect 상태 드롭다운·TrackEditor 상태 기록·StepChip(PresettingChip·YarnDyeChip)), OrderDetailModal
+│   │   ├── order/               # 생산 현황 — sheet/(현황표·⋯ 메뉴·입력 창: Process·ProvisionalDue·GreigeOut(선염/후염·kg)·LotEditor(배색량·예상 YD·프리세팅)·ColorPopovers(컨펌·성적서)·Inspection(LOT별 1차·2차)·Ship·Closing(마무리)·StepManager(공정 추가)·Yarn(원사 — 사종 줄·재고 사용·원사염색)), gantt/(간트·GanttAddMenu [+]·GanttDateMenu 날짜 → 그 날에 넣기), common/(SheetLinkChips '설계서' 표시·SampleCloseDialog 샘플 끝내기·OrderKindChip 구분 표시·AddOrderMenu [+ 오더 추가 ▾]·OrderKindDialog 구분 바꾸기·LinkSheetDialog 작성 중인 설계서 연결·SkipBar 컨펌/외관검사 '안 함'(SkippedPopover 창)·SkipChip 회색 '안 함·재고 사용·생지 재고'·PopoverShell(저장할까요?)·StatusSelect 상태 드롭다운·TrackEditor 상태 기록·StepChip(PresettingChip·YarnDyeChip)·QcResultSection 상세창 '메인/QC 결과'), OrderDetailModal
 │   │   ├── design/              # DesignStepper (진행 단계 바)
-│   │   ├── design-sheet/        # 설계서 전용 (DesktopSheetRow, MobileSheetCard, DropSheetModal, SheetTemplatePickerModal(설계서 불러오기 — 고르는 창))
+│   │   ├── main-detail/         # 메인/QC — MainDetailFormModal(작성 창·비고), OrderLotPicker(생산 현황에서 고르기 — 오더·컬러·LOT)
+│   │   ├── design-sheet/        # 설계서 전용 (DesktopSheetRow, MobileSheetCard, DropSheetModal, SheetTemplatePickerModal(설계서 불러오기 — 고르는 창), DesignSheetPrintSheet(편직처용·염색소용 인쇄), SheetSampleOrderPanel(샘플 오더 칸·실측 vs 설계), HistoryFieldLine(변경 이력 옛 값→새 값))
 │   │   ├── fabric/              # 원단 행/카드 (+ fabricRowModel: 행·카드 공통 계산)
 │   │   ├── yarn/                # 원사 행/카드 (+ yarnRowModel: 행·카드 공통 계산)
 │   │   ├── quote/               # PDFRenderer (견적서 PDF), QuoteParts (견적서 화면 공용 부품), FabricPickerModal, RunningGreigeModal (러닝 생지 견적 창)
@@ -120,11 +124,12 @@ GRUBIG-APP/
 │   │   ├── excelIO.js           # 엑셀 업로드 칸 읽기 (숫자·%·예/아니오·통화)
 │   │   ├── costFields.js        # 원가 칸 초기값 (원단·설계서·가설계서 공통)
 │   │   ├── devQuoteModel.js     # 개발 의뢰 원가 견적 (양식·원단 모양 변환·저장 전 확인·예상가·견적서 배지·설계서 이어받기)
-│   │   ├── devFlowModel.js      # 개발 흐름 (샘플 진행 줄 생산 상황·납기 / 회신 대기 N일 / 의뢰 결과·의뢰→아이템화 일수 / 개발 통계 / 의뢰 수정 → 설계서·샘플 오더 변경 계획)
+│   │   ├── sheetHistory.js      # 설계서 변경 이력 (피더 줄 요약·값 글자·원단 관리 수정 → 설계서 이력)
+│   │   ├── devFlowModel.js      # 개발 흐름 (+ QC 실측 qcActualOf·가설계서 정식 전환 promotedSheetsOfTemp) (샘플 진행 줄 생산 상황·납기 / 회신 대기 N일 / 의뢰 결과·의뢰→아이템화 일수 / 개발 통계 / 의뢰 수정 → 설계서·샘플 오더 변경 계획)
 │   │   ├── yarnDyeCalc.js       # 선염 계산 (스트라이프 원사 컬러 배분·같은 컬러 합치기 / 멜란지 수량 비율 / O/D·ARTICLE(원사) 불러오기 / 결과 복사)
 │   │   ├── knitFactoryModel.js  # 편직처 기계 현황 (문서 모양·종류/계열 설정·종류+인치 묶음·침수 계산·기계로 찾기·설계서에 넣을 값·카카오 링크·정리본 읽기)
 │   │   ├── kakaoMap.js          # 카카오맵 SDK 불러오기 · 편직처 주소 → 좌표 (브라우저 전용)
-│   │   ├── labdipModel.js       # LAB-DIP 계산 (L/D NO.·컬러 단계·탭·납기·울 종류(SW)·차수·예전 기록 읽기·공장 의뢰서/바이어 시트 인쇄 모양)
+│   │   ├── labdipModel.js       # LAB-DIP 계산 (L/D NO.·컬러 단계·탭·납기·울 종류(SW)·차수·예전 기록 읽기·공장 의뢰서/바이어 시트 인쇄 모양·개발 건 연결(labdipDevOptions·fieldsFromDev·labdipDevLink·labdipsOfDev·labdipDevSummary))
 │   │   ├── hangerSticker.js     # 헹거 스티커 칸 계산 (WIDTH 내폭/외폭 · WEIGHT 실제 G/YD — 늘 아이템 값 · CATEGORY·CARE 설정 목록 · QR 번호 → EZ-TEX 주소 · 저장 모양)
 │   │   ├── hangerStickerExcel.js # 헹거 스티커 엑셀 만들기 (양식 첫 시트를 스티커마다 복사해 값만 바꿈 — fflate, Node에서도 돌아감)
 │   │   ├── hangerStickerQr.js   # 헹거 스티커 QR (만들기: 미리보기 SVG·엑셀 PNG / 읽기: 올린 QR 그림 → 주소)
@@ -151,6 +156,7 @@ GRUBIG-APP/
 - 설계서 단계: `draft → eztex → sampling → articled` (→ 원단 자동 등록 + 의뢰 `status: 'articled'` '아이템화 완료', 원단 `devSource`)
 - `hangerStickers` (헹거 스티커) → `fabrics` (원단): `sticker.fabricId` 한쪽만 (원단을 지워도 스티커 값은 남음 — 목록에 '아이템 없음')
 - `knitFactories` (편직처 기계 현황) ↔ 설계서 `knitting.factory` · 오더 `steps.knitting.vendor`: **이름으로만** 이어짐 (띄어쓰기·대소문자 무시). 저장하면 이름이 `settings/general.knittingFactories`에도 들어감
+- `labdips` (LAB-DIP) → `devRequests`·`designSheets`: `labdip.devRequestId`·`designSheetId` 한쪽만 (원단 연결 `fabricId`와 둘 중 하나 — 2026-11-24)
 - `labdips` (LAB-DIP) → `fabrics` (원단): `labdip.fabricId` 한쪽만 — ARTICLE·ITEM NAME·GSM·폭은 고를 때 복사 (의뢰서에 적은 값이 남게). 공장 = `settings/general.dyeingFactories`
 
 ---

@@ -3,6 +3,7 @@ import { clampNum } from '../../utils/helpers';
 import { calculateCostTiers, computeCostAtQty, resolveKnitKgRate, normalizeExtraCosts } from '../../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
 import { makeInitialCostFields } from '../../utils/costFields';
+import { fabricSyncHistoryEntry } from '../../utils/sheetHistory';
 
 // GRUBIG ERP - 원단(Fabric) 도메인 로직 및 비용 계산 훅
 
@@ -147,7 +148,7 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
     if (itemToSave.linkedSheetId) {
        const linkedSheet = designSheets?.find(s => String(s.id) === String(itemToSave.linkedSheetId));
        if (linkedSheet) {
-          saveDocToCloud('designSheets', {
+          const syncedSheet = {
              ...linkedSheet,
              // [기획오류 #7 수정] 원단→설계서 역방향 article/fabricName 동기화
              articleNo: itemToSave.article ?? linkedSheet.articleNo,
@@ -180,7 +181,15 @@ export const useFabric = (yarnLibrary, savedFabrics, designSheets, saveDocToClou
              },
              yarns: itemToSave.yarns || linkedSheet.yarns || [],
              updatedAt: new Date().toISOString()
-          });
+          };
+          // 설계서 변경 이력에도 남김 — '원단 관리에서 수정' (개발 고도화 3단계 2026-11-24, 예전엔 설계서 이력에 안 남았음)
+          const yarnName = (yarnId) => {
+            const id = String(yarnId || '').split('::')[0];
+            return id ? ((yarnLibrary || []).find(y => String(y.id) === id)?.name || `(지운 원사 ${id})`) : '';
+          };
+          const entry = fabricSyncHistoryEntry({ before: linkedSheet, after: syncedSheet, yarnName, now: syncedSheet.updatedAt });
+          if (entry) syncedSheet.changeHistory = [entry, ...(linkedSheet.changeHistory || [])];
+          saveDocToCloud('designSheets', syncedSheet);
        }
     }
 

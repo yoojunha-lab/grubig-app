@@ -4,6 +4,15 @@ import { MobileSheetCard } from '../components/design-sheet/MobileSheetCard';
 import { DesktopSheetRow } from '../components/design-sheet/DesktopSheetRow';
 import { DropSheetModal } from '../components/design-sheet/DropSheetModal';
 import { sheetKnitAlarm, resolveKnitConfig } from '../utils/knitFactoryModel';
+import { compareArticle } from '../utils/helpers';
+import { DEV_DROP_REASONS } from '../constants/common';
+
+// 보관함 정렬 (개발 고도화 3단계 2026-11-24 — 예전엔 최근 수정 순만)
+const SORTS = [
+  { key: 'updated', label: '최근 수정 순' },
+  { key: 'article', label: 'Article 순 (PW1001 → PW1002)' },
+  { key: 'articled', label: '아이템화 날짜 순 (최근)' },
+];
 
 export const DesignSheetListPage = ({
   designSheets,
@@ -27,6 +36,11 @@ export const DesignSheetListPage = ({
 
   const [expandedId, setExpandedId] = useState(null);
   const [isDropModalOpen, setIsDropModalOpen] = useState(false);
+  const [sortKey, setSortKey] = useState('updated');
+
+  // 원사 이름 · 바이어 (검색용 — 2026-11-24 원사 · 바이어 · GSM 으로도 찾기)
+  const yarnNameOf = (yarnId) => (yarnLibrary || []).find(y => String(y.id) === String(yarnId || '').split('::')[0])?.name || '';
+  const buyerOf = (s) => (devRequests || []).find(d => d.id === s.devRequestId)?.buyerName || s.fromTemp?.buyerName || '';
 
 
   const factories = ['All', ...new Set((designSheets||[]).map(s=>s.knitting?.factory).filter(Boolean))];
@@ -41,20 +55,43 @@ export const DesignSheetListPage = ({
       if (gaugeFilter !== 'All' && s.knitting?.gauge !== gaugeFilter) return false;
 
       if (!searchTerm.trim()) return true;
-      const q = searchTerm.toLowerCase();
-      return String(s.devOrderNo || '').toLowerCase().includes(q) ||
-        String(s.articleNo || '').toLowerCase().includes(q) ||
-        String(s.eztexOrderNo || '').toLowerCase().includes(q) ||
-        String(s.fabricName || '').toLowerCase().includes(q);
+      const q = searchTerm.trim().toLowerCase();
+      return [
+        s.devOrderNo, s.articleNo, s.eztexOrderNo, s.fabricName,
+        buyerOf(s),
+        ...(s.yarns || []).map(y => yarnNameOf(y?.yarnId)),
+        s.costInput?.gsm != null && s.costInput?.gsm !== '' ? `${s.costInput.gsm}g` : '',
+        s.knitting?.factory, s.dyeing?.factory,
+      ].some(v => String(v || '').toLowerCase().includes(q));
     };
-    return (designSheets || []).filter(s => s.stage === 'articled' && s.status !== 'dropped' && !s.isArchived && filterSheet(s))
-      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-  }, [designSheets, searchTerm, knitFactoryFilter, machineTypeFilter, gaugeFilter]);
+    const list = (designSheets || []).filter(s => s.stage === 'articled' && s.status !== 'dropped' && !s.isArchived && filterSheet(s));
+    if (sortKey === 'article') return list.sort((a, b) => compareArticle(a.articleNo, b.articleNo) || String(a.id).localeCompare(String(b.id)));
+    if (sortKey === 'articled') {
+      const at = (s) => s.stageEnteredAt?.articled || s.updatedAt || '';
+      return list.sort((a, b) => at(b).localeCompare(at(a)));
+    }
+    return list.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [designSheets, searchTerm, knitFactoryFilter, machineTypeFilter, gaugeFilter, sortKey, devRequests, yarnLibrary]);
 
   const droppedSheets = useMemo(() =>
     (designSheets || []).filter(s => s.status === 'dropped')
-      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')),
+      .sort((a, b) => (b.droppedAt || b.updatedAt || '').localeCompare(a.droppedAt || a.updatedAt || '')),
   [designSheets]);
+
+  // DROP 카드의 날짜 · 사유 (2026-11-24) — 설계서에 적힌 사유(자체개발) → 없으면 같이 Drop된 의뢰의 사유
+  const dropInfoOf = (s) => {
+    const dev = s.devRequestId ? (devRequests || []).find(d => d.id === s.devRequestId) : null;
+    const devDrop = dev && dev.status === 'rejected' ? dev : null;
+    const key = s.dropReason || devDrop?.dropReason || '';
+    const reason = DEV_DROP_REASONS.find(r => r.key === key) || null;
+    return {
+      at: s.droppedAt || devDrop?.statusEnteredAt?.rejected || s.updatedAt || '',
+      reason,
+      memo: s.dropMemo || devDrop?.dropMemo || '',
+      viaDev: !s.dropReason && !!devDrop,
+    };
+  };
 
   const getYarnName = (yarnId) => {
     if (!yarnId) return '';
@@ -121,7 +158,7 @@ export const DesignSheetListPage = ({
          <div className="flex flex-col md:flex-row gap-3 items-center">
             <div className="relative flex-1 w-full">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input type="text" placeholder="Article, 개발번호, 식별자 검색..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+              <input type="text" placeholder="Article · 개발번호 · 원단명 · 원사 · 바이어 · GSM(예: 300g) 검색..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full border border-slate-300 rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 ring-blue-200 outline-none" />
             </div>
             <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
@@ -133,6 +170,9 @@ export const DesignSheetListPage = ({
                </select>
                <select value={gaugeFilter} onChange={e=>setGaugeFilter(e.target.value)} className="bg-slate-50 border border-slate-300 text-xs rounded px-2 py-2 outline-none shrink-0">
                  {gauges.map(g => <option key={g} value={g}>{g==='All'?'게이지 - 전체':g}</option>)}
+               </select>
+               <select value={sortKey} onChange={e => setSortKey(e.target.value)} title="정렬" className="bg-white border border-slate-300 text-xs font-bold rounded px-2 py-2 outline-none shrink-0">
+                 {SORTS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
                </select>
             </div>
          </div>
@@ -190,6 +230,7 @@ export const DesignSheetListPage = ({
         restoreFromDrop={restoreFromDrop}
         handleDeleteSheet={handleDeleteSheet}
         getCompositionText={getCompositionText}
+        dropInfoOf={dropInfoOf}
       />
     </div>
   );

@@ -49,6 +49,25 @@ export const productionStateOf = (order, sheet) => {
 export const sampleRowDeadline = ({ order, sheet, dev }) =>
   str(order?.finalDueDate) || str(sheet?.deadline) || str(dev?.targetSpec?.sampleDeadline) || null;
 
+/** 글자에서 숫자만 (예: '58"' → 58, '300g' → 300, 못 읽으면 null) */
+export const numOf = (v) => {
+  const n = parseFloat(String(v ?? '').replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(n) ? n : null;
+};
+
+/** 메인/QC 디테일 시트 한 장 → 마지막 수축 TEST 기준 실측 { gsm, width, status, round } (설계서 '실측 vs 설계' 칸) */
+export const qcActualOf = (d) => {
+  const tests = d?.tests || [];
+  const last = tests[tests.length - 1] || {};
+  const first = tests[0] || {};
+  return {
+    gsm: numOf(last.finGsm) ?? numOf(first.finGsm) ?? numOf(d?.finGsm),
+    width: numOf(last.finWidthFull) ?? numOf(first.finWidthFull) ?? numOf(d?.finWidthFull),
+    status: last.status || '',
+    round: tests.length,
+  };
+};
+
 /** 샘플 오더가 끝났는지 (완료 — 아이템화 대기 · Drop) → 납기 지연·임박으로 안 셈 */
 export const isSampleOrderDone = (order) => order?.status === 'completed';
 
@@ -190,3 +209,11 @@ export const devChangePlan = ({ before, after, sheet, order }) => {
   }
   return plan;
 };
+
+// ── 가설계서 → 정식 설계서 (개발 고도화 3단계 2026-11-24) ──
+/** 이 가설계서로 만든 정식 설계서 (Drop 빼고) — 설계서 fromTemp.tempId 로 찾음 */
+export const promotedSheetsOfTemp = (tempId, designSheets = []) => (tempId
+  ? (designSheets || []).filter(s => s && s.status !== 'dropped' && String(s.fromTemp?.tempId || '') === String(tempId))
+  : []);
+/** 설계서를 가리키는 짧은 이름 — 'PW1050 · 코튼 스판 저지' */
+export const sheetShortLabel = (s) => [s?.articleNo || s?.eztexOrderNo || s?.devOrderNo, s?.fabricName].map(v => String(v || '').trim()).filter(Boolean).join(' · ') || '이름 없는 설계서';

@@ -73,7 +73,8 @@
 
 ## 6. 원단 · 울 종류 · 광원
 
-- [원단 관리에서 고르기] → ARTICLE · ITEM NAME · GSM · 내폭 · 외폭을 **고를 때 복사** (의뢰서에 적은 값이 그대로 남게 — 고칠 수 있음). 원단 관리에 아직 없는 개발 원단은 직접 입력.
+- [원단 관리에서 고르기] → ARTICLE · ITEM NAME · GSM · 내폭 · 외폭을 **고를 때 복사** (의뢰서에 적은 값이 그대로 남게 — 고칠 수 있음).
+  원단 관리에 아직 없는 개발 원단은 옆 **[또는 개발 건에서 고르기]** (§13, 2026-11-24) — 거기에도 없으면 직접 입력.
 - **울 종류** (`detectWoolType`): ① 원사 이름에 **SW**(또는 SUPER WASH) → 슈퍼워시 + "원사 'F/60Nm SW/N 87/13'에 SW가 있어 슈퍼워시로 체크했어요"
   ② ITEM NAME에 SW → 슈퍼워시 ③ 울 원사(분류 소모 · 방모, 이름 WOOL · MERINO)인데 SW 없음 → 레귤러 울 ④ ITEM NAME에 울(W/…)만 → 레귤러 울 ⑤ 울이 없으면 울 없음.
   담당자가 바꾸면 그 뒤로는 자동으로 안 바꿈 ('담당자가 바꿨어요 — 자동으로는 …' + [자동 값으로]). SWIM · 2W처럼 붙은 글자는 SW · W로 안 봄.
@@ -82,7 +83,7 @@
 ## 7. 데이터 — Firestore `labdips` (`schemaVersion: 2`)
 
 - 의뢰: `ldNo` · `mode`('factory' | 'direct') · `eztexNo` · `buyerName` · `factory` · `requestDate` · `factoryDue` · `buyerDue` ·
-  `fabricId` · `article` · `itemName` · `gsm` · `widthCut` · `widthFull` · `style` · `woolType` · `woolManual` · `lightSources` · `remarks`(특이사항 — 의뢰서) · `memo`(내부 메모) · `legacy` · `legacyDone` · `colors[]`
+  `fabricId` · `devRequestId` · `designSheetId` · `devOrderNo`(§13 — 2026-11-24) · `article` · `itemName` · `gsm` · `widthCut` · `widthFull` · `style` · `woolType` · `woolManual` · `lightSources` · `remarks`(특이사항 — 의뢰서) · `memo`(내부 메모) · `legacy` · `legacyDone` · `colors[]`
 - 컬러: `name` · `pantone` · `swatch`(바이어 스와치 첨부) · `memo`(공장 메모 — 의뢰서) · `comment`(바이어 시트 코멘트) · `droppedAt` · `rounds[]`
 - 차수(`rounds`, 마지막이 지금): `no` · `requestDate` · `factoryDue` · `requestNote`(2차부터) · `letters`(낱장 수) · `startIdx`(첫 글자 — 0 = A) · `factoryNo` ·
   `receivedDate` · `sentDate` · `sentMethod` · `result`('' | 'confirm' | 'reject') · `resultDate` · `confirmedLetter` · `buyerComment`
@@ -122,6 +123,8 @@
 - `components/labdip/LabdipParts.jsx` — 단계 칩 · 납기 줄 · [+ 새 L/D ▾] 메뉴
 - `components/labdip/LabdipRequestSheet.jsx` · `LabdipPrintSheet.jsx` — 인쇄
 - `hooks/domains/useLabdip.js` — 저장 · 번호 · 진행 버튼 · 삭제 / `utils/labdipModel.js` — 계산 전부 (React 없음)
+- 개발 건 연결 (§13): `labdipModel` '개발 건 연결' 묶음 · `LabdipParts.LabdipDevChip` · `LabdipForm` [또는 개발 건에서 고르기] · `LabdipPage` 목록 칩 ·
+  `App.jsx` → `LabdipPage`에 `devRequests` · `designSheets`
 - 공장 목록 = **염가공처**(`settings/general.dyeingFactories` — 설계서 · 생산 현황과 같은 목록, [+ 등록])
 
 ## 11. 확인한 것 (2026-10-27)
@@ -135,8 +138,58 @@
   [기록] 차수 표 · 새 L/D(원단 고르기 → 레귤러 울 자동 · 슈퍼워시로 바꾸기 안내 · 거래처 등록 · 공장 · 저장 → GB26027) · 같은 번호 막힘 ·
   예전 기록([컨펌대기로], 특이사항 → 내부 메모) · 되돌리기 · Drop · EZ-TEX 컬러 칸 공장 번호 · 복제(GB26028) · 삭제 · '저장할까요?'(닫기 · 상단 메뉴) · 휴대폰 폭 · 콘솔 오류 없음.
 
+### 확인한 것 (2026-11-24 — 개발 건 연결, §13)
+- Node 시험 (`labdipModel` 묶어서): 개발 건 목록(설계서가 있는 의뢰는 설계서 한 줄 · Drop 의뢰 · 아이템화 완료 의뢰 · 설계서가 아이템화된 예전 '개발 확정' 의뢰 · Drop 설계서 · 아이템화 설계서 빠짐 · 자체개발 설계서 '자체개발' · 개발번호 큰 순) /
+  복사 값(ARTICLE 설계서 Article → EZ-TEX → 개발번호 · ITEM NAME 원단명 → 품목명 → 혼용률 · GSM/폭은 원단과 같은 규칙 · 의뢰만이면 빈칸) · 원단 고르면 개발 연결 풀림 · 설계서 원사 SW → 슈퍼워시 /
+  저장 → 다시 읽기 같은 모양 · 예전 L/D(칸 없음) → 연결 안 됨 · 연결 없으면 개발번호 글자 안 남음 · 복제에 연결 같이 · 검색에 개발번호 /
+  칩 '개발 F-26D011' → 아이템화 뒤 '→ PW1060'(원단 Article 우선) · 목록에서 빠진 지금 연결은 '— 아이템화됨 / Drop / 찾을 수 없음' 줄 · 의뢰만 골랐는데 설계서가 생김 → 그 설계서 줄 · [설계서 값 다시 가져오기](ITEM NAME · GSM · 외폭 / 아이템화 뒤 ARTICLE) /
+  `labdipsOfDev`(의뢰 id · 설계서 id 둘 중 하나) · `labdipDevSummary`('3컬러 · 컨펌 1 · 진행 2', '5컬러 · 컨펌 1 · 진행 2 · 리젝 1 · Drop 1', 빈 목록 '').
+- 화면은 서버 렌더(React `renderToString`)로만 확인: 작성 화면 4가지(아이템화된 연결 · 의뢰만 · 지워진 연결 · 연결 없음)의 칩 · 안내 글자 · 바이어 다름 안내, 목록 줄 칩 '개발 F-26D011 → PW1060'. `vite build` · `eslint` 통과.
+- **브라우저로는 아직 안 봄** (다른 작업이 미리보기 창을 쓰는 중) — 고르기 칸 검색 · 바이어 자동 채움 · 저장 · 좁은 목록 칩 · 휴대폰 폭은 대표님 손으로 확인 필요.
+
 ## 12. 남은 생각 (대표님이 원하시면)
 
 - **생산 현황 연결** — 오더 컬러에서 컨펌된 L/D(번호 · 낱장)를 골라 벌크 염색 기준으로 (지금은 따로).
 - L/D 비용(공장 L/D 비용) 기록 · 바이어별 컨펌까지 걸린 날 · 리젝 횟수 리포트.
 - 공장 의뢰서를 공장마다 여러 장 (한 의뢰를 두 공장에 나눠 맡길 때 — 지금은 의뢰 한 건에 공장 하나).
+
+## 13. 개발 건 연결 (2026-11-24, 개발 고도화 3단계 — 대표님 OK)
+
+> L/D는 원단이 아직 **개발 중일 때(Article이 생기기 전)** 의뢰하는 일이 많음 → 예전엔 원단 관리에서만 ARTICLE · ITEM NAME · GSM · 폭을 가져올 수 있었음.
+> 개발 흐름 전체는 `docs/dev-flow.md`.
+
+### 작성 화면 — 원단 칸
+- **[원단 관리에서 고르기]** 옆에 **[또는 개발 건에서 고르기]** (한 목록 · 검색). 한 줄 = `개발번호 · (EZ-TEX 번호) · 바이어 · 품목명/원단명 · 단계`.
+  - 개발 건 = **개발 의뢰**(Drop · 아이템화 완료 빼고) 또는 **아이템화 전 설계서**(Drop 빼고). 설계서가 있는 의뢰는 **한 줄** (설계서 값 — `devFlowModel.liveSheetOfDev`).
+    설계서가 아이템화된 예전 의뢰('개발 확정'에 남은 것)도 뺌. 의뢰 없는 설계서 = '자체개발'.
+  - 단계: 설계서 작성 · EZ-TEX 등록 · 샘플 진행 / 설계서가 아직 없으면 '설계서 전 (분석 중)'처럼 의뢰 상태.
+- 고르면 **고를 때 복사** (원단과 같은 규칙 — 의뢰서에 적은 값이 그대로 남게, 고칠 수 있음):
+  - ARTICLE = 설계서 Article → EZ-TEX O/D NO. → 개발번호 / ITEM NAME = 설계서 원단명 → 의뢰 품목명(→ 혼용률)
+  - GSM · 내폭 · 외폭 = 설계서 원가 칸 (`costInput` — 0보다 큰 숫자만, 원단과 같은 규칙). 의뢰만이면 빈칸 + '의뢰서 폭 / 중량: …' 안내
+  - **L/D 바이어가 비어 있으면** 의뢰 바이어로 채움 (적혀 있으면 그대로 — 다르면 노랑 '의뢰 바이어는 ZARA예요')
+  - 울 종류: 설계서 원사 이름에 SW → 슈퍼워시 (원단과 같은 `detectWoolType` — 설계서 원사 칸도 같은 모양)
+- **둘 중 하나만 연결**: 원단을 고르면 개발 연결이 풀리고, 개발 건을 고르면 원단 연결이 풀림. 칸을 비우면 연결만 풂 (적어 둔 값은 그대로).
+- 연결된 개발 건이 그 사이 바뀌면 (설계서가 생겨 GSM을 채움 · 아이템화돼 Article이 생김) **[설계서 값 다시 가져오기 (ARTICLE · GSM …)]** — 다른 칸만, 설계서 칸이 빈 곳은 그대로. [저장]해야 반영.
+- 아이템화 · Drop · 삭제돼 목록에서 빠진 지금 연결은 칸에 '… — 아이템화됨 / Drop / 찾을 수 없음'으로 계속 보임 (다시 골라도 아무 일 없음).
+
+### 칩 — '개발 F-26D011'
+- 목록(ARTICLE 칸 아래) · 작성 화면 옆 좁은 목록 · 작성 화면 머리 · 개발 건 칸 아래. 보라(개발 메뉴 색).
+- 설계서가 그 뒤 **아이템화**되면(`sheet.linkedFabricId`, 설계서를 못 찾으면 의뢰 `articledInfo`) 초록 **'→ PW1060'** (원단 관리 Article 우선).
+- Drop된 개발 건 '· Drop' · 지워진 건 '· 없음' (회색 점선). 마우스를 올리면 바이어 · 품목명 · 지금 단계.
+- 목록 검색에 개발번호 · 아이템화된 Article도 들어감.
+
+### 데이터 (labdips)
+- `devRequestId` · `designSheetId` (없으면 **null** — 의뢰만 골랐으면 `designSheetId: null`, 자체개발 설계서면 `devRequestId: null`) · `devOrderNo` (고를 때 복사한 개발번호 — 의뢰 · 설계서를 지워도 칩 · 검색에 남게, 연결이 없으면 '').
+- 예전 L/D(칸이 없음) = 연결 안 됨 — 다음 저장 때 null로 들어감. [복제]하면 연결도 같이.
+- 의뢰만 골랐는데 그 뒤 설계서가 생기면 칩 · 안내는 그 설계서를 따라감 (`labdipDevLink`), [설계서 값 다시 가져오기]를 누르면 `designSheetId`도 채움.
+
+### 다른 화면용 함수 (`utils/labdipModel.js` — 아직 다른 화면엔 안 붙임)
+- `labdipsOfDev(labdips, { devRequestId, sheetId })` → 그 개발 건 L/D (의뢰 id · 설계서 id 중 **하나라도** 맞으면, 저장소 문서 그대로 · 순서 그대로).
+- `labdipDevSummary(list)` → `{ total, confirmed, waiting, rejectedOrDropped, label }` + `ldCount · ldNos · rejected · dropped · legacy · stages`
+  - 컬러 단계(`colorStage`) 기준: 컨펌 / **진행(waiting)** = 공장 진행중 · L/D 도착 · 컨펌대기 / 리젝(2차 의뢰 전) · Drop / 예전 기록
+  - `label` 예: **'3컬러 · 컨펌 1 · 진행 2'**, '5컬러 · 컨펌 1 · 진행 2 · 리젝 1 · Drop 1' (0인 칸은 빼고, L/D가 없으면 '')
+- 그 밖: `labdipDevOptions` (고르기 목록) · `fieldsFromDev` (복사 값) · `labdipDevLink` (칩 · 안내) · `devRefreshFields` (다시 가져오기).
+
+### 정해야 할 것 (대표님께 여쭐 것)
+- 설계서가 아이템화된 뒤 그 원단을 [원단 관리에서 고르기]로 다시 고르면 **개발 연결이 풀림** (둘 중 하나만 규칙) → 개발 건 쪽에서 그 L/D가 안 보이게 됨.
+  지금은 '개발 건 연결은 그대로 두고 [설계서 값 다시 가져오기]로 ARTICLE만 바꾸기'로 안내. 원단 + 개발 연결을 같이 두는 쪽이 나으면 바꿀 수 있음.

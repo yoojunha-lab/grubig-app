@@ -681,6 +681,12 @@ const App = () => {
   });
   const closeSheetEditor = () => { setSheetLeavePending(false); resetSheetForm(); setIsDesignSheetModalOpen(false); };
   const requestCloseSheet = () => { if (sheetGuard.isDirty()) setSheetLeavePending(true); else closeSheetEditor(); };
+  // 설계서 창의 [생산 현황 열기] (샘플 오더 진행 칸 — 2026-11-24): 저장 안 한 변경이 있으면 한 번 묻고 창을 닫은 뒤 생산 현황으로
+  const openOrderFromSheet = (orderNumber) => {
+    if (sheetGuard.isDirty() && !window.confirm('설계서에 저장하지 않은 변경이 있어요.\n저장하지 않고 생산 현황으로 갈까요? (먼저 저장하려면 [취소] 뒤 저장)')) return;
+    closeSheetEditor();
+    openProductionOrder(orderNumber);
+  };
   const saveSheetAndClose = async () => {
     setSheetLeavePending(false);
     const onLink = (devReqId, sheetId) => { if (linkAndConfirm) linkAndConfirm(devReqId, sheetId); };
@@ -1462,6 +1468,8 @@ const App = () => {
             savedFabrics={savedFabrics}
             yarnLibrary={yarnLibrary}
             dyeingFactories={dyeingFactories}
+            devRequests={devRequests}
+            designSheets={designSheets}
             onOpenFactoryMaster={() => setActiveMasterModal({ key: 'dyeingFactories', title: '염가공처 사전 등록 관리', description: '자주 거래하는 염색소 및 후가공 업체를 미리 등록해 관리할 수 있습니다. (LAB-DIP 공장 목록도 여기서)', icon: Droplets })}
             onPrint={handlePrintLabdip}
             navGuardRef={navGuardRef}
@@ -1500,6 +1508,7 @@ const App = () => {
             registerEztexOrderNo={registerEztexOrderNo}
             productionOrders={productionOrders}
             onOpenProductionOrder={openProductionOrder}
+            labdips={labdips}
             onNewSelfSheet={() => { resetSheetForm(); setIsDesignSheetModalOpen(true); }}
             setActiveTab={setActiveTab}
             user={user}
@@ -1554,6 +1563,9 @@ const App = () => {
                 setSheetInput={setSheetInput}
                 linkAndConfirm={linkAndConfirm}
                 closeModal={() => setIsDesignSheetModalOpen(false)}
+                sampleOrder={editingSheetId ? sheetOrderOf(editingSheetId) : null}
+                labdips={labdips}
+                onOpenProductionOrder={openOrderFromSheet}
                 onRequestClose={requestCloseSheet}
                 designSheets={designSheets}
                 knittingFactories={knittingFactories}
@@ -1670,6 +1682,7 @@ const App = () => {
             handleDeleteDetail={handleDeleteDetail} resetDetailForm={resetDetailForm}
             handleQuickStatusChange={handleQuickStatusChange}
             handleBulkPaste={handleBulkPaste}
+            productionOrders={productionOrders}
           />
         )}
 
@@ -1689,6 +1702,7 @@ const App = () => {
             {...partnerBag}
             // 설계서 샘플 오더 (대표님 요청 2026-10-10) — 설계서 열기 · 아이템화(개발/설계 현황과 같은 함수) · Drop · 복원
             designSheets={designSheets}
+            mainDetails={mainDetails}
             devRequests={devRequests}
             savedQuotes={savedQuotes}
             sheetActions={{

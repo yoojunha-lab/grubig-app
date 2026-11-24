@@ -14,6 +14,15 @@ import { DEV_DROP_REASONS } from '../../constants/common';
 //
 // savedQuotes: 견적서 목록 — 개발번호 채번 때 견적서에 쓰인 번호를 '쓴 번호'로 보기 위해
 
+// ISO 시각 → 이 PC 날짜 'YYYY-MM-DD' (못 읽으면 '')
+const isoToLocalYmd = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+
 export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, showToast, designSheets, savedQuotes = []) => {
   const [editingDevId, setEditingDevId] = useState(null);
 
@@ -141,7 +150,9 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       buyerName: devReq.buyerName || '',
       assignee: devReq.assignee || '',
       devItem: devReq.devItem || '',
-      requestDate: devReq.requestDate || todayLocalISO(),
+      // 의뢰 일자가 빈 예전 의뢰 — 오늘이 아니라 등록한 날로 (2026-11-24 — 예전엔 수정 창을 열면 오늘 날짜가 들어가
+      //  그대로 저장하면 의뢰 일자가 바뀌고 '의뢰 → 아이템화' 일수가 짧게 계산됐음)
+      requestDate: devReq.requestDate || isoToLocalYmd(devReq.createdAt) || '',
       targetSpec: { ...defaultSpec, ...(devReq.targetSpec || {}) },
       swatchNote: devReq.swatchNote || '',
       status: devReq.status || 'pending'

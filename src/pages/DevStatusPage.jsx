@@ -11,6 +11,7 @@ import { DevQuoteBadge } from '../components/dashboard/DevQuoteBadge';
 import { DevSampleProgress } from '../components/dashboard/DevSampleProgress';
 import { DevStatsPanel } from '../components/dashboard/DevStatsPanel';
 import { productionStateOf, sampleRowDeadline, isSampleOrderDone, replyWaitOf, REPLY_WAIT_CLS, daysBetween } from '../utils/devFlowModel';
+import { labdipsOfDev, labdipDevSummary } from '../utils/labdipModel';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
 import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
@@ -106,6 +107,12 @@ const rowMatchesSearch = (row, searchTerm) => {
 const NO_ASSIGNEE = '__none';
 const rowAssignee = (row) => String(row.dev?.assignee || '').trim();
 const passesAssignee = (filter, row) => !filter || (filter === NO_ASSIGNEE ? !rowAssignee(row) : rowAssignee(row) === filter);
+
+// 이 개발 건의 L/D 요약 배지 (L/D를 개발 의뢰 · 설계서에 연결 — 개발 고도화 3단계 2026-11-24) — 예: 'L/D 3컬러 · 컨펌 1 · 진행 2'
+const LabdipChip = ({ summary }) => (summary?.total
+  ? <span className="inline-flex items-center w-fit text-[9px] font-bold px-1.5 py-0.5 rounded border bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200 whitespace-nowrap"
+      title={`이 개발 건으로 의뢰한 L/D ${summary.ldNos?.join(', ') || ''} — 생산 ▾ LAB-DIP에서 봐요`}>L/D {summary.label}</span>
+  : null);
 
 // 견적 회신 대기 N일 배지 (원가 견적을 내고 '대기 중'인 의뢰 — 2026-11-24)
 const ReplyWaitChip = ({ dev }) => {
@@ -223,6 +230,15 @@ const RowBuyer = ({ row }) => {
       </span>
     );
   }
+  // 가설계서에서 온 자체개발 설계서 — 가설계서에 적은 바이어 (2026-11-24)
+  if (row.sheet?.fromTemp?.buyerName) {
+    return (
+      <span title="가설계서(레시피)에 적은 바이어 — 개발 의뢰는 없어요">
+        {row.sheet.fromTemp.buyerName}
+        <span className="ml-1 text-[9px] font-normal text-slate-400">(가설계서)</span>
+      </span>
+    );
+  }
   return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-slate-100 text-slate-500 border-slate-200">자체개발</span>;
 };
 
@@ -266,7 +282,13 @@ export const DevStatusPage = ({
   productionOrders = [],                  // 생산 현황 오더 — 샘플 오더가 생긴 설계서는 이 표에서 빠짐
   onOpenProductionOrder,                  // (order#) → 생산 현황으로 가서 그 오더 보기 (보관함 '샘플 진행')
   onNewSelfSheet,                         // [자체 설계서] — 의뢰 없이 새 설계서 (자체개발 줄)
+  labdips = [],                           // L/D — 개발 건에 연결된 L/D 요약 배지 (2026-11-24)
 }) => {
+  // 줄의 L/D 요약 (의뢰 id 또는 설계서 id 로 이어진 L/D)
+  const labdipSummaryOf = (row) => {
+    const list = labdipsOfDev(labdips, { devRequestId: row.dev?.id || row.sheet?.devRequestId || null, sheetId: row.sheet?.id || null });
+    return list.length ? labdipDevSummary(list) : null;
+  };
   // 설계서 편직 사양이 편직처 기계 현황에 없으면 알람 글자 (없으면 '')
   const knitCfg = knitConfig || resolveKnitConfig(null);
   const knitAlarmOf = (sheet) => (sheet ? sheetKnitAlarm(sheet.knitting, knitFactories, knitCfg) : '');
@@ -395,13 +417,17 @@ export const DevStatusPage = ({
         deadline, done,
         urgency: done ? 'normal' : getUrgency(deadline),
         sampleDays: daysBetween(s.stageEnteredAt?.sampling || order.createdAt || s.updatedAt),
+        labdip: (() => {
+          const list = labdipsOfDev(labdips, { devRequestId: owner?.id || s.devRequestId || null, sheetId: s.id });
+          return list.length ? labdipDevSummary(list) : null;
+        })(),
       });
     });
     // 급한 것부터 — 지연 · 임박 · 납기 빠른 순, 끝난 것(아이템화 대기)은 뒤로
     const rank = { overdue: 0, urgent: 1, normal: 2 };
     return rows.sort((a, b) => (a.done - b.done) || (rank[a.urgency] - rank[b.urgency])
       || String(a.deadline || '9999').localeCompare(String(b.deadline || '9999')));
-  }, [devRequests, designSheets, sampleOrderBySheet]);
+  }, [devRequests, designSheets, sampleOrderBySheet, labdips]);
 
   // 담당자 목록 (거르기 칸) — 표 · 샘플 진행 줄의 의뢰 담당자
   const assigneeOptions = useMemo(() => {
@@ -565,9 +591,16 @@ export const DevStatusPage = ({
     if (ok) setDropTargetId(null);
   };
 
-  // 자체개발 설계서 줄의 [Drop] — 설계서만 (확인 창은 설계서 훅)
+  // 자체개발 설계서 줄의 [Drop] — 설계서만, 사유와 같이 (개발 고도화 3단계 2026-11-24 — 예전엔 확인 창만이라 사유가 안 남았음)
+  const [dropSheetId, setDropSheetId] = useState(null);
+  const dropSheetTarget = dropSheetId ? (designSheets || []).find(s => s.id === dropSheetId) || null : null;
   const handleDropSheet = (sheetId) => {
-    if (dropDesignSheet) dropDesignSheet(sheetId);
+    if (dropDesignSheet) setDropSheetId(sheetId);
+  };
+  const confirmDropSheet = async (reason, memo) => {
+    if (!dropSheetId || !dropDesignSheet) return;
+    const ok = await dropDesignSheet(dropSheetId, { confirm: false, reason, memo });
+    if (ok) setDropSheetId(null);
   };
 
   // 상태별 다음 단계 액션
@@ -813,10 +846,11 @@ export const DevStatusPage = ({
                               </div>
                             )}
                             {knitAlarmOf(s) && <div className="mt-0.5"><span title={knitAlarmOf(s)} className="inline-flex items-center gap-0.5 text-[9px] font-extrabold px-1 py-px rounded bg-red-50 text-red-700 border border-red-200 whitespace-nowrap">⚠ 기계 현황에 없음</span></div>}
-                            {(stageEntry || quoteBadge) && (
+                            {(stageEntry || quoteBadge || labdipSummaryOf(row)) && (
                               <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                                 {stageEntry && <span className="text-[9px] text-slate-400 font-medium">📅 {stageEntry}</span>}
                                 <DevQuoteBadge badge={quoteBadge} />
+                                <LabdipChip summary={labdipSummaryOf(row)} />
                               </div>
                             )}
                           </td>
@@ -976,7 +1010,7 @@ export const DevStatusPage = ({
                       )}
                       {knitAlarmOf(s) && <p className="mb-0.5"><span title={knitAlarmOf(s)} className="inline-flex items-center gap-0.5 text-[9px] font-extrabold px-1 py-px rounded bg-red-50 text-red-700 border border-red-200 whitespace-nowrap">⚠ 기계 현황에 없음</span></p>}
                       <p className="text-[11px] text-slate-500 mb-2"><RowBuyer row={row} /></p>
-                      {quoteBadge && <div className="mb-2"><DevQuoteBadge badge={quoteBadge} /></div>}
+                      {(quoteBadge || labdipSummaryOf(row)) && <div className="mb-2 flex flex-wrap gap-1.5"><DevQuoteBadge badge={quoteBadge} /><LabdipChip summary={labdipSummaryOf(row)} /></div>}
                       <div className="mb-2 flex items-center gap-2 flex-wrap">
                         <PendingProgressBar stageKey={s ? s.stage : devStageKey(d)} />
                         {db && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>}
@@ -1144,6 +1178,16 @@ export const DevStatusPage = ({
             sheet={dropTargetSheet}
             onClose={() => setDropTargetId(null)}
             onConfirm={confirmDrop}
+          />
+        )}
+
+        {/* 자체개발 설계서 Drop 사유 창 (2026-11-24) */}
+        {dropSheetTarget && (
+          <DevDropModal
+            selfSheet={dropSheetTarget}
+            orderNo={sampleOrderBySheet.get(String(dropSheetTarget.id))?.orderNumber || ''}
+            onClose={() => setDropSheetId(null)}
+            onConfirm={confirmDropSheet}
           />
         )}
 

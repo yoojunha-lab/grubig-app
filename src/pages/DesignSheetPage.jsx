@@ -1,14 +1,19 @@
 import React from 'react';
-import { AlertTriangle, Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download, ChevronDown, DollarSign, RotateCcw, Copy } from 'lucide-react';
+import { AlertTriangle, Save, X, Lock, Link as LinkIcon, Plus, Minus, FileText, Trash2, Factory, Layers, Droplets, Check, FileCheck, CheckCircle2, XCircle, FlaskConical, Download, ChevronDown, DollarSign, RotateCcw, Copy, Printer } from 'lucide-react';
 import { DesignStepper } from '../components/design/DesignStepper';
 import { SearchableSelect } from '../components/common/SearchableSelect';
 import { CostBreakdownTable } from '../components/cost/CostBreakdownTable';
 import { MainDetailFormModal } from '../components/main-detail/MainDetailFormModal';
-import { num, roundUsd, calculateGYd, computeSellPrice, rateForMarket, rateLabel } from '../utils/helpers';
+import { num, roundUsd, calculateGYd, computeSellPrice, rateForMarket, rateLabel, todayLocalISO } from '../utils/helpers';
 import { computeCostAtQty, resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete } from '../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../constants/costing';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
 import { SheetTemplatePickerModal } from '../components/design-sheet/SheetTemplatePickerModal';
+import { DesignSheetPrintSheet } from '../components/design-sheet/DesignSheetPrintSheet';
+import { SheetSampleOrderPanel } from '../components/design-sheet/SheetSampleOrderPanel';
+import { HistoryFieldLine, HistoryWho } from '../components/design-sheet/HistoryFieldLine';
+import { promotedSheetsOfTemp, sheetShortLabel } from '../utils/devFlowModel';
+import { labdipsOfDev, labdipDevSummary } from '../utils/labdipModel';
 import { KnitMachinePickerModal } from '../components/knitFactory/KnitMachinePickerModal';
 import { matchSheetKnitting, sheetKnitAlarm, resolveKnitConfig } from '../utils/knitFactoryModel';
 
@@ -165,6 +170,10 @@ export const DesignSheetPage = ({
   // === 기존 설계서 불러오기 (정식 · 새 설계서 전용 — 대표님 요청 2026-11-11) ===
   designSheets = [],            // 설계서 목록 (불러올 설계서 고르는 창 — Drop 제외)
   onLoadDesignSheet,            // (설계서) => 불러왔으면 true — useDesignSheet.loadSheetAsTemplate
+  // === 생산 현황 샘플 오더 (개발 고도화 3단계 2026-11-24 — 설계서 안 '샘플 오더 진행' 칸) ===
+  sampleOrder = null,           // 이 설계서의 생산 현황 샘플 오더 (없으면 null)
+  labdips = [],                 // L/D — 이 설계서 · 의뢰로 의뢰한 L/D 요약 (2026-11-24)
+  onOpenProductionOrder,        // (order#) => 설계서 창을 닫고 생산 현황으로
   // === 원가 설정 (편직 정액·LOSS 구간·가공 유형 등 — 원가 표 / 소요 중량 계산용) ===
   costSettings = null,
   onOpenCostSettings
@@ -200,6 +209,40 @@ export const DesignSheetPage = ({
   const [isTempLoadModalOpen, setIsTempLoadModalOpen] = React.useState(false);
   // 기존 설계서 불러오기 창 — 새 설계서(저장 전)에서만 (저장된 설계서를 다른 설계서 값으로 덮어쓰면 변경 이력이 꼬임)
   const [isSheetLoadModalOpen, setIsSheetLoadModalOpen] = React.useState(false);
+  // 설계서 인쇄 (편직처용 / 염색소용 — 개발 고도화 3단계 2026-11-24). 저장된 설계서만, 저장 안 한 변경이 있으면 먼저 저장
+  const [printMenuOpen, setPrintMenuOpen] = React.useState(false);
+  const [printJob, setPrintJob] = React.useState(null); // { sheet, mode }
+  const yarnNameOf = (yarnId) => {
+    const id = String(yarnId || '').split('::')[0];
+    return (yarnSelectOptions || []).find(o => String(o.id) === id)?.name || '';
+  };
+  const printSheet = async (mode) => {
+    setPrintMenuOpen(false);
+    if (!editingSheetId) return;
+    let doc = sheetInput;
+    if (isSheetDirty?.()) {
+      if (!window.confirm('저장하지 않은 변경이 있어요.\n공장에 보내는 종이는 저장된 내용과 같아야 해서, 먼저 저장하고 인쇄할게요. 계속할까요?')) return;
+      const onLink = (devReqId, sheetId) => { if (linkAndConfirm) linkAndConfirm(devReqId, sheetId); };
+      const saved = await handleSaveSheet(user, onLink, { keepForm: true });
+      if (!saved) return;
+      onSavedKeepOpen?.(saved);
+      doc = saved;
+    }
+    setPrintJob({ sheet: doc, mode });
+    const oldTitle = document.title;
+    const label = mode === 'knit' ? '편직설계서' : '염가공설계서';
+    const no = String(doc.articleNo || doc.eztexOrderNo || doc.devOrderNo || '').trim();
+    document.body.classList.add('printing-sheet');
+    setTimeout(() => {
+      try {
+        document.title = `${label}_${no || doc.fabricName || ''}_${(doc.changeHistory || []).length + 1}판`;
+        window.print();
+      } finally {
+        document.title = oldTitle;
+        document.body.classList.remove('printing-sheet');
+      }
+    }, 300);
+  };
   const canLoadDesignSheet = !isTempMode && !editingSheetId && typeof onLoadDesignSheet === 'function'
     && (designSheets || []).some(s => s && s.status !== 'dropped');
   // [요청3] 소요 중량(kg) 간이 계산기 — 입력 YD수 (저장 안 함, 화면 계산용)
@@ -248,7 +291,12 @@ export const DesignSheetPage = ({
   const [mdFormOpen, setMdFormOpen] = React.useState(false);
   const [mdViewOpen, setMdViewOpen] = React.useState(false);
   // 이 설계서 Article과 연동된 메인 디테일 시트 목록
-  const linkedMainDetails = sheetInput.articleNo ? (mainDetails || []).filter(d => d.articleNo === sheetInput.articleNo) : [];
+  //  샘플 QC는 Article 없이 Order No(EZ-TEX 번호)만 적는 경우가 많아서 그것도 같이 (2026-11-24)
+  const sheetArticle = String(sheetInput.articleNo || '').trim().toUpperCase();
+  const sheetEztex = String(sheetInput.eztexOrderNo || '').trim().toUpperCase();
+  const linkedMainDetails = (sheetArticle || sheetEztex) ? (mainDetails || []).filter(d =>
+    (sheetArticle && String(d.articleNo || '').trim().toUpperCase() === sheetArticle)
+    || (sheetEztex && String(d.orderNo || '').trim().toUpperCase() === sheetEztex)) : [];
   // '작성' 클릭: 현재 Article을 기본값으로 세팅해 작성 팝업 오픈
   const openMainDetailForm = () => {
     resetDetailForm?.();
@@ -399,11 +447,42 @@ export const DesignSheetPage = ({
                 📋 '{sheetInput.copiedFrom.label}' 설계서에서 불러옴
               </p>
             )}
+            {/* 가설계서에서 가져온 설계서 — 어느 레시피 · 바이어 (2026-11-24) */}
+            {!isTempMode && sheetInput.fromTemp?.tempId && (
+              <p className="text-[10px] text-amber-700 font-bold mt-0.5" title="가설계서(레시피)의 스펙으로 시작한 설계서예요 — 가설계서 목록에 '정식 전환됨'으로 보여요">
+                🧪 가설계서 '{sheetInput.fromTemp.fabricName || '레시피'}'에서 가져옴{sheetInput.fromTemp.buyerName ? ` · 바이어 ${sheetInput.fromTemp.buyerName}` : ''}
+              </p>
+            )}
           </div>
         </div>
         {/* 버튼 줄 — 좁은 화면(휴대폰)에서는 글자가 꺾이지 않게 다음 줄로 넘김 */}
         <div className="flex flex-wrap justify-end gap-2 [&>button]:whitespace-nowrap">
           {/* 정식 · 새 설계서: 기존 설계서 불러오기 버튼 (스펙만 복사 — 원본은 그대로) */}
+          {/* 설계서 인쇄 — 편직처용 / 염색소용 (원가 없이, 제 N판) */}
+          {editingSheetId && !isTempMode && (
+            <div className="relative">
+              <button onClick={() => setPrintMenuOpen(v => !v)}
+                title="공장에 보낼 설계서 인쇄 — 원가 · 판매가 · 바이어는 안 찍혀요"
+                className="px-4 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded shadow-sm transition-colors flex items-center gap-1.5">
+                <Printer className="w-3.5 h-3.5" /> 인쇄 <ChevronDown className="w-3 h-3" />
+              </button>
+              {printMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setPrintMenuOpen(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-50 w-[210px] bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden text-left">
+                    <button onClick={() => printSheet('knit')} className="w-full text-left px-3 py-2.5 hover:bg-slate-50 border-b border-slate-100">
+                      <div className="text-[11px] font-extrabold text-slate-800">편직처용</div>
+                      <div className="text-[9px] text-slate-400 mt-0.5">원사 배합 · 편직 사양 · 조직도 · 목표 스펙</div>
+                    </button>
+                    <button onClick={() => printSheet('dye')} className="w-full text-left px-3 py-2.5 hover:bg-slate-50">
+                      <div className="text-[11px] font-extrabold text-slate-800">염색소용</div>
+                      <div className="text-[9px] text-slate-400 mt-0.5">혼용률 · 염가공 · 후가공 · 목표 스펙</div>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           {canLoadDesignSheet && (
             <button onClick={() => setIsSheetLoadModalOpen(true)}
               title="기존 설계서를 골라 그 스펙(원사·편직·염가공·후가공·원가 칸)을 이 새 설계서에 복사해요 — 원본은 그대로"
@@ -498,6 +577,15 @@ export const DesignSheetPage = ({
             <span className="text-slate-600">({linkedDevReq.buyerName})</span>
             {linkedDevReq.targetSpec?.feeling && <span className="text-slate-500 ml-auto mr-2">목표 느낌: {linkedDevReq.targetSpec.feeling}</span>}
           </div>
+        )}
+
+        {/* 생산 현황 샘플 오더 진행 · 실측 vs 설계 (개발 고도화 3단계 2026-11-24) */}
+        {!isTempMode && editingSheetId && (
+          <SheetSampleOrderPanel sheet={sheetInput} order={sampleOrder} qcDetails={linkedMainDetails} onOpenProductionOrder={onOpenProductionOrder}
+            labdipSummary={(() => {
+              const list = labdipsOfDev(labdips, { devRequestId: sheetInput.devRequestId || null, sheetId: editingSheetId });
+              return list.length ? labdipDevSummary(list) : null;
+            })()} />
         )}
 
         {/* ------------------------------------------- */}
@@ -862,6 +950,7 @@ export const DesignSheetPage = ({
                   <div className="absolute -left-[5px] top-1 w-2 h-2 rounded-full bg-amber-400" />
                   <p className="text-[10px] font-bold text-amber-600 mb-1">
                     {new Date(entry.date).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    <HistoryWho entry={entry} />
                   </p>
                   {entry.reason && (
                     <p className="text-[10px] text-slate-600 bg-amber-50 px-2 py-1 flex rounded mb-2 w-wrap">
@@ -870,12 +959,7 @@ export const DesignSheetPage = ({
                   )}
                   <div className="space-y-0.5 mt-2 break-all w-wrap">
                     {Object.entries(entry.fields || {}).map(([key, val]) => (
-                      <div key={key} className="flex flex-wrap gap-1 text-[10px]">
-                        <span className="font-bold text-slate-500 whitespace-nowrap">{key}:</span>
-                        <span className="text-red-400 line-through whitespace-nowrap">{String(val) || '(비어있음)'}</span>
-                        <span className="text-slate-300 whitespace-nowrap">→</span>
-                        <span className="text-emerald-600 font-bold whitespace-nowrap">현재값 적용됨</span>
-                      </div>
+                      <HistoryFieldLine key={key} fieldKey={key} oldValue={val} entry={entry} />
                     ))}
                   </div>
                 </div>
@@ -1057,6 +1141,7 @@ export const DesignSheetPage = ({
           resetDetailForm={resetDetailForm}
           getBlankDetailInput={getBlankDetailInput}
           savedFabrics={savedFabrics}
+          productionOrders={sampleOrder ? [sampleOrder] : []}
         />
       )}
 
@@ -1156,13 +1241,19 @@ export const DesignSheetPage = ({
                 {(tempDesignSheets || []).sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||'')).map(ts => (
                   <button key={ts.id} onClick={() => {
                     if (onLoadTempSheet) {
+                      // 이미 정식 설계서로 만든 가설계서면 한 번 더 확인 (2026-11-24)
+                      const promoted = promotedSheetsOfTemp(ts.id, designSheets);
+                      if (promoted.length && !window.confirm(`"${ts.fabricName || '가설계서'}"는 이미 정식 설계서로 만들었어요.\n· ${promoted.map(sheetShortLabel).join('\n· ')}\n\n그래도 이 설계서에 불러올까요?`)) return;
                       const loaded = onLoadTempSheet(ts, setSheetInput);
                       if (loaded !== false) setIsTempLoadModalOpen(false);
                     }
                   }} className="w-full text-left p-3 border border-slate-200 rounded-xl hover:border-amber-400 hover:bg-amber-50/50 transition-colors group">
                     <div className="flex justify-between items-start">
                       <div>
-                        <p className="text-sm font-extrabold text-slate-800 group-hover:text-amber-800">{ts.fabricName || '(이름없음)'}</p>
+                        <p className="text-sm font-extrabold text-slate-800 group-hover:text-amber-800">
+                          {ts.fabricName || '(이름없음)'}
+                          {promotedSheetsOfTemp(ts.id, designSheets).length > 0 && <span className="ml-1.5 text-[9px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1">정식 전환됨</span>}
+                        </p>
                         <p className="text-[10px] text-slate-500 mt-0.5">
                           {ts.buyerName ? `바이어: ${ts.buyerName}` : ''}
                           {ts.buyerName && ts.createdAt ? ' · ' : ''}
@@ -1183,6 +1274,8 @@ export const DesignSheetPage = ({
         </ModalBackdrop>
       )}
 
+      {/* 설계서 인쇄 시트 — body 직속 포털 (인쇄할 때만 보임) */}
+      {printJob && <DesignSheetPrintSheet sheet={printJob.sheet} mode={printJob.mode} yarnNameOf={yarnNameOf} printedAt={todayLocalISO()} />}
     </div>
   );
 };

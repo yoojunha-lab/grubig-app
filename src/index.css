@@ -144,6 +144,33 @@
 }
 
 /* ========================================================== */
+/* [설계서 인쇄 모드] (개발 고도화 3단계 2026-11-24)           */
+/* body.printing-sheet 일 때만 설계서(.sheet-print-root)만     */
+/* 노출 — 편직처용 / 염색소용 (DesignSheetPrintSheet)          */
+/* ========================================================== */
+@media print {
+  body.printing-sheet > .pdf-render-root { display: none !important; }
+  body.printing-sheet > *:not(.sheet-print-root) { display: none !important; }
+  body.printing-sheet > .sheet-print-root {
+    display: block !important;
+    position: static !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  body.printing-sheet > .sheet-print-root .pdf-render-inner {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+}
+
+/* ========================================================== */
 /* [PI / 거래확인서 인쇄 모드]                                 */
 /* body.printing-pi 일 때만 PI 문서(.pi-print-root)만 노출하고 */
 /* 견적 PDF(.pdf-render-root) 등 나머지는 숨김                */

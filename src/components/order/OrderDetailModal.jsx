@@ -26,6 +26,7 @@ import { YarnDyeChip } from './common/YarnDyeChip';
 import { OrderKindChip } from './common/OrderKindChip';
 import { SkipChip, StockSkipChip } from './common/SkipChip';
 import { YarnPopover } from './sheet/YarnPopover';
+import { QcResultSection } from './common/QcResultSection';
 import { shortDate, isYmd, toNumberOrNull, fmtKg, todayYmd } from '../../utils/orderCalculations';
 import { CHANGE_ACTIONS } from '../../utils/auditLog';
 import { PartnerPickerModal } from '../common/PartnerPickerModal';
@@ -1189,6 +1190,7 @@ const OrderDetailBody = ({
   order, isDraft, onClose, actions, masters, stepDefs: stepDefsProp, inspectVendorOptions = [],
   partners, savePartner, deletePartner, makeEmptyPartner,
   savedFabrics, onOpenLots, sheetLink = null, yieldSpecOf = null, yarnHelpers = null,
+  mainDetails = [],   // 메인/QC 디테일 시트 — '메인/QC 결과' 칸 (2026-11-24)
 }) => {
   const panelRef = useRef(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -1346,6 +1348,9 @@ const OrderDetailBody = ({
           {!isDraft && (isSheetMissing(order)
             ? <NoSheetSection order={order} sheetLink={sheetLink} />
             : <SheetSection order={order} sheetLink={sheetLink} />)}
+
+          {/* 메인/QC 결과 — 이 오더로 적힌 QC 시트 (개발 고도화 3단계 2026-11-24) */}
+          {!isDraft && <QcResultSection order={order} mainDetails={mainDetails} />}
 
           {/* ① 기본정보 */}
           <Section icon={ClipboardList} title="기본정보">

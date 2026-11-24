@@ -19,7 +19,8 @@ export const MainDetailPage = ({
   resetDetailForm,
   getBlankDetailInput,
   handleQuickStatusChange,
-  handleBulkPaste
+  handleBulkPaste,
+  productionOrders = [],   // 생산 현황 오더 — 작성 창 '생산 현황에서 고르기' (2026-11-24)
 }) => {
   const [activeTypeTab, setActiveTypeTab] = useState('main'); // 'main' | 'sample'
   const [searchTerm, setSearchTerm] = useState('');
@@ -335,6 +336,7 @@ export const MainDetailPage = ({
           resetDetailForm={resetDetailForm}
           getBlankDetailInput={getBlankDetailInput}
           savedFabrics={savedFabrics}
+          productionOrders={productionOrders}
         />
 
         {/* 데이터 리스트 */}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, Edit2, Trash2, History } from 'lucide-react';
 import { num, roundUsd } from '../../utils/helpers';
-import { fieldLabel } from './constants';
+import { HistoryFieldLine, HistoryWho } from './HistoryFieldLine';
 
 export const DesktopSheetRow = ({
   sheet, 
@@ -168,6 +168,7 @@ export const DesktopSheetRow = ({
                         <div className="absolute -left-[5px] top-1 w-2 h-2 rounded-full bg-amber-400" />
                         <p className="text-[10px] font-bold text-amber-600 mb-1">
                           {new Date(entry.date).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          <HistoryWho entry={entry} />
                         </p>
                         {entry.reason && (
                           <p className="text-[10px] text-slate-600 bg-amber-50/50 px-2 py-1 rounded inline-block mb-1.5 italic border border-amber-100/50">
@@ -176,12 +177,7 @@ export const DesktopSheetRow = ({
                         )}
                         <div className="space-y-0.5 mt-1">
                           {Object.entries(entry.fields || {}).map(([fieldKey, oldValue]) => (
-                            <div key={fieldKey} className="flex flex-wrap items-center gap-1 text-[10px]">
-                              <span className="font-bold text-slate-500 shrink-0">{fieldLabel(fieldKey)}:</span>
-                              <span className="text-red-400 line-through truncate max-w-[100px]">{oldValue || '(비어있음)'}</span>
-                              <span className="text-slate-300 text-[8px]">▶</span>
-                              <span className="text-emerald-600 font-bold">변경됨</span>
-                            </div>
+                            <HistoryFieldLine key={fieldKey} fieldKey={fieldKey} oldValue={oldValue} entry={entry} />
                           ))}
                         </div>
                       </div>

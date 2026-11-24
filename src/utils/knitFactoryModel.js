@@ -15,8 +15,10 @@
 //     machines: [{ id, type(종류 이름), inch, feeder(글자), count(대수), gauge(지금 꼽힌 가마 게이지), needles(침수 — 비우면 가마·계산 값),
 //                  spandex('yes'|'no'|''), maker, note }],
 //     cylinders: [{ id, type, inch, gauge, count(개수 — 꼽힌 것 포함 전체), needles, note }],   ← 보유 가마
-//     memos: [{ id, date, text, by }], checkedAt('YYYY-MM-DD'), geo: { lat, lng, address(이 주소로 찾음), manual(지도에서 찍음) } | null,
+//     memos: [{ id, date, kind('memo'|'visit'|'call' — 없으면 메모), text, by, writtenAt?(날짜를 골라 남긴 날), editedAt?, editedBy? }],
+//     checkedAt('YYYY-MM-DD'), geo: { lat, lng, address(이 주소로 찾음), manual(지도에서 찍음) } | null,
 //     source('excel'), createdAt, createdBy, updatedAt, updatedBy }
+// ■ 2026-11-24 개발 고도화 3단계: [기계로 찾기] 피더 칸 · 엑셀로 내보내기(시트 4개) · 메모 종류(메모 / 방문 / 통화 → 확인일)
 // ■ 회사 설정 settings/general.knitMachineConfig = { families: ['싱글', '양면', '기타'], types: [{ name, family }] }
 //   · 저장 전이면 DEFAULT_KNIT_CONFIG. 순서 = 화면 순서
 // ============================================================
@@ -113,7 +115,10 @@ export const KNIT_CHECK_STALE_DAYS = 180;
 export const KNIT_MAKERS = ['금용', '쌍용', '삼세스', '후쿠하라', '테롯', '오로조', '마이어', '창대'];
 
 // [기계로 찾기] 거르기 빈 값 (편직처 화면 · 지도 · 설계서 고르기 창이 같이 씀)
-export const EMPTY_MACHINE_FILTERS = { gauge: '', inch: '', family: '', type: '', maker: '', region: '', spandex: '', text: '', near: true };
+//  feeder · feederUnknown: 피더 칸 · '피더 모르는 기계도 보기' (2026-11-24, 개발 고도화 3단계)
+export const EMPTY_MACHINE_FILTERS = {
+  gauge: '', inch: '', feeder: '', feederUnknown: false, family: '', type: '', maker: '', region: '', spandex: '', text: '', near: true,
+};
 
 // ============================================================
 // 1. 빈 양식 · 정리
@@ -221,6 +226,59 @@ export const feederLabel = (feeder) => {
   return /^\d+$/.test(f) ? `${f}F` : f;
 };
 export const inchLabel = (i) => (i ? `${i}"` : '');
+
+// ── 피더로 찾기 (2026-11-24, 개발 고도화 3단계) ──
+//  피더는 글자로 저장 ('96' · '96F' · '36/48' · '60/48' · '12*3') — 숫자만 뽑아서 비교
+//   · '36/48'(바꿔 쓰는 기계)은 36 · 48 둘 다 · '12*3'은 12 × 3 = 36 · '3본 96F'처럼 F가 붙은 숫자가 있으면 그 숫자
+/** 피더 글자 → 숫자들 ('96F' → [96], '36/48' → [36, 48], '12*3' → [36]) — 못 읽으면 [] */
+export const feederNumbers = (feeder) => {
+  const out = [];
+  str(feeder).split(/[/,·~|]|또는/).forEach(part => {
+    const prod = part.match(/(\d+)\s*[*×xX]\s*(\d+)/);
+    const withF = part.match(/(\d+)\s*F/i);
+    const first = part.match(/\d+/);
+    const n = prod ? Number(prod[1]) * Number(prod[2]) : withF ? Number(withF[1]) : first ? Number(first[0]) : null;
+    if (n > 0 && n < 1000) out.push(n);
+  });
+  return [...new Set(out)];
+};
+/** 찾을 피더 — 거르기 칸 '96' · '96F' → 96 (못 읽으면 null) */
+export const feederQuery = (v) => feederNumbers(v)[0] ?? null;
+// 근접 = 피더 ±10% (적어도 ±2F — 96F면 86~106F)
+export const FEEDER_NEAR_RATIO = 0.1;
+export const feederNearTolerance = (target) => Math.max(2, Math.round(Number(target) * FEEDER_NEAR_RATIO));
+
+// ── 메모 종류 — 메모 / 방문 / 통화 (2026-11-24, 개발 고도화 3단계) ──
+//  · 방문 · 통화 기록을 남기면 편직처 확인일도 그 날로 (지금 확인일보다 최근일 때만 — 예전 날짜 기록이 확인일을 되돌리지 않게)
+//  · 예전 메모(kind 없음)는 메모 · 기록을 지워도 확인일은 그대로
+export const MEMO_KINDS = [
+  { key: 'memo', label: '메모', tone: 'bg-slate-100 text-slate-600 border-slate-200' },
+  { key: 'visit', label: '방문', tone: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  { key: 'call', label: '통화', tone: 'bg-sky-50 text-sky-700 border-sky-200' },
+];
+export const normalizeMemoKind = (kind) => (MEMO_KINDS.some(k => k.key === kind) ? kind : 'memo');
+export const memoKindOf = (memo) => normalizeMemoKind(memo?.kind);
+export const memoKindInfo = (kind) => MEMO_KINDS.find(k => k.key === normalizeMemoKind(kind));
+/** 방문 · 통화 (확인일을 바꾸는 기록) */
+export const isContactKind = (kind) => kind === 'visit' || kind === 'call';
+const isYmd = (s) => /^\d{4}-\d{2}-\d{2}$/.test(str(s));
+/** 방문 · 통화 기록 날짜 확인 — 문제면 안내 글자, 괜찮으면 '' (메모는 확인 안 함) */
+export const memoDateError = (kind, date, today = todayLocalISO()) => {
+  if (!isContactKind(kind)) return '';
+  if (!isYmd(date)) return `${memoKindInfo(kind).label}한 날을 넣어 주세요.`;
+  if (str(date) > today) return '앞으로 날짜는 넣을 수 없어요. 다녀온 날 · 통화한 날을 골라 주세요.';
+  return '';
+};
+/** 방문 · 통화 기록 → 새 확인일 (지금 확인일보다 최근일 때만, 아니면 '') */
+export const checkedAtFromRecord = (currentCheckedAt, kind, date) => (
+  isContactKind(kind) && isYmd(date) && (!isYmd(currentCheckedAt) || str(date) > str(currentCheckedAt)) ? str(date) : '');
+/** 메모를 날짜 최신 순으로 (같은 날은 저장된 순서 — 나중에 남긴 것이 위) */
+export const sortMemos = (memos) => (Array.isArray(memos) ? memos : [])
+  .map((m, i) => ({ m, i }))
+  .sort((a, b) => str(b.m?.date).localeCompare(str(a.m?.date)) || a.i - b.i)
+  .map(x => x.m);
+/** 마지막 방문 · 통화 기록 (없으면 null) */
+export const lastContactRecord = (memos) => sortMemos(memos).find(m => isContactKind(memoKindOf(m))) || null;
 
 /** 침수 계산 값 = 게이지 × π × 인치 */
 export const estimateNeedles = (gauge, inch) => {
@@ -362,15 +420,21 @@ export const regionFromAddresses = (addresses) => {
 
 export const sortFactories = (list) => [...(list || [])].sort((a, b) => str(a.name).localeCompare(str(b.name), 'ko'));
 
-/** 편직처 검색 (이름·지역·주소·담당자·메모·편직료·기계 종류·제조사) */
+/**
+ * 편직처 검색 (이름·지역·주소·담당자·메모·편직료·기계 종류·제조사·피더)
+ *  · '96F'처럼 숫자 + F면 피더가 96인 기계가 있는 편직처 ('36/48' 기계도 48F로 찾힘 — 2026-11-24, 개발 고도화 3단계)
+ *  · '방문' · '통화'는 그 기록이 있는 편직처도
+ */
 export const factoryMatches = (factory, query) => {
   const q = str(query).toLowerCase();
   if (!q) return true;
+  const feederQ = /^\d{2,3}\s*f$/i.test(q) ? Number(q.replace(/\D/g, '')) : null;
+  if (feederQ && (factory.machines || []).some(m => feederNumbers(m?.feeder).includes(feederQ))) return true;
   const hay = [
     factory.name, factory.region, factory.phone, ...(factory.addresses || []),
     ...(factory.contacts || []).map(c => `${c.name} ${c.mobile}`),
-    ...(factory.memos || []).map(m => m.text), factory.knitFee,
-    ...(factory.machines || []).map(m => `${m.type} ${m.maker} ${m.note}`),
+    ...(factory.memos || []).map(m => `${m?.text || ''}${isContactKind(memoKindOf(m)) ? ` ${memoKindInfo(m.kind).label}` : ''}`), factory.knitFee,
+    ...(factory.machines || []).map(m => `${m.type} ${m.maker} ${m.note} ${feederLabel(m.feeder)}`),
   ].join(' ').toLowerCase();
   return hay.includes(q);
 };
@@ -380,13 +444,16 @@ export const factoryMatches = (factory, query) => {
 // ============================================================
 /**
  * 모든 편직처의 기계 줄을 한 표로 + 거르기
- *  filters: { gauge, inch, family, type, maker, region, spandex('yes'|''), text, near }
- *  상태(게이지를 넣었을 때): 'now' 지금 꼽혀 있음 / 'swap' 같은 종류·인치 보유 가마로 바꾸면 됨 / 'near' 근접(±1G · ±2")
- *  반환: [{ factory, machine, block, status, hitGauges }] — now → swap → near, 그 안에서 편직처 · 종류 · 인치 순
+ *  filters: { gauge, inch, feeder, feederUnknown, family, type, maker, region, spandex('yes'|''), text, near }
+ *  상태(게이지를 넣었을 때): 'now' 지금 꼽혀 있음 / 'swap' 같은 종류·인치 보유 가마로 바꾸면 됨 / 'near' 근접(±1G · ±2" · 피더 ±10%)
+ *  피더(2026-11-24, 개발 고도화 3단계): 기계 줄 피더 글자의 숫자와 같으면 'exact', 근접 포함이면 ±10% 'near'(상태도 근접)
+ *    피더가 안 적힌 기계는 빼고, feederUnknown 이면 'unknown'으로 같이 (같은 상태 안에서 맨 뒤)
+ *  반환: [{ factory, machine, block, status, hitGauges, feederHit }] — now → swap → near, 그 안에서 편직처 · 종류 · 인치 순
  */
 export const searchMachines = (factories, filters = {}, config) => {
   const gauge = Number(filters.gauge) > 0 ? Number(filters.gauge) : null;
   const inch = Number(filters.inch) > 0 ? Number(filters.inch) : null;
+  const feeder = feederQuery(filters.feeder);
   const text = str(filters.text).toLowerCase();
   const out = [];
   (factories || []).forEach(factory => {
@@ -407,6 +474,17 @@ export const searchMachines = (factories, filters = {}, config) => {
           const hay = [factory.name, machine.type, machine.note, machine.maker, machine.feeder].join(' ').toLowerCase();
           if (!hay.includes(text)) return;
         }
+        // 피더
+        let feederHit = null;
+        if (feeder !== null) {
+          const nums = feederNumbers(machine.feeder);
+          if (!nums.length) {
+            if (!filters.feederUnknown) return;
+            feederHit = 'unknown';
+          } else if (nums.includes(feeder)) feederHit = 'exact';
+          else if (filters.near && nums.some(n => Math.abs(n - feeder) <= feederNearTolerance(feeder))) feederHit = 'near';
+          else return;
+        }
         let status = null;
         let hitGauges = [];
         if (gauge !== null) {
@@ -420,13 +498,14 @@ export const searchMachines = (factories, filters = {}, config) => {
             hitGauges = close;
           } else return;
         }
-        if (inchNear) status = 'near';
-        out.push({ factory, machine, block, status, hitGauges });
+        if (inchNear || feederHit === 'near') status = 'near';
+        out.push({ factory, machine, block, status, hitGauges, feederHit });
       });
     });
   });
   const rank = { now: 0, swap: 1, near: 2 };
   return out.sort((a, b) => ((rank[a.status] ?? 0) - (rank[b.status] ?? 0))
+    || ((a.feederHit === 'unknown' ? 1 : 0) - (b.feederHit === 'unknown' ? 1 : 0))
     || str(a.factory.name).localeCompare(str(b.factory.name), 'ko')
     || (familyIndex(config, a.block.family) - familyIndex(config, b.block.family))
     || (typeIndex(config, a.block.type) - typeIndex(config, b.block.type))
@@ -435,7 +514,13 @@ export const searchMachines = (factories, filters = {}, config) => {
 };
 
 /** 거르기가 하나라도 있는지 (지도 '찾기 결과만') */
-export const hasMachineFilter = (f) => !!(Number(f?.gauge) > 0 || Number(f?.inch) > 0 || f?.family || f?.type || f?.maker || f?.spandex || str(f?.text));
+export const hasMachineFilter = (f) => !!(Number(f?.gauge) > 0 || Number(f?.inch) > 0 || feederQuery(f?.feeder) !== null
+  || f?.family || f?.type || f?.maker || f?.spandex || str(f?.text));
+/** 거르기 글자 한 줄 (지도 '[기계로 찾기] 조건에 맞는 곳만' 아래) — '28G · 30" · 피더 96F · 싱글 계열 …' */
+export const machineFilterLabel = (f) => [
+  Number(f?.gauge) > 0 && `${f.gauge}G`, Number(f?.inch) > 0 && `${f.inch}"`, feederQuery(f?.feeder) !== null && `피더 ${feederQuery(f.feeder)}F`,
+  f?.family && `${f.family} 계열`, f?.type, f?.maker, f?.spandex === 'yes' && '스판장치', str(f?.text),
+].filter(Boolean).join(' · ');
 
 // ============================================================
 // 4. 설계서에 넣을 값 (설계서 편직 사양 [기계 현황에서 고르기])
@@ -719,4 +804,110 @@ export const missingTypes = (config, seedConfig, factories) => {
   return [...used].filter(t => !isKnownType(config, t)).map(name => ({
     name, family: seedTypes.find(t => t.name === name)?.family || UNGROUPED_FAMILY,
   }));
+};
+
+// ============================================================
+// 7. 엑셀로 내보내기 (2026-11-24, 개발 고도화 3단계)
+//   시트 4개: 편직처(한 곳 한 줄) · 기계(기계 줄 한 줄) · 보유 가마(가마 줄 한 줄) · 메모(메모 · 방문 · 통화)
+//   · 화면 거르기(검색 · 지역 · 계열)와 상관없이 전부 · 숫자 칸은 숫자로 (엑셀에서 더하기 · 정렬)
+//   · 침수: 적힌 값(기계 > 가마)은 '침수', 안 적혀서 계산한 값은 '침수 ≈계산' 칸에 따로
+//   · 우리 작업(설계서 · 생산 오더 수)은 상세 '우리 작업 이력'과 같은 기준 (이름)
+// ============================================================
+export const knitExportFileName = (today = todayLocalISO()) => `편직처_기계현황_${today}.xlsx`;
+
+const localDate = (iso) => {
+  if (!iso) return '';
+  if (isYmd(iso)) return str(iso);
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : todayLocalISO(d);
+};
+const cellNum = (n) => (Number(n) > 0 ? Number(n) : '');
+const oneLine = (s) => str(s).replace(/\s*\n+\s*/g, ' / ');
+/** 피더 칸 — 숫자 하나면 숫자('96' · '96F' → 96, 엑셀에서 정렬 · 거르기), 그 밖('36/48' · '12*3')은 글자 그대로 */
+const feederCell = (feeder) => (/^\d+\s*F?$/i.test(str(feeder)) ? Number(str(feeder).replace(/\D/g, '')) : str(feeder));
+
+/**
+ * 내보낼 시트 4개 → [{ name, header, rows(줄마다 칸 배열), widths(칸 너비 — 글자 수) }]
+ *  ctx: { designSheets, orders, today }
+ */
+export const buildKnitExportSheets = (factories, config, { designSheets = [], orders = [], today = todayLocalISO() } = {}) => {
+  const list = sortFactories((factories || []).map(normalizeFactory));
+  const factoryRows = [];
+  const machineRows = [];
+  const cylinderRows = [];
+  const memoRows = [];
+  list.forEach(f => {
+    const totals = factoryTotals(f, config);
+    const st = checkState(f, today);
+    const memos = sortMemos(f.memos);
+    const lastMemo = memos[0] || null;
+    const lastContact = lastContactRecord(f.memos);
+    const addresses = f.addresses.filter(Boolean);
+    const sheets = (designSheets || []).filter(s => sameFactoryName(s?.knitting?.factory, f.name)).length;
+    const knitOrders = (orders || []).filter(o => orderUsesFactory(o, f.name)).length;
+    factoryRows.push([
+      f.name, f.region, addresses[0] || '', addresses.slice(1).join(' / '), f.phone, f.fax,
+      f.contacts.filter(c => c.name || c.mobile).map(c => `${c.name} ${c.mobile}`.trim()).join(' / '),
+      totals.total || '', totals.lines || '', totals.cylinders || '',
+      typeSummaries(totals.blocks).map(t => [t.type, t.inches.map(x => inchLabel(x.inch)).filter(Boolean).join('·'), gaugeRangeLabel(t.gauges)].filter(Boolean).join(' ')).join(' / '),
+      f.checkedAt, st.tone === 'ok' ? '' : (st.tone === 'none' ? '확인일 없음' : `확인 필요 (${Math.floor(st.days / 30)}개월 전)`),
+      lastContact ? `${lastContact.date} ${memoKindInfo(lastContact.kind).label}` : '',
+      lastMemo ? `${lastMemo.date || ''} [${memoKindInfo(lastMemo.kind).label}] ${oneLine(lastMemo.text)}`.trim() : '',
+      memos.length || '', sheets || '', knitOrders || '', oneLine(f.knitFee), localDate(f.updatedAt),
+    ]);
+    totals.blocks.forEach(b => {
+      b.machines.forEach(m => {
+        const n = m.gauge ? needlesFor(f, m.type, m.inch, m.gauge, m.needles) : (m.needles ? { value: m.needles, estimated: false } : null);
+        machineRows.push([
+          f.name, f.region, b.family, m.type, cellNum(m.inch), cellNum(m.gauge), cellNum(m.count), feederCell(m.feeder),
+          n && !n.estimated ? n.value : '', n && n.estimated ? n.value : '',
+          spandexLabel(m.spandex), m.maker, b.gauges.map(g => `${g}G`).join(' · '), oneLine(m.note),
+        ]);
+      });
+      b.cylinders.forEach(c => {
+        // 이 게이지가 지금 꼽힌 기계 대수 (대수 모르는 줄이 있으면 '+?')
+        const mountedOn = b.machines.filter(m => m.gauge === c.gauge);
+        const onSum = mountedOn.reduce((s, m) => s + (m.count || 0), 0);
+        const mountedCount = !mountedOn.length ? '' : mountedOn.some(m => !m.count) ? (onSum ? `${onSum}+?` : '?') : onSum;
+        const est = !c.needles ? estimateNeedles(c.gauge, c.inch) : null;
+        cylinderRows.push([
+          f.name, f.region, b.family, c.type, cellNum(c.inch), cellNum(c.gauge), cellNum(c.count), mountedCount,
+          cellNum(c.needles), est || '', oneLine(c.note),
+        ]);
+      });
+    });
+    memos.forEach(m => {
+      memoRows.push([
+        f.name, str(m?.date), memoKindInfo(m?.kind).label, str(m?.text), str(m?.by),
+        [m?.writtenAt && `${m.writtenAt} 남김`, m?.editedAt && `${m.editedAt} 고침${m.editedBy ? ` (${m.editedBy})` : ''}`].filter(Boolean).join(' · '),
+      ]);
+    });
+  });
+  return [
+    {
+      name: '편직처',
+      header: ['편직처', '지역', '대표 주소', '다른 주소', '전화', '팩스', '담당자', '기계 대수', '기계 줄', '보유 가마(개)', '기계 종류',
+        '확인일', '확인 필요', '최근 방문 · 통화', '최근 메모', '메모 수', '설계서', '생산 오더', '편직료', '마지막 저장'],
+      rows: factoryRows,
+      widths: [14, 7, 34, 24, 14, 14, 26, 9, 8, 11, 40, 11, 16, 16, 40, 7, 7, 8, 30, 11],
+    },
+    {
+      name: '기계',
+      header: ['편직처', '지역', '계열', '종류', '인치', '지금 게이지', '대수', '피더', '침수', '침수 ≈계산', '스판장치', '제조사', '쓸 수 있는 가마', '메모'],
+      rows: machineRows,
+      widths: [14, 7, 7, 12, 6, 10, 6, 8, 7, 10, 8, 9, 30, 30],
+    },
+    {
+      name: '보유 가마',
+      header: ['편직처', '지역', '계열', '종류', '인치', '게이지', '가마 개수', '지금 꼽힌 기계(대)', '침수', '침수 ≈계산', '메모'],
+      rows: cylinderRows,
+      widths: [14, 7, 7, 12, 6, 7, 9, 16, 7, 10, 30],
+    },
+    {
+      name: '메모',
+      header: ['편직처', '날짜', '종류', '내용', '쓴 사람', '남김 · 고침'],
+      rows: memoRows,
+      widths: [14, 11, 6, 60, 10, 24],
+    },
+  ];
 };

@@ -5,6 +5,7 @@ import { DESIGN_STAGES, STAGE_COLORS } from '../constants/common';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
 import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
+import { promotedSheetsOfTemp, sheetShortLabel } from '../utils/devFlowModel';
 
 // 단계 key → 한국어 라벨 (설계서 화면과 용어 통일)
 const STAGE_LABEL = Object.fromEntries(DESIGN_STAGES.map(s => [s.key, s.label]));
@@ -14,6 +15,18 @@ const STAGE_LABEL = Object.fromEntries(DESIGN_STAGES.map(s => [s.key, s.label]))
  * - 가설계서 목록을 보고, CRUD(생성/수정/삭제)할 수 있는 전용 화면
  * - 정식 설계서의 DesignSheetPage를 모달 형태로 재사용 (isTempMode=true)
  */
+// '정식 전환됨' 표시 — 이 가설계서로 만든 정식 설계서 (개발 고도화 3단계 2026-11-24)
+const PromotedChip = ({ tempId, designSheets }) => {
+  const list = promotedSheetsOfTemp(tempId, designSheets);
+  if (!list.length) return null;
+  return (
+    <span className="ml-1.5 inline-flex items-center text-[9px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1 whitespace-nowrap"
+      title={`이 가설계서로 만든 정식 설계서: ${list.map(sheetShortLabel).join(', ')}`}>
+      정식 전환됨{list.length > 1 ? ` ${list.length}` : ''} · {sheetShortLabel(list[0])}
+    </span>
+  );
+};
+
 export const TempDesignSheetListPage = ({
   tempDesignSheets,
   tempInput,
@@ -129,9 +142,14 @@ export const TempDesignSheetListPage = ({
 
   // [C2] 가설계서 → 정식 설계서로 보내기
   // 1) 사용자 확인 → 2) 정식 설계서 폼 초기화 → 3) 모달 오픈 → 4) 가설계서 스펙 자동 채움
+  //  이미 정식 설계서로 만든 가설계서면 한 번 더 확인 (같은 레시피로 설계서가 둘 생기는 것 방지 — 2026-11-24)
   const handleSendToFullSheet = (tempSheet) => {
     if (!resetSheetForm || !setIsDesignSheetModalOpen || !setSheetInput || !loadTempToSheet) return;
-    if (!window.confirm(`"${tempSheet.fabricName || '가설계서'}"의 스펙을 정식 설계서로 가져와서 작성하시겠습니까?`)) return;
+    const promoted = promotedSheetsOfTemp(tempSheet.id, designSheets);
+    const msg = promoted.length
+      ? `"${tempSheet.fabricName || '가설계서'}"는 이미 정식 설계서로 만들었어요.\n· ${promoted.map(sheetShortLabel).join('\n· ')}\n\n그래도 정식 설계서를 하나 더 만들까요?`
+      : `"${tempSheet.fabricName || '가설계서'}"의 스펙을 정식 설계서로 가져와서 작성하시겠습니까?`;
+    if (!window.confirm(msg)) return;
     resetSheetForm();
     setIsDesignSheetModalOpen(true);
     // 모달이 열린 직후 입력값 채우기 (확인은 이미 받았으므로 skipConfirm)
@@ -232,6 +250,7 @@ export const TempDesignSheetListPage = ({
                         <td className="py-1.5 px-3">
                           <span className="text-[13px] font-extrabold text-slate-800">{sheet.fabricName || '(이름없음)'}</span>
                           {mHi > 0 && <span className="ml-1.5 text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 whitespace-nowrap">마진 {marginLabel}</span>}
+                          <PromotedChip tempId={sheet.id} designSheets={designSheets} />
                         </td>
                         <td className="py-1.5 px-3 text-xs text-slate-600 uppercase">{sheet.buyerName || <span className="text-slate-300">-</span>}</td>
                         <td className="py-1.5 px-3 text-center whitespace-nowrap">
@@ -277,7 +296,7 @@ export const TempDesignSheetListPage = ({
                 <div key={sheet.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-amber-300 transition-colors">
                   <div className="flex justify-between items-start mb-2">
                     <div>
-                      <h4 className="text-sm font-extrabold text-slate-800 flex items-center gap-1.5 flex-wrap">{sheet.fabricName || '(이름없음)'}{mHi > 0 && <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1">마진 {marginLabel}</span>}</h4>
+                      <h4 className="text-sm font-extrabold text-slate-800 flex items-center gap-1.5 flex-wrap">{sheet.fabricName || '(이름없음)'}{mHi > 0 && <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1">마진 {marginLabel}</span>}<PromotedChip tempId={sheet.id} designSheets={designSheets} /></h4>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-[10px] text-slate-500 flex items-center gap-1">
                           <User className="w-3 h-3" /> {sheet.buyerName || '-'}

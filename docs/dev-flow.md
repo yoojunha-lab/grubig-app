@@ -74,16 +74,34 @@
 
 ---
 
-## 3단계 이후 (제안만 — 아직 안 함)
-- 설계서 인쇄 (편직처용 / 염색소용, 원가 빼고, 몇 번째 판)
-- 설계서 안에 샘플 오더 진행 칸 (지금 단계 · [생산 현황 열기] · 실제 GSM · 폭 vs 설계 값)
-- 변경 이력 빈틈 (원사 바꾸기 · 피더 · 원단 관리에서 고친 것 · 한국어 칸 이름 · 옛 값 → 새 값)
-- 가설계서 ↔ 설계서 잇기 ('정식 전환됨' · 두 번 전환 경고 · 바이어 넘기기)
-- 메인/QC ↔ 생산 현황 (오더 · LOT 고르기, 결과를 샘플 오더 · 설계서에)
-- L/D를 개발 의뢰 · 아이템화 전 설계서에 연결
-- 설계서 보관함 찾기(원사 · 바이어 · GSM) · Article 순서 · Drop 사유 · 날짜
-- 편직처: 피더로 찾기 · 엑셀 내보내기 · 방문 기록 → 확인일
-- (작은 것) 자체개발 설계서 Drop에 사유 · 의뢰 일자가 빈 예전 의뢰는 수정 창에서 오늘 날짜로 채워짐
+## 3단계 (대표님 "3단계 진행" 2026-11-24)
+
+| # | 무엇 | 어떻게 | 파일 |
+|---|---|---|---|
+| ① | **설계서 인쇄** | 설계서 창 머리 **[인쇄 ▾]** → **편직처용**(원사 배합 · 편직 사양 · 조직도 피더 줄 · 편직 특이사항 · 목표 스펙) / **염색소용**(혼용률 · 편직 참고 · 염가공 · 후가공 · 목표 스펙). **원가 · 판매가 · 바이어는 안 찍음**. **'제 N판'** = 변경 이력 수 + 1 (인쇄일 · 마지막 수정일). 저장 안 한 변경이 있으면 먼저 저장하고 인쇄. 파일 이름 `편직설계서_PW1060_1판`. 저장된 설계서에서만 | `design-sheet/DesignSheetPrintSheet.jsx` · `DesignSheetPage.printSheet` · `index.css` `body.printing-sheet` |
+| ② | **설계서 안 샘플 오더 칸** | 샘플 오더가 있는 설계서 위에: order# · 생산 상황 · 납기 D-day · 컬러 수 · **[생산 현황 열기]**(저장 안 한 변경이 있으면 묻고 창을 닫은 뒤 그 오더로). **실측 vs 설계**: 메인/QC 시트(이 설계서 Article **또는 EZ-TEX order#**)의 가공 GSM · 전폭을 설계 GSM · 외폭과 비교, **±5% 넘으면 노랑** (견적서 '중량·폭 ±5%'와 같은 기준). '메인 디테일 연동 현황'도 order#로 찾음 | `design-sheet/SheetSampleOrderPanel.jsx` · `App.openOrderFromSheet` · `devFlowModel.qcActualOf` |
+| ③ | **메인/QC ↔ 생산 현황** | QC 작성 창 맨 위 **'생산 현황에서 고르기'** (오더 → 컬러 → LOT) → Order No · Article · Color · LOT · 메인/샘플 채움 + `orderId · colorId · lotId` 저장 (글자를 손으로 고치면 그만큼 연결을 풂). 설계서 안 작성 창은 그 샘플 오더만. 생산 현황 **상세창 '메인/QC 결과'** 칸 (컬러 · LOT · 가공 GSM · 전폭 · 폭축/장축 · 판정, 오더 스펙 ±5% 밖 노랑) | `main-detail/OrderLotPicker.jsx` · `order/common/QcResultSection.jsx` · `useMainDetail` |
+| ④ | **변경 이력 빈틈** | 이력 한 건에 **바뀐 뒤 값(`to`) · 누가(`by`)** → 화면에 **'옛 값 → 새 값'** (예전 이력은 '바뀜'). **원사를 다른 원사로 바꾼 것**(원사 이름) · **조직도 피더 줄**(요약 글자) · 개폭 · **원단 관리에서 고친 값**('원단 관리에서 수정')도 남김. 설계서 창 이력도 **한국어 칸 이름** (예전엔 'costInput.gsm') | `utils/sheetHistory.js` · `design-sheet/HistoryFieldLine.jsx` · `useDesignSheet` · `useFabric` · `constants.js` |
+| ⑤ | **가설계서 ↔ 설계서** | 가설계서를 불러온 설계서에 `fromTemp { tempId, fabricName, buyerName, at }` → 설계서 머리 '🧪 가설계서 ○○에서 가져옴 · 바이어', 가설계서 목록 **'정식 전환됨 · PW…'**, 이미 전환한 가설계서를 [정식]/불러오기 하면 **한 번 더 확인**, 개발/설계 현황 자체개발 줄 바이어 칸에 가설계서 바이어 '(가설계서)' | `useTempDesignSheet.loadTempToSheet` · `TempDesignSheetListPage` · `devFlowModel.promotedSheetsOfTemp` |
+| ⑥ | **설계서 보관함** | 찾기: 원단명 · Article · 개발번호 · **원사 · 바이어 · GSM(300g)** · 편직처 · 염가공처. **정렬**: 최근 수정 / Article 순 / 아이템화 날짜. **DROP 보관함 카드**: Drop 날짜 · 사유 · 메모 (자체개발은 설계서 사유, 의뢰와 같이 Drop은 의뢰 사유 '(의뢰)') | `DesignSheetListPage` · `DropSheetModal` · `MobileSheetCard` |
+| ⑦ | **자체개발 설계서 Drop 사유** | 개발/설계 현황 자체개발 줄 [Drop] → 의뢰와 같은 **사유 창**(가격 · 납기 · 품질/스펙 · 바이어 사정 · 기타 + 메모). 설계서에 `dropReason · dropMemo · droppedAt` (복원하면 지움). 샘플 오더가 있으면 'Drop으로 닫혀요' 안내 | `DevDropModal selfSheet` · `useDesignSheet.dropDesignSheet({ reason, memo })` |
+| ⑧ | **의뢰 일자 빈 예전 의뢰** | 수정 창을 열면 오늘이 아니라 **등록한 날**(createdAt)로 | `useDevRequest.handleEditDevRequest` |
+| ⑨ | **편직처** 피더로 찾기 · 엑셀 내보내기 · 방문 기록 → 확인일 | `docs/knit-factory.md` 해당 절 | (편직처 파일) |
+| ⑩ | **L/D ↔ 개발 건** | L/D 작성 화면 '또는 개발 건에서 고르기'(개발 의뢰 · 아이템화 전 설계서) → ARTICLE · ITEM NAME · GSM · 폭 · 바이어, `labdip.devRequestId · designSheetId · devOrderNo`, '개발 F-26D…' 칩(아이템화되면 '→ PW…'). 개발/설계 현황 줄 · 샘플 진행 줄 · 설계서 칸에 **'L/D 3컬러 · 컨펌 1 · 진행 2'** 배지 (`labdipModel.labdipsOfDev · labdipDevSummary`). 자세한 건 `docs/labdip.md` §13 | `labdipModel` · `LabdipForm` · `LabdipParts` · `DevStatusPage` · `DevSampleProgress` · `SheetSampleOrderPanel` |
+
+### 3단계 확인한 것 (DEV 2026-11-24)
+- F-26D006 설계서: 위 칸 'F-26S055 · 염색중 · 납기 2026-10-05 · D+50 지연 · 컬러 1개 · [생산 현황 열기]'.
+- [인쇄 ▾] 편직처용 → `body.printing-sheet`, 제목 `편직설계서_PW1060_1판`, 원사 2/48 WOOL 64% · POLY 75D 36% · 목표 56"/58"/260 — 원가 글자 없음. 염색소용 → `염가공설계서_PW1060_1판`.
+- GSM 260 → 270 저장 → 이력 'GSM(Cost): 260 → 270 · DEV 검증용'.
+- 설계서 안 QC [작성] → 생산 현황에서 고르기 F-26S055 → LOT 1 → Order No F-26S055 · LOT 1 · 샘플 → 240g · 58" 저장 → 설계서 칸 '240g(-11.1%)' 노랑 · '58"(0%)'. [생산 현황 열기] → 상세창 '메인/QC 결과 1장'.
+- 자체개발 'SW/N=89/11 미니쥬리' [Drop] → 사유 창(자체개발 설계서) 품질·스펙 + 메모 → 표에서 빠짐 → 설계서 보관함 DROP 카드 'Drop 26. 11. 24. · 품질·스펙 · 📝 촉감이…'.
+- L/D: [+ 새 L/D ▾] 공장에 의뢰 → 개발 건에서 고르기 F-26D006(샘플 진행) → ARTICLE PW1060 · ITEM NAME · GSM 260 · 폭 56/58 · '개발 F-26D006' 칩 → 저장 GB26027 → 개발/설계 현황 샘플 진행 줄 'L/D 1컬러 · 진행 1', 설계서 칸 'L/D 1컬러 · 진행 1 GB26027'.
+- node: 피더 요약 · 참/거짓 글자 · 원단 관리 이력(GSM 300→280 · 원사 WOOL→COTTON, 바뀐 것 없으면 null) · 정식 전환됨(Drop 뺌) · QC 실측(마지막 TEST).
+
+## 4단계 후보 (제안만)
+- 설계서 인쇄 기록 (몇 판을 언제 어느 공장에 보냈는지) · 판이 바뀌면 '공장에 새 판 보내기' 알림
+- QC 결과를 생산 현황 현황표 칸에도 (Pass/Fail 점)
+- 아이템화된 원단 관리 화면에 개발번호 · 바이어(`devSource`) 보이기
 
 ---
 
@@ -91,7 +109,7 @@
 | 역할 | 파일 |
 |---|---|
 | 순수 함수 | `utils/devFlowModel.js` — `productionStateOf` · `sampleRowDeadline` · `isSampleOrderDone` · `replyWaitOf` · `liveSheetOfDev` · `devOutcomeOf` · `devLeadDays` · `buildDevStats` · `devChangePlan` · `daysBetween` |
-| 화면 | `pages/DevStatusPage.jsx` (`sampleRows` · 담당자 거르기 · 숫자 칸 5개) · `components/dashboard/DevSampleProgress.jsx` · `DevStatsPanel.jsx` · `DevArchiveModal.jsx`(아이템화 카드 · `productionStateOf` 공용) |
+| 화면 | `pages/DevStatusPage.jsx` (`sampleRows` · 담당자 거르기 · 숫자 칸 5개 · 자체개발 Drop 사유 창) · `components/dashboard/DevSampleProgress.jsx` · `DevStatsPanel.jsx` · `DevArchiveModal.jsx`(아이템화 카드 · `productionStateOf` 공용) · 3단계 파일은 위 표 |
 | 훅 | `useDesignSheet.js` (`markDevArticled` · `reopenDevFromArticled` · `applyDevDeadlineToSheet` · 확인칸 빈 양식 · 폭 확인) · `useDevRequest.js` · `useMainDetail.js` · `useYarn.js` |
 | 연결 | `apps/App.jsx` — `handleSaveDevRequestSynced`, `useMainDetail(…, saveBatchToCloud)`, `useYarn(…, tempDesignSheets, devRequests)` |
 
