@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
 import { makeInitialCostFields } from '../../utils/costFields';
 import { resolveKnitKgRate, normalizeExtraCosts, sumYarnRatio, isYarnRatioComplete, normalizeYarnSlots, clampYarnRatio } from '../../utils/costModel';
@@ -17,77 +17,118 @@ const pickCostAttrs = (ci = {}) => ({
 // ⚠️ 기존 useDesignSheet.js는 수정하지 않음 (사이드이펙트 차단)
 // Firestore 컬렉션: tempDesignSheets (designSheets와 완전 분리)
 
-export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost) => {
+// 가설계서 초기 입력 폼 (정식 설계서 기반, 추적 필드 제거 + buyerName 추가) — 새 가설계서 · 저장 안 한 변경 확인의 빈 양식
+export const makeBlankTempInput = () => ({
+  // === 가설계서 전용 식별자 ===
+  buyerName: '',       // 가설계서 전용 바이어명 (정식에서는 의뢰 참조)
+  fabricName: '',      // 원단명
+
+  // === 영업 견적 시뮬레이션 · 가견적서 (가설계서 전용 — 견적서와 같은 계산, 2026-11-24) ===
+  // 판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액 (utils/tempQuoteModel.js)
+  //  · marketType: 시장 구분 'domestic' 내수 ₩ / 'export' 수출 $ (그 시장의 공통 환율로 계산)
+  //  · excludeVisual · excludeChem: 외관검사 제외 · 시험성적서(이화학) 제외
+  //  · quoteMarginRate · quoteMarginAdd: 6구간(300·500·700·1k·3k·5k) 매출이익율(%) · YD당 정액(원화) — 견적서 기본값으로 시작
+  //  · quoteShownTiers: 가견적서에 나갈 구간 · quoteValidityOption: 유효기간 · quoteSpec: 가견적서 Spec 칸(선택)
+  ...makeTempQuoteDefaults(),
+
+  // (1) 원사 정보 (가설계서 전용: priceOverride 추가)
+  // priceOverride: 가설계서에서만 사용하는 슬롯별 단가(KRW/kg) override.
+  // 빈 문자열이면 yarn library 기본 공급처 가격 사용. 정식 변환 시 폐기됨.
+  yarns: [
+    { yarnId: '', ratio: 100, priceOverride: '' },
+    { yarnId: '', ratio: 0,   priceOverride: '' },
+    { yarnId: '', ratio: 0,   priceOverride: '' },
+    { yarnId: '', ratio: 0,   priceOverride: '' }
+  ],
+
+  // (2) 편직 정보
+  knitting: {
+    factory: '',
+    structure: '',
+    machineType: '',
+    gauge: '',
+    machineInch: '',
+    needleCount: '',
+    hasOpenWidth: false,
+    isOpenWidth: false,
+    feederCount: '',
+    structureDiagram: '',
+    remarks: ''
+  },
+
+  // (3) 염가공 정보
+  dyeing: {
+    factory: '',
+    dyedWidth: '',
+    tenterWidth: '',
+    tenterTemp: '',
+    fabricSpeed: '',
+    overFeeder: '',
+    processMethod: '',
+    remarks: ''
+  },
+
+  // (4) 후가공 정보
+  finishing: {
+    factory: '',
+    type: '',
+    method: '',
+    remarks: ''
+  },
+
+  // Cost 연동용 (기존 fabricInput 호환 구조)
+  costInput: {
+    widthFull: 58,
+    widthCut: 56,
+    gsm: 300,
+    costGYd: '',
+    ...makeInitialCostFields() // 원가 칸 초기값 (utils/costFields — 원단·설계서·가설계서 같음)
+  }
+});
+
+/**
+ * 저장된 가설계서 → 편집 창 값 (빈 칸은 새 가설계서 기본값 · 옛 원가 칸 맞춤 · 판매가 칸 6구간)
+ *  편집 창(handleEditTemp)과 목록의 판매가·[PDF]·[엑셀]이 같은 값으로 계산되게 한 곳에서 (2026-11-24 리팩토링 —
+ *  예전엔 목록이 저장된 문서를 그대로 계산해서, 염가공료가 비어 있는 옛 가설계서는 목록 0원 · 편집 창 8,800원처럼 달랐음)
+ *  여러 번 거쳐도 같은 값 (편집 창 값을 다시 넣어도 그대로)
+ */
+export const toEditableTempInput = (tempSheet) => {
+  const initial = makeBlankTempInput();
+  if (!tempSheet) return initial;
+  return {
+    ...initial,
+    ...tempSheet,
+    knitting: { ...initial.knitting, ...(tempSheet.knitting || {}) },
+    dyeing: { ...initial.dyeing, ...(tempSheet.dyeing || {}) },
+    finishing: { ...initial.finishing, ...(tempSheet.finishing || {}) },
+    costInput: {
+      ...initial.costInput,
+      ...(tempSheet.costInput || {}),
+      losses: {
+        tier1k: { ...initial.costInput.losses.tier1k, ...(tempSheet.costInput?.losses?.tier1k || {}) },
+        tier3k: { ...initial.costInput.losses.tier3k, ...(tempSheet.costInput?.losses?.tier3k || {}) },
+        tier5k: { ...initial.costInput.losses.tier5k, ...(tempSheet.costInput?.losses?.tier5k || {}) }
+      },
+      brandExtra: { ...initial.costInput.brandExtra, ...(tempSheet.costInput?.brandExtra || {}) },
+      ...pickCostAttrs(tempSheet.costInput)
+    },
+    // 구버전 문서 호환: priceOverride 필드가 없는 슬롯에 기본값('')을 채워준다.
+    yarns: (tempSheet.yarns || initial.yarns).map((s, i) => ({
+      yarnId: '',
+      ratio: i === 0 ? 100 : 0,
+      priceOverride: '',
+      ...(s || {})
+    })),
+    // 판매가·가견적서 칸 — 6구간으로 맞춤 (예전 가설계서: 1K/3K/5K 값 그대로 + 새 구간은 견적서 기본값, 시장은 내수)
+    ...normalizeTempQuoteFields(tempSheet)
+  };
+};
+
+export const useTempDesignSheet =(tempDesignSheets, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost) => {
   const [editingTempId, setEditingTempId] = useState(null);
 
-  // 가설계서 초기 입력 폼 (정식 설계서 기반, 추적 필드 제거 + buyerName 추가)
-  const getInitialTempInput = () => ({
-    // === 가설계서 전용 식별자 ===
-    buyerName: '',       // 가설계서 전용 바이어명 (정식에서는 의뢰 참조)
-    fabricName: '',      // 원단명
-
-    // === 영업 견적 시뮬레이션 · 가견적서 (가설계서 전용 — 견적서와 같은 계산, 2026-11-24) ===
-    // 판매가 = 영업 기준원가 ÷ (1 − 매출이익율%) + YD당 정액 (utils/tempQuoteModel.js)
-    //  · marketType: 시장 구분 'domestic' 내수 ₩ / 'export' 수출 $ (그 시장의 공통 환율로 계산)
-    //  · excludeVisual · excludeChem: 외관검사 제외 · 시험성적서(이화학) 제외
-    //  · quoteMarginRate · quoteMarginAdd: 6구간(300·500·700·1k·3k·5k) 매출이익율(%) · YD당 정액(원화) — 견적서 기본값으로 시작
-    //  · quoteShownTiers: 가견적서에 나갈 구간 · quoteValidityOption: 유효기간 · quoteSpec: 가견적서 Spec 칸(선택)
-    ...makeTempQuoteDefaults(),
-
-    // (1) 원사 정보 (가설계서 전용: priceOverride 추가)
-    // priceOverride: 가설계서에서만 사용하는 슬롯별 단가(KRW/kg) override.
-    // 빈 문자열이면 yarn library 기본 공급처 가격 사용. 정식 변환 시 폐기됨.
-    yarns: [
-      { yarnId: '', ratio: 100, priceOverride: '' },
-      { yarnId: '', ratio: 0,   priceOverride: '' },
-      { yarnId: '', ratio: 0,   priceOverride: '' },
-      { yarnId: '', ratio: 0,   priceOverride: '' }
-    ],
-
-    // (2) 편직 정보
-    knitting: {
-      factory: '',
-      structure: '',
-      machineType: '',
-      gauge: '',
-      machineInch: '',
-      needleCount: '',
-      hasOpenWidth: false,
-      isOpenWidth: false,
-      feederCount: '',
-      structureDiagram: '',
-      remarks: ''
-    },
-
-    // (3) 염가공 정보
-    dyeing: {
-      factory: '',
-      dyedWidth: '',
-      tenterWidth: '',
-      tenterTemp: '',
-      fabricSpeed: '',
-      overFeeder: '',
-      processMethod: '',
-      remarks: ''
-    },
-
-    // (4) 후가공 정보
-    finishing: {
-      factory: '',
-      type: '',
-      method: '',
-      remarks: ''
-    },
-
-    // Cost 연동용 (기존 fabricInput 호환 구조)
-    costInput: {
-      widthFull: 58,
-      widthCut: 56,
-      gsm: 300,
-      costGYd: '',
-      ...makeInitialCostFields() // 원가 칸 초기값 (utils/costFields — 원단·설계서·가설계서 같음)
-    }
-  });
+  // 가설계서 초기 입력 폼 — 파일 위 makeBlankTempInput (목록 화면의 판매가·가견적서도 같은 기본값을 씀)
+  const getInitialTempInput = makeBlankTempInput;
 
   const [tempInput, setTempInput] = useState(getInitialTempInput);
 
@@ -219,35 +260,9 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
   };
 
   // 수정 모드 진입
+  //  빈 칸 기본값·옛 원가 칸·판매가 6구간 맞춤은 toEditableTempInput (목록의 판매가·가견적서와 같은 값)
   const handleEditTemp = (tempSheet) => {
-    const initial = getInitialTempInput();
-    setTempInput({
-      ...initial,
-      ...tempSheet,
-      knitting: { ...initial.knitting, ...(tempSheet.knitting || {}) },
-      dyeing: { ...initial.dyeing, ...(tempSheet.dyeing || {}) },
-      finishing: { ...initial.finishing, ...(tempSheet.finishing || {}) },
-      costInput: {
-        ...initial.costInput,
-        ...(tempSheet.costInput || {}),
-        losses: {
-          tier1k: { ...initial.costInput.losses.tier1k, ...(tempSheet.costInput?.losses?.tier1k || {}) },
-          tier3k: { ...initial.costInput.losses.tier3k, ...(tempSheet.costInput?.losses?.tier3k || {}) },
-          tier5k: { ...initial.costInput.losses.tier5k, ...(tempSheet.costInput?.losses?.tier5k || {}) }
-        },
-        brandExtra: { ...initial.costInput.brandExtra, ...(tempSheet.costInput?.brandExtra || {}) },
-        ...pickCostAttrs(tempSheet.costInput)
-      },
-      // 구버전 문서 호환: priceOverride 필드가 없는 슬롯에 기본값('')을 채워준다.
-      yarns: (tempSheet.yarns || initial.yarns).map((s, i) => ({
-        yarnId: '',
-        ratio: i === 0 ? 100 : 0,
-        priceOverride: '',
-        ...(s || {})
-      })),
-      // 판매가·가견적서 칸 — 6구간으로 맞춤 (예전 가설계서: 1K/3K/5K 값 그대로 + 새 구간은 견적서 기본값, 시장은 내수)
-      ...normalizeTempQuoteFields(tempSheet)
-    });
+    setTempInput(toEditableTempInput(tempSheet));
     setEditingTempId(tempSheet.id);
   };
 
@@ -263,14 +278,16 @@ export const useTempDesignSheet = (tempDesignSheets, saveDocToCloud, deleteDocFr
   };
 
   // --- Cost 연동 ---
-  const getTempDesignCost = (tempSheet) => {
+  //  useCallback: 가설계서 목록이 판매가를 useMemo로 계산함 — 함수가 매번 새로 만들어지면 편집 창에서 한 글자 칠 때마다
+  //  목록의 모든 가설계서 원가(6구간)를 다시 계산했음 (2026-11-24 리팩토링). calculateCost는 원사·환율·원가 설정이 바뀔 때만 바뀜
+  const getTempDesignCost = useCallback((tempSheet) => {
     if (!tempSheet || !calculateCost) return null;
     const fabricData = {
       ...(tempSheet.costInput || {}),
       yarns: tempSheet.yarns || []
     };
     return calculateCost(fabricData);
-  };
+  }, [calculateCost]);
 
   // --- 가설계서 → 정식 설계서로 불러오기 유틸 ---
   // 이 함수는 정식 설계서의 setSheetInput에 스펙(레시피)만 덮어씌움

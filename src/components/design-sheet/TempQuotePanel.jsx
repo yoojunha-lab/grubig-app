@@ -1,11 +1,12 @@
 import React from 'react';
 import { DollarSign, RotateCcw, Home, Globe, CheckSquare, Square } from 'lucide-react';
-import { num, usd, clampNum, rateLabel, QUOTE_VALIDITY_OPTIONS } from '../../utils/helpers';
+import { num, usd, clampNum, rateLabel, rateForMarket, QUOTE_VALIDITY_OPTIONS } from '../../utils/helpers';
 import { QUOTE_TIERS, QUOTE_TIER_GROUPS, QUOTE_TIER_KEYS } from '../../constants/quote';
 import { formatQuotePrice, getBasePrice, makeDefaultTierRates, makeDefaultTierAdds } from '../../utils/quoteModel';
 import { DraftNumberInput, ExcludeToggles, ExportButtons } from '../quote/QuoteParts';
 import {
   buildTempQuote, tempSellPrice, tempShownTiers, tempMarket, toTempTierRate, toTempTierAdd, tempBaseBeforeExclude,
+  tempExclude, tempExcludeLabel, TEMP_DEFAULT_VALIDITY,
 } from '../../utils/tempQuoteModel';
 
 /**
@@ -31,7 +32,7 @@ const MCQ_FROM = `${num(Math.min(...QUOTE_TIERS.filter(t => t.group === 'mcq').m
 export const TempMarketToggle = ({ sheet, setSheet, exchangeRates }) => {
   const market = tempMarket(sheet);
   const isExport = market === 'export';
-  const rate = Number(isExport ? exchangeRates?.export : exchangeRates?.domestic) || 0;
+  const rate = rateForMarket(exchangeRates, market);   // 판매가·가견적서와 같은 환율 (값이 없으면 기본 환율)
   const setMarket = (m) => { if (m !== market) setSheet?.(prev => ({ ...prev, marketType: m })); };
   return (
     <div className="flex items-center gap-2">
@@ -77,7 +78,9 @@ export const TempQuotePanel = ({ sheet, setSheet, calc, exchangeRates, onExport 
   const isExport = market === 'export';
   const sym = isExport ? '$' : '₩';
   const shown = tempShownTiers(sheet);
-  const excluding = sheet?.excludeVisual === true || sheet?.excludeChem === true;
+  const exclude = tempExclude(sheet);
+  const excludedLabel = tempExcludeLabel(sheet);   // '외관검사' / '시험성적서' / '외관검사·시험성적서' / '' (안 뺌)
+  const excluding = excludedLabel !== '';
 
   const patch = (p) => setSheet?.(prev => ({ ...prev, ...p }));
   const setRate = (key, v) => setSheet?.(prev => ({ ...prev, quoteMarginRate: { ...toTempTierRate(prev.quoteMarginRate), [key]: clampNum(v, 0, 99) } }));
@@ -113,8 +116,8 @@ export const TempQuotePanel = ({ sheet, setSheet, calc, exchangeRates, onExport 
       {/* 외관검사 · 시험성적서 제외 (견적서와 같은 버튼) */}
       <ExcludeToggles
         label="이 가설계서"
-        visual={sheet?.excludeVisual === true}
-        chem={sheet?.excludeChem === true}
+        visual={exclude.excludeVisual}
+        chem={exclude.excludeChem}
         onChange={(field, value) => patch({ [field]: value })}
         note="누르면 영업 기준원가에서 그 비용을 빼고, 가견적서에 '불포함'으로 적혀요."
       />
@@ -134,7 +137,7 @@ export const TempQuotePanel = ({ sheet, setSheet, calc, exchangeRates, onExport 
           <PriceRow label="구간" head>
             {(t) => <span>{t.label}</span>}
           </PriceRow>
-          <PriceRow label={`영업 기준원가 (${sym})`} sub={excluding ? '외관검사·시험성적서 뺀 값' : ''}>
+          <PriceRow label={`영업 기준원가 (${sym})`} sub={excluding ? `${excludedLabel} 뺀 값` : ''}>
             {(t) => (
               <div className="flex flex-col items-center leading-tight">
                 <span className="font-mono text-slate-600">{formatQuotePrice(getBasePrice(item, t.key), currency)}</span>
@@ -191,7 +194,7 @@ export const TempQuotePanel = ({ sheet, setSheet, calc, exchangeRates, onExport 
         </label>
         <label className="flex items-center gap-1.5">
           <span className="font-bold text-slate-600 whitespace-nowrap">유효기간</span>
-          <select value={sheet?.quoteValidityOption || '2weeks'} onChange={e => patch({ quoteValidityOption: e.target.value })}
+          <select value={sheet?.quoteValidityOption || TEMP_DEFAULT_VALIDITY} onChange={e => patch({ quoteValidityOption: e.target.value })}
             className="border border-slate-300 rounded px-1.5 py-1 text-[11px] outline-none focus:ring-2 ring-emerald-200 bg-white">
             {QUOTE_VALIDITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>

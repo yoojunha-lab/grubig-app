@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { getQuoteValidUntil } from '../../utils/helpers';
+import { getQuoteValidUntil, safeFilePart } from '../../utils/helpers';
 import {
   calcQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice,
   quotePriceBasis, buildQuoteTerms, validateQuoteForExport, isRunningRow, formatColorSplit,
@@ -56,8 +56,7 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
     //   - (예전 html2pdf 방식은 화면 위치 캡처 버그가 있어 브라우저 인쇄로 바꿈)
     setTimeout(() => {
       const oldTitle = document.title;
-      const safeBuyer = String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9\s-가-힣]/g, '');
-      const filename = opts.fileName || `${quoteFilePrefix(targetQuote, kind === 'special')}_${safeBuyer}_${targetQuote.date || ''}`.trim();
+      const filename = opts.fileName || `${quoteFilePrefix(targetQuote, kind === 'special')}_${safeFilePart(targetQuote.buyerName)}_${targetQuote.date || ''}`.trim();
       try {
         document.title = filename;
         window.print();
@@ -156,8 +155,7 @@ export const useQuoteExport = ({ quoteInput, isXlsxReady, showToast }) => {
 
     const wb = window.XLSX.utils.book_new();
     window.XLSX.utils.book_append_sheet(wb, ws, isSpecial ? 'Special Quotation' : 'Quotation');
-    const safeBuyer = String(targetQuote.buyerName || '').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim();
-    const fileParts = [quoteFilePrefix(targetQuote, isSpecial), safeBuyer, targetQuote.date].filter(Boolean);
+    const fileParts = [quoteFilePrefix(targetQuote, isSpecial), safeFilePart(targetQuote.buyerName), targetQuote.date].filter(Boolean);
     window.XLSX.writeFile(wb, `${opts.fileName || fileParts.join('_')}.xlsx`);
     showToast(opts.docLabel ? `${opts.docLabel}를 엑셀로 내보냈습니다.` : `${rows.length}개 ${isSpecial ? '별도 견적 줄' : '품목'}을 엑셀로 내보냈습니다.`, 'success');
   };

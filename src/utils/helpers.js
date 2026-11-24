@@ -102,6 +102,9 @@ export const rateForMarket = (rates, market) => {
 /** 환율 칸 이름 — '내수 환율' / '수출 환율' */
 export const rateLabel = (market) => (market === 'export' ? '수출 환율' : '내수 환율');
 
+/** 파일 이름에 넣을 글자 — 영문·숫자·한글·띄어쓰기·'-'만 남기고 앞뒤 빈칸 정리 (견적서·가견적서 PDF·엑셀 파일 이름) */
+export const safeFilePart = (v) => String(v ?? '').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim();
+
 /**
  * 타겟 마진율(%)에 맞춰 원가에서 판매가를 산출(Gross Margin)합니다.
  * 공식: cost / (1 - margin%)

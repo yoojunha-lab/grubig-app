@@ -85,7 +85,7 @@ GRUBIG-APP/
 │   │       ├── useDevRequest.js        # 개발 의뢰 CRUD + 상태 전이 + 원가 견적 저장·Drop 사유
 │   │       ├── useDesignSheet.js       # 설계서 CRUD + 단계 전이 + 원단 연동 + EZ-TEX 등록 → 생산 현황 샘플 오더 (sampleOrderLink) + Drop·복원 + 기존 설계서 불러오기 (loadSheetAsTemplate — 스펙만 복사, copiedFrom)
 │   │       ├── useOrder.js             # 생산 현황 오더 (칸 단위 즉시 저장·가납기·생지 출고(선염/후염)·상태 기록(성적서·컨펌)·LOT 외관검사 차수·마무리 체크·원사 사종 줄·재고 사용·설계서 샘플 오더 sheetOrderLink — Drop 표시 dropInfo·구분 잠금(메인/신제품/재샘플 — changeOrderKind 사유)·출고 끝 자동 완료(마무리와 상관없이 — completeShippedOrders [완료로 넘기기]))
-│   │       ├── useTempDesignSheet.js   # 가설계서
+│   │       ├── useTempDesignSheet.js   # 가설계서 (+ makeBlankTempInput 빈 양식 · toEditableTempInput 저장된 가설계서 → 편집 창 값 — 목록 판매가·가견적서도 같은 값)
 │   │       ├── useMainDetail.js        # 메인/QC 디테일
 │   │       ├── useFabric.js            # 원단 관리
 │   │       ├── useYarn.js              # 원사 라이브러리

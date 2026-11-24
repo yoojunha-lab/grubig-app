@@ -13,7 +13,7 @@
 //   · 견적서에 나갈 구간 = '가견적서 표시' 체크 (quoteShownTiers, 기본 500·700·1,000·3,000YD) · 유효기간 (quoteValidityOption, 기본 2주)
 //   · 견적 이력에는 남기지 않음 (PDF·엑셀만) — 견적 모양은 내보낼 때마다 지금 원가로 새로 만듦
 
-import { calculateMcqYd, rateForMarket, todayLocalISO } from './helpers';
+import { calculateMcqYd, rateForMarket, todayLocalISO, safeFilePart } from './helpers';
 import { isYarnRatioComplete, sumYarnRatio } from './costModel';
 import { QUOTE_TIERS, QUOTE_TIER_KEYS, LEGACY_TIER_KEYS, DEFAULT_SHOWN_TIERS } from '../constants/quote';
 import {
@@ -26,6 +26,18 @@ export const tempMarket = (sheet) => (sheet?.marketType === 'export' ? 'export' 
 
 /** 가설계서 통화 — 수출 'USD' / 내수 'KRW' */
 export const tempCurrency = (sheet) => (tempMarket(sheet) === 'export' ? 'USD' : 'KRW');
+
+/** 가견적서 유효기간 기본값 (견적서와 같음 — 2주) */
+export const TEMP_DEFAULT_VALIDITY = '2weeks';
+
+/** 외관검사 · 시험성적서(이화학) 제외 — 둘 다 켰을 때(true)만 뺌 */
+export const tempExclude = (sheet) => ({ excludeVisual: sheet?.excludeVisual === true, excludeChem: sheet?.excludeChem === true });
+
+/** 뺀 항목 이름 — '외관검사' / '시험성적서' / '외관검사·시험성적서' / '' (안 뺌) */
+export const tempExcludeLabel = (sheet) => {
+  const { excludeVisual, excludeChem } = tempExclude(sheet);
+  return [excludeVisual && '외관검사', excludeChem && '시험성적서'].filter(Boolean).join('·');
+};
 
 // 비어 있는 구간 값: 예전 3구간(1k/3k/5k)은 0 (예전 판매가 그대로), 새 구간(300·500·700)은 견적서 기본값
 const tempRateFallback = (k) => (LEGACY_TIER_KEYS.includes(k) ? 0 : defaultTierRate(k));
@@ -52,19 +64,21 @@ export const makeTempQuoteDefaults = () => ({
   quoteMarginRate: makeDefaultTierRates(),
   quoteMarginAdd: makeDefaultTierAdds('KRW'),
   quoteShownTiers: [...DEFAULT_SHOWN_TIERS],
-  quoteValidityOption: '2weeks',
+  quoteValidityOption: TEMP_DEFAULT_VALIDITY,
   quoteSpec: '',
 });
 
-/** 저장된 가설계서를 편집 창에 불러올 때 — 판매가 칸을 6구간·기본값으로 맞춤 (예전 가설계서 판매가는 그대로) */
+/**
+ * 판매가·가견적서 칸을 6구간·기본값으로 맞춤 (예전 가설계서 판매가는 그대로) — 편집 창에 불러올 때 · 가견적서 모양 만들 때 같이 씀
+ *  여러 번 거쳐도 같은 값
+ */
 export const normalizeTempQuoteFields = (sheet) => ({
   marketType: tempMarket(sheet),
-  excludeVisual: sheet?.excludeVisual === true,
-  excludeChem: sheet?.excludeChem === true,
+  ...tempExclude(sheet),
   quoteMarginRate: toTempTierRate(sheet?.quoteMarginRate),
   quoteMarginAdd: toTempTierAdd(sheet?.quoteMarginAdd),
   quoteShownTiers: tempShownTiers(sheet),
-  quoteValidityOption: sheet?.quoteValidityOption || '2weeks',
+  quoteValidityOption: sheet?.quoteValidityOption || TEMP_DEFAULT_VALIDITY,
   quoteSpec: String(sheet?.quoteSpec ?? ''),
 });
 
@@ -76,7 +90,7 @@ export const normalizeTempQuoteFields = (sheet) => ({
 export const buildTempQuoteItem = (sheet, calc) => {
   const market = tempMarket(sheet);
   const currency = tempCurrency(sheet);
-  const exclude = { excludeVisual: sheet?.excludeVisual === true, excludeChem: sheet?.excludeChem === true };
+  const exclude = tempExclude(sheet);
   const ci = sheet?.costInput || {};
   const item = {
     fabricId: sheet?.id || '',
@@ -110,7 +124,8 @@ export const buildTempQuoteItem = (sheet, calc) => {
  * @returns {{ quote, item, rate, currency, market }}
  */
 export const buildTempQuote = (sheet, calc, exchangeRates) => {
-  const market = tempMarket(sheet);
+  const f = normalizeTempQuoteFields(sheet);   // 판매가 칸 (편집 창에 보이는 값과 같음)
+  const market = f.marketType;
   const currency = tempCurrency(sheet);
   const rate = rateForMarket(exchangeRates, market);
   const item = buildTempQuoteItem(sheet, calc);
@@ -123,13 +138,13 @@ export const buildTempQuote = (sheet, calc, exchangeRates) => {
     currency,
     exchangeRate: rate,
     date: todayLocalISO(),
-    validityOption: sheet?.quoteValidityOption || '2weeks',
-    bulkMarginRate: toTempTierRate(sheet?.quoteMarginRate),
-    marginAdd: toTempTierAdd(sheet?.quoteMarginAdd),
+    validityOption: f.quoteValidityOption,
+    bulkMarginRate: f.quoteMarginRate,
+    marginAdd: f.quoteMarginAdd,
     marginAddCurrency: 'KRW',
-    shownTiers: tempShownTiers(sheet),
-    excludeVisual: sheet?.excludeVisual === true,
-    excludeChem: sheet?.excludeChem === true,
+    shownTiers: f.quoteShownTiers,
+    excludeVisual: f.excludeVisual,
+    excludeChem: f.excludeChem,
     priceUnit: 'YD',
     items: [item],
     customItems: [],
@@ -155,7 +170,5 @@ export const validateTempSheetForQuote = (sheet) => {
 };
 
 /** 가견적서 파일 이름 — Quotation_바이어_원단명_날짜 (PDF·엑셀 같이) */
-export const tempQuoteFileName = (sheet, quote) => {
-  const safe = (v) => String(v || '').replace(/[^a-zA-Z0-9가-힣\s-]/g, '').trim();
-  return ['Quotation', safe(sheet?.buyerName), safe(sheet?.fabricName), quote?.date].filter(Boolean).join('_');
-};
+export const tempQuoteFileName = (sheet, quote) =>
+  ['Quotation', safeFilePart(sheet?.buyerName), safeFilePart(sheet?.fabricName), quote?.date].filter(Boolean).join('_');
