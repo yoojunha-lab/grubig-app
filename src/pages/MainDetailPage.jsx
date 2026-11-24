@@ -107,13 +107,21 @@ export const MainDetailPage = ({
   };
 
   // === 그리드 → 탭 구분 텍스트 변환 → handleBulkPaste 호출 (type 전달) ===
-  const executeBulkUpload = () => {
+  //  저장이 끝날 때까지 기다림 — 다 저장됐을 때만 칸 비우기 (실패하면 칸 그대로 두고 다시 [등록])
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const executeBulkUpload = async () => {
+    if (bulkSaving) return;
     const filledRows = gridRows.filter(row => GRID_COLS.some(col => row[col]?.trim()));
     if (filledRows.length === 0) return;
     const rawText = filledRows.map(row => GRID_COLS.map(col => row[col] || '').join('\t')).join('\n');
-    const result = handleBulkPaste(rawText, bulkType);
-    setBulkResult(result);
-    if (result.added > 0) setGridRows(initialGrid());
+    setBulkSaving(true);
+    try {
+      const result = await handleBulkPaste(rawText, bulkType);
+      setBulkResult(result);
+      if (result.added > 0) setGridRows(initialGrid());
+    } finally {
+      setBulkSaving(false);
+    }
   };
 
   const closeBulkModal = () => {
@@ -298,10 +306,10 @@ export const MainDetailPage = ({
                   <button onClick={closeBulkModal} className="px-5 py-2 rounded-xl font-bold text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 transition-colors text-sm">닫기</button>
                   <button
                     onClick={executeBulkUpload}
-                    disabled={filledRowCount === 0}
-                    className={`px-6 py-2 rounded-xl font-bold text-white flex items-center gap-2 transition-all active:scale-95 shadow-md text-sm ${filledRowCount > 0 ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20' : 'bg-slate-300 cursor-not-allowed shadow-none'}`}
+                    disabled={filledRowCount === 0 || bulkSaving}
+                    className={`px-6 py-2 rounded-xl font-bold text-white flex items-center gap-2 transition-all active:scale-95 shadow-md text-sm ${filledRowCount > 0 && !bulkSaving ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20' : 'bg-slate-300 cursor-not-allowed shadow-none'}`}
                   >
-                    <Upload className="w-4 h-4" /> 일괄 업로드
+                    <Upload className="w-4 h-4" /> {bulkSaving ? '저장 중…' : '일괄 업로드'}
                   </button>
                 </div>
               </div>
@@ -418,6 +426,12 @@ export const MainDetailPage = ({
                               </span>
                             )}
                           </div>
+                          {/* 비고 (2026-11-24 — 입력 칸이 생김) */}
+                          {String(d.remarks || '').trim() && (
+                            <p className="text-[10px] text-slate-500 line-clamp-2" title={d.remarks}>
+                              <span className="text-slate-400 mr-1">비고</span>{d.remarks}
+                            </p>
+                          )}
                         </div>
                       </td>
                       

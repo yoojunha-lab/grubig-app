@@ -41,6 +41,7 @@ export const DEV_REQUEST_STATUSES = {
   ANALYZING: 'analyzing', // 분석 중
   HOLD: 'hold',           // 대기중 (분석완료, 설계서 작성 대기)
   CONFIRMED: 'confirmed', // 개발투입확정 (설계서 연결됨)
+  ARTICLED: 'articled',   // 아이템화 완료 (설계서 아이템화 → 자동, 되돌리면 '개발 확정'으로 — 2026-11-24)
   REJECTED: 'rejected'    // Drop (미진행)
 };
 
@@ -49,6 +50,7 @@ export const DEV_REQUEST_STATUS_LABELS = {
   analyzing: '분석 중',
   hold: '대기중',
   confirmed: '개발투입확정',
+  articled: '아이템화 완료',   // 설계서가 아이템화되면 자동 (개발 고도화 2026-11-24 — 예전엔 '개발 확정'에 영원히 남았음)
   rejected: 'Drop (미진행)'
 };
 
@@ -58,6 +60,7 @@ export const DEV_REQUEST_STATUS_BADGE_CLS = {
   analyzing: 'bg-blue-100 text-blue-700 border-blue-300',
   hold: 'bg-purple-100 text-purple-700 border-purple-300',
   confirmed: 'bg-emerald-100 text-emerald-700 border-emerald-300',
+  articled: 'bg-teal-100 text-teal-800 border-teal-300',
   rejected: 'bg-slate-200 text-slate-700 border-slate-300'
 };
 

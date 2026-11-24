@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Activity, Edit2, FileText, Plus, Search, Printer, Archive, ArrowRight, XCircle, Flame, Hourglass, Sparkles, ClipboardList, Info, ChevronDown, ChevronUp, Link2, Unlink, Calculator, Trash2, CheckCircle2, PackageCheck } from 'lucide-react';
+import { Activity, Edit2, FileText, Plus, Search, Printer, Archive, ArrowRight, XCircle, Flame, Hourglass, Sparkles, ClipboardList, Info, ChevronDown, ChevronUp, Link2, Unlink, Calculator, Trash2, CheckCircle2, PackageCheck, Factory, MessageSquareMore } from 'lucide-react';
 import { DEV_REQUEST_STATUS_LABELS, DEV_REQUEST_STATUS_BADGE_CLS } from '../constants/common';
 import { PendingProgressBar } from '../components/design-sheet/PendingProgressBar';
 import { DevRequestFormModal } from '../components/dashboard/DevRequestFormModal';
@@ -8,6 +8,9 @@ import { DevRequestPrintSheet } from '../components/dashboard/DevRequestPrintShe
 import { DevCostQuoteModal } from '../components/dashboard/DevCostQuoteModal';
 import { DevDropModal } from '../components/dashboard/DevDropModal';
 import { DevQuoteBadge } from '../components/dashboard/DevQuoteBadge';
+import { DevSampleProgress } from '../components/dashboard/DevSampleProgress';
+import { DevStatsPanel } from '../components/dashboard/DevStatsPanel';
+import { productionStateOf, sampleRowDeadline, isSampleOrderDone, replyWaitOf, REPLY_WAIT_CLS, daysBetween } from '../utils/devFlowModel';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
 import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
@@ -95,9 +98,25 @@ const rowMatchesSearch = (row, searchTerm) => {
   if (!q) return true;
   const { dev: d, sheet: s } = row;
   return [
-    rowBuyerName(row), d?.devOrderNo, d?.devItem, d?.targetSpec?.composition,
-    s?.fabricName, s?.devOrderNo, s?.articleNo, s?.eztexOrderNo,
+    rowBuyerName(row), d?.devOrderNo, d?.devItem, d?.targetSpec?.composition, d?.assignee,
+    s?.fabricName, s?.devOrderNo, s?.articleNo, s?.eztexOrderNo, row.order?.orderNumber,
   ].some(v => String(v || '').toLowerCase().includes(q));
+};
+// 담당자 거르기 (2026-11-24) — '' = 전체, '__none' = 담당자 없음 (자체개발 줄 포함)
+const NO_ASSIGNEE = '__none';
+const rowAssignee = (row) => String(row.dev?.assignee || '').trim();
+const passesAssignee = (filter, row) => !filter || (filter === NO_ASSIGNEE ? !rowAssignee(row) : rowAssignee(row) === filter);
+
+// 견적 회신 대기 N일 배지 (원가 견적을 내고 '대기 중'인 의뢰 — 2026-11-24)
+const ReplyWaitChip = ({ dev }) => {
+  const w = replyWaitOf(dev);
+  if (!w) return null;
+  return (
+    <span className={`inline-flex items-center gap-0.5 w-fit text-[9px] font-bold px-1.5 py-0.5 rounded border ${REPLY_WAIT_CLS[w.tone]}`}
+      title={`원가 견적을 보내고 바이어 회신을 기다린 지 ${w.days}일 (7일부터 노랑 · 14일부터 빨강)`}>
+      <MessageSquareMore className="w-2.5 h-2.5" /> 회신 대기 {w.days === 0 ? '오늘' : `${w.days}일`}
+    </span>
+  );
 };
 
 // 단계 진입 날짜 → "MM/DD · N일째" 포맷
@@ -188,7 +207,14 @@ const EztexRegister = ({ sheet, onSubmit, size = 'sm' }) => {
 
 // 바이어 칸: 의뢰 바이어 / 설계서가 가리키는 의뢰(Drop 등)의 바이어 + 상태 / 자체개발
 const RowBuyer = ({ row }) => {
-  if (row.dev) return <>{row.dev.buyerName || '-'}</>;
+  if (row.dev) {
+    return (
+      <>
+        {row.dev.buyerName || '-'}
+        {row.dev.assignee && <span className="block text-[9px] font-normal text-slate-400 truncate" title="영업 담당자">담당 {row.dev.assignee}</span>}
+      </>
+    );
+  }
   if (row.linkedDev) {
     return (
       <span title="이 설계서가 가리키는 개발 의뢰는 지금 이 표에 없어요 (Drop 등)">
@@ -262,6 +288,7 @@ export const DevStatusPage = ({
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [showGuide, setShowGuide] = useState(false);
   const [devSortBy, setDevSortBy] = useState('odno');   // odno | date | stage | buyer
+  const [assigneeFilter, setAssigneeFilter] = useState(''); // 담당자 거르기 ('' 전체 · '__none' 담당자 없음 — 2026-11-24)
   const [linkTargetSheet, setLinkTargetSheet] = useState(null); // '의뢰 연결' 모달 대상 설계서
   const [linkSearch, setLinkSearch] = useState('');
 
@@ -313,7 +340,7 @@ export const DevStatusPage = ({
   // '의뢰 연결' 후보: 아직 진행중 설계서에 연결되지 않은 (Drop 제외) 의뢰
   const linkCandidateDevs = useMemo(() =>
     (devRequests || []).filter(d =>
-      d.status !== 'rejected' &&
+      d.status !== 'rejected' && d.status !== 'articled' &&
       !(designSheets || []).some(s => s.devRequestId === d.id && s.status !== 'dropped')
     ), [devRequests, designSheets]);
 
@@ -350,6 +377,40 @@ export const DevStatusPage = ({
     return rows;
   }, [devRequests, designSheets, sheetOfDev, sampleOrderBySheet]);
 
+  // 샘플 진행 (생산 현황) 줄 — EZ-TEX 를 등록해 생산 현황 샘플 오더가 생긴 설계서 (아이템화 · Drop 전)
+  //  개발 고도화 2026-11-24: 예전엔 등록하는 순간 이 화면에서 사라져 납기 · 지연이 안 보였음 → 아래 '샘플 진행' 표 + 지연 · 임박 숫자
+  const sampleRows = useMemo(() => {
+    const rows = [];
+    (designSheets || []).forEach(s => {
+      if (s.status === 'dropped' || s.stage === 'articled') return;
+      const order = sampleOrderBySheet.get(String(s.id));
+      if (!order) return;
+      const owner = (devRequests || []).find(d => d.status !== 'rejected' && (d.id === s.devRequestId || d.linkedDesignSheetId === s.id)) || null;
+      const linkedDev = owner ? null : (s.devRequestId ? (devRequests || []).find(d => d.id === s.devRequestId) || null : null);
+      const done = isSampleOrderDone(order);
+      const deadline = sampleRowDeadline({ order, sheet: s, dev: owner });
+      rows.push({
+        key: `p_${s.id}`, kind: 'prod', dev: owner, sheet: s, order, linkedDev,
+        state: productionStateOf(order, s),
+        deadline, done,
+        urgency: done ? 'normal' : getUrgency(deadline),
+        sampleDays: daysBetween(s.stageEnteredAt?.sampling || order.createdAt || s.updatedAt),
+      });
+    });
+    // 급한 것부터 — 지연 · 임박 · 납기 빠른 순, 끝난 것(아이템화 대기)은 뒤로
+    const rank = { overdue: 0, urgent: 1, normal: 2 };
+    return rows.sort((a, b) => (a.done - b.done) || (rank[a.urgency] - rank[b.urgency])
+      || String(a.deadline || '9999').localeCompare(String(b.deadline || '9999')));
+  }, [devRequests, designSheets, sampleOrderBySheet]);
+
+  // 담당자 목록 (거르기 칸) — 표 · 샘플 진행 줄의 의뢰 담당자
+  const assigneeOptions = useMemo(() => {
+    const set = new Set();
+    let none = 0;
+    [...workRows, ...sampleRows].forEach(r => { const a = rowAssignee(r); if (a) set.add(a); else none += 1; });
+    return { names: [...set].sort((a, b) => a.localeCompare(b, 'ko')), none };
+  }, [workRows, sampleRows]);
+
   // 보관함: 생산 현황으로 넘어간 의뢰 (샘플 진행) · 아이템화된 설계서 · Drop된 의뢰
   //  샘플 진행 = Drop 안 된 의뢰 중 설계서가 생산 현황 샘플 오더로 넘어간 것 — '개발 확정' 전 단계여도 (의뢰 단계를 되돌린 뒤
   //  EZ-TEX 를 등록하면 표에도 보관함에도 안 보이던 것, 2026-10-10)
@@ -371,12 +432,19 @@ export const DevStatusPage = ({
   );
 
   // 요약 메트릭 (표의 개발 건 기준)
-  const metrics = useMemo(() => ({
-    total: workRows.length,
-    overdue: workRows.filter(r => rowUrgency(r) === 'overdue').length,
-    urgent: workRows.filter(r => rowUrgency(r) === 'urgent').length,
-    newToday: workRows.filter(r => isCreatedToday(rowCreatedAt(r))).length,
-  }), [workRows]);
+  //  지연 · 임박은 샘플 진행(생산 현황) 줄도 같이 셈 (2026-11-24). 담당자를 고르면 그 담당자 것만
+  const metrics = useMemo(() => {
+    const work = workRows.filter(r => passesAssignee(assigneeFilter, r));
+    const samples = sampleRows.filter(r => passesAssignee(assigneeFilter, r));
+    return {
+      total: work.length,
+      sample: samples.length,
+      sampleAwaiting: samples.filter(r => r.state?.key === 'awaiting').length,
+      overdue: work.filter(r => rowUrgency(r) === 'overdue').length + samples.filter(r => r.urgency === 'overdue').length,
+      urgent: work.filter(r => rowUrgency(r) === 'urgent').length + samples.filter(r => r.urgency === 'urgent').length,
+      newToday: work.filter(r => isCreatedToday(rowCreatedAt(r))).length,
+    };
+  }, [workRows, sampleRows, assigneeFilter]);
 
   // 의뢰 상태 → 통합 단계 매핑
   const devStageKey = (d) => {
@@ -386,6 +454,7 @@ export const DevStatusPage = ({
 
   const visibleRows = useMemo(() => {
     const filtered = workRows.filter(r => rowMatchesSearch(r, searchTerm)
+      && passesAssignee(assigneeFilter, r)
       && passesPriorityFilter(priorityFilter, rowUrgency(r), { createdAt: rowCreatedAt(r) }));
     const sorted = [...filtered];
     if (devSortBy === 'odno') {
@@ -411,7 +480,16 @@ export const DevStatusPage = ({
       });
     }
     return sorted;
-  }, [workRows, searchTerm, priorityFilter, devSortBy]);
+  }, [workRows, searchTerm, priorityFilter, devSortBy, assigneeFilter]);
+  // 샘플 진행 줄 — 같은 검색 · 담당자 · 지연/임박 거르기 ('오늘 신규'는 의뢰 표만)
+  const visibleSampleRows = useMemo(() => sampleRows.filter(r => rowMatchesSearch(r, searchTerm)
+    && passesAssignee(assigneeFilter, r)
+    && (priorityFilter === 'all' || (priorityFilter !== 'newToday' && passesPriorityFilter(priorityFilter, r.urgency, {})))),
+  [sampleRows, searchTerm, assigneeFilter, priorityFilter]);
+  const scrollToSamples = () => {
+    if (priorityFilter !== 'all') setPriorityFilter('all');
+    setTimeout(() => document.getElementById('dev-sample-progress')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
 
   // 핸들러
   const handleGoToSheet = (devReq) => {
@@ -567,13 +645,16 @@ export const DevStatusPage = ({
         </div>
 
         {/* 요약 카드 */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-          <SummaryCard icon={Activity} label="진행중" value={metrics.total} tone="slate"
-            active={priorityFilter === 'all'} onClick={() => setPriorityFilter('all')} subtext="전체 활성 카드" />
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
+          <SummaryCard icon={Activity} label="의뢰 · 설계 진행중" value={metrics.total} tone="slate"
+            active={priorityFilter === 'all'} onClick={() => setPriorityFilter('all')} subtext="개발 의뢰 현황 표" />
+          <SummaryCard icon={Factory} label="샘플 진행" value={metrics.sample} tone="amber"
+            active={false} onClick={scrollToSamples}
+            subtext={metrics.sampleAwaiting ? `생산 현황 · 아이템화 대기 ${metrics.sampleAwaiting}` : '생산 현황에서 진행 중'} />
           <SummaryCard icon={Flame} label="지연" value={metrics.overdue} tone="rose"
-            active={priorityFilter === 'overdue'} onClick={() => setPriorityFilter(priorityFilter === 'overdue' ? 'all' : 'overdue')} subtext="납기 초과" />
+            active={priorityFilter === 'overdue'} onClick={() => setPriorityFilter(priorityFilter === 'overdue' ? 'all' : 'overdue')} subtext="납기 초과 (샘플 진행 포함)" />
           <SummaryCard icon={Hourglass} label="임박" value={metrics.urgent} tone="orange"
-            active={priorityFilter === 'urgent'} onClick={() => setPriorityFilter(priorityFilter === 'urgent' ? 'all' : 'urgent')} subtext="D-3 이내" />
+            active={priorityFilter === 'urgent'} onClick={() => setPriorityFilter(priorityFilter === 'urgent' ? 'all' : 'urgent')} subtext="D-3 이내 (샘플 진행 포함)" />
           <SummaryCard icon={Sparkles} label="오늘 신규" value={metrics.newToday} tone="blue"
             active={priorityFilter === 'newToday'} onClick={() => setPriorityFilter(priorityFilter === 'newToday' ? 'all' : 'newToday')} subtext="오늘 등록된 의뢰" />
         </div>
@@ -636,6 +717,9 @@ export const DevStatusPage = ({
           )}
         </div>
 
+        {/* 개발 통계 — 의뢰 → 아이템화 · Drop 사유 · 바이어별 (개발 고도화 2026-11-24, 누르면 펼침) */}
+        <DevStatsPanel devRequests={devRequests} designSheets={designSheets} />
+
         {/* === 개발 의뢰 현황 (한 표) — 의뢰 + 설계서 + 자체개발 (대표님 요청 2026-10-10) ===
             한 줄 = 개발 건 하나: 의뢰 접수 → 분석 → 대기 → 개발 확정 → [설계 시작] → 설계서 작성 → EZ-TEX 번호 [등록]
             → 생산 현황 샘플 오더로 넘어가면 이 표에서 빠짐 (샘플 진행·아이템화·Drop 은 생산 현황에서)
@@ -650,7 +734,22 @@ export const DevStatusPage = ({
               </h3>
               <p className="text-[10px] text-slate-500 mt-0.5">개발 확정 → 설계서 작성 → EZ-TEX 번호를 [등록]하면 생산 현황(샘플)으로 넘어가요</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {(assigneeOptions.names.length > 0 || assigneeFilter) && (
+                <>
+                  <label className="text-[10px] text-slate-500 font-bold">담당자</label>
+                  <select
+                    value={assigneeFilter}
+                    onChange={(e) => setAssigneeFilter(e.target.value)}
+                    title="영업 담당자로 거르기 (아래 '샘플 진행' 표 · 위 숫자 칸도 같이)"
+                    className={`text-[11px] font-bold border rounded px-2 py-1 bg-white hover:border-purple-300 focus:ring-2 ring-purple-200 outline-none cursor-pointer ${assigneeFilter ? 'border-purple-400 text-purple-700' : 'border-slate-300'}`}
+                  >
+                    <option value="">전체</option>
+                    {assigneeOptions.names.map(n => <option key={n} value={n}>{n}</option>)}
+                    {assigneeOptions.none > 0 && <option value={NO_ASSIGNEE}>(담당자 없음)</option>}
+                  </select>
+                </>
+              )}
               <label className="text-[10px] text-slate-500 font-bold">정렬</label>
               <select
                 value={devSortBy}
@@ -669,7 +768,7 @@ export const DevStatusPage = ({
             <div className="text-center py-10 text-slate-400">
               <ClipboardList className="w-10 h-10 mx-auto mb-2 opacity-30"/>
               <p className="text-xs font-bold">진행 중인 개발 건이 없습니다.</p>
-              <p className="text-[10px] mt-1">EZ-TEX를 등록한 건은 생산 현황(샘플)에서 관리해요.</p>
+              <p className="text-[10px] mt-1">EZ-TEX를 등록한 건은 아래 '샘플 진행' 표에 보이고, 진행은 생산 현황(샘플)에서 해요.</p>
             </div>
           ) : (
             <>
@@ -748,6 +847,7 @@ export const DevStatusPage = ({
                                   <option value="confirmed" title="개발 가능 확정 — 설계서 작성 가능">개발 확정</option>
                                 </select>
                               )}
+                              {d && !s && <ReplyWaitChip dev={d} />}
                             </div>
                           </td>
                           <td className="px-2 py-1.5 border-r border-slate-100 text-xs">
@@ -880,6 +980,7 @@ export const DevStatusPage = ({
                       <div className="mb-2 flex items-center gap-2 flex-wrap">
                         <PendingProgressBar stageKey={s ? s.stage : devStageKey(d)} />
                         {db && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${db.c}`}>{db.t}</span>}
+                        {d && !s && <ReplyWaitChip dev={d} />}
                       </div>
                       {s ? (
                         <select
@@ -975,6 +1076,15 @@ export const DevStatusPage = ({
             </>
           )}
         </div>
+
+        {/* 샘플 진행 (생산 현황) — EZ-TEX 등록 뒤에도 납기 · 생산 상황이 보이게 (개발 고도화 2026-11-24) */}
+        <DevSampleProgress
+          rows={visibleSampleRows}
+          deadlineBadge={deadlineBadge}
+          onOpenProductionOrder={onOpenProductionOrder}
+          onOpenSheet={handleEditSheet}
+          onEditDev={openEditModal}
+        />
       </div>
 
       {/* 팝업 — 화면의 세로 간격(space-y) 칸 밖에 둠. 안에 두면 팝업에도 위 여백 24px이 붙어
@@ -1047,6 +1157,7 @@ export const DevStatusPage = ({
             confirmedLinkedDevs={inProductionDevs}
             articledSheets={articledSheets}
             designSheets={designSheets}
+            devRequests={devRequests}
             savedQuotes={savedQuotes}
             updateDevStatus={updateDevStatus}
             restoreSheet={restoreFromDrop}
@@ -1149,6 +1260,7 @@ const SummaryCard = ({ icon: Icon, label, value, tone, active, onClick, subtext 
     slate:  { ring: 'ring-slate-300',  bgActive: 'bg-slate-50',   icon: 'bg-slate-100 text-slate-600',   value: 'text-slate-800' },
     rose:   { ring: 'ring-rose-300',   bgActive: 'bg-rose-50',    icon: 'bg-rose-100 text-rose-600',     value: 'text-rose-700' },
     orange: { ring: 'ring-orange-300', bgActive: 'bg-orange-50',  icon: 'bg-orange-100 text-orange-600', value: 'text-orange-700' },
+    amber:  { ring: 'ring-amber-300',  bgActive: 'bg-amber-50',   icon: 'bg-amber-100 text-amber-700',   value: 'text-amber-700' },
     blue:   { ring: 'ring-blue-300',   bgActive: 'bg-blue-50',    icon: 'bg-blue-100 text-blue-600',     value: 'text-blue-700' }
   };
   const t = tones[tone] || tones.slate;

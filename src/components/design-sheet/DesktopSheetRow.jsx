@@ -82,10 +82,13 @@ export const DesktopSheetRow = ({
               className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="수정">
               <Edit2 className="w-4 h-4" />
             </button>
-            <button onClick={(e) => { e.stopPropagation(); handleDeleteSheet(sheet.id); }}
-              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="삭제">
-              <Trash2 className="w-4 h-4" />
-            </button>
+            {/* 🗑 는 아이템화 전 설계서에서만 — 아이템화된 설계서는 지울 수 없어서 버튼을 뺌 (2026-11-24, 예전엔 눌러도 늘 막힘) */}
+            {sheet.stage !== 'articled' && handleDeleteSheet && (
+              <button onClick={(e) => { e.stopPropagation(); handleDeleteSheet(sheet.id); }}
+                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="삭제">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
             <div className="p-1.5 text-slate-300 ml-1 group-hover:text-slate-600 transition-colors">
               {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </div>

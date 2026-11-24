@@ -3,9 +3,8 @@ import { X, Archive, Search, RotateCcw, Link, Award, ArrowRight, Calendar, Targe
 import { ModalBackdrop } from '../common/ModalBackdrop';
 import { DevQuoteBadge } from './DevQuoteBadge';
 import { DEV_DROP_REASONS } from '../../constants/common';
-import { COLOR_STAGES } from '../../constants/production';
 import { getDevQuoteBadge, indexDevQuotes } from '../../utils/devQuoteModel';
-import { getOrderProgressStage, isDropClosed } from '../../utils/orderModel';
+import { productionStateOf, devLeadDays } from '../../utils/devFlowModel';
 import { formatMonthDay } from '../../utils/helpers';
 
 // 진입 날짜 → "MM/DD" (공용 helpers.formatMonthDay — 비었으면 '')
@@ -17,17 +16,7 @@ const textMatches = (q, text) => !q || String(text || '').toLowerCase().includes
 // Drop 사유 찾기 — 사유 기능 전에 Drop된 의뢰(값 없음)는 null
 const findDropReason = (key) => DEV_DROP_REASONS.find(r => r.key === key) || null;
 
-// 생산 현황 샘플 오더의 지금 상황 (보관함 '샘플 진행' 카드) — { label, cls }
-//  Drop 으로 닫힘 / 완료했지만 설계서가 아직 = 아이템화 대기 / 그 밖엔 가장 덜 진행된 컬러 단계 (편직중·염색중 …)
-const productionStateOf = (order, sheet) => {
-  if (!order) return null;
-  if (isDropClosed(order)) return { label: 'Drop', cls: 'bg-rose-50 text-rose-600 border-rose-200' };
-  if (order.status === 'completed' && sheet?.stage !== 'articled') {
-    return { label: '완료 · 아이템화 대기', cls: 'bg-amber-50 text-amber-800 border-amber-300' };
-  }
-  const stage = COLOR_STAGES[getOrderProgressStage(order)];
-  return stage ? { label: stage.label, cls: stage.cls } : null;
-};
+// 생산 현황 샘플 오더의 지금 상황 (보관함 '샘플 진행' 카드) — utils/devFlowModel.productionStateOf (개발/설계 현황 '샘플 진행' 표와 같이)
 
 // 'inProgress' = 샘플 진행 (생산 현황) — EZ-TEX 를 등록해 생산 현황 샘플 오더로 넘어간 의뢰 (2026-10-10)
 //  (설계서를 쓰는 중인 의뢰는 개발/설계 현황 표에 그대로 있음 — 예전 '진행중 (설계서 연결)' 탭)
@@ -44,6 +33,7 @@ export const DevArchiveModal = ({
   confirmedLinkedDevs = [],   // 샘플 진행 (생산 현황) 의뢰 — 설계서가 생산 현황 샘플 오더로 넘어간 의뢰
   articledSheets = [],
   designSheets = [],
+  devRequests = [],         // 개발 의뢰 전체 — '아이템화 완료' 카드의 바이어 · 의뢰 → 아이템화 걸린 날 (2026-11-24)
   savedQuotes = [],     // 견적서 — Drop된 의뢰의 원가 견적·견적가 표시
   updateDevStatus,
   restoreSheet,             // (sheetId) => 설계서 복원 (useDesignSheet.restoreFromDrop — 의뢰도 '개발 확정'으로 같이 되살림)
@@ -343,7 +333,10 @@ export const DevArchiveModal = ({
               <EmptyMessage icon={Award} text="아이템화 완료 항목이 없습니다." />
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                {filteredArticled.map(s => (
+                {filteredArticled.map(s => {
+                  const dev = s.devRequestId ? (devRequests || []).find(d => d.id === s.devRequestId) || null : null;
+                  const lead = dev ? devLeadDays(dev, s) : null;
+                  return (
                   <div key={s.id}
                     onClick={() => handleEditSheet?.(s)}
                     className="bg-white rounded-xl border border-slate-200 p-3 shadow-sm hover:border-emerald-300 cursor-pointer transition-all">
@@ -352,9 +345,11 @@ export const DevArchiveModal = ({
                       <span className="text-xs font-mono font-extrabold text-violet-600">{s.devOrderNo || '자체'}</span>
                     </div>
                     <p className="text-sm font-extrabold text-slate-800 uppercase">{s.fabricName || '원단명 미입력'}</p>
+                    {dev?.buyerName && <p className="text-[11px] font-bold text-slate-600">{dev.buyerName}</p>}
                     <div className="flex gap-1.5 text-[10px] mt-1.5 flex-wrap">
                       {s.articleNo && <span className="font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded font-bold">{s.articleNo}</span>}
                       {s.eztexOrderNo && <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded">{s.eztexOrderNo}</span>}
+                      {lead != null && <span className="bg-slate-50 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded font-bold" title="의뢰 일자부터 아이템화까지">의뢰 → 아이템화 {lead}일</span>}
                     </div>
                     <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
                       <span className="flex items-center gap-1 text-[9px] text-slate-400">
@@ -366,7 +361,8 @@ export const DevArchiveModal = ({
                       </span>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )
           )}

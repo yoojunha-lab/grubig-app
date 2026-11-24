@@ -78,6 +78,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     changeHistory: [],       // 변경 이력 [{date, fields:{필드: 이전값}, reason}]
     changeReason: '',        // 변경사유 (저장 시 이력에 기록 후 제거)
     fieldConfirm: {},        // [요청5] 편직/염색 칸별 확인 여부 { 'knitting.gauge': true }
+    fieldConfirmValue: {},   // 확인할 때의 칸 값 { 'knitting.gauge': '18' } — 값이 바뀌면 확인이 풀림 (2026-11-24, DesignSheetPage)
     fieldMeta: {},           // [요청5] 편직/염색 칸별 최근 변경 감사 { key: {by, byName, at, from, to} }
     status: 'active',        // active | dropped
     devRequestId: null,      // 연결된 개발의뢰 ID
@@ -137,10 +138,12 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     },
 
     // Cost 연동용 (기존 fabricInput 호환 구조)
+    //  폭 · GSM은 빈칸으로 시작 (개발 고도화 2026-11-24 — 예전엔 58/56/300이 미리 들어 있어서
+    //  아무도 안 적어도 아이템화가 통과되고 원단이 300g으로 등록될 수 있었음. 예전 설계서 값은 그대로)
     costInput: {
-      widthFull: 58,
-      widthCut: 56,
-      gsm: 300,
+      widthFull: '',
+      widthCut: '',
+      gsm: '',
       costGYd: '',
       ...makeInitialCostFields() // 원가 칸 초기값 (utils/costFields — 원단·설계서·가설계서 같음)
     }
@@ -186,6 +189,48 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     setSheetInput(prev => ({ ...prev, ...patch }));
     // 저장소와 같게 맞춘 연결 칸은 '창을 열 때 값'도 같이 (이 창에서 바꾼 것으로 보지 않게)
     if (loadedLinksRef.current) loadedLinksRef.current = { ...loadedLinksRef.current, ...pickLinkFields(patch) };
+  };
+
+  // --- 개발 의뢰 '아이템화 완료' (개발 고도화 2026-11-24 — 예전엔 아이템화돼도 의뢰가 '개발 확정'에 영원히 남았음) ---
+  //  설계서가 아이템화되면 그 의뢰도 '아이템화 완료'(articled)로 닫음 · 아이템화를 되돌리면 '개발 확정'으로
+  //  articledInfo: { sheetId, articleNo, fabricId, at, prevStatus } — 통계(의뢰 → 아이템화 걸린 날)·보관함에 씀
+  //  의뢰 저장이 실패해도 설계서·원단 쪽은 그대로 (알림에 결과만 붙임). Drop된 의뢰는 건드리지 않음
+  const devOfSheet = (sheet) => (sheet?.devRequestId ? (devRequests || []).find(d => d.id === sheet.devRequestId) || null : null);
+  const markDevArticled = async (sheet, fabric) => {
+    const dev = devOfSheet(sheet);
+    if (!dev || dev.status === 'rejected' || dev.status === 'articled') return '';
+    const now = new Date().toISOString();
+    const ok = await saveDocToCloud('devRequests', {
+      ...dev,
+      status: 'articled',
+      linkedDesignSheetId: sheet.id,
+      articledInfo: {
+        sheetId: sheet.id,
+        articleNo: String(fabric?.article || sheet.articleNo || ''),
+        fabricId: fabric?.id || sheet.linkedFabricId || null,
+        at: now,
+        prevStatus: dev.status || '',
+      },
+      statusEnteredAt: { ...(dev.statusEnteredAt || {}), articled: now },
+      updatedAt: now,
+    });
+    return ok === false
+      ? ` (개발 의뢰 ${dev.devOrderNo || ''} '아이템화 완료' 표시는 저장하지 못했어요)`
+      : ` 개발 의뢰 ${dev.devOrderNo || ''}도 '아이템화 완료'로 닫았어요.`;
+  };
+  const reopenDevFromArticled = async (sheet) => {
+    const dev = devOfSheet(sheet);
+    if (!dev || dev.status !== 'articled') return '';
+    const now = new Date().toISOString();
+    const { articledInfo: _articledInfo, ...rest } = dev;
+    const ok = await saveDocToCloud('devRequests', {
+      ...rest,
+      status: 'confirmed',
+      linkedDesignSheetId: sheet.id,
+      statusEnteredAt: { ...(dev.statusEnteredAt || {}), confirmed: now },
+      updatedAt: now,
+    });
+    return ok === false ? '' : ` 개발 의뢰 ${dev.devOrderNo || ''}는 다시 '개발 확정'이에요.`;
   };
 
   // --- 생산 현황 샘플 오더 연동 (sampleOrderLink — 맨 위 설명) ---
@@ -399,7 +444,8 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         const head = sheet.stageEnteredAt?.articled
           ? '아이템화 단계로 복원되었습니다 (기존 원단 유지).'
           : `아이템화했어요 — 연결된 원단(${fabric?.article || sheet.articleNo || '-'})을 그대로 써요.`;
-        showToast(`${head}${articledOrderNote(res)}`, res && !res.ok ? 'error' : 'success');
+        const devNote = await markDevArticled(updatedSheet, fabric);
+        showToast(`${head}${articledOrderNote(res)}${devNote}`, res && !res.ok ? 'error' : 'success');
         return true;
       }
       if (saveFabricFromSheet) {
@@ -412,7 +458,9 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     const ok = await saveDocToCloud('designSheets', updatedSheet);
     if (ok === false) return false;
     syncOpenSheet(sheetId, stagePatch);
-    showToast(`'${DESIGN_STAGES.find(s => s.key === targetStage).label}' 단계로 이동했습니다.`, 'success');
+    // 아이템화를 되돌리면 의뢰도 '개발 확정'으로 (2026-11-24)
+    const devNote = sheet.stage === 'articled' ? await reopenDevFromArticled(updatedSheet) : '';
+    showToast(`'${DESIGN_STAGES.find(s => s.key === targetStage).label}' 단계로 이동했습니다.${devNote}`, 'success');
     return true;
   };
 
@@ -491,6 +539,30 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     return true;
   };
 
+  // [개발 의뢰 수정 → 설계서 납기] (개발 고도화 2026-11-24 — 예전엔 의뢰 샘플 납기를 고쳐도 설계서는 옛 날짜)
+  //  개발/설계 현황에서 의뢰를 고쳐 저장한 뒤 '설계서 · 샘플 오더도 바꿀까요?'에 [예] 하면 (App.handleSaveDevRequestSynced)
+  //  변경 이력에 '개발 의뢰 수정에서 납기 변경'. 반환: 저장됐으면 true
+  const applyDevDeadlineToSheet = async (sheetId, deadline) => {
+    const sheet = designSheets.find(s => s.id === sheetId);
+    const next = String(deadline || '').trim();
+    if (!sheet || !next) return false;
+    const prev = String(sheet.deadline || '').trim();
+    if (prev === next) return true;
+    const now = new Date().toISOString();
+    const patch = {
+      deadline: next,
+      changeHistory: [
+        { date: now, fields: { deadline: prev }, reason: '개발 의뢰 수정에서 샘플 납기 변경' },
+        ...(sheet.changeHistory || []),
+      ],
+      updatedAt: now,
+    };
+    const ok = await saveDocToCloud('designSheets', { ...sheet, ...patch });
+    if (ok === false) return false;
+    syncOpenSheet(sheetId, patch);
+    return true;
+  };
+
   // --- 의뢰 ↔ 설계서 수동 연결 (설계서 쪽에서 진행) ---
 
   // 자체개발(또는 미연결) 설계서에 기존 개발 의뢰를 수동으로 연결
@@ -514,13 +586,18 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     saveDocToCloud('designSheets', { ...sheet, ...linkPatch });
     syncOpenSheet(sheetId, linkPatch);
     // 의뢰 쪽: 설계서 ID 연결 + '개발투입확정' 승격 (confirmed 신규 진입 시에만 시점 기록)
-    const statusEnteredAt = dev.status === 'confirmed'
+    //  이미 아이템화된 설계서에 잇는 거면 '아이템화 완료'로 (2026-11-24)
+    const nextStatus = sheet.stage === 'articled' ? 'articled' : 'confirmed';
+    const statusEnteredAt = dev.status === nextStatus
       ? (dev.statusEnteredAt || {})
-      : { ...(dev.statusEnteredAt || {}), confirmed: now };
+      : { ...(dev.statusEnteredAt || {}), [nextStatus]: now };
     saveDocToCloud('devRequests', {
       ...dev,
       linkedDesignSheetId: sheetId,
-      status: 'confirmed',
+      status: nextStatus,
+      ...(nextStatus === 'articled' && !dev.articledInfo ? {
+        articledInfo: { sheetId, articleNo: String(sheet.articleNo || ''), fabricId: sheet.linkedFabricId || null, at: sheet.stageEnteredAt?.articled || now, prevStatus: dev.status || '' },
+      } : {}),
       statusEnteredAt,
       updatedAt: now
     });
@@ -540,9 +617,12 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     saveDocToCloud('designSheets', { ...sheet, ...unlinkPatch });
     syncOpenSheet(sheetId, unlinkPatch);
     // 의뢰 쪽: soft-unlink — linkedDesignSheetId만 해제하고 status(confirmed)는 유지
-    if (dev && dev.linkedDesignSheetId === sheetId) {
+    //  '아이템화 완료' 의뢰는 '개발 확정'으로 (설계서가 없으니 다시 설계 대기 — 어디에도 안 보이게 남지 않게, 2026-11-24)
+    if (dev && (dev.linkedDesignSheetId === sheetId || dev.status === 'articled')) {
+      const { articledInfo: _articledInfo, ...rest } = dev;
       saveDocToCloud('devRequests', {
-        ...dev,
+        ...(dev.status === 'articled' ? rest : dev),
+        ...(dev.status === 'articled' ? { status: 'confirmed' } : {}),
         linkedDesignSheetId: null,
         updatedAt: now
       });
@@ -591,6 +671,15 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     if (!finalInput.fabricName?.trim()) {
       showToast('원단명(Name)을 반드시 입력해주세요.', 'error');
       return null;
+    }
+
+    // 내폭은 외폭보다 클 수 없음 (원단 관리와 같은 규칙 — 2026-11-24, 예전엔 설계서에만 없었음)
+    {
+      const ci = finalInput.costInput || {};
+      if (String(ci.widthCut ?? '').trim() && String(ci.widthFull ?? '').trim() && Number(ci.widthCut) > Number(ci.widthFull)) {
+        showToast(`내폭(${ci.widthCut}")은 외폭(${ci.widthFull}")보다 클 수 없어요. 폭을 다시 확인해 주세요.`, 'error');
+        return null;
+      }
     }
 
     // [원가 확인] 원사 혼용률 합계가 100%가 아니면 저장 막기 (원단 등록과 같은 규칙 — 대표님 결정 2026-10-03)
@@ -908,6 +997,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
         yarns: (spec.yarns || []).map(s => (s ? { ...s } : s)),
         // 담당자 확인 표시는 새 설계서에서 다시 확인 (원본의 확인·감사 기록은 가져오지 않음)
         fieldConfirm: {},
+        fieldConfirmValue: {},
         fieldMeta: {},
         copiedFrom: { sheetId: source.id, label, at: new Date().toISOString() },
       };
@@ -1056,6 +1146,19 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       return false;
     }
 
+    // 최종 스펙(GSM · 내폭 · 외폭) — 어디서 불러도 한 번 더 (2026-11-24 — 빈칸이면 예전엔 58/56/300으로 등록됐음)
+    {
+      const ci = sheet.costInput || {};
+      if (!Number(ci.gsm) || !Number(ci.widthCut) || !Number(ci.widthFull)) {
+        showToast('원단 등록 전에 최종 스펙(GSM, 내폭, 외폭)을 모두 입력해 주세요.', 'error');
+        return false;
+      }
+      if (Number(ci.widthCut) > Number(ci.widthFull)) {
+        showToast(`내폭(${ci.widthCut}")은 외폭(${ci.widthFull}")보다 클 수 없어요. 폭을 고친 뒤 등록해 주세요.`, 'error');
+        return false;
+      }
+    }
+
     // [연동 보호] 동일 Article 원단이 이미 있으면 자동 등록 차단 (수동 원단 저장과 동일한 유일성 규칙)
     //   → 수동 등록만 막혀 있고 자동 등록/동기화로 중복 Article이 새는 비대칭 제거
     const dupArticle = String(sheet.articleNo || '').trim().toUpperCase();
@@ -1103,7 +1206,16 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
       etcCosts: normalizeExtraCosts(ci.etcCosts),
       riskMarginPct: Number(ci.riskMarginPct || 0),
       yarns: normalizeYarnSlots(sheet.yarns),
-      remarks: `설계서 아이템화 자동 등록 (${sheet.devOrderNo || ''})`
+      // 어느 개발 건에서 왔는지 — 개발번호 · 바이어 (2026-11-24 — 예전엔 개발번호만 메모에)
+      devSource: (() => {
+        const dev = devOfSheet(sheet);
+        return dev ? { devRequestId: dev.id, devOrderNo: dev.devOrderNo || sheet.devOrderNo || '', buyerName: dev.buyerName || '' } : null;
+      })(),
+      remarks: (() => {
+        const dev = devOfSheet(sheet);
+        const src = [sheet.devOrderNo || dev?.devOrderNo, dev?.buyerName].filter(Boolean).join(' · ');
+        return `설계서 아이템화 자동 등록${src ? ` (${src})` : ''}`;
+      })()
     };
     // 원단이 실제로 저장됐을 때만 설계서를 연결 (실패했는데 '없는 원단'에 연결된 채 아이템화로 굳는 일 방지)
     const fabricSaved = await saveFabricFromSheet(fabricData);
@@ -1123,8 +1235,10 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
 
     // 생산 현황 샘플 오더: article# = 이 원단(보관함 연결) + 완료
     const orderRes = await notifyOrder('onArticled', { ...sheet, ...linkPatch }, fabricData);
+    // 개발 의뢰: '아이템화 완료'로 닫기 (2026-11-24)
+    const devNote = await markDevArticled({ ...sheet, ...linkPatch }, fabricData);
     showToast(
-      `${toastPrefix}Article ${sheet.articleNo} 원단이 자동 등록되었습니다.${articledOrderNote(orderRes)}`,
+      `${toastPrefix}Article ${sheet.articleNo} 원단이 자동 등록되었습니다.${articledOrderNote(orderRes)}${devNote}`,
       orderRes && !orderRes.ok ? 'error' : 'success'
     );
     return true;
@@ -1291,6 +1405,7 @@ export const useDesignSheet = (designSheets, savedFabrics, yarnLibrary, saveDocT
     getDesignCost, initFromDevRequest, initFromOrder, dropDesignSheet, restoreFromDrop,
     loadSheetAsTemplate,
     saveSheetAndRegisterFabric,
+    applyDevDeadlineToSheet,
     getBlankSheetInput: getInitialSheetInput, // 저장 안 한 변경 확인용 빈 양식 (새 설계서 기준)
   };
 };

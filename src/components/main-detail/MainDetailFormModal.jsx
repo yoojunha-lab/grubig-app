@@ -206,6 +206,14 @@ export const MainDetailFormModal = ({
             </div>
           </div>
 
+          {/* 비고 — 예전엔 저장 칸만 있고 입력하는 곳이 없었음 (2026-11-24) */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 mb-1">비고</label>
+            <textarea name="remarks" value={detailInput.remarks || ''} onChange={handleDetailChange} rows={2}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 ring-fuchsia-200 outline-none resize-y"
+              placeholder="예: 바이어 요청으로 폭 다시 확인, 재가공 뒤 손느낌 좋아짐" />
+          </div>
+
           {/* 저장 후 같은 Order/Article로 한 번 더 작성 옵션 (신규 등록 모드에서만) */}
           {!editingDetailId && (
             <label className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg cursor-pointer hover:bg-amber-100 transition-colors">

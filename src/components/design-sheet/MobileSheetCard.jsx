@@ -66,10 +66,13 @@ export const MobileSheetCard = ({
                  <Edit2 className="w-3.5 h-3.5" />
                </button>
              )}
-             <button onClick={(e) => { e.stopPropagation(); handleDeleteSheet(sheet.id); }}
-               className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors mr-1" title="삭제">
-               <Trash2 className="w-3.5 h-3.5" />
-             </button>
+             {/* 🗑 는 아이템화 전 설계서에서만 (아이템화된 설계서는 지울 수 없음 — 2026-11-24) */}
+             {sheet.stage !== 'articled' && handleDeleteSheet && (
+               <button onClick={(e) => { e.stopPropagation(); handleDeleteSheet(sheet.id); }}
+                 className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors mr-1" title="삭제">
+                 <Trash2 className="w-3.5 h-3.5" />
+               </button>
+             )}
              <div className="p-1 text-slate-400 bg-slate-50 rounded">
                {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
              </div>

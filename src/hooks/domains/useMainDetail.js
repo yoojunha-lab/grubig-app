@@ -1,7 +1,14 @@
 import { useState } from 'react';
 
 // GRUBIG ERP - 메인 디테일 시트 (QC 및 생산 실측 데이터) 로직 훅
-export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, showToast) => {
+//  저장·삭제·판정 바꾸기·엑셀 붙여넣기 모두 서버 저장이 끝난 뒤 성공했을 때만 '완료' 알림 (개발 고도화 2026-11-24)
+//  같은 Order · Article · 컬러 · LOT 시트가 이미 있으면 한 장 저장 때도 한 번 물어봄 (엑셀 붙여넣기는 예전부터 건너뜀)
+
+// 같은 시트인지 보는 열쇠 — Order · Article · 컬러 · LOT (대소문자·앞뒤 빈칸 무시)
+const detailKey = (d) => ['orderNo', 'articleNo', 'colorInfo', 'lotNo']
+  .map(k => String(d?.[k] || '').trim().toUpperCase()).join('__');
+
+export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, showToast, saveBatchToCloud = null) => {
   const [editingDetailId, setEditingDetailId] = useState(null);
 
   const getInitialMainDetailInput = () => ({
@@ -113,6 +120,14 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
       return false;
     }
 
+    // 같은 Order · Article · 컬러 · LOT 시트가 이미 있으면 한 번 확인 (실수로 두 장이 되는 것 방지)
+    const key = detailKey(detailInput);
+    const twin = (mainDetails || []).find(d => String(d.id) !== String(editingDetailId || '') && detailKey(d) === key);
+    if (twin) {
+      const label = [twin.orderNo, twin.articleNo, twin.colorInfo, twin.lotNo && `LOT ${twin.lotNo}`].filter(Boolean).join(' / ');
+      if (!window.confirm(`같은 Order · Article · 컬러 · LOT 시트가 이미 있어요.\n(${label})\n\n그래도 한 장 더 저장할까요?`)) return false;
+    }
+
     const idToSave = editingDetailId || `md_${Date.now()}`;
     // 최상위 finWidthFull/finGsm은 1차 test에서 동기화 (하위 호환 + 리스트 테이블용)
     const firstTest = detailInput.tests?.[0];
@@ -167,32 +182,34 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
     setEditingDetailId(id);
   };
 
+  // 삭제 — deleteDocFromCloud 가 true 일 때만 '삭제되었습니다' (실패면 deleteDocFromCloud 가 실패 알림, 예전엔 실패해도 성공이라고 나왔음)
   const handleDeleteDetail = async (id) => {
-    if (!window.confirm('정말 이 시트를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) return;
-    try {
-      await deleteDocFromCloud('mainDetails', id);
-      if (editingDetailId === id) resetDetailForm();
-      showToast('삭제되었습니다.', 'success');
-    } catch {
-      // deleteDocFromCloud 내부에서 이미 에러 토스트 처리됨
-    }
+    if (!window.confirm('정말 이 시트를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) return false;
+    const ok = await deleteDocFromCloud('mainDetails', id);
+    if (!ok) return false;
+    if (editingDetailId === id) resetDetailForm();
+    showToast('삭제되었습니다.', 'success');
+    return true;
   };
 
-  const handleQuickStatusChange = (detailId, testIndex, newStatus) => {
+  // 목록의 Pass/Fail 바로 바꾸기 — 저장이 끝나고 성공했을 때만 '변경되었습니다' (예전엔 저장을 안 기다렸음)
+  const handleQuickStatusChange = async (detailId, testIndex, newStatus) => {
     const detail = mainDetails?.find(d => d.id === detailId);
-    if (!detail || !detail.tests || !detail.tests[testIndex]) return;
-    
+    if (!detail || !detail.tests || !detail.tests[testIndex]) return false;
+
     const updatedTests = [...detail.tests];
     updatedTests[testIndex] = { ...updatedTests[testIndex], status: newStatus };
-    
+
     const updatedDetail = {
       ...detail,
       tests: updatedTests,
       updatedAt: new Date().toISOString()
     };
-    
-    saveDocToCloud('mainDetails', updatedDetail);
+
+    const ok = await saveDocToCloud('mainDetails', updatedDetail);
+    if (ok === false) return false; // 실패 알림은 saveDocToCloud
     showToast(`[${detail.articleNo || 'No Article'}] 판정이 변경되었습니다.`, 'success');
+    return true;
   };
 
   // ============================================================
@@ -203,7 +220,8 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
   // 7~12: 1차(가공전폭 | 가공GSM | 폭축 | 장축 | 토킹 | 수축GSM)
   // 13~19: 2차(재가공방법 | 가공전폭 | 가공GSM | 폭축 | 장축 | 토킹 | 수축GSM)
   // ============================================================
-  const handleBulkPaste = (rawText, bulkType = 'main') => {
+  //  저장은 한 번에 묶어서 (saveBatchToCloud) — 다 저장됐을 때만 '등록 완료', 실패하면 0건 · 칸 그대로 (예전엔 저장 전에 개수를 셌음)
+  const handleBulkPaste = async (rawText, bulkType = 'main') => {
     if (!rawText?.trim()) {
       showToast('붙여넣기할 데이터가 없습니다.', 'error');
       return { added: 0, skipped: 0, duplicated: 0, errors: [] };
@@ -221,6 +239,7 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
       (mainDetails || []).map(d => `${(d.orderNo || '').toUpperCase()}__${(d.articleNo || '').toUpperCase()}__${(d.colorInfo || '').toUpperCase()}__${(d.lotNo || '').toUpperCase()}`)
     );
     const batchKeys = new Set();
+    const toSave = []; // 저장할 시트 (다 모은 뒤 한 번에)
 
     rows.forEach((cols, rowIdx) => {
       // 컬럼 수 체크 (최소 2개: OrderNo, ArticleNo)
@@ -313,9 +332,20 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
         updatedAt: new Date().toISOString()
       };
 
-      saveDocToCloud('mainDetails', newDetail);
-      added++;
+      toSave.push(newDetail);
     });
+
+    if (toSave.length) {
+      const ok = saveBatchToCloud
+        ? await saveBatchToCloud('mainDetails', toSave)
+        : (await Promise.all(toSave.map(d => saveDocToCloud('mainDetails', d)))).every(r => r !== false);
+      if (ok === false) {
+        // 저장 실패 — 칸은 그대로 두고 다시 시도할 수 있게 (실패 알림은 saveBatchToCloud)
+        errors.unshift(`저장 실패 — ${toSave.length}건이 저장되지 않았어요. 인터넷 연결을 확인하고 다시 [등록]해 주세요.`);
+        return { added: 0, skipped, duplicated, errors, failed: true };
+      }
+      added = toSave.length;
+    }
 
     const typeLabel = bulkType === 'main' ? 'Main' : 'Sample';
     if (added > 0) {

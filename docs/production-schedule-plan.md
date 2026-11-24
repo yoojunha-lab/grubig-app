@@ -731,7 +731,7 @@ order { id, schemaVersion:8, orderNumber, articleNo, detail, customer, type, fin
 - order# 를 고치면 설계서 EZ-TEX O/D NO.도 같이 (`useDesignSheet.syncEztexFromOrder`, 설계서 변경 이력 '생산 현황에서 order# 변경')
 - 샘플 오더 삭제 확인 창에 "설계서는 개발/설계 현황으로 돌아가요 · 그만두려면 Drop" (`deleteOrder(id, { note })`)
 
-**아직 안 한 것 (대표님이 정하면)**: 의뢰 바이어·납기를 고쳐도 이미 만든 샘플 오더엔 안 따라감 / 원단을 지우면 그 원단에 연결된 오더(메인 포함) 연결이 남음
+**아직 안 한 것 (대표님이 정하면)**: ~~의뢰 바이어·납기를 고쳐도 이미 만든 샘플 오더엔 안 따라감~~ → 2026-11-24 개발 고도화에서 **의뢰를 고치면 설계서 납기 · 샘플 오더 납기 · 바이어도 바꿀지 물어봄** (`docs/dev-flow.md` 2단계 ④) / 원단을 지우면 그 원단에 연결된 오더(메인 포함) 연결이 남음
 
 ---
 

@@ -36,7 +36,8 @@ import { useQuoteExport } from '../hooks/domains/useQuoteExport';
 import { useUnsavedGuard } from '../hooks/useUnsavedGuard';
 import { DEFAULT_EXCHANGE_RATE, rateLabel, sortByArticle } from '../utils/helpers';
 import { resolveCostSettings } from '../utils/costModel';
-import { getOpenWork } from '../utils/orderModel';
+import { getOpenWork, applyOrderField } from '../utils/orderModel';
+import { devChangePlan, liveSheetOfDev } from '../utils/devFlowModel';
 import { resolveStickerOptions } from '../utils/hangerSticker';
 
 // 🧩 공통 / 레이아웃 UI 컴포넌트
@@ -496,7 +497,7 @@ const App = () => {
     yarnInput, setYarnInput, editingYarnId,
     handleSaveYarn, handleEditYarn, handleDeleteYarn, resetYarnForm,
     handleAddSupplier, handleRemoveSupplier, handleSupplierChange, handleDeleteHistoryItem
-  } = useYarn(yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast, designSheets, costSettings);
+  } = useYarn(yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast, designSheets, costSettings, tempDesignSheets, devRequests);
 
   const {
     quoteInput, setQuoteInput, handleQuoteSettingChange, handleRecalcQuote, createQuoteItem,
@@ -573,9 +574,40 @@ const App = () => {
     resetSheetForm, setStage, registerEztexOrderNo, syncEztexFromOrder,
     linkSheetToDevRequest, unlinkSheetFromDevRequest,
     getDesignCost, initFromDevRequest, initFromOrder, dropDesignSheet, restoreFromDrop,
-    loadSheetAsTemplate,
+    loadSheetAsTemplate, applyDevDeadlineToSheet,
     saveSheetAndRegisterFabric, getBlankSheetInput
   } = useDesignSheet(designSheets, savedFabrics, yarnLibrary, saveDocToCloud, deleteDocFromCloud, showToast, calculateCost, exchangeRates, saveFabricFromSheet, devRequests, sampleOrderLink);
+
+  // 개발 의뢰 수정 저장 → 연결된 설계서 · 생산 현황 샘플 오더도 바꿀지 묻기 (개발 고도화 2026-11-24)
+  //  예전엔 바이어가 샘플 납기를 바꿔 의뢰를 고쳐도 설계서 납기 · 샘플 오더 납기 · 바이어는 옛 값 그대로였음
+  //  바뀌는 칸: 샘플 납기 → 설계서 납기 · 샘플 오더 납기(완료된 오더 빼고) / 바이어 → 샘플 오더 바이어 (utils/devFlowModel.devChangePlan)
+  //  자동으로 바꾸지 않고 한 번 물어봄 (대표님 결정 — 설계서·오더에 따로 정한 날짜가 있을 수 있어서)
+  const handleSaveDevRequestSynced = async (u) => {
+    const before = editingDevId ? (devRequests || []).find(d => d.id === editingDevId) || null : null;
+    const after = devInput;
+    const ok = await handleSaveDevRequest(u);
+    if (!ok || !before) return ok;
+    const sheet = liveSheetOfDev(before, designSheets);
+    const order = sheet ? sheetOrderOf(sheet.id) : null;
+    const plan = devChangePlan({ before, after, sheet, order });
+    if (!plan.length) return ok;
+    const lines = plan.map(p => `· ${p.label}: ${p.from || '(빈 칸)'} → ${p.to}`).join('\n');
+    if (!window.confirm(`의뢰를 고쳤어요. 연결된 곳도 같이 바꿀까요?\n\n${lines}\n\n[취소]를 누르면 의뢰만 바뀌어요.`)) return ok;
+    const done = [];
+    const failed = [];
+    const sheetDue = plan.find(p => p.target === 'sheet' && p.field === 'deadline');
+    if (sheetDue) {
+      if (await applyDevDeadlineToSheet(sheet.id, sheetDue.to)) done.push('설계서 납기'); else failed.push('설계서 납기');
+    }
+    const orderPlan = plan.filter(p => p.target === 'order');
+    if (order && orderPlan.length) {
+      const saved = await orderActions.updateOrder(order.id, (o) => orderPlan.reduce((acc, p) => applyOrderField(acc, p.field, p.to), o), { note: '개발 의뢰 수정' });
+      if (saved === false) failed.push('샘플 오더'); else done.push(`샘플 오더(${order.orderNumber})`);
+    }
+    if (failed.length) showToast(`의뢰는 저장했지만 ${failed.join(' · ')}는 바꾸지 못했어요. 그 화면에서 직접 고쳐 주세요.`, 'error');
+    else if (done.length) showToast(`의뢰와 같이 ${done.join(' · ')}도 바꿨어요.`, 'success');
+    return ok;
+  };
 
   // 생산 현황 ↔ 설계서 화면 오가기
   //  - 설계서 열기: 생산 현황 샘플 오더의 '설계서' 표시 → 설계서 작성 창 (어느 메뉴에서든 뜨는 팝업)
@@ -627,7 +659,7 @@ const App = () => {
     handleDetailChange, handleTestChange, addTest, removeTest,
     handleSaveDetail, handleEditDetail, handleDeleteDetail, resetDetailForm,
     handleQuickStatusChange, handleBulkPaste, getBlankDetailInput
-  } = useMainDetail(mainDetails, saveDocToCloud, deleteDocFromCloud, showToast);
+  } = useMainDetail(mainDetails, saveDocToCloud, deleteDocFromCloud, showToast, saveBatchToCloud);
 
   // ⚓️ 가설계서(레시피) 전용 훅 — 기존 useDesignSheet와 완전 독립
   const {
@@ -1450,7 +1482,7 @@ const App = () => {
             editingDevId={editingDevId}
             handleDevChange={handleDevChange}
             handleSpecChange={handleSpecChange}
-            handleSaveDevRequest={handleSaveDevRequest}
+            handleSaveDevRequest={handleSaveDevRequestSynced}
             handleEditDevRequest={handleEditDevRequest}
             handleDeleteDevRequest={handleDeleteDevRequest}
             resetDevForm={resetDevForm}

@@ -8,14 +8,16 @@ import { isImportSupplier, findImportCountry } from '../../utils/costModel';
 //    (수입 체크를 풀면 freight 값이 다시 쓰이도록 freight는 지우지 않고 보관)
 
 // costSettings: 원가 설정 (수입 국가 목록 — 수입 체크 시 기본 국가)
-export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast, designSheets, costSettings = null) => {
+// tempDesignSheets · devRequests: 지우기 전 '쓰는 곳' 확인에 같이 봄 (2026-11-24 — 예전엔 원단·설계서만 봐서
+//  가설계서 레시피·개발 의뢰 원가 견적의 원가가 조용히 깨졌음)
+export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFromCloud, showToast, designSheets, costSettings = null, tempDesignSheets = [], devRequests = []) => {
   const [editingYarnId, setEditingYarnId] = useState(null);
   // Y4: 빠른 더블클릭 삭제 race 방지 — 진행 중 yarn id (ref라 원사 행(memo)에 남은 옛 함수에서도 바로 보임)
   const deletingYarnRef = useRef(null);
   // 삭제 확인에 쓰는 최신 목록 — 원사 행은 원단·설계서가 바뀌어도 다시 그려지지 않아(memo) 옛 함수가 불릴 수 있음
   //  → 누른 순간의 최신 목록으로 '사용 중'을 판단 (그 사이 새 원단에 쓰인 원사가 지워지는 일 방지). 그리기가 끝난 뒤 갱신
-  const latestRef = useRef({ savedFabrics, designSheets });
-  useEffect(() => { latestRef.current = { savedFabrics, designSheets }; });
+  const latestRef = useRef({ savedFabrics, designSheets, tempDesignSheets, devRequests });
+  useEffect(() => { latestRef.current = { savedFabrics, designSheets, tempDesignSheets, devRequests }; });
 
   const initialYarnInput = {
     category: '소모', name: '', remarks: '',
@@ -122,13 +124,18 @@ export const useYarn = (yarnLibrary, savedFabrics, saveDocToCloud, deleteDocFrom
     if (deletingYarnRef.current === id) return;
 
     // [방어] savedFabrics/fabric.yarns가 null/undefined일 때 크래시 방지 — 누른 순간의 최신 목록으로 확인
-    const { savedFabrics: fabricsNow, designSheets: sheetsNow } = latestRef.current;
-    const usesYarn = (doc) => (doc?.yarns || []).some(y => y?.yarnId && String(y.yarnId).split('::')[0] === String(id) && y.ratio > 0);
-    const isUsed = (fabricsNow || []).some(usesYarn);
-    // [기획오류 #11 수정] 설계서에서도 원사 사용 체크
-    const isUsedInSheet = (sheetsNow || []).some(usesYarn);
-    if (isUsed || isUsedInSheet) {
-      alert("🚨 경고: 이 원사를 사용 중인 원단 또는 설계서가 있습니다! 삭제 불가.");
+    const { savedFabrics: fabricsNow, designSheets: sheetsNow, tempDesignSheets: tempsNow, devRequests: devsNow } = latestRef.current;
+    const usesSlot = (y) => y?.yarnId && String(y.yarnId).split('::')[0] === String(id) && Number(y.ratio) > 0;
+    const usesYarn = (doc) => (doc?.yarns || []).some(usesSlot);
+    // [기획오류 #11 수정] 설계서에서도 원사 사용 체크 + 가설계서 · 개발 의뢰 원가 견적 (2026-11-24)
+    const used = [
+      ['원단', (fabricsNow || []).filter(usesYarn).length],
+      ['설계서', (sheetsNow || []).filter(usesYarn).length],
+      ['가설계서', (tempsNow || []).filter(usesYarn).length],
+      ['개발 의뢰 원가 견적', (devsNow || []).filter(d => (d?.costQuote?.yarns || []).some(y => (y?.mode || 'library') === 'library' && usesSlot(y))).length],
+    ].filter(([, n]) => n > 0);
+    if (used.length) {
+      alert(`🚨 이 원사를 쓰는 곳이 있어서 지울 수 없어요.\n\n${used.map(([label, n]) => `· ${label} ${n}개`).join('\n')}\n\n그곳에서 다른 원사로 바꾼 뒤 지워 주세요.`);
       return;
     }
     if (!window.confirm("이 원사와 등록된 모든 공급처 정보가 삭제됩니다. 삭제하시겠습니까?")) return;

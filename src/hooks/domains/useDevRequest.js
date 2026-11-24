@@ -29,7 +29,9 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
       feeling: '',
       analysisDeadline: '',
       sampleDeadline: '',
-      otherRequests: ''
+      otherRequests: '',
+      widthWeight: '',     // 폭 / 중량 (의뢰서 인쇄 칸 — 2026-11-24 입력 칸 생김)
+      customerNotes: ''    // 바이어 특이사항 (의뢰서 인쇄 칸 — 2026-11-24 입력 칸 생김)
     },
     swatchNote: '',
     status: 'pending'
@@ -303,6 +305,8 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     const devReq = devRequests.find(d => d.id === devReqId);
     if (!devReq) return;
     if (devReq.status === 'rejected') return;
+    // 아이템화 완료된 의뢰 — 아이템화된 설계서를 고쳐 저장해도 '개발 확정'으로 되돌리지 않음 (2026-11-24)
+    if (devReq.status === 'articled') return;
     // 이미 확정+연결된 경우 → 중복 저장 방지 (설계서 수정 저장 시)
     if (devReq.status === 'confirmed' && devReq.linkedDesignSheetId === designSheetId) return;
     const now = new Date().toISOString();

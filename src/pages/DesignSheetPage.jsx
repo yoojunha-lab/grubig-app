@@ -38,6 +38,24 @@ const TSelect = ({ children, ...props }) => (
   </select>
 );
 
+// 담당자 확인칸 — 확인할 때의 값 (개발 고도화 2026-11-24 '확인한 뒤 값이 바뀌면 다시 노랑')
+//  칸 하나에 값이 둘인 곳: 개폭(개폭선·오픈개폭) · 포속/오버피더 · 원사 비율(원사 + 비율)
+const CONFIRM_COMBO = {
+  'knitting.openWidth': ['knitting.hasOpenWidth', 'knitting.isOpenWidth'],
+  'dyeing.fabricSpeed': ['dyeing.fabricSpeed', 'dyeing.overFeeder'],
+};
+const readPath = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+const confirmSnapshot = (input, key) => {
+  const yarn = /^yarns\.(\d+)\.ratio$/.exec(key);
+  const paths = yarn ? [`yarns.${yarn[1]}.yarnId`, key] : (CONFIRM_COMBO[key] || [key]);
+  return paths.map(p => {
+    const v = readPath(input, p);
+    if (v === true) return 'true';
+    if (v === false || v == null) return '';
+    return String(v).trim();
+  }).join('|');
+};
+
 // 변경 감사 툴팁 텍스트 만들기 (누가·언제·무엇→무엇)
 const buildAuditTip = (meta) => {
   if (!meta) return '';
@@ -259,19 +277,46 @@ export const DesignSheetPage = ({
   const toggleBool = (section, field) => handleSectionChange(section, field, !sheetInput[section]?.[field]);
 
   // [요청5] 담당자 확인 칸 — 칸별 확인 여부 토글 + 공통 props 생성기
-  const fieldConfirm = sheetInput.fieldConfirm || {};
+  //  확인할 때 그 칸 값을 같이 적어 둠 (fieldConfirmValue) → 값이 바뀌면 확인이 풀려 다시 노랑 (2026-11-24)
+  //  예전 설계서(확인 값이 안 적힌 확인)는 창을 열 때 값 기준 — 열고 나서 바꾸면 풀림
   const fieldMeta = sheetInput.fieldMeta || {};
+  const legacyConfirmRef = React.useRef({ id: null, values: {} });
+  const confirmBase = (input, key) => {
+    const saved = input.fieldConfirmValue?.[key];
+    if (saved !== undefined) return saved;
+    const sid = String(input.id || editingSheetId || '__new');
+    if (legacyConfirmRef.current.id !== sid) legacyConfirmRef.current = { id: sid, values: {} };
+    const vals = legacyConfirmRef.current.values;
+    if (!(key in vals)) vals[key] = confirmSnapshot(input, key);
+    return vals[key];
+  };
+  const isConfirmedIn = (input, key) => !!input.fieldConfirm?.[key] && confirmBase(input, key) === confirmSnapshot(input, key);
   const toggleFieldConfirm = (key) => {
     if (isFullyLocked) return;
-    setSheetInput?.(prev => ({
-      ...prev,
-      fieldConfirm: { ...(prev.fieldConfirm || {}), [key]: !(prev.fieldConfirm?.[key]) }
-    }));
+    setSheetInput?.(prev => {
+      const on = !isConfirmedIn(prev, key);
+      const values = { ...(prev.fieldConfirmValue || {}) };
+      if (on) values[key] = confirmSnapshot(prev, key); else delete values[key];
+      return { ...prev, fieldConfirm: { ...(prev.fieldConfirm || {}), [key]: on }, fieldConfirmValue: values };
+    });
   };
+  // 확인한 뒤 값이 바뀐 칸 → 확인 풀기 (저장해도 노랑으로 남게 — 예전엔 값이 바뀌어도 초록 그대로)
+  React.useEffect(() => {
+    if (isTempMode || typeof setSheetInput !== 'function') return;
+    const stale = Object.keys(sheetInput.fieldConfirm || {}).filter(k => sheetInput.fieldConfirm[k] && !isConfirmedIn(sheetInput, k));
+    if (!stale.length) return;
+    setSheetInput(prev => {
+      const confirm = { ...(prev.fieldConfirm || {}) };
+      const values = { ...(prev.fieldConfirmValue || {}) };
+      stale.forEach(k => { confirm[k] = false; delete values[k]; });
+      return { ...prev, fieldConfirm: confirm, fieldConfirmValue: values };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheetInput, isTempMode]);
   const specProps = (key, span = 1, className = '') => ({
     span,
     className,
-    confirmed: !!fieldConfirm[key],
+    confirmed: isConfirmedIn(sheetInput, key),
     meta: fieldMeta[key],
     onToggle: () => toggleFieldConfirm(key),
     locked: isFullyLocked,
@@ -366,13 +411,14 @@ export const DesignSheetPage = ({
               <Copy className="w-3.5 h-3.5" /> 설계서 불러오기
             </button>
           )}
-          {/* 정식 모드: 가설계서 불러오기 버튼 */}
-          {!isTempMode && (tempDesignSheets || []).length > 0 && (
+          {/* 정식 모드 · 새 설계서: 가설계서 불러오기 버튼 — 저장된 설계서에서는 안 보임 (2026-11-24 — 원단명·원사·원가가 덮어써지고
+              연결된 원단까지 바뀌던 것 막음. 설계서 불러오기와 같은 규칙) */}
+          {!isTempMode && !editingSheetId && (tempDesignSheets || []).length > 0 && (
             <button onClick={() => setIsTempLoadModalOpen(true)} className="px-4 py-2 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-300 hover:bg-amber-100 rounded shadow-sm transition-colors flex items-center gap-1.5">
               <Download className="w-3.5 h-3.5" /> 가설계서 불러오기
             </button>
           )}
-          {editingSheetId && !isFullyLocked && !isTempMode && (
+          {editingSheetId && !isFullyLocked && !isTempMode && sheetInput.stage !== 'articled' && (
             <button onClick={async () => { if (!(await handleDeleteSheet(editingSheetId))) return; if (closeModal) closeModal(); else setActiveTab('devStatus'); }} className="px-4 py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded shadow-sm transition-colors flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> 삭제</button>
           )}
           {/* 설계서 작성 → EZ-TEX 단계 (예전 '생산팀 이관하기' — 실제로 생산 현황(샘플)으로 넘어가는 건 EZ-TEX 번호 [등록], 2026-10-10) */}
@@ -486,11 +532,11 @@ export const DesignSheetPage = ({
           )}
 
           <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black">내폭 (")</Th>
-          <SpecCell {...specProps('costInput.widthCut', 1)}><TInput type="number" name="widthCut" value={sheetInput.costInput?.widthCut ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder="56" className="text-center font-mono font-black text-indigo-800 text-sm" /></SpecCell>
+          <SpecCell {...specProps('costInput.widthCut', 1)}><TInput type="number" name="widthCut" value={sheetInput.costInput?.widthCut ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder={isTempMode ? '56' : '입력'} className="text-center font-mono font-black text-indigo-800 text-sm" /></SpecCell>
           <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black">외폭 (")</Th>
-          <SpecCell {...specProps('costInput.widthFull', 1)}><TInput type="number" name="widthFull" value={sheetInput.costInput?.widthFull ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder="58" className="text-center font-mono font-black text-indigo-800 text-sm" /></SpecCell>
+          <SpecCell {...specProps('costInput.widthFull', 1)}><TInput type="number" name="widthFull" value={sheetInput.costInput?.widthFull ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder={isTempMode ? '58' : '입력'} className="text-center font-mono font-black text-indigo-800 text-sm" /></SpecCell>
           <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black">GSM</Th>
-          <SpecCell {...specProps('costInput.gsm', 1)}><TInput type="number" name="gsm" value={sheetInput.costInput?.gsm ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder="300" className="text-center font-mono font-black text-indigo-800 text-sm" /></SpecCell>
+          <SpecCell {...specProps('costInput.gsm', 1)}><TInput type="number" name="gsm" value={sheetInput.costInput?.gsm ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder={isTempMode ? '300' : '입력'} className="text-center font-mono font-black text-indigo-800 text-sm" /></SpecCell>
           <Th span={1} className="bg-indigo-100 !border-b-indigo-200 text-indigo-900 justify-center text-[11px] !font-black">생산 G/YD</Th>
           <Td span={1} className="bg-indigo-50">
             <TInput type="number" name="costGYd" value={sheetInput.costInput?.costGYd ?? ''} onChange={handleCostInputChange} readOnly={isFullyLocked} placeholder={theoreticalGYd > 0 ? num(theoreticalGYd) : ''} className="text-center font-mono font-black text-blue-700 text-sm placeholder:text-slate-400 placeholder:font-normal" />

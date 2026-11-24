@@ -148,6 +148,17 @@ export const DevRequestFormModal = ({
               className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs focus:ring-2 ring-violet-200 outline-none"
             />
           </div>
+          {/* 폭 / 중량 — 의뢰서 인쇄의 '폭 / 중량' 칸 (예전엔 입력 칸이 없어서 늘 '-' — 2026-11-24) */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 mb-0.5">폭 / 중량</label>
+            <input
+              type="text"
+              placeholder='예: 58" / 300g'
+              value={devInput.targetSpec?.widthWeight || ''}
+              onChange={e => handleSpecChange('widthWeight', e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs focus:ring-2 ring-violet-200 outline-none"
+            />
+          </div>
           <div>
             <label className="block text-[10px] font-bold text-slate-500 mb-0.5">혼용률 / 스펙</label>
             <input
@@ -174,6 +185,17 @@ export const DevRequestFormModal = ({
               placeholder="추가 요청..."
               value={devInput.targetSpec?.otherRequests || ''}
               onChange={e => handleSpecChange('otherRequests', e.target.value)}
+              rows={2}
+              className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs focus:ring-2 ring-violet-200 outline-none resize-none"
+            />
+          </div>
+          {/* 바이어 특이사항 — 의뢰서 인쇄의 '바이어 특이사항' 칸 (2026-11-24) */}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 mb-0.5">바이어 특이사항</label>
+            <textarea
+              placeholder="예: 이 바이어는 수축률 3% 이내 요구, 형광 X"
+              value={devInput.targetSpec?.customerNotes || ''}
+              onChange={e => handleSpecChange('customerNotes', e.target.value)}
               rows={2}
               className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs focus:ring-2 ring-violet-200 outline-none resize-none"
             />
