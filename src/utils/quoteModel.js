@@ -16,6 +16,8 @@
 //   버튼을 바꾸면 조각으로 기준원가를 다시 만듦 (다른 원가는 그대로)
 // ■ 견적마다 구간 (대표님 결정 2026-10-21 — 800YD → 700YD): 예전 800YD 견적은 보낸 그대로 800YD로 보고·출력하고,
 //   [현재 원가로 다시 계산]·시장 구분 전환·복제(다시 계산) 때 700YD로 바꿈 (1-A. getQuoteTiers · upgradeQuoteTiers)
+// ■ 견적서 단위 YD / M (대표님 요청 2026-11-16 — M로 견적을 원하는 바이어): 원가·화면은 늘 YD, 바이어 견적서(PDF·엑셀)만
+//   M로 환산해서 내보냄 (quote.priceUnit 'M' — 견적마다 저장, 없으면 YD). 구간 이름은 같은 숫자에 M (300 M = 300YD 단가 환산 — 6절)
 
 import { smartRound, roundUsd, applyGrossMargin, num, usd, getQuoteValidUntil } from './helpers';
 import { normalizeColorQtys } from './costModel';
@@ -405,12 +407,19 @@ export const getCustomExclude = (quote) => ({
 //   · 같은 원단은 별도 견적에 한 줄만 — 일반 줄을 러닝 생지 줄로 바꾸거나, [러닝 생지 해제]로 되돌림
 // ----------------------------------------------------------------------
 
-/** 러닝 생지 조건 정리 — 생지 짠 수량(정수 YD)과 컬러별 수량(0보다 큰 정수 YD). 컬러별 수량이 없으면 null (= 일반 줄) */
+/**
+ * 러닝 생지 조건 정리 — 생지 짠 수량(정수 YD)과 컬러별 수량(0보다 큰 정수 YD). 컬러별 수량이 없으면 null (= 일반 줄)
+ *  colorQtysM: M 견적서에서 M로 넣은 컬러별 수량 (2026-11-16) — 견적서에 넣은 숫자 그대로 내보내려고 같이 둠.
+ *   YD 칸과 하나하나 맞을 때만 남김 (M ÷ 0.9144 반올림 = 그 컬러 YD). 맞지 않으면(YD로 다시 고친 예전 값) 버림
+ */
 export const normalizeRunning = (running) => {
   if (!running || typeof running !== 'object') return null;
   const colorQtys = normalizeColorQtys(running.colorQtys);
   if (colorQtys.length === 0) return null;
-  return { greigeQty: Math.max(0, Math.round(Number(running.greigeQty) || 0)), colorQtys };
+  const base = { greigeQty: Math.max(0, Math.round(Number(running.greigeQty) || 0)), colorQtys };
+  const meters = normalizeColorQtys(running.colorQtysM);
+  const matches = meters.length === colorQtys.length && meters.every((m, i) => meterToYd(m) === colorQtys[i]);
+  return matches ? { ...base, colorQtysM: meters } : base;
 };
 
 /** 러닝 생지 줄인지 */
@@ -431,10 +440,11 @@ export const customRowCostOpts = (row) => {
  * 컬러별 수량 글자 — '250/182/242' (러닝 생지 줄이 아니면 '') — 별도 견적서·견적 목록 표시
  *  wrap: true면 '/' 뒤에서 줄이 바뀔 수 있게 (보이지 않는 줄바꿈 자리) — 좁은 칸(PDF 수량 칸 등)에서 컬러가 많아도 옆 칸으로 넘치지 않게.
  *        엑셀처럼 글자를 그대로 쓰는 곳은 false
+ *  quote: 주면 그 견적서 단위로 (M 견적서는 컬러별 M — 합계가 수량 칸의 M와 맞게 나눔, 6절 splitToUnit). 안 주면 YD 그대로
  */
-export const formatColorSplit = (row, { wrap = false } = {}) => {
+export const formatColorSplit = (row, { wrap = false, quote = null } = {}) => {
   const running = normalizeRunning(row?.running);
-  return running ? running.colorQtys.map(q => num(q)).join(wrap ? '/\u200B' : '/') : '';
+  return running ? (quote ? rowUnitSplit(row, quote) : running.colorQtys).map(q => num(q)).join(wrap ? '/\u200B' : '/') : '';
 };
 
 /**
@@ -497,10 +507,11 @@ export const quotePriceBasis = (currency) => (currency === 'USD' ? 'FOB PRICE' :
 export const quoteTermsLang = (quote) => (quote?.currency === 'USD' ? 'en' : 'ko');
 
 // 약관 문구 — en: 수출 견적서 / ko: 내수 견적서 (같은 순서·같은 조건으로 줄이 나감)
+//  unit: 견적서 단위 'YD' / 'M' (2026-11-16 — M 견적서는 'PER METER'·'M당'·'M PER COLOR')
 const TERMS_TEXT = {
   en: {
     tolerance: '±5% WEIGHT AND WIDTH TOLERANCE',
-    perYard: 'PRICES ARE PER YARD, BASED ON TOTAL ORDER QUANTITY',
+    perUnit: (unit) => `PRICES ARE PER ${unit === 'M' ? 'METER' : 'YARD'}, BASED ON TOTAL ORDER QUANTITY`,
     small: (labels) => `${labels}: UP TO 2 COLORS (SMALL-LOT DYEING CHARGE INCLUDED)`,
     mcq: (labels) => `${labels}: MCQ PER COLOR REQUIRED`,
     visual: 'VISUAL INSPECTION NOT INCLUDED',
@@ -510,13 +521,13 @@ const TERMS_TEXT = {
     upcharge: 'UPCHARGE APPLIES FOR ORDERS BELOW MCQ/MOQ',
     specialQty: 'PRICES APPLY ONLY TO THE QUANTITY (TOTAL PER ORDER) AND NUMBER OF COLORS STATED',
     specialSplit: 'PRICES ASSUME THE QUANTITY IS SPLIT EVENLY ACROSS THE STATED COLORS',
-    specialUneven: 'IF AN UNEVEN SPLIT LEAVES ANY COLOR BELOW MCQ (YD PER COLOR), THE PRICE MAY BE ADJUSTED',
+    specialUneven: (unit) => `IF AN UNEVEN SPLIT LEAVES ANY COLOR BELOW MCQ (${unit} PER COLOR), THE PRICE MAY BE ADJUSTED`,
     specialStated: 'WHERE QUANTITY PER COLOR IS STATED, THE PRICE IS BASED ON THAT SPLIT AND MAY BE ADJUSTED IF IT CHANGES',
     specialOther: 'OTHER QUANTITIES OR COLORS: PLEASE ASK FOR A NEW QUOTATION',
   },
   ko: {
     tolerance: '중량·폭 ±5% 오차 허용',
-    perYard: '단가는 YD당 가격이며, 오더 총수량 기준입니다',
+    perUnit: (unit) => `단가는 ${unit}당 가격이며, 오더 총수량 기준입니다`,
     small: (labels) => `${labels}: 2컬러까지 (소량 염색 추가 비용 포함)`,
     mcq: (labels) => `${labels}: 컬러별 MCQ 이상 오더 기준`,
     visual: '외관검사 비용 미포함',
@@ -526,7 +537,7 @@ const TERMS_TEXT = {
     upcharge: 'MCQ·MOQ 미만 오더는 추가 비용 발생',
     specialQty: '적힌 수량(오더 총수량)과 컬러 수에만 적용되는 단가입니다',
     specialSplit: '수량을 적힌 컬러 수로 고르게 나눈 기준의 단가입니다',
-    specialUneven: '컬러별 수량이 고르지 않아 어느 컬러가 MCQ(컬러당 YD)보다 적으면 단가가 조정될 수 있습니다',
+    specialUneven: (unit) => `컬러별 수량이 고르지 않아 어느 컬러가 MCQ(컬러당 ${unit})보다 적으면 단가가 조정될 수 있습니다`,
     specialStated: '컬러별 수량이 적힌 줄은 그 수량 기준의 단가이며, 수량이 바뀌면 단가가 조정될 수 있습니다',
     specialOther: '다른 수량·컬러는 새로 견적을 요청해 주세요',
   },
@@ -545,8 +556,8 @@ export const quoteValidUntilLine = (quote) => {
     : { label: 'VALID UNTIL', date, suffix: '' };
 };
 
-/** 구간 이름 묶음 (예: '500 / 700 YD') */
-export const tierLabels = (tiers) => `${tiers.map(t => t.label.replace(' YD', '')).join(' / ')} YD`;
+/** 구간 이름 묶음 (예: '500 / 700 YD', M 견적서는 '500 / 700 M') */
+export const tierLabels = (tiers, unit = 'YD') => `${tiers.map(t => t.label.replace(' YD', '')).join(' / ')} ${unit}`;
 
 /**
  * 바이어 견적서 약관 줄 (유효기간 제외 — PDF는 quoteValidUntilLine으로 굵게, 엑셀은 머리줄에 따로 씀)
@@ -558,6 +569,7 @@ export const tierLabels = (tiers) => `${tiers.map(t => t.label.replace(' YD', ''
 export const buildQuoteTerms = (quote, kind = 'standard') => {
   const isKrw = quote?.currency !== 'USD';
   const T = TERMS_TEXT[quoteTermsLang(quote)];
+  const unit = quoteUnit(quote);   // 견적서 단위 'YD' / 'M'
   const lines = [T.tolerance];
   if (kind === 'special') {
     const ex = getCustomExclude(quote);
@@ -570,7 +582,7 @@ export const buildQuoteTerms = (quote, kind = 'standard') => {
     const stated = shown.filter(isRunningRow).length;
     if (!(shown.length > 0 && stated === shown.length)) {
       lines.push(T.specialSplit);
-      lines.push(T.specialUneven);
+      lines.push(T.specialUneven(unit));
     }
     if (stated > 0) lines.push(T.specialStated);
     if (ex.excludeVisual) lines.push(T.visual);
@@ -582,9 +594,9 @@ export const buildQuoteTerms = (quote, kind = 'standard') => {
   const tiers = getShownTiers(quote);
   const small = tiers.filter(t => t.group === 'small');
   const mcq = tiers.filter(t => t.group === 'mcq');
-  lines.push(T.perYard);
-  if (small.length) lines.push(T.small(tierLabels(small)));
-  if (mcq.length) lines.push(T.mcq(tierLabels(mcq)));
+  lines.push(T.perUnit(unit));
+  if (small.length) lines.push(T.small(tierLabels(small, unit)));
+  if (mcq.length) lines.push(T.mcq(tierLabels(mcq, unit)));
   if (quote?.excludeVisual === true) lines.push(T.visual);
   if (quote?.excludeChem === true) lines.push(T.chem);
   if (isKrw) lines.push(T.vat);
@@ -592,3 +604,115 @@ export const buildQuoteTerms = (quote, kind = 'standard') => {
   lines.push(T.upcharge);
   return lines;
 };
+
+// ----------------------------------------------------------------------
+// 6. 견적서 단위 — YD / M (대표님 요청 2026-11-16 — M로 견적을 원하는 바이어가 있어서)
+//  · 원가 계산·견적서 화면은 늘 YD 그대로. 바이어 견적서(PDF·엑셀)만 M로 환산해서 내보냄
+//  · 견적마다 저장 (quote.priceUnit = 'M') → 견적 목록에서 다시 뽑아도 보낸 단위 그대로. 값이 없는 예전 견적은 YD
+//  · 단가: 화면의 YD 판가 × 1.0936 (1M = 1.0936YD) → 통화별 반올림 (원 100원 / $ 센트). 예) ₩13,300/YD → ₩14,500/M
+//  · 구간 이름: 같은 숫자에 M (300 M = 300YD 구간 단가를 M로 환산 — 대표님 결정). 300M는 328YD라
+//    실제보다 아주 조금 비싸게 나감 (수량이 적은 쪽 단가) → 그루빅에 안전한 쪽
+//  · 중량 g/YD → g/M (× 1.0936), MCQ → M (× 0.9144, 10M 단위 올림 — 500YD → 460M), 별도 견적 수량 → M (반올림)
+//  · 폭(Cut·Full)은 인치 그대로
+//  · 별도 견적 수량 M로 넣기 (2026-11-16 2차): M 견적서면 별도 견적 수량 칸·러닝 생지 컬러별 수량을 M로 넣고,
+//    저장·원가 계산은 YD로 바꿔서 (M ÷ 0.9144 반올림 정수 — fromUnitQty). 정수 YD로 반올림해도 다시 M로 바꾸면
+//    넣은 숫자 그대로 (오차 0.46M 미만). 러닝 생지는 컬러마다 반올림 오차가 쌓여 합계가 1M쯤 어긋날 수 있어서
+//    넣은 M(running.colorQtysM)를 같이 두고 견적서에 그대로 씀 (rowUnitQty · rowUnitSplit). 생지 짠 수량은 YD 그대로
+// ----------------------------------------------------------------------
+
+/** 1YD = 0.9144M */
+export const M_PER_YD = 0.9144;
+/** 1M = 1.0936YD */
+export const YD_PER_M = 1 / M_PER_YD;
+
+/** 견적서 단위 — 'M' / 'YD' (저장값이 없는 예전 견적은 YD) */
+export const quoteUnit = (quote) => (quote?.priceUnit === 'M' ? 'M' : 'YD');
+
+/** M 견적서인지 */
+export const isMeterQuote = (quote) => quoteUnit(quote) === 'M';
+
+// 컴퓨터 소수 오차 정리 (예: 0.9144 × 12,500 = 11430.000000000002 → 11430) — 올림·내림이 한 칸 튀지 않게
+const cleanFloat = (v) => Number(Number(v).toPrecision(12));
+
+/** YD 판가 → 견적서 단위 판가 (M = YD 판가 × 1.0936 → 원 100원 / $ 센트 반올림). null(단가 없음)은 null 그대로 */
+export const toUnitPrice = (ydPrice, quote, currency) => {
+  if (ydPrice === null || ydPrice === undefined) return null;
+  return isMeterQuote(quote) ? smartRound(cleanFloat(Number(ydPrice) * YD_PER_M), currency) : ydPrice;
+};
+
+/** YD 판가 → 견적서 단위 판가 글자 ('￦14,500' / '$10.03', 단가 없음은 '—') — PDF·견적 목록·화면 미리보기 공통 */
+export const formatUnitPrice = (ydPrice, quote, currency) => formatQuotePrice(toUnitPrice(ydPrice, quote, currency), currency);
+
+/**
+ * 총액 (화면에서만) = 판가 × 수량, 견적서 단위로 — M 견적서는 M 단가 × M 수량 (바이어가 보는 값). 단가·수량이 없으면 null
+ * @param {number|null} ydPrice YD 판가
+ * @param {number} unitQty 견적서 단위 수량 (M 견적서는 M)
+ */
+export const calcUnitAmount = (ydPrice, unitQty, quote, currency) => {
+  const price = toUnitPrice(ydPrice, quote, currency);
+  const qty = Number(unitQty) || 0;
+  if (price === null || !(qty > 0)) return null;
+  return currency === 'USD' ? roundUsd(price * qty) : price * qty;
+};
+
+/** YD 수량 → 견적서 단위 수량 (M는 반올림 정수 — 1,094YD → 1,000M) */
+export const toUnitQty = (yd, quote) => {
+  const v = Number(yd) || 0;
+  return isMeterQuote(quote) ? Math.round(cleanFloat(v * M_PER_YD)) : v;
+};
+
+// M → YD (÷ 0.9144 반올림 정수) — 다시 M로 바꾸면 넣은 숫자 그대로 (1,000M → 1,094YD → 1,000M)
+const meterToYd = (m) => Math.round(cleanFloat((Number(m) || 0) * YD_PER_M));
+
+/** 견적서 단위로 넣은 수량 → YD (원가 계산·저장용). M 견적서면 M ÷ 0.9144 반올림 정수 (1,000M → 1,094YD), YD 견적서는 그대로 */
+export const fromUnitQty = (v, quote) => (isMeterQuote(quote) ? meterToYd(v) : Number(v) || 0);
+
+/**
+ * 별도 견적 줄 컬러별 수량 — 견적서 단위로 (러닝 생지 줄만, 아니면 [])
+ *  M 견적서: M로 넣은 줄은 넣은 M 그대로, YD로 넣은 줄은 합계가 수량 칸과 맞게 나눠 환산 (splitToUnit)
+ */
+export const rowUnitSplit = (row, quote) => {
+  const running = normalizeRunning(row?.running);
+  if (!running) return [];
+  if (isMeterQuote(quote) && running.colorQtysM) return running.colorQtysM;
+  return splitToUnit(running.colorQtys, quote);
+};
+
+/** 별도 견적 줄 수량 — 견적서 단위로 (M로 넣은 러닝 생지 줄은 컬러별 M 합계 = 넣은 숫자 그대로) */
+export const rowUnitQty = (row, quote) => {
+  const running = normalizeRunning(row?.running);
+  if (isMeterQuote(quote) && running?.colorQtysM) return running.colorQtysM.reduce((sum, q) => sum + q, 0);
+  return toUnitQty(row?.qty, quote);
+};
+
+/** MCQ(컬러당 최소 수량, YD) → 견적서 단위 (M는 10M 단위 올림 — 500YD → 460M). 비어 있으면 300YD (견적서 표시와 같은 기본값) */
+export const toUnitMcq = (mcqYd, quote) => {
+  const yd = Number(mcqYd) || 300;
+  return isMeterQuote(quote) ? Math.ceil(cleanFloat((yd * M_PER_YD) / 10)) * 10 : yd;
+};
+
+/** 중량 g/YD → 견적서 단위 (M는 g/M = g/YD × 1.0936, 반올림 정수) */
+export const toUnitWeight = (gYd, quote) => {
+  const v = Number(gYd) || 0;
+  return isMeterQuote(quote) ? Math.round(cleanFloat(v * YD_PER_M)) : v;
+};
+
+/**
+ * 컬러별 수량(YD) → 견적서 단위. M는 컬러마다 반올림하면 합계가 수량 칸(합계를 반올림한 M)과 1M쯤 어긋날 수 있어서
+ * 합계를 먼저 맞추고 소수점이 큰 컬러부터 1M씩 나눠 줌 (예: 250/182/242YD → 229/166/221M = 616M)
+ */
+export const splitToUnit = (colorQtys, quote) => {
+  const qtys = (colorQtys || []).map(q => Number(q) || 0);
+  if (!isMeterQuote(quote)) return qtys;
+  const exact = qtys.map(q => cleanFloat(q * M_PER_YD));
+  const floors = exact.map(Math.floor);
+  const target = toUnitQty(qtys.reduce((s, q) => s + q, 0), quote);
+  let left = target - floors.reduce((s, q) => s + q, 0);
+  const order = exact.map((v, i) => ({ i, frac: v - floors[i] })).sort((a, b) => b.frac - a.frac);
+  const result = [...floors];
+  for (let k = 0; k < order.length && left > 0; k += 1, left -= 1) result[order[k].i] += 1;
+  return result;
+};
+
+/** 구간 이름 — 견적서 단위로 ('300 YD' / M 견적서는 같은 숫자에 '300 M') */
+export const tierUnitLabel = (tier, quote) => (isMeterQuote(quote) ? tier.label.replace(/ YD$/, ' M') : tier.label);

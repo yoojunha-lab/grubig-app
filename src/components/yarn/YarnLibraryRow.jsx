@@ -6,6 +6,7 @@ import { getYarnRowInfo, getCategoryColor } from './yarnRowModel';
 
 export const YarnLibraryRow = React.memo(({
   y,
+  sameNameCount = 0, // 같은 이름(띄어쓰기·대소문자 무시) 원사 수 — 2개 이상이면 '같은 이름 N개' 표시
   exchangeRates,
   handleEditYarn,
   handleDeleteYarn,
@@ -28,7 +29,17 @@ export const YarnLibraryRow = React.memo(({
           {y.category || '-'}
         </span>
       </td>
-      <td className="px-6 py-2.5 font-bold text-slate-900 uppercase text-sm tracking-tight">{y.name}</td>
+      <td className="px-6 py-2.5 font-bold text-slate-900 uppercase text-sm tracking-tight">
+        {y.name}
+        {sameNameCount > 1 && (
+          <span
+            title={`같은 이름(띄어쓰기·대소문자 무시)으로 저장된 원사가 ${sameNameCount}개예요. 쓰지 않는 쪽을 지우거나 이름을 바꿔 주세요.`}
+            className="ml-1.5 align-middle text-[9px] font-bold normal-case tracking-normal text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 py-0.5 whitespace-nowrap cursor-help"
+          >
+            같은 이름 {sameNameCount}개
+          </span>
+        )}
+      </td>
       <td className="px-6 py-2.5 font-medium text-slate-600 text-[11px] uppercase">
         {y.suppliers?.map((s) => (
           <span key={s.id} className="inline-block mr-1">
@@ -96,6 +107,7 @@ export const YarnLibraryRow = React.memo(({
   );
 }, (prevProps, nextProps) => {
   return prevProps.y === nextProps.y &&
+         prevProps.sameNameCount === nextProps.sameNameCount &&
          prevProps.exchangeRates === nextProps.exchangeRates &&
          prevProps.yarnLibrary === nextProps.yarnLibrary &&
          // 원가 설정(수입 운반비 구간)이 바뀌면 운반비·내수 단가 범위가 달라지므로 재렌더

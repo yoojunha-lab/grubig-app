@@ -1,7 +1,7 @@
 import { findKnitGrade, findProcessType, resolveKnitKgRate, isImportSupplier, findImportCountry, sumYarnRatio, isYarnRatioComplete } from '../../utils/costModel';
 import { DEFAULT_KNIT_GRADE_ID, DEFAULT_KNIT_KG_RATE, DEFAULT_PROCESS_TYPE_ID } from '../../constants/costing';
 import { readFirstSheetRows, isBlankCell, parseNumCell, parsePercentCell, parseYesCell, parseNoCell, parseCurrencyCell } from '../../utils/excelIO';
-import { todayLocalISO } from '../../utils/helpers';
+import { todayLocalISO, yarnNameKey, cleanYarnName } from '../../utils/helpers';
 
 // GRUBIG ERP - 원단·원사 엑셀 (백업 · 일괄 등록 양식 · 일괄 등록)
 //  · App.jsx에서 그대로 옮김 (2026-10-06 — 동작 같음). 칸 읽기는 utils/excelIO.js
@@ -89,10 +89,14 @@ export const useExcelIO = ({
           return hit ? hit.id : fallbackId;
         };
         // 원사 이름으로 찾기 — 예전 백업 파일의 '이름 [업체]'도 이름만 떼서 찾음
-        const findYarnByName = (key) => {
-          const byName = (k) => yarnLibrary.find(y => String(y.name || '').trim().toUpperCase() === k);
-          const plain = key.replace(/\s*\[[^\]]*\]$/, '');
-          return byName(key) || (plain !== key ? byName(plain) : undefined);
+        //  대소문자·띄어쓰기 무시 ('2/48WOOL'도 '2/48 WOOL'을 찾음 — 원사 등록과 같은 기준, helpers.yarnNameKey)
+        const findYarnByName = (name) => {
+          const byName = (n) => {
+            const k = yarnNameKey(n);
+            return k ? yarnLibrary.find(y => yarnNameKey(y.name) === k) : undefined;
+          };
+          const plain = name.replace(/\s*\[[^\]]*\]$/, '');
+          return byName(name) || (plain !== name ? byName(plain) : undefined);
         };
         const positiveOr = (v, fallback) => (v > 0 ? v : fallback);
         // [중복 차단] 기존 원단 + 이번 업로드 내 중복 Article 모두 건너뜀 (대소문자/공백 무시)
@@ -237,26 +241,36 @@ export const useExcelIO = ({
         const today = todayLocalISO(); // 단가 이력 날짜 — 원사 화면에서 고칠 때와 같은 형식
         // [중복 방지] 같은 이름 원사는 한 문서 — 라이브러리에 이미 있으면 그 원사에 공급처를 더하거나 값을 고침
         //  (예전엔 올릴 때마다 새 원사가 생겨, 백업 파일을 고쳐 다시 올리면 모든 원사가 두 개씩 됐음)
+        //  같은 이름 = 대소문자·띄어쓰기 무시 (원사 등록 창과 같은 기준 — 대표님 결정 2026-11-16, helpers.yarnNameKey)
+        //  → '2/48WOOL' 줄도 라이브러리의 '2/48 WOOL'에 합침. 파일 안 같은 이름 줄끼리도 한 원사(공급처마다 한 줄)
         const libraryByName = new Map();
+        const libraryDupNames = new Set(); // 라이브러리에 이미 같은 이름이 여러 개인 원사 (앞의 것에 넣었다고 안내)
         yarnLibrary.forEach(y => {
-          const key = String(y.name || '').trim().toUpperCase();
-          if (key && !libraryByName.has(key)) libraryByName.set(key, y); // 이름이 겹치면 앞의 것 (원단 등록이 찾는 것과 같음)
+          const key = yarnNameKey(y.name);
+          if (!key) return;
+          if (libraryByName.has(key)) libraryDupNames.add(libraryByName.get(key).name);
+          else libraryByName.set(key, y); // 이름이 겹치면 앞의 것 (원단 등록이 찾는 것과 같음)
         });
-        const touched = new Map(); // 이름 → { yarn, isNew, changed }
+        const touched = new Map(); // 이름 키 → { yarn, isNew, changed }
+        const mergedSpellings = new Map(); // 엑셀에 적은 이름 → 합친 라이브러리 원사 이름 (글자가 조금 다를 때만, 안내용)
+        const usedLibraryDups = new Set(); // 이번 파일이 건드린 '라이브러리에 여러 개인 이름'
         let addedSuppliers = 0;
         let updatedSuppliers = 0;
 
         rows.forEach(({ raw: row, text }, idx) => {
-          const name = String(row.Name ?? '').trim().toUpperCase();
-          if (!name) return;
-          let entry = touched.get(name);
+          const name = cleanYarnName(row.Name); // 앞뒤 띄어쓰기 빼고, 여러 칸은 한 칸, 대문자
+          const nameKey = yarnNameKey(name);
+          if (!nameKey) return;
+          let entry = touched.get(nameKey);
           if (!entry) {
-            const existing = libraryByName.get(name);
+            const existing = libraryByName.get(nameKey);
             entry = existing
               ? { yarn: { ...existing, suppliers: (existing.suppliers || []).map(s => ({ ...s })) }, isNew: false, changed: false }
               : { yarn: { id: `y${Date.now()}_${idx}`, category: '소모', name, remarks: '', suppliers: [] }, isNew: true, changed: true };
-            touched.set(name, entry);
+            touched.set(nameKey, entry);
+            if (existing && libraryDupNames.has(existing.name)) usedLibraryDups.add(existing.name);
           }
+          if (!entry.isNew && name !== cleanYarnName(entry.yarn.name) && !mergedSpellings.has(name)) mergedSpellings.set(name, entry.yarn.name);
           const { yarn } = entry;
           const category = String(row.Category ?? '').trim().toUpperCase();
           if (category && category !== String(yarn.category || '').toUpperCase()) { yarn.category = category; entry.changed = true; }
@@ -330,8 +344,21 @@ export const useExcelIO = ({
           if (sups.length > 0 && !sups.some(s => s.isDefault)) { sups[0].isDefault = true; entry.changed = true; }
         });
 
+        // 같은 이름 안내 — 글자가 조금 달라 합친 이름 · 라이브러리에 같은 이름이 여러 개라 앞의 것에 넣은 이름
+        const sameNameNotes = [];
+        if (mergedSpellings.size > 0) {
+          sameNameNotes.push(`📎 띄어쓰기·대소문자만 다른 이름은 같은 원사로 보고 기존 원사에 합쳤습니다:\n${[...mergedSpellings].map(([from, to]) => `${from} → ${to}`).join('\n')}`);
+        }
+        if (usedLibraryDups.size > 0) {
+          sameNameNotes.push(`⚠️ 라이브러리에 같은 이름 원사가 이미 여러 개라 그중 첫 번째 원사에 넣었습니다:\n${[...usedLibraryDups].join(', ')}\n(원사 라이브러리 제목 옆 [같은 이름 원사 · 모아 보기]에서 정리해 주세요)`);
+        }
+
         const changedEntries = [...touched.values()].filter(en => en.changed);
-        if (changedEntries.length === 0) { showToast('바뀐 내용이 없어요. (이미 같은 원사·공급처 값)', 'success'); return; }
+        if (changedEntries.length === 0) {
+          if (sameNameNotes.length > 0) alert(`바뀐 내용이 없어요. (이미 같은 원사·공급처 값)\n\n${sameNameNotes.join('\n\n')}`);
+          else showToast('바뀐 내용이 없어요. (이미 같은 원사·공급처 값)', 'success');
+          return;
+        }
         const toSave = changedEntries.map(en => en.yarn);
         // 저장 성공 여부 확인 후 UI 후처리
         const ok = await saveBatchToCloud('yarns', toSave);
@@ -343,7 +370,7 @@ export const useExcelIO = ({
 
         const updatedCount = changedEntries.length - newYarns.length;
         const summary = `새 원사 ${newYarns.length}건 등록${updatedCount > 0 ? ` · 기존 원사 ${updatedCount}건 업데이트 (공급처 추가 ${addedSuppliers} · 값 변경 ${updatedSuppliers})` : ''}`;
-        const notes = [];
+        const notes = [...sameNameNotes];
         if (unknownCountries.size > 0) {
           notes.push(`⚠️ 원가 설정에 없는 수입 국가는 '${defaultCountry.name}'(으)로 등록했습니다:\n${[...unknownCountries].join(', ')}\n\n국가를 추가하려면 원가 설정 → 8. 수입 원사 운반비에서 [국가 추가] 후 원사의 수입 국가를 바꿔 주세요.`);
         }

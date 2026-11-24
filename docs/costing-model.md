@@ -210,6 +210,15 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
   공급처를 더하거나(새 업체) 값을 고침(같은 업체). 빈 칸은 그대로, 단가가 바뀌면 단가 이력 맨 앞에 오늘 날짜로 기록.
   기존 수입 공급처는 `Import` 칸이 비면 그대로, `N`이면 국내로. 나라만 적어도 수입사. → 원사 백업 파일을 고쳐 다시 올려도 중복이 생기지 않음.
   칸 읽기: 통화 ' usd'·'$' → USD, 관세 '8%'·% 서식, `Import` TRUE·O·예 (`utils/excelIO.js`). 모르는 통화·나라는 KRW·중국 + 안내.
+- **원사 이름 중복 막기** (대표님 결정 2026-11-16): 같은 이름 = **대소문자·띄어쓰기(앞뒤·중간 전부) 무시** — '2/48 WOOL' = '2/48WOOL' = '2/48  wool'
+  (`helpers.yarnNameKey`). 저장되는 이름은 앞뒤 띄어쓰기 빼고 여러 칸은 한 칸, 대문자 (`cleanYarnName`).
+  - 원사 등록·수정 창: 원사명 칸 아래에 바로 빨간 안내('이미 있는 원사예요: 이름 (분류 · 대표 공급처)') + [정보 등록]/[수정 완료]에서 막음.
+    수정할 때는 자기 자신을 빼고 비교 (`checkYarnNameDuplicate`).
+  - **이미 겹쳐 있던 원사**(예전에 저장된 중복)는 지우거나 합치지 않고 표시만: 목록 이름 옆 '같은 이름 N개', 제목 옆 [같은 이름 원사 N개 · 모아 보기].
+    그 원사를 **이름 그대로** 고치면 저장됨(노란 안내) — 단가 등은 고칠 수 있게. 다른 원사를 그 이름으로 바꾸거나 새로 만드는 건 막음.
+  - 원사 엑셀 일괄 등록: 위 '등록 + 고치기' 그대로 (같은 이름 줄은 기존 원사에 합침 — 건너뛰거나 멈추지 않음), 같은 기준으로 비교.
+    띄어쓰기만 달라 합친 이름(예: 2/48WOOL → 2/48 WOOL), 라이브러리에 같은 이름이 여러 개라 첫 번째 원사에 넣은 이름은 끝에 안내.
+  - 원단 엑셀 일괄 등록의 원사 찾기도 같은 기준 ('2/48WOOL'도 '2/48 WOOL'을 찾음).
 - 원단 엑셀 업로드 (2026-10-06): 염가공료 0은 0 그대로(빈 칸만 기본 8,800원), '320g'·'2,000'·% 서식 혼용률도 읽음,
   0~100% 밖 혼용률이 있는 행은 등록하지 않음, 예전 백업의 '원사명 [업체]'도 원사를 찾음. 원단 백업은 원사 이름만 씀.
 - 가설계서에서 단가를 직접 입력한 원사(`priceOverride`)는 관세·운반비 없이 그 단가 그대로 (예전과 같음).
@@ -394,6 +403,47 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
     MCQ·MOQ 미만 오더는 추가 비용 발생. 별도: 적힌 수량(오더 총수량)과 컬러 수에만 적용되는 단가입니다 / 수량을 적힌 컬러 수로 고르게 나눈
     기준의 단가입니다 / 컬러별 수량이 고르지 않아 어느 컬러가 MCQ(컬러당 YD)보다 적으면 단가가 조정될 수 있습니다 / 다른 수량·컬러는 새로 견적을 요청해 주세요.
   - 엑셀 맨 위 'Valid Until' 줄·열 이름은 영문 그대로 (약관 부분만 한글).
+- **M 견적서 — 견적서 단위 [YD | M]** (대표님 요청 2026-11-16 — YD 말고 M로 견적서를 원하는 바이어가 있어서):
+  견적서 화면 Buyer Information의 **[견적서 단위 YD | M]** (시장 구분 옆). **견적마다 저장** (`quote.priceUnit` — 'M' / 'YD', 값이 없는 예전 견적은 YD)
+  → 견적 목록에서 다시 뽑아도 보낸 단위 그대로. 복제하면 단위도 따라감. 새 견적은 YD.
+  - **원가 계산·견적서 화면 표는 늘 YD 그대로** — 바이어 견적서(PDF·엑셀)만 M로 환산 (`quoteModel.js` 6절). 기준·별도 견적서 둘 다.
+  - 환산 규칙 (1YD = 0.9144M, 1M = 1.0936YD):
+
+    | 칸 | M 견적서 | 예 |
+    |---|---|---|
+    | 단가 | 화면의 YD 판가 × 1.0936 → 원 100원 / $ 센트 반올림 (원가 표 '원가 / m'와 같은 방법) | ₩13,300/YD → ₩14,500/M, $9.17 → $10.03 |
+    | 구간 이름 | **같은 숫자에 M** — 300 M = 300YD 구간 단가를 M로 환산 (대표님 결정: 274M처럼 정확한 숫자 대신). 300M는 328YD라 실제보다 아주 조금 비싸게 나감(수량이 적은 쪽 단가) → 그루빅에 안전한 쪽 | 500 / 700 / 1,000 / 3,000 M |
+    | 중량 | g/YD → **g/M** (× 1.0936, 반올림) | 327 → 358 |
+    | MCQ | YD × 0.9144 → **10M 단위 올림** | 300YD → 280M, 500YD → 460M |
+    | 별도 견적 수량 | YD × 0.9144 반올림. 컬러별 수량(러닝 생지)은 합계가 수량 칸과 맞게 나눔 (`splitToUnit`) | 1,094YD → 1,000M, 250/182/242YD → 229/166/221M |
+    | 폭 (Cut·Full) | 인치 그대로 | |
+
+  - 약관: 'PRICES ARE PER METER, …' / '단가는 M당 가격이며, …', 구간 줄 '500 / 700 M: …', 별도 'MCQ (M PER COLOR)' / 'MCQ(컬러당 M)'.
+    PDF 머리 'Currency: KRW · Unit: METER', 표 머리 띠 '… · PER METER', 엑셀 머리줄 'Unit: METER', 열 이름 g/M·MCQ(M/color)·500M (KRW)·Q'TY(M)·Price/M.
+    파일 이름 `Quotation_M_…` / `Quotation_Special_M_…`. YD 견적서는 예전과 한 글자도 다르지 않음 (2026-11-16 대조).
+  - 화면: M면 단위 칸 아래 청록 안내 띠, 기준·별도 견적 판가 아래 '→ ₩14,500/M'(바이어 견적서에 나갈 값),
+    PDF·엑셀 버튼과 견적 목록(전체 표·작성 화면 왼쪽 목록)에 'M' 표시 (`QuoteParts.MeterUnitBadge`).
+  - **견적 목록 펼쳐 보기**('기준 견적 — 견적서에 나간 구간'·별도 견적)도 M 견적은 보낸 그대로 M — 구간 이름·M 단가·MCQ(M)·
+    별도 견적 수량(M)·컬러별 수량·'판가/M' (2026-11-16 점검 때 고침 — 예전엔 M로 보낸 견적도 YD 값으로 보였음).
+  - **별도 견적 수량은 M로 넣음** (대표님 요청 2026-11-16 2차 — 처음엔 YD로 넣고 '견적서 M'만 보여 줬음):
+    M 견적서면 별도 견적 표의 수량 칸이 **'수량 (M)'** — 넣은 M를 **YD로 바꿔 저장·원가 계산** (M ÷ 0.9144 반올림 정수, `fromUnitQty`).
+    칸 아래 '= 1,094YD로 계산'. 정수 YD로 반올림해도 다시 M로 바꾸면 넣은 숫자 그대로 (오차 0.46M 미만 — 1~20,000M 모두 대조)
+    → 견적서에 1,000M로 그대로 나감.
+    - 컬러당 수량·MCQ 미달 안내('컬러당 500M · MCQ 460M 미달' — 미달 판단은 YD로)·원단 칸 MCQ·총액(M 단가 × M 수량)도 M.
+    - 새로 넣는 줄은 **300M · 2컬러**로 시작 (= 328YD). [원단 검색·추가]·Article 입력·[별도 견적으로 복사] 모두. 알림 문구도 '300M'.
+    - **러닝 생지 창**: 컬러별 수량 칸을 M로 넣고(칸 아래 '= 250YD'), 합계 '616M · 3컬러 (= 674YD로 계산)'. 생지 짠 수량은 편직처 기록이라 **YD 그대로**
+      ('생지 짠 수량 < 오더 수량'도 YD로 비교). 원가 내역(③)·판가 칸은 YD당, 판가 아래 '→ /M', 총액은 M.
+      컬러마다 반올림 오차가 쌓이면 합계를 다시 M로 바꿀 때 1M쯤 어긋날 수 있어서(예: 1/2/3M → 1/2/3YD → 합계 5M)
+      **넣은 M를 `running.colorQtysM`으로 같이 저장**하고 견적서·표에 그대로 씀 (`rowUnitQty`·`rowUnitSplit`).
+      `normalizeRunning`이 YD 칸과 하나하나 맞을 때(M ÷ 0.9144 반올림 = 그 YD)만 남기고, YD로 고쳐 맞지 않으면 버림.
+    - [러닝 생지 해제] (M 견적서): 넣은 M 합계를 일반 줄 수량으로 (616M → 674YD로 계산).
+    - YD ↔ M 전환: 수량은 늘 YD로 저장돼 있어서 그대로 — YD 견적에서 300YD로 넣은 줄은 M 칸에 274M로 보임 (300M로 하려면 다시 넣기).
+      M로 넣은 러닝 생지 줄은 YD 화면에서 250/182/242YD, 다시 M로 바꾸면 229/166/221M 그대로.
+  - 개발 의뢰 '예상'·'견적' 배지 등 견적서 밖의 값은 YD 그대로 (예상가와 비교하기 쉽게). 단 M 견적서로 보낸 '견적' 배지는
+    마우스를 올리면 '※ M 견적서로 보냄 — 바이어에게는 3,000 M ₩14,500/M' 줄이 같이 나옴 (2026-11-16 점검).
+  - 2026-11-16 점검·리팩토링: M 단가 글자·총액을 `formatUnitPrice`·`calcUnitAmount` 한 곳으로 (PDF·견적 목록·견적서 화면·러닝 생지 창·배지),
+    별도 견적 'MCQ 미달'은 견적서 단위 숫자끼리 비교 (M 견적서 = 컬러당 M vs MCQ M — 화면에 보이는 숫자와 판단이 같게),
+    이미 고른 단위를 다시 눌러도 바뀌는 것 없음 (예전 견적에 [YD]를 눌러 '저장할까요?'가 뜨던 것).
 - **예전 견적 호환** (`normalizeQuote`): 판가는 그대로. 새 구간(300·500·700 — 10/5 개편 때는 800)의 이익율·정액은 기본값으로 채움(0% 방지),
   예전 800YD 견적은 800YD 그대로 둠 (§1-D),
   새 구간을 켜면 단가 '—' + [현재 원가로 다시 계산] 안내. 아주 옛날(extraMargin) 견적은 구간 설정·별도 견적을 막음.
@@ -490,6 +540,7 @@ LOSS·검사·운임 기준을 한 곳(원가 설정)에서 관리해 전 품목
 | 견적 계산 (순수 함수) | `src/utils/quoteModel.js` — `calcQuotePrice`, `calcCustomQuotePrice`, `computeBaseFromParts`, `normalizeQuote`, `getShownTiers`, `tierForQty`, `validateQuoteForExport`(출력 전 확인), `buildQuoteTerms`·`quotePriceBasis`·`quoteValidUntilLine`·`quoteTermsLang`(견적서 문구 — 내수는 약관만 한글) 등 |
 | 견적마다 구간 (예전 800YD 견적 보존) | `quoteModel.js` 1-A — `ALL_QUOTE_TIERS`(지금 + 예전 구간, 수량 순), `getQuoteTiers`·`getQuoteTierKeys`(그 견적의 구간), `usesRetiredTiers`·`getRetiredTiersInUse`(예전 견적 판단 — 견적서 표시·구간 이익율·YD당 정액에 800 값이 있고 700 값이 없음), `upgradeQuoteTiers`(다시 계산 전에 800 → 700 옮기기), `describeTierUpgrade`(안내 문구), `customRateChangesOnUpgrade`·`describeCustomRateChanges`(이익율 빈칸 별도 견적 줄의 이익율 변화 안내), `moveRetiredTierKeys`(원가 견적 이어받기) / `useQuotation.js` — 다시 계산·시장 전환·복제에서 upgrade(안내 말 `tierUpgradeAsk`·`tierUpgradeDone`·`tierUpgradeMissing`), 구간 칸·버튼·원단 추가는 그 견적의 구간 / `QuotationPage.jsx` 안내 띠 |
 | 견적서 화면·출력 | `src/pages/QuotationPage.jsx`(기준/별도 칸) + `src/components/quote/QuoteParts.jsx`(공용 부품), `src/components/quote/PDFRenderer.jsx`(kind: standard/special), `src/hooks/domains/useQuoteExport.js` — `handleDownloadPDF`·`handleDownloadQuoteExcel(quote, kind)`(인쇄할 견적은 `pdfQuote`로 따로) |
+| M 견적서 (견적서 단위 YD / M) | `quoteModel.js` 6절 — `quoteUnit`·`isMeterQuote`, 환산 `toUnitPrice`·`toUnitQty`·`toUnitMcq`·`toUnitWeight`·`splitToUnit`, 단가 글자·총액 `formatUnitPrice`·`calcUnitAmount`, 개발 의뢰 '견적' 배지 M 안내 `devQuoteModel.getDevQuoteBadge`, M로 넣은 수량 → YD `fromUnitQty`, 별도 견적 줄 수량·컬러별 수량 `rowUnitQty`·`rowUnitSplit`(러닝 생지 `running.colorQtysM` — `normalizeRunning`이 맞을 때만 남김), 구간 이름 `tierUnitLabel`, `RunningGreigeModal.jsx`(컬러별 수량 M 입력 → YD), `useQuotation.js` `addCustomRows`(300M 시작)·`handleReleaseRunningRow`(M 합계 유지), 약관 `TERMS_TEXT.perUnit`·`specialUneven(unit)`·`tierLabels(tiers, unit)` / `PDFRenderer.jsx`·`useQuoteExport.js`(`quoteFilePrefix`) / `QuotationPage.jsx` [YD \| M] 버튼·'→ /M' 미리보기 / `QuoteParts.MeterUnitBadge`·`ExportButtons unit` / `QuoteHistoryPage.jsx`·`QuotationWorkspacePage.jsx` 'M' 표시 / `useQuotation.makeBlankQuote` `priceUnit: 'YD'` |
 | 러닝 생지 견적 (계산) | `costModel.js` — `computeCostAtQty` 옵션 `greigeQty`(생지 짠 수량)·`colorQtys`(컬러별 수량), 결과 `running`(생지 짤 때 kg·편직비)·`dye.perColor`, `normalizeColorQtys` / `quoteModel.js` 4-A — `normalizeRunning`·`isRunningRow`·`customRowCostOpts`·`sumColorQtys`·`formatColorSplit`·`validateRunning`, 약관 `specialStated` |
 | 러닝 생지 견적 (창·줄) | `src/components/quote/RunningGreigeModal.jsx`(창), `QuoteParts.RunningGreigeBadge`(배지) / `useQuotation.js` — `previewRunningRow`(창 미리보기·비교·소량 추가분)·`handleSaveRunningRow`(넣기·고치기)·`handleReleaseRunningRow`(해제), `createCustomItem`(러닝 생지 조건 반영) / `QuotationPage.jsx` 버튼·줄 표시 / `QuoteHistoryPage.jsx` 목록 펼침 |
 | 설계서 소요 중량 | `src/pages/DesignSheetPage.jsx` — 입력 YD → 원사 kg (같은 kg 흐름) |

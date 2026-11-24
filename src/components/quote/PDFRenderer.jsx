@@ -2,8 +2,9 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { num } from '../../utils/helpers';
 import {
-  calcQuotePrice, formatQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice, quotePriceBasis, buildQuoteTerms,
+  calcQuotePrice, getShownTiers, getShownCustomItems, calcCustomQuotePrice, quotePriceBasis, buildQuoteTerms,
   quoteValidUntilLine, formatColorSplit,
+  quoteUnit, formatUnitPrice, toUnitMcq, toUnitWeight, tierUnitLabel, rowUnitQty,
 } from '../../utils/quoteModel';
 
 // 견적서 PDF — 단일 연속 표 + 브라우저 자동 페이지 분할 방식.
@@ -18,6 +19,8 @@ import {
 //  · 약관·가격 기준 문구는 quoteModel.buildQuoteTerms / quotePriceBasis — 엑셀 내보내기와 같은 문구
 //  · [2026-10-07] 원화(내수) 견적서는 표 끝 약관(유효기간·조건 줄)만 한글 — 제목·표 머리는 영문 그대로 (대표님 요청)
 //  · [2026-10-07] 별도 견적서의 러닝 생지 줄은 수량 아래에 컬러별 수량(250/182/242)을 작게 적음 ('러닝 생지'라는 말은 안 나감)
+//  · [2026-11-16] M 견적서 (quote.priceUnit 'M'): 단가·g/M·MCQ·수량·구간 이름을 M로 (quoteModel 6절 — 원가·화면은 YD 그대로)
+//    구간 이름은 같은 숫자에 M (300 M = 300YD 단가 환산). 폭은 인치 그대로
 
 // 기준 견적서 열 너비(%) — 구간 수에 따라 스펙 칸과 가격 칸을 나눔
 const standardColumns = (n) => {
@@ -45,6 +48,9 @@ export const PDFRenderer = ({
   const priceBasis = quotePriceBasis(currency);
   const terms = buildQuoteTerms(quoteInput, isSpecial ? 'special' : 'standard'); // 내수 = 한글, 수출 = 영문
   const validUntil = quoteValidUntilLine(quoteInput);                           // '견적 유효기간: …까지' / 'VALID UNTIL: …'
+  const unit = quoteUnit(quoteInput);                                           // 견적서 단위 'YD' / 'M'
+  const isM = unit === 'M';
+  const unitPrice = (ydPrice) => formatUnitPrice(ydPrice, quoteInput, currency); // YD 판가 → 견적서 단위 판가
 
   // [PDF 좌측 잘림 v4 — native window.print() 방식]
   //   Chrome native 인쇄(window.print) + @media print CSS (index.css) 로 출력.
@@ -90,7 +96,7 @@ export const PDFRenderer = ({
               <div className="w-1/2 text-right">
                 <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">Date</p>
                 <h2 className="text-lg font-bold text-slate-900">{quoteInput.date}</h2>
-                <p className="text-[10px] text-slate-500 mt-1">Currency: {quoteInput.currency}</p>
+                <p className="text-[10px] text-slate-500 mt-1">Currency: {quoteInput.currency}{isM ? ' · Unit: METER' : ''}</p>
               </div>
             </div>
           </div>
@@ -113,7 +119,7 @@ export const PDFRenderer = ({
                 {/* 바이어/날짜 띠 — 2·3장에서도 어느 견적서인지 식별되도록 매 페이지 반복 */}
                 <tr>
                   <th colSpan={7 + shownTiers.length} className="text-left font-bold text-slate-400 uppercase pt-0 pb-1" style={{ fontSize: '9px', letterSpacing: '0.04em' }}>
-                    {quoteInput.buyerName || ''} · {quoteInput.date} · {quoteInput.currency}
+                    {quoteInput.buyerName || ''} · {quoteInput.date} · {quoteInput.currency}{isM ? ' · PER METER' : ''}
                   </th>
                 </tr>
                 <tr className="border-b-2 border-slate-800">
@@ -122,10 +128,10 @@ export const PDFRenderer = ({
                   <th className="py-2 font-bold text-slate-900 text-center uppercase">Cut</th>
                   <th className="py-2 font-bold text-slate-900 text-center uppercase">Full</th>
                   <th className="py-2 font-bold text-slate-900 text-right uppercase">GSM</th>
-                  <th className="py-2 font-bold text-slate-900 text-right uppercase">g/YD</th>
+                  <th className="py-2 font-bold text-slate-900 text-right uppercase">g/{unit}</th>
                   <th className="py-2 font-bold text-slate-900 text-right text-orange-600 uppercase">MCQ<span className="block text-[8px] font-semibold">PER COLOR</span></th>
                   {shownTiers.map(t => (
-                    <th key={t.key} className="py-2 font-bold text-slate-900 text-right uppercase">{t.label}</th>
+                    <th key={t.key} className="py-2 font-bold text-slate-900 text-right uppercase">{tierUnitLabel(t, quoteInput)}</th>
                   ))}
                 </tr>
               </thead>
@@ -137,10 +143,10 @@ export const PDFRenderer = ({
                     <td className="py-3 text-center text-slate-500">{item.widthCut}"</td>
                     <td className="py-3 text-center text-slate-500">{item.widthFull}"</td>
                     <td className="py-3 text-right text-slate-500">{item.gsm}</td>
-                    <td className="py-3 text-right text-slate-500 font-mono">{num(item.gYd)}</td>
-                    <td className="py-3 text-right text-slate-900 font-mono font-bold">{num(item.mcqYd || 300)} YD</td>
+                    <td className="py-3 text-right text-slate-500 font-mono">{num(toUnitWeight(item.gYd, quoteInput))}</td>
+                    <td className="py-3 text-right text-slate-900 font-mono font-bold">{num(toUnitMcq(item.mcqYd, quoteInput))} {unit}</td>
                     {shownTiers.map(t => (
-                      <td key={t.key} className={`py-3 text-right font-mono ${t.main ? 'font-bold' : ''}`}>{formatQuotePrice(calcQuotePrice(item, t.key, quoteInput, currency), currency)}</td>
+                      <td key={t.key} className={`py-3 text-right font-mono ${t.main ? 'font-bold' : ''}`}>{unitPrice(calcQuotePrice(item, t.key, quoteInput, currency))}</td>
                     ))}
                   </tr>
                 ))}
@@ -164,7 +170,7 @@ export const PDFRenderer = ({
               <thead>
                 <tr>
                   <th colSpan={10} className="text-left font-bold text-slate-400 uppercase pt-0 pb-1" style={{ fontSize: '9px', letterSpacing: '0.04em' }}>
-                    {quoteInput.buyerName || ''} · {quoteInput.date} · {quoteInput.currency} · SPECIAL CONDITIONS
+                    {quoteInput.buyerName || ''} · {quoteInput.date} · {quoteInput.currency}{isM ? ' · PER METER' : ''} · SPECIAL CONDITIONS
                   </th>
                 </tr>
                 <tr className="border-b-2 border-slate-800">
@@ -173,16 +179,16 @@ export const PDFRenderer = ({
                   <th className="py-2 font-bold text-slate-900 text-center uppercase">Cut</th>
                   <th className="py-2 font-bold text-slate-900 text-center uppercase">Full</th>
                   <th className="py-2 font-bold text-slate-900 text-right uppercase">GSM</th>
-                  <th className="py-2 font-bold text-slate-900 text-right uppercase">g/YD</th>
+                  <th className="py-2 font-bold text-slate-900 text-right uppercase">g/{unit}</th>
                   <th className="py-2 font-bold text-slate-900 text-right uppercase">Q'TY</th>
                   <th className="py-2 font-bold text-slate-900 text-center uppercase">Colors</th>
                   <th className="py-2 font-bold text-slate-900 text-right text-orange-600 uppercase">MCQ<span className="block text-[8px] font-semibold">PER COLOR</span></th>
-                  <th className="py-2 font-bold text-slate-900 text-right uppercase">Price / YD</th>
+                  <th className="py-2 font-bold text-slate-900 text-right uppercase">Price / {unit}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {rows.map((row, idx) => {
-                  const split = formatColorSplit(row, { wrap: true }); // 러닝 생지 줄 — 컬러가 많아도 수량 칸 안에서 줄바꿈
+                  const split = formatColorSplit(row, { wrap: true, quote: quoteInput }); // 러닝 생지 줄 — 컬러가 많아도 수량 칸 안에서 줄바꿈 (M 견적서는 컬러별 M)
                   return (
                     <tr key={row.id || idx} className="avoid-break">
                       <td className="py-3 font-bold text-slate-800 uppercase break-words">{row.article}</td>
@@ -190,14 +196,14 @@ export const PDFRenderer = ({
                       <td className="py-3 text-center text-slate-500">{row.widthCut}"</td>
                       <td className="py-3 text-center text-slate-500">{row.widthFull}"</td>
                       <td className="py-3 text-right text-slate-500">{row.gsm}</td>
-                      <td className="py-3 text-right text-slate-500 font-mono">{num(row.gYd)}</td>
+                      <td className="py-3 text-right text-slate-500 font-mono">{num(toUnitWeight(row.gYd, quoteInput))}</td>
                       <td className="py-3 text-right text-slate-900 font-mono font-bold">
-                        {num(row.qty)} YD
+                        {num(rowUnitQty(row, quoteInput))} {unit}
                         {split && <span className="block text-[9px] font-normal text-slate-500 mt-0.5">{split}</span>}
                       </td>
                       <td className="py-3 text-center text-slate-900 font-mono font-bold">{num(row.colors)}</td>
-                      <td className="py-3 text-right text-slate-900 font-mono">{num(row.mcqYd || 300)} YD</td>
-                      <td className="py-3 text-right font-mono font-bold">{formatQuotePrice(calcCustomQuotePrice(row, quoteInput, currency), currency)}</td>
+                      <td className="py-3 text-right text-slate-900 font-mono">{num(toUnitMcq(row.mcqYd, quoteInput))} {unit}</td>
+                      <td className="py-3 text-right font-mono font-bold">{unitPrice(calcCustomQuotePrice(row, quoteInput, currency))}</td>
                     </tr>
                   );
                 })}

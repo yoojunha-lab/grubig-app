@@ -55,17 +55,31 @@ export const QuoteSection = ({ icon: Icon, title, count, desc, tone = 'blue', op
   );
 };
 
-// 칸 머리줄의 PDF·엑셀 버튼
-export const ExportButtons = ({ onPdf, onExcel, label }) => (
-  <>
-    <button type="button" onClick={onPdf} title={`${label} PDF`} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 flex items-center gap-1.5 text-xs font-bold shadow-sm">
-      <Download className="w-3.5 h-3.5" /> {label} PDF
-    </button>
-    <button type="button" onClick={onExcel} title={`${label} 엑셀`} className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 flex items-center gap-1.5 text-xs font-bold shadow-sm">
-      <FileSpreadsheet className="w-3.5 h-3.5" /> 엑셀
-    </button>
-  </>
+// M 견적서 표시 (2026-11-16) — 버튼·견적 목록에서 'M'로 나가는 견적서인지 보이게
+export const MeterUnitBadge = ({ className = 'bg-teal-50 text-teal-700 border-teal-200' }) => (
+  <span
+    title="M 견적서 — 바이어 견적서(PDF·엑셀)의 단가·중량·MCQ·수량이 M로 나가요 (화면·원가는 YD)"
+    className={`inline-block align-middle whitespace-nowrap text-[9px] font-extrabold leading-none border rounded px-1 py-0.5 ${className}`}
+  >
+    M
+  </span>
 );
+
+// 칸 머리줄의 PDF·엑셀 버튼 — unit 'M'이면 버튼에 'M' 표시 (M 견적서로 나감)
+export const ExportButtons = ({ onPdf, onExcel, label, unit = 'YD' }) => {
+  const isM = unit === 'M';
+  const badge = isM ? <MeterUnitBadge className="bg-white/20 text-white border-white/40" /> : null;
+  return (
+    <>
+      <button type="button" onClick={onPdf} title={`${label} PDF${isM ? ' (M 견적서)' : ''}`} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 flex items-center gap-1.5 text-xs font-bold shadow-sm">
+        <Download className="w-3.5 h-3.5" /> {label} PDF {badge}
+      </button>
+      <button type="button" onClick={onExcel} title={`${label} 엑셀${isM ? ' (M 견적서)' : ''}`} className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 flex items-center gap-1.5 text-xs font-bold shadow-sm">
+        <FileSpreadsheet className="w-3.5 h-3.5" /> 엑셀 {badge}
+      </button>
+    </>
+  );
+};
 
 // 외관검사·시험성적서 제외 — 칸 전체에 적용하는 켜고 끄는 버튼 (켜지면 빨간색)
 export const ToggleButton = ({ on, onClick, children }) => (
