@@ -247,9 +247,9 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
 
     // 기존 DB 데이터로 중복 맵 생성 (orderNo + articleNo + colorInfo + lotNo → 고유키)
     // [D1 수정] colorInfo 포함 — 같은 order/article/lot의 컬러만 다른 행을 정상 등록 가능하도록
-    const existingKeys = new Set(
-      (mainDetails || []).map(d => `${(d.orderNo || '').toUpperCase()}__${(d.articleNo || '').toUpperCase()}__${(d.colorInfo || '').toUpperCase()}__${(d.lotNo || '').toUpperCase()}`)
-    );
+    //  한 장 저장과 같은 열쇠 (detailKey — 앞뒤 빈칸 · 대소문자 무시, 리팩토링 2026-11-24. 예전엔 저장된 값의 빈칸을 안 지워서
+    //  'BLACK ' 으로 저장된 시트를 일괄 업로드가 다시 만들었음)
+    const existingKeys = new Set((mainDetails || []).map(detailKey));
     const batchKeys = new Set();
     const toSave = []; // 저장할 시트 (다 모은 뒤 한 번에)
 
@@ -279,7 +279,7 @@ export const useMainDetail = (mainDetails, saveDocToCloud, deleteDocFromCloud, s
       const colorInfo = cols[2] || '';
       const lotNo = cols[3] || '';
       // [D1 수정] 중복 키에 colorInfo 포함 — 같은 order+article+lot 의 컬러만 다른 행도 별개로 인식
-      const dupKey = `${orderNo.toUpperCase()}__${articleNo.toUpperCase()}__${colorInfo.toUpperCase()}__${lotNo.toUpperCase()}`;
+      const dupKey = detailKey({ orderNo, articleNo, colorInfo, lotNo });
       const labelForError = `${orderNo} / ${articleNo}${colorInfo ? ` / ${colorInfo}` : ''}${lotNo ? ` / LOT: ${lotNo}` : ''}`;
 
       if (existingKeys.has(dupKey)) {

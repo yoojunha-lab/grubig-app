@@ -49,10 +49,11 @@ export const productionStateOf = (order, sheet) => {
 export const sampleRowDeadline = ({ order, sheet, dev }) =>
   str(order?.finalDueDate) || str(sheet?.deadline) || str(dev?.targetSpec?.sampleDeadline) || null;
 
-/** 글자에서 숫자만 (예: '58"' → 58, '300g' → 300, 못 읽으면 null) */
+/** 글자에서 첫 숫자 (예: '58"' → 58, '300g/m2' → 300, '58/60' → 58, 못 읽으면 null)
+ *  디버깅 2026-11-24: 예전엔 숫자 아닌 글자를 다 지우고 읽어서 '300g/m2' → 3002, '58/60' → 5860 이 됐음 */
 export const numOf = (v) => {
-  const n = parseFloat(String(v ?? '').replace(/[^0-9.-]/g, ''));
-  return Number.isFinite(n) ? n : null;
+  const m = String(v ?? '').replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+  return m ? Number(m[0]) : null;
 };
 
 /** 메인/QC 디테일 시트 한 장 → 마지막 수축 TEST 기준 실측 { gsm, width, status, round } (설계서 '실측 vs 설계' 칸) */
@@ -76,7 +77,9 @@ export const isSampleOrderDone = (order) => order?.status === 'completed';
 //  반환 { days, since, tone } (대기 중이 아니거나 원가 견적이 없으면 null)
 export const replyWaitOf = (dev, today = new Date()) => {
   if (!dev || dev.status !== 'hold' || !dev.costQuote) return null;
-  const since = dev.statusEnteredAt?.hold || dev.costQuote.updatedAt || dev.updatedAt || '';
+  //  '대기 중'에 들어간 날과 원가 견적을 (다시) 저장한 날 중 늦은 날부터 — 견적을 늦게 보내거나 고쳐 다시 보내면 그날부터 셈
+  //  (디버깅 2026-11-24: 예전엔 '대기 중' 들어간 날만 봐서 견적을 보낸 날에 벌써 '회신 대기 23일'이 떴음)
+  const since = [dev.statusEnteredAt?.hold, dev.costQuote.updatedAt].filter(Boolean).sort().pop() || dev.updatedAt || '';
   const days = daysBetween(since, today);
   if (days == null || days < 0) return null;
   const tone = days >= 14 ? 'red' : days >= 7 ? 'amber' : 'slate';
@@ -196,9 +199,10 @@ export const devChangePlan = ({ before, after, sheet, order }) => {
   const plan = [];
   const oldDue = str(before.targetSpec?.sampleDeadline);
   const newDue = str(after.targetSpec?.sampleDeadline);
-  if (newDue && newDue !== oldDue) {
+  //  샘플이 이미 끝났으면(완료 · Drop) 설계서 납기도 그대로 (디버깅 2026-11-24 — 예전엔 끝난 샘플의 설계서 납기만 바꾸자고 했음)
+  if (newDue && newDue !== oldDue && !isSampleOrderDone(order)) {
     if (sheet && str(sheet.deadline) !== newDue) plan.push({ target: 'sheet', field: 'deadline', label: '설계서 납기', from: str(sheet.deadline), to: newDue });
-    if (order && order.status !== 'completed' && str(order.finalDueDate) !== newDue) {
+    if (order && str(order.finalDueDate) !== newDue) {
       plan.push({ target: 'order', field: 'finalDueDate', label: `샘플 오더(${order.orderNumber || '-'}) 납기`, from: str(order.finalDueDate), to: newDue });
     }
   }
@@ -217,3 +221,70 @@ export const promotedSheetsOfTemp = (tempId, designSheets = []) => (tempId
   : []);
 /** 설계서를 가리키는 짧은 이름 — 'PW1050 · 코튼 스판 저지' */
 export const sheetShortLabel = (s) => [s?.articleNo || s?.eztexOrderNo || s?.devOrderNo, s?.fabricName].map(v => String(v || '').trim()).filter(Boolean).join(' · ') || '이름 없는 설계서';
+
+// ── 개발 의뢰 '아이템화 완료' ↔ '개발 확정' 바꾸는 값 (리팩토링 2026-11-24 — useDesignSheet 네 곳이 따로 만들던 것을 하나로) ──
+/** 아이템화 완료로 — { status, linkedDesignSheetId, articledInfo, statusEnteredAt, updatedAt }
+ *  linkAndConfirm 이 바로 앞에서 '개발 확정'으로 바꾸고 아직 목록에 안 들어온 경우에도 확정 날짜가 비지 않게 confirmed 도 채움 */
+export const devArticledPatch = (dev, { sheet, fabric = null, at = new Date().toISOString() }) => ({
+  status: 'articled',
+  linkedDesignSheetId: sheet?.id || null,
+  articledInfo: dev?.articledInfo && dev.articledInfo.sheetId === sheet?.id ? dev.articledInfo : {
+    sheetId: sheet?.id || null,
+    articleNo: String(fabric?.article || sheet?.articleNo || ''),
+    fabricId: fabric?.id || sheet?.linkedFabricId || null,
+    at: sheet?.stageEnteredAt?.articled || at,
+    prevStatus: dev?.status || '',
+  },
+  statusEnteredAt: {
+    ...(dev?.statusEnteredAt || {}),
+    confirmed: dev?.statusEnteredAt?.confirmed || at,
+    articled: at,
+  },
+  updatedAt: at,
+});
+/** '개발 확정'으로 되돌리기 (아이템화를 되돌림 · 설계서 연결 해제) — articledInfo 는 빼고 확정 날짜를 새로 */
+export const devReopenDoc = (dev, { sheetId = null, at = new Date().toISOString() } = {}) => {
+  const { articledInfo: _articledInfo, ...rest } = dev || {};
+  return {
+    ...rest,
+    status: 'confirmed',
+    linkedDesignSheetId: sheetId,
+    statusEnteredAt: { ...(dev?.statusEnteredAt || {}), confirmed: at },
+    updatedAt: at,
+  };
+};
+
+// ── 개발 건 한 줄 (개발/설계 현황 표 · 샘플 진행 표 공용 — 리팩토링 2026-11-24) ──
+//  row = { dev, sheet, linkedDev, ... }
+export const rowOdNo = (row) => str(row?.dev?.devOrderNo || row?.sheet?.devOrderNo);
+export const rowTitle = (row) => (row?.dev
+  ? (row.dev.devItem || row.dev.targetSpec?.composition || '품목명 미입력')
+  : (row?.sheet?.fabricName || '원단명 미입력'));
+/** 의뢰 + 설계서 줄: 설계서 원단명을 둘째 줄에 (품목명과 같으면 한 번만) */
+export const showSheetName = (row) => !!(row?.dev && row?.sheet) && str(row.sheet.fabricName) !== str(rowTitle(row));
+/** 바이어 — 의뢰 바이어 / 설계서가 가리키는 의뢰(Drop 등) / 가설계서에 적은 바이어 */
+export const rowBuyerName = (row) => row?.dev?.buyerName || row?.linkedDev?.buyerName || row?.sheet?.fromTemp?.buyerName || '';
+
+// ── 메인/QC 디테일 시트 찾기 (설계서 칸 · 생산 현황 상세창 공용 — 디버깅 2026-11-24) ──
+const sameText = (a, b) => !!str(a) && str(a).toUpperCase() === str(b).toUpperCase();
+/**
+ * 이 오더 · 설계서의 QC 시트 (최근 순)
+ *  · '생산 현황에서 고르기'로 오더를 이은 시트(orderId)는 그 오더에만 — 예전엔 order# 글자가 같은 다른 오더에도 보였음
+ *  · 오더를 안 이은 예전 시트는 Order No 글자로 · 설계서는 Article 글자로도
+ */
+export const qcDetailsFor = (mainDetails = [], { orderId = null, orderNo = '', articleNo = '' } = {}) => (mainDetails || [])
+  .filter(d => d && (
+    (orderId && d.orderId === orderId)
+    || (!d.orderId && orderNo && sameText(d.orderNo, orderNo))
+    || (articleNo && sameText(d.articleNo, articleNo))
+  ))
+  .sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
+
+/** 실측이 설계(목표)에서 몇 % 벗어났는지 — 목표가 없으면 null */
+export const specDiffPct = (actual, target) => (actual != null && target ? Math.round(((actual - target) / target) * 1000) / 10 : null);
+/** ±5% 밖인지 (견적서 '중량·폭 ±5% 오차 허용'과 같은 기준) */
+export const SPEC_TOL_PCT = 5;
+export const isOffSpec = (actual, target) => {
+  const p = specDiffPct(actual, target);
+  return p != null && Math.abs(p) > SPEC_TOL_PCT;
+};

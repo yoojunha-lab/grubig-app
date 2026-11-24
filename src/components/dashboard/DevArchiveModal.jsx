@@ -4,7 +4,7 @@ import { ModalBackdrop } from '../common/ModalBackdrop';
 import { DevQuoteBadge } from './DevQuoteBadge';
 import { DEV_DROP_REASONS } from '../../constants/common';
 import { getDevQuoteBadge, indexDevQuotes } from '../../utils/devQuoteModel';
-import { productionStateOf, devLeadDays } from '../../utils/devFlowModel';
+import { productionStateOf, devLeadDays, liveSheetOfDev } from '../../utils/devFlowModel';
 import { formatMonthDay } from '../../utils/helpers';
 
 // 진입 날짜 → "MM/DD" (공용 helpers.formatMonthDay — 비었으면 '')
@@ -70,9 +70,12 @@ export const DevArchiveModal = ({
   const filteredInProgress = useMemo(() => (confirmedLinkedDevs || []).filter(d =>
     textMatches(q, d.buyerName) || textMatches(q, d.devOrderNo) || textMatches(q, d.devItem)
   ), [confirmedLinkedDevs, q]);
+  // 아이템화 카드 — 바이어로도 찾기 (카드에 바이어가 보이므로 — 디버깅 2026-11-24)
+  const devById = useMemo(() => new Map((devRequests || []).map(d => [d.id, d])), [devRequests]);
   const filteredArticled = useMemo(() => (articledSheets || []).filter(s =>
     textMatches(q, s.fabricName) || textMatches(q, s.devOrderNo) || textMatches(q, s.articleNo) || textMatches(q, s.eztexOrderNo)
-  ), [articledSheets, q]);
+    || textMatches(q, devById.get(s.devRequestId)?.buyerName) || textMatches(q, s.fromTemp?.buyerName)
+  ), [articledSheets, q, devById]);
   // 의뢰별 견적서 (Drop된 의뢰 카드의 견적가) — 카드마다 전체 견적을 다시 훑지 않게 한 번만
   const quoteIndex = useMemo(() => indexDevQuotes(savedQuotes), [savedQuotes]);
 
@@ -85,10 +88,8 @@ export const DevArchiveModal = ({
   };
   const total = counts.rejected + counts.inProgress + counts.articled;
 
-  const findSheet = (devReq) => {
-    if (devReq.linkedDesignSheetId) return designSheets.find(s => s.id === devReq.linkedDesignSheetId);
-    return designSheets.find(s => s.devRequestId === devReq.id && s.status !== 'dropped');
-  };
+  //  (devFlowModel.liveSheetOfDev — 개발/설계 현황 · 통계와 같은 규칙. 예전엔 linkedDesignSheetId 쪽은 Drop된 설계서도 찾았음)
+  const findSheet = (devReq) => liveSheetOfDev(devReq, designSheets);
 
   // 의뢰와 같이 Drop된 설계서 (의뢰 Drop 사유 창에서 설계서까지 같이 Drop한 경우 — droppedSheetId, 2026-10-10)
   //  지금도 Drop 상태이고 이 의뢰를 가리킬 때만 (그사이 지워졌거나 따로 복원된 설계서는 아님)
@@ -334,7 +335,7 @@ export const DevArchiveModal = ({
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                 {filteredArticled.map(s => {
-                  const dev = s.devRequestId ? (devRequests || []).find(d => d.id === s.devRequestId) || null : null;
+                  const dev = s.devRequestId ? devById.get(s.devRequestId) || null : null;
                   const lead = dev ? devLeadDays(dev, s) : null;
                   return (
                   <div key={s.id}

@@ -1,5 +1,7 @@
 import React from 'react';
 import { PackageCheck, FileText, Edit2, ExternalLink, Factory } from 'lucide-react';
+import { rowOdNo, rowTitle, showSheetName } from '../../utils/devFlowModel';
+import { RowBuyer, LabdipChip } from './DevRowParts';
 
 // ============================================================
 // 개발/설계 현황 — '샘플 진행 (생산 현황)' 표 (개발 고도화 2026-11-24)
@@ -16,17 +18,6 @@ const ROW_BG = {
   normal: '',
 };
 
-const Buyer = ({ row }) => {
-  const buyer = row.dev?.buyerName || row.linkedDev?.buyerName || '';
-  return (
-    <>
-      {buyer
-        ? <span className="truncate">{buyer}</span>
-        : <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-slate-100 text-slate-500 border-slate-200">자체개발</span>}
-      {row.dev?.assignee && <span className="block text-[9px] font-normal text-slate-400 truncate">담당 {row.dev.assignee}</span>}
-    </>
-  );
-};
 
 const StateChip = ({ state }) => (state
   ? <span className={`inline-block w-fit text-[10px] font-bold px-1.5 py-0.5 rounded border ${state.cls}`} title="생산 현황 샘플 오더의 지금 상황">{state.label}</span>
@@ -41,9 +32,10 @@ export const DevSampleProgress = ({
 }) => {
   if (!rows.length) return null;
   const openOrder = (row) => row.order?.orderNumber && onOpenProductionOrder?.(row.order.orderNumber);
-  const odNo = (row) => String(row.dev?.devOrderNo || row.sheet?.devOrderNo || '').trim();
-  const title = (row) => row.dev?.devItem || row.sheet?.fabricName || '원단명 미입력';
-  const sheetName = (row) => (row.dev && String(row.sheet?.fabricName || '').trim() !== String(title(row)).trim() ? row.sheet?.fabricName : '');
+  //  줄 글자는 개발/설계 현황 표와 같은 함수 (devFlowModel — 리팩토링 2026-11-24)
+  const odNo = rowOdNo;
+  const title = rowTitle;
+  const sheetName = (row) => (showSheetName(row) ? row.sheet?.fabricName : '');
 
   return (
     <div id="dev-sample-progress" className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
@@ -78,12 +70,10 @@ export const DevSampleProgress = ({
                     <div className="font-extrabold text-violet-700">{odNo(row) || <span className="text-slate-500">자체</span>}</div>
                     {row.order?.orderNumber && <div className="text-[10px] font-bold text-slate-500">{row.order.orderNumber}</div>}
                   </td>
-                  <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-bold text-slate-700 max-w-[130px]"><Buyer row={row} /></td>
+                  <td className="px-2 py-1.5 border-r border-slate-100 text-[11px] font-bold text-slate-700 max-w-[130px]"><RowBuyer row={row} /></td>
                   <td className="px-2 py-1.5 border-r border-slate-100 text-xs font-bold text-slate-800">
                     <div className="truncate">{title(row)}</div>
-                    {row.labdip?.total > 0 && (
-                      <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded border bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200" title="이 개발 건으로 의뢰한 L/D">L/D {row.labdip.label}</span>
-                    )}
+                    <LabdipChip summary={row.labdip} />
                     {sheetName(row) && (
                       <div className="flex items-center gap-1 text-[10px] font-semibold text-indigo-700 min-w-0">
                         <FileText className="w-3 h-3 shrink-0" /><span className="truncate">{sheetName(row)}</span>
@@ -151,7 +141,7 @@ export const DevSampleProgress = ({
               <p className="text-xs font-mono font-extrabold text-violet-700 mb-0.5">{odNo(row) || '자체'}</p>
               <p className="text-sm font-bold text-slate-800 mb-0.5">{title(row)}</p>
               {sheetName(row) && <p className="flex items-center gap-1 text-[11px] font-semibold text-indigo-700 mb-0.5"><FileText className="w-3 h-3 shrink-0" /> {sheetName(row)}</p>}
-              <p className="text-[11px] text-slate-500 mb-2"><Buyer row={row} /></p>
+              <p className="text-[11px] text-slate-500 mb-2"><RowBuyer row={row} /></p>
               <div className="mb-2 flex items-center gap-2 flex-wrap">
                 <StateChip state={row.state} />
                 {row.deadline && <span className="text-[10px] font-mono font-bold text-slate-600">{row.deadline}</span>}

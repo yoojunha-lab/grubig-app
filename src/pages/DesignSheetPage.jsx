@@ -12,8 +12,9 @@ import { SheetTemplatePickerModal } from '../components/design-sheet/SheetTempla
 import { DesignSheetPrintSheet } from '../components/design-sheet/DesignSheetPrintSheet';
 import { SheetSampleOrderPanel } from '../components/design-sheet/SheetSampleOrderPanel';
 import { HistoryFieldLine, HistoryWho } from '../components/design-sheet/HistoryFieldLine';
-import { promotedSheetsOfTemp, sheetShortLabel } from '../utils/devFlowModel';
+import { promotedSheetsOfTemp, sheetShortLabel, qcDetailsFor } from '../utils/devFlowModel';
 import { labdipsOfDev, labdipDevSummary } from '../utils/labdipModel';
+import { confirmSnapshot, sheetRevision } from '../utils/sheetSpec';
 import { KnitMachinePickerModal } from '../components/knitFactory/KnitMachinePickerModal';
 import { matchSheetKnitting, sheetKnitAlarm, resolveKnitConfig } from '../utils/knitFactoryModel';
 
@@ -42,24 +43,6 @@ const TSelect = ({ children, ...props }) => (
     {children}
   </select>
 );
-
-// 담당자 확인칸 — 확인할 때의 값 (개발 고도화 2026-11-24 '확인한 뒤 값이 바뀌면 다시 노랑')
-//  칸 하나에 값이 둘인 곳: 개폭(개폭선·오픈개폭) · 포속/오버피더 · 원사 비율(원사 + 비율)
-const CONFIRM_COMBO = {
-  'knitting.openWidth': ['knitting.hasOpenWidth', 'knitting.isOpenWidth'],
-  'dyeing.fabricSpeed': ['dyeing.fabricSpeed', 'dyeing.overFeeder'],
-};
-const readPath = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
-const confirmSnapshot = (input, key) => {
-  const yarn = /^yarns\.(\d+)\.ratio$/.exec(key);
-  const paths = yarn ? [`yarns.${yarn[1]}.yarnId`, key] : (CONFIRM_COMBO[key] || [key]);
-  return paths.map(p => {
-    const v = readPath(input, p);
-    if (v === true) return 'true';
-    if (v === false || v == null) return '';
-    return String(v).trim();
-  }).join('|');
-};
 
 // 변경 감사 툴팁 텍스트 만들기 (누가·언제·무엇→무엇)
 const buildAuditTip = (meta) => {
@@ -190,19 +173,23 @@ export const DesignSheetPage = ({
 
   // 단계 바 · [EZ-TEX 단계로] — 저장 안 한 변경이 있으면 먼저 저장하고 그 저장본으로 단계 이동
   //  (예전엔 저장된 값으로 검사해서, 방금 적은 Article 이 있어도 'Article 번호를 먼저 입력' 이 떴음)
+  //  저장 안 한 변경이 있으면 물어보고 먼저 저장 — 반환: 저장한 설계서 / 저장할 게 없으면 null / 취소 · 실패면 false
+  //  (단계 바 · 인쇄가 같이 씀 — 리팩토링 2026-11-24)
+  const saveIfDirty = async (question) => {
+    if (!isSheetDirty?.()) return null;
+    if (!window.confirm(question)) return false;
+    const onLink = (devReqId, sheetId) => { if (linkAndConfirm) linkAndConfirm(devReqId, sheetId); };
+    const saved = await handleSaveSheet(user, onLink, { keepForm: true });
+    if (!saved) return false;
+    onSavedKeepOpen?.(saved);
+    return saved;
+  };
   const changeStage = async (target) => {
     if (!editingSheetId || typeof setStage !== 'function') return;
     if (target === (sheetInput.stage || 'draft')) return;
-    if (isSheetDirty?.()) {
-      if (!window.confirm('저장하지 않은 변경이 있어요.\n먼저 저장하고 단계를 바꿀까요?')) return;
-      const onLink = (devReqId, sheetId) => { if (linkAndConfirm) linkAndConfirm(devReqId, sheetId); };
-      const saved = await handleSaveSheet(user, onLink, { keepForm: true });
-      if (!saved) return;
-      onSavedKeepOpen?.(saved);
-      await setStage(editingSheetId, target, { base: saved });
-      return;
-    }
-    await setStage(editingSheetId, target);
+    const saved = await saveIfDirty('저장하지 않은 변경이 있어요.\n먼저 저장하고 단계를 바꿀까요?');
+    if (saved === false) return;
+    await setStage(editingSheetId, target, saved ? { base: saved } : undefined);
   };
 
   // 가설계서 불러오기 모달 상태
@@ -216,30 +203,36 @@ export const DesignSheetPage = ({
     const id = String(yarnId || '').split('::')[0];
     return (yarnSelectOptions || []).find(o => String(o.id) === id)?.name || '';
   };
+  //  종이는 '저장된' 설계서로 (디버깅 2026-11-24 — 예전엔 열어 둔 폼 값을 찍어서, 다른 곳에서 바뀐 뒤면 옛 내용 · 옛 판이 나왔음)
+  //  인쇄 뒤 정리는 afterprint 에서 (인쇄 창이 바로 돌아오는 브라우저에서 빈 종이가 되지 않게) + 인쇄 시트도 내림
   const printSheet = async (mode) => {
     setPrintMenuOpen(false);
     if (!editingSheetId) return;
-    let doc = sheetInput;
-    if (isSheetDirty?.()) {
-      if (!window.confirm('저장하지 않은 변경이 있어요.\n공장에 보내는 종이는 저장된 내용과 같아야 해서, 먼저 저장하고 인쇄할게요. 계속할까요?')) return;
-      const onLink = (devReqId, sheetId) => { if (linkAndConfirm) linkAndConfirm(devReqId, sheetId); };
-      const saved = await handleSaveSheet(user, onLink, { keepForm: true });
-      if (!saved) return;
-      onSavedKeepOpen?.(saved);
-      doc = saved;
-    }
+    const saved = await saveIfDirty('저장하지 않은 변경이 있어요.\n공장에 보내는 종이는 저장된 내용과 같아야 해서, 먼저 저장하고 인쇄할게요. 계속할까요?');
+    if (saved === false) return;
+    const doc = saved || (designSheets || []).find(s => s.id === editingSheetId) || sheetInput;
     setPrintJob({ sheet: doc, mode });
     const oldTitle = document.title;
     const label = mode === 'knit' ? '편직설계서' : '염가공설계서';
     const no = String(doc.articleNo || doc.eztexOrderNo || doc.devOrderNo || '').trim();
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      document.title = oldTitle;
+      document.body.classList.remove('printing-sheet');
+      window.removeEventListener('afterprint', cleanup);
+      setPrintJob(null);
+    };
     document.body.classList.add('printing-sheet');
+    window.addEventListener('afterprint', cleanup);
     setTimeout(() => {
+      document.title = `${label}_${no || doc.fabricName || ''}_${sheetRevision(doc)}판`;
       try {
-        document.title = `${label}_${no || doc.fabricName || ''}_${(doc.changeHistory || []).length + 1}판`;
         window.print();
       } finally {
-        document.title = oldTitle;
-        document.body.classList.remove('printing-sheet');
+        // afterprint 가 없는 브라우저 대비 — 1분 뒤에도 남아 있으면 정리
+        setTimeout(cleanup, 60000);
       }
     }, 300);
   };
@@ -291,12 +284,20 @@ export const DesignSheetPage = ({
   const [mdFormOpen, setMdFormOpen] = React.useState(false);
   const [mdViewOpen, setMdViewOpen] = React.useState(false);
   // 이 설계서 Article과 연동된 메인 디테일 시트 목록
+  // 이 설계서 · 의뢰로 의뢰한 L/D 요약 — 글자를 칠 때마다 다시 훑지 않게 L/D · 연결이 바뀔 때만 (리팩토링 2026-11-24)
+  const sheetDevId = sheetInput.devRequestId || null;
+  const labdipSummary = React.useMemo(() => {
+    if (!editingSheetId) return null;
+    const list = labdipsOfDev(labdips, { devRequestId: sheetDevId, sheetId: editingSheetId });
+    return list.length ? labdipDevSummary(list) : null;
+  }, [labdips, sheetDevId, editingSheetId]);
   //  샘플 QC는 Article 없이 Order No(EZ-TEX 번호)만 적는 경우가 많아서 그것도 같이 (2026-11-24)
-  const sheetArticle = String(sheetInput.articleNo || '').trim().toUpperCase();
-  const sheetEztex = String(sheetInput.eztexOrderNo || '').trim().toUpperCase();
-  const linkedMainDetails = (sheetArticle || sheetEztex) ? (mainDetails || []).filter(d =>
-    (sheetArticle && String(d.articleNo || '').trim().toUpperCase() === sheetArticle)
-    || (sheetEztex && String(d.orderNo || '').trim().toUpperCase() === sheetEztex)) : [];
+  //  '생산 현황에서 고르기'로 샘플 오더를 이은 QC 는 그 오더 것만 (devFlowModel.qcDetailsFor — 생산 현황 상세창과 같은 규칙, 2026-11-24)
+  const linkedMainDetails = React.useMemo(() => qcDetailsFor(mainDetails, {
+    orderId: sampleOrder?.id || null,
+    orderNo: sheetInput.eztexOrderNo || '',
+    articleNo: sheetInput.articleNo || '',
+  }), [mainDetails, sampleOrder?.id, sheetInput.eztexOrderNo, sheetInput.articleNo]);
   // '작성' 클릭: 현재 Article을 기본값으로 세팅해 작성 팝업 오픈
   const openMainDetailForm = () => {
     resetDetailForm?.();
@@ -348,19 +349,8 @@ export const DesignSheetPage = ({
       return { ...prev, fieldConfirm: { ...(prev.fieldConfirm || {}), [key]: on }, fieldConfirmValue: values };
     });
   };
-  // 확인한 뒤 값이 바뀐 칸 → 확인 풀기 (저장해도 노랑으로 남게 — 예전엔 값이 바뀌어도 초록 그대로)
-  React.useEffect(() => {
-    if (isTempMode || typeof setSheetInput !== 'function') return;
-    const stale = Object.keys(sheetInput.fieldConfirm || {}).filter(k => sheetInput.fieldConfirm[k] && !isConfirmedIn(sheetInput, k));
-    if (!stale.length) return;
-    setSheetInput(prev => {
-      const confirm = { ...(prev.fieldConfirm || {}) };
-      const values = { ...(prev.fieldConfirmValue || {}) };
-      stale.forEach(k => { confirm[k] = false; delete values[k]; });
-      return { ...prev, fieldConfirm: confirm, fieldConfirmValue: values };
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sheetInput, isTempMode]);
+  //  확인한 뒤 값이 바뀐 칸은 노랑으로 보이기만 하고, 실제로 확인을 푸는 건 저장할 때 (useDesignSheet → utils/sheetSpec.settleConfirms)
+  //  (디버깅 2026-11-24 — 예전엔 화면이 열릴 때 효과로 풀어서, 다른 곳이 바꾼 설계서를 열기만 해도 '저장 안 한 변경'이 생겼음)
   const specProps = (key, span = 1, className = '') => ({
     span,
     className,
@@ -582,10 +572,7 @@ export const DesignSheetPage = ({
         {/* 생산 현황 샘플 오더 진행 · 실측 vs 설계 (개발 고도화 3단계 2026-11-24) */}
         {!isTempMode && editingSheetId && (
           <SheetSampleOrderPanel sheet={sheetInput} order={sampleOrder} qcDetails={linkedMainDetails} onOpenProductionOrder={onOpenProductionOrder}
-            labdipSummary={(() => {
-              const list = labdipsOfDev(labdips, { devRequestId: sheetInput.devRequestId || null, sheetId: editingSheetId });
-              return list.length ? labdipDevSummary(list) : null;
-            })()} />
+            labdipSummary={labdipSummary} />
         )}
 
         {/* ------------------------------------------- */}
@@ -1238,13 +1225,14 @@ export const DesignSheetPage = ({
               <div className="py-8 text-center text-sm text-slate-400">저장된 가설계서가 없습니다.</div>
             ) : (
               <div className="space-y-2">
-                {(tempDesignSheets || []).sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||'')).map(ts => (
+                {[...(tempDesignSheets || [])].sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||'')).map(ts => {
+                  const promoted = promotedSheetsOfTemp(ts.id, designSheets);
+                  return (
                   <button key={ts.id} onClick={() => {
                     if (onLoadTempSheet) {
-                      // 이미 정식 설계서로 만든 가설계서면 한 번 더 확인 (2026-11-24)
-                      const promoted = promotedSheetsOfTemp(ts.id, designSheets);
+                      // 이미 정식 설계서로 만든 가설계서면 한 번 더 확인 (2026-11-24) — 그 확인을 했으면 덮어쓰기 확인은 다시 안 물음
                       if (promoted.length && !window.confirm(`"${ts.fabricName || '가설계서'}"는 이미 정식 설계서로 만들었어요.\n· ${promoted.map(sheetShortLabel).join('\n· ')}\n\n그래도 이 설계서에 불러올까요?`)) return;
-                      const loaded = onLoadTempSheet(ts, setSheetInput);
+                      const loaded = onLoadTempSheet(ts, setSheetInput, promoted.length ? { skipConfirm: true } : {});
                       if (loaded !== false) setIsTempLoadModalOpen(false);
                     }
                   }} className="w-full text-left p-3 border border-slate-200 rounded-xl hover:border-amber-400 hover:bg-amber-50/50 transition-colors group">
@@ -1252,7 +1240,7 @@ export const DesignSheetPage = ({
                       <div>
                         <p className="text-sm font-extrabold text-slate-800 group-hover:text-amber-800">
                           {ts.fabricName || '(이름없음)'}
-                          {promotedSheetsOfTemp(ts.id, designSheets).length > 0 && <span className="ml-1.5 text-[9px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1">정식 전환됨</span>}
+                          {promoted.length > 0 && <span className="ml-1.5 text-[9px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1">정식 전환됨</span>}
                         </p>
                         <p className="text-[10px] text-slate-500 mt-0.5">
                           {ts.buyerName ? `바이어: ${ts.buyerName}` : ''}
@@ -1267,7 +1255,8 @@ export const DesignSheetPage = ({
                       </div>
                     </div>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

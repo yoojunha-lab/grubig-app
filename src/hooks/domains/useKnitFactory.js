@@ -36,7 +36,10 @@ export const useKnitFactory = ({
 }) => {
   const busyRef = useRef(false);
   const who = () => user?.displayName || user?.email?.split('@')[0] || 'Unknown';
-  const findFactory = (id) => (knitFactories || []).find(f => f.id === id) || null;
+  // 늘 최신 목록에서 찾음 — 지도 좌표 찾기처럼 기다리는 사이 다른 저장이 들어와도 옛 문서로 덮지 않게 (디버깅 2026-11-24)
+  const latestRef = useRef(knitFactories);
+  latestRef.current = knitFactories;
+  const findFactory = (id) => (latestRef.current || []).find(f => f.id === id) || null;
 
   // 설계서 편직처 목록에 이름 넣기 (실패해도 편직처 저장은 된 것 — 알림만)
   const syncNames = async (names) => {
@@ -47,12 +50,15 @@ export const useKnitFactory = ({
     }
   };
 
-  // 좌표 찾기 (8초 안에 못 찾으면 좌표 없이)
-  const tryGeocode = async (factory) => {
-    if (!geocode || !needsGeocode(factory)) return factory.geo || null;
-    try { return await withTimeout(geocode(factory), 8000); } catch (e) {
+  // 좌표 찾기 (8초 안에 못 찾으면 있던 좌표 그대로 — 디버깅 2026-11-24: 예전엔 못 찾으면 직접 찍은 좌표까지 지웠음)
+  //  includeManual: 주소를 고쳤을 때 — 직접 찍은 좌표도 새 주소로 다시 찾아 봄
+  const tryGeocode = async (factory, { includeManual = false } = {}) => {
+    if (!geocode || !needsGeocode(factory, { includeManual })) return factory.geo || null;
+    try {
+      return (await withTimeout(geocode(factory), 8000)) || factory.geo || null;
+    } catch (e) {
       console.warn('편직처 좌표 찾기 실패', e);
-      return null;
+      return factory.geo || null;
     }
   };
 
@@ -100,14 +106,18 @@ export const useKnitFactory = ({
         ...(existing || {}),
         ...clean,
         memos: existing?.memos || clean.memos || [],   // 메모는 입력 창 밖에서 바로 저장 — 입력 창 값으로 덮지 않음
-        checkedAt: changed && hasEquip ? todayLocalISO() : (clean.checkedAt || existing?.checkedAt || ''),
+        // 확인일은 늦은 날 · 좌표 · 수정 기록은 저장소 값 (디버깅 2026-11-24 — 창이 열린 사이 다른 PC가 남긴 방문 기록 · 좌표를 되돌리지 않게)
+        checkedAt: changed && hasEquip ? todayLocalISO() : ([clean.checkedAt, existing?.checkedAt].filter(Boolean).sort().pop() || ''),
+        ...(existing ? { geo: existing.geo ?? clean.geo ?? null, changeLog: existing.changeLog ?? clean.changeLog } : {}),
         id: editingId || newFactoryId(),
         createdAt: existing?.createdAt || now,
         createdBy: existing?.createdBy || who(),
         updatedAt: now,
         updatedBy: who(),
       };
-      const docToSave = { ...draft, geo: await tryGeocode(draft) };
+      //  대표 주소를 고쳤으면 직접 찍은 좌표도 새 주소로 다시 찾아 봄 (못 찾으면 그대로)
+      const addrChanged = !!existing && String(existing.addresses?.[0] || '').trim() !== String(draft.addresses?.[0] || '').trim();
+      const docToSave = { ...draft, geo: await tryGeocode(draft, { includeManual: addrChanged }) };
       const ok = await saveDocToCloud(KNIT_FACTORY_COLLECTION, docToSave);
       if (ok === false) return null;
       await syncNames([docToSave.name]);

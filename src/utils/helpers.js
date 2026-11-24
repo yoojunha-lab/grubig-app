@@ -276,3 +276,14 @@ export const getQuoteValidUntil = (dateString, option = '2weeks', lang = 'en') =
 };
 
 // 견적서 가격 계산(기준원가·판매가·별도 견적)은 utils/quoteModel.js 로 옮김 (2026-10-05)
+
+/**
+ * 원사 id → 원사 라이브러리 이름 (리팩토링 2026-11-24 — 설계서 이력 · 원단 동기화 · 보관함 검색이 따로 쓰던 것을 하나로)
+ *  · 설계서 원사 칸 id 는 'id::공급처' 일 수 있어서 '::' 앞만 봄
+ *  · 비었으면 '' / 라이브러리에 없으면 missing (기본 '' — 이력에는 '(지운 원사 id)'를 넘겨 씀)
+ */
+export const yarnNameById = (yarnLibrary, yarnId, missing = '') => {
+  const id = String(yarnId || '').split('::')[0];
+  if (!id) return '';
+  return (yarnLibrary || []).find(y => String(y?.id) === id)?.name || (typeof missing === 'function' ? missing(id) : missing);
+};

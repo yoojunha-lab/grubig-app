@@ -107,8 +107,12 @@ export const LabdipForm = ({
     if (!opt) { patch({ devRequestId: null, designSheetId: null, devOrderNo: '' }); return; }
     if (opt.closed) return; // 지금 연결(아이템화 · Drop돼 목록에서 빠진 건)을 다시 고름 — 그대로
     const fields = fieldsFromDev(opt);
+    // 개발 건에 값이 없는 칸(설계서 전 의뢰의 GSM · 폭 등)은 이미 적어 둔 값을 지우지 않음 (디버깅 2026-11-24)
+    const kept = Object.fromEntries(['article', 'itemName', 'gsm', 'widthCut', 'widthFull']
+      .filter(k => !String(fields[k] ?? '').trim() && String(ld[k] ?? '').trim())
+      .map(k => [k, ld[k]]));
     const buyer = !String(ld.buyerName || '').trim() && opt.dev?.buyerName ? { buyerName: opt.dev.buyerName } : {};
-    patch({ ...fields, ...buyer, woolType: detectWoolType({ fabric: opt.sheet, yarnLibrary, itemName: fields.itemName }).type, woolManual: false });
+    patch({ ...fields, ...kept, ...buyer, woolType: detectWoolType({ fabric: opt.sheet, yarnLibrary, itemName: fields.itemName || ld.itemName }).type, woolManual: false });
   };
   // 연결된 설계서 값이 그 사이 바뀌었으면 (GSM을 채웠거나 아이템화돼 Article이 생김) — 다른 칸만 다시 복사
   const refreshFromDev = () => {

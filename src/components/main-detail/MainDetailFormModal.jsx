@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Plus, Save, X, Edit2 } from 'lucide-react';
 import { SearchableSelect } from '../common/SearchableSelect';
 import { ModalBackdrop } from '../common/ModalBackdrop';
@@ -38,13 +38,28 @@ export const MainDetailFormModal = ({
     initial: !editingDetailId && getBlankDetailInput ? getBlankDetailInput() : null,
   });
 
+  // 저장 중 잠금 — 빠르게 두 번 눌러도 한 장만 (디버깅 2026-11-24, 예전엔 같은 시트가 두 장 생길 수 있었음)
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+
   if (!isOpen) return null;
 
   const discardAndClose = () => { setLeavePending(false); resetDetailForm(); onClose(); };
   const cancel = () => { if (guard.isDirty()) setLeavePending(true); else discardAndClose(); };
 
+  const runSave = async (opts) => {
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      return await handleSaveDetail(opts);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
   const handleSave = async () => {
-    const ok = await handleSaveDetail({ keepIdentity: keepIdentityNext });
+    const ok = await runSave({ keepIdentity: keepIdentityNext });
     if (!ok) return;
     // 신규 + keepIdentity 체크 상태면 모달 유지(컬러만 다른 건 연속 등록), 그 외에는 닫기
     if (!keepIdentityNext || editingDetailId) onClose();
@@ -53,7 +68,7 @@ export const MainDetailFormModal = ({
   // 확인창의 '저장하고 나가기' — 연속 작성 체크와 상관없이 저장 후 닫기
   const saveAndClose = async () => {
     setLeavePending(false);
-    const ok = await handleSaveDetail({ keepIdentity: false });
+    const ok = await runSave({ keepIdentity: false });
     if (ok) onClose();
   };
 
@@ -82,12 +97,15 @@ export const MainDetailFormModal = ({
               onPick={(p) => setDetailInput(prev => ({
                 ...prev,
                 orderNo: p.orderNo,
-                articleNo: p.articleNo || prev.articleNo || '',
+                //  오더에 Article 이 없으면: 손으로 친 Article 은 두고, 앞서 다른 오더에서 온 Article 은 비움
+                //  (디버깅 2026-11-24 — 예전엔 A 오더의 Article 이 B 샘플 QC 에 남아 엉뚱한 설계서에 보였음)
+                articleNo: p.articleNo || (prev.orderId ? '' : prev.articleNo || ''),
                 colorInfo: p.colorInfo,
                 lotNo: p.lotNo,
                 type: p.type,
                 orderId: p.orderId, colorId: p.colorId, lotId: p.lotId,
               }))}
+              onClear={() => setDetailInput(prev => ({ ...prev, orderId: null, colorId: null, lotId: null }))}
             />
             <div className="col-span-2">
               <label className="block text-xs font-bold text-slate-500 mb-1">유형 (Type)</label>
@@ -247,8 +265,8 @@ export const MainDetailFormModal = ({
 
           {/* 저장 버튼 */}
           <div className="pt-2">
-            <button onClick={handleSave} className="w-full bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-fuchsia-600/30 active:scale-95 transition-all flex items-center justify-center gap-2">
-              <Save className="w-4 h-4" /> {editingDetailId ? '시트 내용 전체 저장' : (keepIdentityNext ? '저장하고 한 번 더 작성' : '디테일 시트 등록하기')}
+            <button onClick={handleSave} disabled={saving} className="w-full bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-fuchsia-600/30 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-60">
+              <Save className="w-4 h-4" /> {saving ? '저장 중…' : (editingDetailId ? '시트 내용 전체 저장' : (keepIdentityNext ? '저장하고 한 번 더 작성' : '디테일 시트 등록하기'))}
             </button>
           </div>
         </div>

@@ -100,10 +100,10 @@ GRUBIG-APP/
 │   ├── components/
 │   │   ├── common/              # 공통 UI (Toast, SearchableSelect, MasterDataModal, ModalBackdrop(팝업 배경), UnsavedChangesDialog(저장할까요?) 등)
 │   │   ├── layout/              # Sidebar, LoginScreen
-│   │   ├── dashboard/           # 개발 의뢰 — DevRequestFormModal(폭/중량·바이어 특이사항 칸), DevArchiveModal(보관함·Drop 사유별 보기·아이템화 카드 걸린 날), DevCostQuoteModal(원가 견적), DevDropModal(Drop 사유), DevQuoteBadge(견적·예상 배지 공용), DevSampleProgress(샘플 진행 (생산 현황) 표), DevStatsPanel(개발 통계), DevReqSummaryCard(현재 안 씀)
+│   │   ├── dashboard/           # 개발 의뢰 — DevRequestFormModal(폭/중량·바이어 특이사항 칸), DevArchiveModal(보관함·Drop 사유별 보기·아이템화 카드 걸린 날), DevCostQuoteModal(원가 견적), DevDropModal(Drop 사유), DevQuoteBadge(견적·예상 배지 공용), DevSampleProgress(샘플 진행 (생산 현황) 표), DevStatsPanel(개발 통계), DevRowParts(두 표 공용 — 바이어 칸·L/D 배지·회신 대기 배지), DevReqSummaryCard(현재 안 씀)
 │   │   ├── order/               # 생산 현황 — sheet/(현황표·⋯ 메뉴·입력 창: Process·ProvisionalDue·GreigeOut(선염/후염·kg)·LotEditor(배색량·예상 YD·프리세팅)·ColorPopovers(컨펌·성적서)·Inspection(LOT별 1차·2차)·Ship·Closing(마무리)·StepManager(공정 추가)·Yarn(원사 — 사종 줄·재고 사용·원사염색)), gantt/(간트·GanttAddMenu [+]·GanttDateMenu 날짜 → 그 날에 넣기), common/(SheetLinkChips '설계서' 표시·SampleCloseDialog 샘플 끝내기·OrderKindChip 구분 표시·AddOrderMenu [+ 오더 추가 ▾]·OrderKindDialog 구분 바꾸기·LinkSheetDialog 작성 중인 설계서 연결·SkipBar 컨펌/외관검사 '안 함'(SkippedPopover 창)·SkipChip 회색 '안 함·재고 사용·생지 재고'·PopoverShell(저장할까요?)·StatusSelect 상태 드롭다운·TrackEditor 상태 기록·StepChip(PresettingChip·YarnDyeChip)·QcResultSection 상세창 '메인/QC 결과'), OrderDetailModal
 │   │   ├── design/              # DesignStepper (진행 단계 바)
-│   │   ├── main-detail/         # 메인/QC — MainDetailFormModal(작성 창·비고), OrderLotPicker(생산 현황에서 고르기 — 오더·컬러·LOT)
+│   │   ├── main-detail/         # 메인/QC — MainDetailFormModal(작성 창·비고·저장 중 잠금), OrderLotPicker(생산 현황에서 고르기 — 오더·컬러·LOT, 폼 값 그대로), QcResultTable(QC 결과 표 — 설계서 칸·생산 현황 상세창 공용)
 │   │   ├── design-sheet/        # 설계서 전용 (DesktopSheetRow, MobileSheetCard, DropSheetModal, SheetTemplatePickerModal(설계서 불러오기 — 고르는 창), DesignSheetPrintSheet(편직처용·염색소용 인쇄), SheetSampleOrderPanel(샘플 오더 칸·실측 vs 설계), HistoryFieldLine(변경 이력 옛 값→새 값))
 │   │   ├── fabric/              # 원단 행/카드 (+ fabricRowModel: 행·카드 공통 계산)
 │   │   ├── yarn/                # 원사 행/카드 (+ yarnRowModel: 행·카드 공통 계산)
@@ -124,8 +124,9 @@ GRUBIG-APP/
 │   │   ├── excelIO.js           # 엑셀 업로드 칸 읽기 (숫자·%·예/아니오·통화)
 │   │   ├── costFields.js        # 원가 칸 초기값 (원단·설계서·가설계서 공통)
 │   │   ├── devQuoteModel.js     # 개발 의뢰 원가 견적 (양식·원단 모양 변환·저장 전 확인·예상가·견적서 배지·설계서 이어받기)
-│   │   ├── sheetHistory.js      # 설계서 변경 이력 (피더 줄 요약·값 글자·원단 관리 수정 → 설계서 이력)
-│   │   ├── devFlowModel.js      # 개발 흐름 (+ QC 실측 qcActualOf·가설계서 정식 전환 promotedSheetsOfTemp) (샘플 진행 줄 생산 상황·납기 / 회신 대기 N일 / 의뢰 결과·의뢰→아이템화 일수 / 개발 통계 / 의뢰 수정 → 설계서·샘플 오더 변경 계획)
+│   │   ├── sheetHistory.js      # 설계서 변경 이력 (피더 줄 요약·값 글자·숫자 비교·예전 원가 기본값·원가 목록 요약·원단 관리 수정 → 설계서 이력)
+│   │   ├── sheetSpec.js         # 설계서 스펙 규칙 (확인칸 값·저장 때 정리 settleConfirms·최종 스펙 확인 finalSpecError·인쇄 판 번호 sheetRevision)
+│   │   ├── devFlowModel.js      # 개발 흐름 (+ QC 실측 qcActualOf·QC 찾기 qcDetailsFor·가설계서 정식 전환 promotedSheetsOfTemp·의뢰 아이템화/되돌리기 devArticledPatch·devReopenDoc·줄 글자 rowOdNo·rowTitle·rowBuyerName) (샘플 진행 줄 생산 상황·납기 / 회신 대기 N일 / 의뢰 결과·의뢰→아이템화 일수 / 개발 통계 / 의뢰 수정 → 설계서·샘플 오더 변경 계획)
 │   │   ├── yarnDyeCalc.js       # 선염 계산 (스트라이프 원사 컬러 배분·같은 컬러 합치기 / 멜란지 수량 비율 / O/D·ARTICLE(원사) 불러오기 / 결과 복사)
 │   │   ├── knitFactoryModel.js  # 편직처 기계 현황 (문서 모양·종류/계열 설정·종류+인치 묶음·침수 계산·기계로 찾기·설계서에 넣을 값·카카오 링크·정리본 읽기)
 │   │   ├── kakaoMap.js          # 카카오맵 SDK 불러오기 · 편직처 주소 → 좌표 (브라우저 전용)

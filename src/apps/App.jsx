@@ -582,17 +582,22 @@ const App = () => {
   //  예전엔 바이어가 샘플 납기를 바꿔 의뢰를 고쳐도 설계서 납기 · 샘플 오더 납기 · 바이어는 옛 값 그대로였음
   //  바뀌는 칸: 샘플 납기 → 설계서 납기 · 샘플 오더 납기(완료된 오더 빼고) / 바이어 → 샘플 오더 바이어 (utils/devFlowModel.devChangePlan)
   //  자동으로 바꾸지 않고 한 번 물어봄 (대표님 결정 — 설계서·오더에 따로 정한 날짜가 있을 수 있어서)
+  //  의뢰 저장이 끝나면 바로 돌려줘서 의뢰 창을 먼저 닫고, 연결된 곳 묻기 · 저장은 그다음 (디버깅 2026-11-24 — 예전엔 창이 빈 '새 의뢰'
+  //  양식으로 남은 채 설계서 · 오더 저장을 기다렸고, 그사이 [저장]을 또 누르면 '바이어명' 오류가 났음)
   const handleSaveDevRequestSynced = async (u) => {
     const before = editingDevId ? (devRequests || []).find(d => d.id === editingDevId) || null : null;
     const after = devInput;
     const ok = await handleSaveDevRequest(u);
-    if (!ok || !before) return ok;
+    if (ok && before) setTimeout(() => { syncLinkedAfterDevEdit(before, after); }, 0);
+    return ok;
+  };
+  const syncLinkedAfterDevEdit = async (before, after) => {
     const sheet = liveSheetOfDev(before, designSheets);
     const order = sheet ? sheetOrderOf(sheet.id) : null;
     const plan = devChangePlan({ before, after, sheet, order });
-    if (!plan.length) return ok;
+    if (!plan.length) return;
     const lines = plan.map(p => `· ${p.label}: ${p.from || '(빈 칸)'} → ${p.to}`).join('\n');
-    if (!window.confirm(`의뢰를 고쳤어요. 연결된 곳도 같이 바꿀까요?\n\n${lines}\n\n[취소]를 누르면 의뢰만 바뀌어요.`)) return ok;
+    if (!window.confirm(`의뢰를 고쳤어요. 연결된 곳도 같이 바꿀까요?\n\n${lines}\n\n[취소]를 누르면 의뢰만 바뀌어요.`)) return;
     const done = [];
     const failed = [];
     const sheetDue = plan.find(p => p.target === 'sheet' && p.field === 'deadline');
@@ -606,7 +611,6 @@ const App = () => {
     }
     if (failed.length) showToast(`의뢰는 저장했지만 ${failed.join(' · ')}는 바꾸지 못했어요. 그 화면에서 직접 고쳐 주세요.`, 'error');
     else if (done.length) showToast(`의뢰와 같이 ${done.join(' · ')}도 바꿨어요.`, 'success');
-    return ok;
   };
 
   // 생산 현황 ↔ 설계서 화면 오가기

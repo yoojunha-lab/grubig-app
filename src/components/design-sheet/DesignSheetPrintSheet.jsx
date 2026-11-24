@@ -1,10 +1,11 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { sheetRevision } from '../../utils/sheetSpec';
 
 // ============================================================
 // 설계서 인쇄 — 편직처용 / 염색소용 (개발 고도화 3단계, 대표님 요청 2026-11-24)
 //  · 편직처 · 염색소에 보내는 종이라 원가 · 판매가 · 바이어 이름은 안 찍음 (대표님 결정)
-//  · '제 N판' = 저장된 변경 이력 수 + 1 (설계를 고쳐 저장할 때마다 1씩) — 공장에 간 종이가 몇 번째 것인지 맞춰 보려고
+//  · '제 N판' = 종이에 찍히는 칸이 바뀐 이력 수 + 1 (utils/sheetSpec.sheetRevision — 원가만 고친 건 판이 안 올라감, 2026-11-24)
 //  · mode 'knit' (편직처용): 원사 배합 · 편직 사양 · 조직도(피더 줄) · 편직 특이사항 · 목표 스펙
 //    mode 'dye'  (염색소용): 원사 혼용률 · 편직 요약 · 염가공 사양 · 후가공 · 목표 스펙
 //  · body 직속 포털 + .sheet-print-root — 인쇄할 때 body.printing-sheet 이면 이것만 보임 (index.css, 개발 의뢰서 인쇄와 같은 방식)
@@ -41,7 +42,7 @@ export const DesignSheetPrintSheet = ({ sheet, mode = 'knit', yarnNameOf, printe
   const d = sheet.dyeing || {};
   const f = sheet.finishing || {};
   const ci = sheet.costInput || {};
-  const revision = (sheet.changeHistory || []).length + 1;
+  const revision = sheetRevision(sheet);
   const lastEdited = String(sheet.updatedAt || '').slice(0, 10);
   const yarns = (sheet.yarns || [])
     .map((y, i) => ({ no: i + 1, name: plainYarnName(yarnNameOf ? yarnNameOf(y?.yarnId) : ''), ratio: Number(y?.ratio) || 0, yarnId: y?.yarnId }))

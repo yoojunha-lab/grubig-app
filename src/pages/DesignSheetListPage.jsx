@@ -39,8 +39,11 @@ export const DesignSheetListPage = ({
   const [sortKey, setSortKey] = useState('updated');
 
   // 원사 이름 · 바이어 (검색용 — 2026-11-24 원사 · 바이어 · GSM 으로도 찾기)
-  const yarnNameOf = (yarnId) => (yarnLibrary || []).find(y => String(y.id) === String(yarnId || '').split('::')[0])?.name || '';
-  const buyerOf = (s) => (devRequests || []).find(d => d.id === s.devRequestId)?.buyerName || s.fromTemp?.buyerName || '';
+  //  글자를 칠 때마다 원사 · 의뢰 전체를 다시 훑지 않게 이름표를 한 번 만들어 둠 (리팩토링 2026-11-24)
+  const yarnNameMap = useMemo(() => new Map((yarnLibrary || []).map(y => [String(y.id), y.name || ''])), [yarnLibrary]);
+  const devBuyerMap = useMemo(() => new Map((devRequests || []).map(d => [d.id, d.buyerName || ''])), [devRequests]);
+  const yarnNameOf = (yarnId) => (yarnId ? yarnNameMap.get(String(yarnId).split('::')[0]) || '' : '');
+  const buyerOf = (s) => devBuyerMap.get(s.devRequestId) || s.fromTemp?.buyerName || '';
 
 
   const factories = ['All', ...new Set((designSheets||[]).map(s=>s.knitting?.factory).filter(Boolean))];
@@ -71,8 +74,8 @@ export const DesignSheetListPage = ({
       return list.sort((a, b) => at(b).localeCompare(at(a)));
     }
     return list.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [designSheets, searchTerm, knitFactoryFilter, machineTypeFilter, gaugeFilter, sortKey, devRequests, yarnLibrary]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- yarnNameOf · buyerOf 는 아래 두 이름표로 정해짐
+  }, [designSheets, searchTerm, knitFactoryFilter, machineTypeFilter, gaugeFilter, sortKey, yarnNameMap, devBuyerMap]);
 
   const droppedSheets = useMemo(() =>
     (designSheets || []).filter(s => s.status === 'dropped')
@@ -93,13 +96,8 @@ export const DesignSheetListPage = ({
     };
   };
 
-  const getYarnName = (yarnId) => {
-    if (!yarnId) return '';
-    return (yarnLibrary || []).find(y => String(y.id) === String(yarnId).split('::')[0])?.name || '';
-  };
-
   const getCompositionText = (yarns) => (yarns || []).filter(y => y?.yarnId && Number(y.ratio) > 0)
-    .map(y => `${getYarnName(y.yarnId)} ${y.ratio}%`).join(' / ') || '-';
+    .map(y => `${yarnNameOf(y.yarnId)} ${y.ratio}%`).join(' / ') || '-';
 
   const getLinkedBuyer = (sheet) => (devRequests||[]).find(d=>d.id===sheet.devRequestId)?.buyerName || '';
 

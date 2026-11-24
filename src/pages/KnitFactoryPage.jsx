@@ -135,7 +135,8 @@ export const KnitFactoryPage = ({
     const key = {
       machines: (f) => -(totalsById.get(f.id)?.total || 0),
       recent: (f) => workByFactory[f.id]?.lastAt || '',
-      check: (f) => { const d = daysSince(f.checkedAt, today); return d === null ? -1 : -d; },
+      // 확인한 적 없는 편직처가 맨 위 (디버깅 2026-11-24 — 예전엔 -1 이라 오늘 확인한 곳 바로 앞, 거의 맨 아래였음)
+      check: (f) => { const d = daysSince(f.checkedAt, today); return d === null ? -Infinity : -d; },
     }[sortKey];
     return [...list].sort((a, b) => {
       const ka = key(a); const kb = key(b);
@@ -389,7 +390,7 @@ export const KnitFactoryPage = ({
               </label>
             </div>
             {/* 목록 */}
-            <KnitFactoryList rows={rows} config={knitConfig} today={today} family={family} jobsByFactory={jobsByFactory} workByFactory={workByFactory} onOpen={openDetail} />
+            <KnitFactoryList rows={rows} config={knitConfig} today={today} family={family} jobsByFactory={jobsByFactory} workByFactory={workByFactory} totalsById={totalsById} onOpen={openDetail} />
           </section>
         )}
       </div>

@@ -25,8 +25,9 @@ const COLS = 'lg:grid-cols-[200px_minmax(0,1fr)_280px_16px] 2xl:grid-cols-[220px
 // 기계 칸 안 — 종류 · 게이지 칸 너비 고정 (편직처끼리 줄이 맞게), 글자 기준선 맞춤
 const TYPE_GRID = 'grid grid-cols-[minmax(104px,max-content)_minmax(92px,max-content)_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-baseline';
 
-const FactoryRow = ({ factory: f, config, today, family = '', jobs = [], work, onOpen }) => {
-  const t = factoryTotals(f, config);
+const FactoryRow = ({ factory: f, config, today, family = '', jobs = [], work, totals = null, onOpen }) => {
+  //  합계는 목록 화면이 한 번 계산한 것을 받음 (리팩토링 2026-11-24 — 예전엔 검색 글자를 칠 때마다 줄마다 다시 계산)
+  const t = totals || factoryTotals(f, config);
   const types = typeSummaries(t.blocks);
   const knitting = jobs.filter(j => j.state === 'knitting').length;
   const waiting = jobs.length - knitting;
@@ -106,7 +107,7 @@ const FactoryRow = ({ factory: f, config, today, family = '', jobs = [], work, o
   );
 };
 
-export const KnitFactoryList = ({ rows = [], config, today, family = '', jobsByFactory = {}, workByFactory = {}, onOpen }) => (
+export const KnitFactoryList = ({ rows = [], config, today, family = '', jobsByFactory = {}, workByFactory = {}, totalsById = null, onOpen }) => (
   <div>
     <div className={`hidden lg:grid ${COLS} gap-x-4 px-4 py-1.5 bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-500`}>
       <span>편직처</span><span>기계 — 종류 · 게이지 · 인치별 대수</span><span>우리 작업 · 최근 메모</span><span />
@@ -114,7 +115,7 @@ export const KnitFactoryList = ({ rows = [], config, today, family = '', jobsByF
     <div className="divide-y divide-slate-100">
       {rows.length === 0 && <p className="px-3 py-10 text-center text-sm text-slate-400">찾는 편직처가 없어요.</p>}
       {rows.map(f => (
-        <FactoryRow key={f.id} factory={f} config={config} today={today} family={family} jobs={jobsByFactory[f.id] || []} work={workByFactory[f.id]} onOpen={onOpen} />
+        <FactoryRow key={f.id} factory={f} config={config} today={today} family={family} jobs={jobsByFactory[f.id] || []} work={workByFactory[f.id]} totals={totalsById?.get(f.id) || null} onOpen={onOpen} />
       ))}
     </div>
   </div>

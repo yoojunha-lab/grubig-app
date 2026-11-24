@@ -201,6 +201,8 @@ export const cleanFactoryForSave = (input) => {
     knitFee: String(f.knitFee || '').replace(/\s+$/, ''),
     machines: f.machines.filter(m => !isEmptyMachine(m)),
     cylinders: f.cylinders.filter(c => !isEmptyCylinder(c)),
+    // 메모마다 id (디버깅 2026-11-24 — id 없는 메모는 고치기 · 지우기가 id 없는 메모 전부에 걸렸음)
+    memos: f.memos.map(m => (m && m.id ? m : { ...m, id: uid('kmemo') })),
     geo,
   };
 };
@@ -231,14 +233,26 @@ export const inchLabel = (i) => (i ? `${i}"` : '');
 //  피더는 글자로 저장 ('96' · '96F' · '36/48' · '60/48' · '12*3') — 숫자만 뽑아서 비교
 //   · '36/48'(바꿔 쓰는 기계)은 36 · 48 둘 다 · '12*3'은 12 × 3 = 36 · '3본 96F'처럼 F가 붙은 숫자가 있으면 그 숫자
 /** 피더 글자 → 숫자들 ('96F' → [96], '36/48' → [36, 48], '12*3' → [36]) — 못 읽으면 [] */
+//  디버깅 2026-11-24: 소수('1.5F')는 한 숫자로 읽고 버림 · '3본 96' 처럼 단위(본 · 대 · ")가 붙은 숫자는 피더가 아님 ·
+//   F 없이 숫자가 여럿이면 큰 쪽 · '96~108' 은 그 사이 범위의 양 끝
+const FEEDER_NUM = /(\d+(?:\.\d+)?)(\s*(?:F|본|대|"|인치|G)?)/gi;
 export const feederNumbers = (feeder) => {
   const out = [];
-  str(feeder).split(/[/,·~|]|또는/).forEach(part => {
+  str(feeder).split(/[/,·|]|또는/).forEach(part => {
     const prod = part.match(/(\d+)\s*[*×xX]\s*(\d+)/);
-    const withF = part.match(/(\d+)\s*F/i);
-    const first = part.match(/\d+/);
-    const n = prod ? Number(prod[1]) * Number(prod[2]) : withF ? Number(withF[1]) : first ? Number(first[0]) : null;
-    if (n > 0 && n < 1000) out.push(n);
+    if (prod) {
+      const n = Number(prod[1]) * Number(prod[2]);
+      if (n > 0 && n < 1000) out.push(n);
+      return;
+    }
+    const nums = [...part.matchAll(FEEDER_NUM)]
+      .map(m => ({ n: Number(m[1]), unit: m[2].trim().toUpperCase(), int: !m[1].includes('.') }))
+      .filter(x => x.int && x.n > 0 && x.n < 1000 && !['본', '대', '"', '인치', 'G'].includes(x.unit));
+    const withF = nums.filter(x => x.unit === 'F');
+    const pick = withF.length ? withF : nums;
+    if (!pick.length) return;
+    if (/~/.test(part) && pick.length >= 2) { pick.forEach(x => out.push(x.n)); return; } // 범위 양 끝
+    out.push(Math.max(...pick.map(x => x.n)));
   });
   return [...new Set(out)];
 };
@@ -755,11 +769,16 @@ export const geocodeQuery = (factory) => {
  *  · 지도에서 직접 찍은 좌표는 주소가 그대로면 그대로 둠
  *  · 주소를 고치면 직접 찍은 좌표도 다시 찾음 (예전엔 직접 찍으면 영영 주소로 안 돌아갔음 — 2026-11-24)
  */
-export const needsGeocode = (factory) => {
+//  디버깅 2026-11-24: 지도 화면의 자동 찾기는 직접 찍은 좌표를 건드리지 않음 (예전 고침에서 이 예외가 빠져,
+//   예전에 직접 찍은 편직처가 지도를 열 때마다 주소 · 이름 검색 좌표로 몰래 바뀌었음).
+//   주소를 고쳐 저장할 때만 직접 찍은 좌표도 다시 찾음 (includeManual — useKnitFactory.saveFactory)
+export const needsGeocode = (factory, { includeManual = false } = {}) => {
   const addr = str((factory?.addresses || [])[0]);
   if (!addr) return false;
   const g = factory?.geo;
-  return !g || str(g.address) !== addr;
+  if (!g) return true;
+  if (g.manual && !includeManual) return false;
+  return str(g.address) !== addr;
 };
 /** 두 좌표 사이 직선 거리 (km) */
 export const distanceKm = (a, b) => {

@@ -14,13 +14,10 @@ import { DEV_DROP_REASONS } from '../../constants/common';
 //
 // savedQuotes: 견적서 목록 — 개발번호 채번 때 견적서에 쓰인 번호를 '쓴 번호'로 보기 위해
 
-// ISO 시각 → 이 PC 날짜 'YYYY-MM-DD' (못 읽으면 '')
+// ISO 시각 → 이 PC 날짜 'YYYY-MM-DD' (못 읽으면 '') — helpers.todayLocalISO 를 그 시각으로 (리팩토링 2026-11-24)
 const isoToLocalYmd = (iso) => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  const d = iso ? new Date(iso) : null;
+  return d && !Number.isNaN(d.getTime()) ? todayLocalISO(d) : '';
 };
 
 export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, showToast, designSheets, savedQuotes = []) => {
@@ -236,8 +233,12 @@ export const useDevRequest = (devRequests, saveDocToCloud, deleteDocFromCloud, s
     }
 
     // Drop(rejected)에서 다른 단계로 되돌리면(복원) Drop 사유·메모·같이 Drop된 설계서 표시는 지움
+    //  '아이템화 완료'에서 손으로 다른 단계로 옮기면 아이템화 기록(articledInfo)도 지움 (디버깅 2026-11-24)
     const { dropReason: _dropReason, dropMemo: _dropMemo, droppedBy: _droppedBy, droppedSheetId: _droppedSheetId, ...withoutDrop } = devReq;
-    const base = devReq.status === 'rejected' && newStatus !== 'rejected' ? withoutDrop : devReq;
+    const { articledInfo: _articledInfo, ...withoutArticled } = devReq;
+    const base = devReq.status === 'rejected' && newStatus !== 'rejected' ? withoutDrop
+      : devReq.status === 'articled' && newStatus !== 'articled' ? withoutArticled
+      : devReq;
 
     const now = new Date().toISOString();
     const ok = await saveDocToCloud('devRequests', {

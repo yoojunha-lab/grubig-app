@@ -21,6 +21,7 @@ export const FIELD_LABELS = {
   // 2026-11-24부터 이력에 남김 (개발 고도화 3단계)
   'knitting.hasOpenWidth': '개폭선', 'knitting.isOpenWidth': '오픈개폭', 'knitting.feeders': '조직도(피더 줄)',
   'knitting.structureDiagram': '조직도 메모',
+  status: '상태',
 };
 
 /** 변경 이력 항목 이름 — 이름표에 없으면 원사 혼용률(yarns.0.ratio → '원사1 혼용률') 또는 키 그대로 */

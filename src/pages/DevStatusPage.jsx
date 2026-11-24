@@ -10,7 +10,8 @@ import { DevDropModal } from '../components/dashboard/DevDropModal';
 import { DevQuoteBadge } from '../components/dashboard/DevQuoteBadge';
 import { DevSampleProgress } from '../components/dashboard/DevSampleProgress';
 import { DevStatsPanel } from '../components/dashboard/DevStatsPanel';
-import { productionStateOf, sampleRowDeadline, isSampleOrderDone, replyWaitOf, REPLY_WAIT_CLS, daysBetween } from '../utils/devFlowModel';
+import { productionStateOf, sampleRowDeadline, isSampleOrderDone, daysBetween, liveSheetOfDev, rowOdNo, rowTitle, showSheetName, rowBuyerName } from '../utils/devFlowModel';
+import { RowBuyer, LabdipChip, ReplyWaitChip } from '../components/dashboard/DevRowParts';
 import { labdipsOfDev, labdipDevSummary } from '../utils/labdipModel';
 import { ModalBackdrop } from '../components/common/ModalBackdrop';
 import { UnsavedChangesDialog } from '../components/common/UnsavedChangesDialog';
@@ -68,13 +69,6 @@ const passesPriorityFilter = (priorityFilter, urgency, item) => {
 //        'both' = 의뢰 + 설계서 (설계서 작성 ~ EZ-TEX 등록 전)
 //        'self' = 설계서만 (자체개발 — 또는 의뢰가 Drop·삭제된 설계서. linkedDev = 설계서가 가리키는 의뢰)
 //  빠지는 것: EZ-TEX 를 등록해 생산 현황 샘플 오더가 생긴 설계서(→ 생산 현황) · 아이템화 · Drop
-const rowOdNo = (row) => String(row.dev?.devOrderNo || row.sheet?.devOrderNo || '').trim();
-const rowTitle = (row) => (row.dev
-  ? (row.dev.devItem || row.dev.targetSpec?.composition || '품목명 미입력')
-  : (row.sheet?.fabricName || '원단명 미입력'));
-// 의뢰 + 설계서 줄: 설계서 원단명을 둘째 줄에 (품목명과 같으면 한 번만)
-const showSheetName = (row) => !!(row.dev && row.sheet)
-  && String(row.sheet.fabricName || '').trim() !== String(rowTitle(row)).trim();
 // 납기: 설계서가 있으면 설계서 납기(없으면 의뢰 샘플 납기), 의뢰만이면 그 단계의 납기 (분석 마감 / 샘플 납기)
 const rowDeadline = (row) => (row.sheet
   ? (row.sheet.deadline || (row.dev ? getDevReqDeadline(row.dev) : null) || null)
@@ -90,7 +84,6 @@ const rowUpdatedAt = (row) => [row.dev?.updatedAt || row.dev?.createdAt, row.she
 // 단계순: 의뢰 접수 → 분석 → 대기 → 개발 확정(설계 대기) → 설계서 작성 → EZ-TEX → 샘플 진행(번호만 있고 생산 현황 전)
 const ROW_STAGE_ORDER = { pending: 0, analyzing: 1, hold: 2, confirmed: 3, draft: 4, eztex: 5, sampling: 6 };
 const rowStageOrder = (row) => ROW_STAGE_ORDER[row.sheet ? row.sheet.stage : row.dev.status] ?? 9;
-const rowBuyerName = (row) => row.dev?.buyerName || row.linkedDev?.buyerName || '';
 // 설계서 줄의 [연결] / [해제]: 의뢰를 가리키지 않거나 그 의뢰가 없으면 연결, 아니면 해제
 const canLinkSheet = (row) => !row.sheet?.devRequestId || (!row.dev && !row.linkedDev);
 // 검색어 — 비었으면 모두 통과 (의뢰 + 설계서 칸)
@@ -108,23 +101,6 @@ const NO_ASSIGNEE = '__none';
 const rowAssignee = (row) => String(row.dev?.assignee || '').trim();
 const passesAssignee = (filter, row) => !filter || (filter === NO_ASSIGNEE ? !rowAssignee(row) : rowAssignee(row) === filter);
 
-// 이 개발 건의 L/D 요약 배지 (L/D를 개발 의뢰 · 설계서에 연결 — 개발 고도화 3단계 2026-11-24) — 예: 'L/D 3컬러 · 컨펌 1 · 진행 2'
-const LabdipChip = ({ summary }) => (summary?.total
-  ? <span className="inline-flex items-center w-fit text-[9px] font-bold px-1.5 py-0.5 rounded border bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200 whitespace-nowrap"
-      title={`이 개발 건으로 의뢰한 L/D ${summary.ldNos?.join(', ') || ''} — 생산 ▾ LAB-DIP에서 봐요`}>L/D {summary.label}</span>
-  : null);
-
-// 견적 회신 대기 N일 배지 (원가 견적을 내고 '대기 중'인 의뢰 — 2026-11-24)
-const ReplyWaitChip = ({ dev }) => {
-  const w = replyWaitOf(dev);
-  if (!w) return null;
-  return (
-    <span className={`inline-flex items-center gap-0.5 w-fit text-[9px] font-bold px-1.5 py-0.5 rounded border ${REPLY_WAIT_CLS[w.tone]}`}
-      title={`원가 견적을 보내고 바이어 회신을 기다린 지 ${w.days}일 (7일부터 노랑 · 14일부터 빨강)`}>
-      <MessageSquareMore className="w-2.5 h-2.5" /> 회신 대기 {w.days === 0 ? '오늘' : `${w.days}일`}
-    </span>
-  );
-};
 
 // 단계 진입 날짜 → "MM/DD · N일째" 포맷
 const formatStageEntry = (iso) => {
@@ -212,35 +188,6 @@ const EztexRegister = ({ sheet, onSubmit, size = 'sm' }) => {
   );
 };
 
-// 바이어 칸: 의뢰 바이어 / 설계서가 가리키는 의뢰(Drop 등)의 바이어 + 상태 / 자체개발
-const RowBuyer = ({ row }) => {
-  if (row.dev) {
-    return (
-      <>
-        {row.dev.buyerName || '-'}
-        {row.dev.assignee && <span className="block text-[9px] font-normal text-slate-400 truncate" title="영업 담당자">담당 {row.dev.assignee}</span>}
-      </>
-    );
-  }
-  if (row.linkedDev) {
-    return (
-      <span title="이 설계서가 가리키는 개발 의뢰는 지금 이 표에 없어요 (Drop 등)">
-        {row.linkedDev.buyerName || '-'}
-        <span className="ml-1 text-[9px] font-normal text-slate-400">(의뢰 {DEV_REQUEST_STATUS_LABELS[row.linkedDev.status] || row.linkedDev.status})</span>
-      </span>
-    );
-  }
-  // 가설계서에서 온 자체개발 설계서 — 가설계서에 적은 바이어 (2026-11-24)
-  if (row.sheet?.fromTemp?.buyerName) {
-    return (
-      <span title="가설계서(레시피)에 적은 바이어 — 개발 의뢰는 없어요">
-        {row.sheet.fromTemp.buyerName}
-        <span className="ml-1 text-[9px] font-normal text-slate-400">(가설계서)</span>
-      </span>
-    );
-  }
-  return <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-slate-100 text-slate-500 border-slate-200">자체개발</span>;
-};
 
 /**
  * 개발/설계 현황 — 리스트형 대시보드
@@ -284,11 +231,7 @@ export const DevStatusPage = ({
   onNewSelfSheet,                         // [자체 설계서] — 의뢰 없이 새 설계서 (자체개발 줄)
   labdips = [],                           // L/D — 개발 건에 연결된 L/D 요약 배지 (2026-11-24)
 }) => {
-  // 줄의 L/D 요약 (의뢰 id 또는 설계서 id 로 이어진 L/D)
-  const labdipSummaryOf = (row) => {
-    const list = labdipsOfDev(labdips, { devRequestId: row.dev?.id || row.sheet?.devRequestId || null, sheetId: row.sheet?.id || null });
-    return list.length ? labdipDevSummary(list) : null;
-  };
+
   // 설계서 편직 사양이 편직처 기계 현황에 없으면 알람 글자 (없으면 '')
   const knitCfg = knitConfig || resolveKnitConfig(null);
   const knitAlarmOf = (sheet) => (sheet ? sheetKnitAlarm(sheet.knitting, knitFactories, knitCfg) : '');
@@ -370,10 +313,8 @@ export const DevStatusPage = ({
   const rejectedDevReqs = useMemo(() => (devRequests||[]).filter(d=>d.status==='rejected'), [devRequests]);
 
   // 의뢰가 쓰고 있는 설계서 (Drop 제외 — 아이템화·생산 현황으로 간 것도 찾아서 그 의뢰를 표에서 빼는 데 씀)
-  const sheetOfDev = useMemo(() => {
-    const live = (designSheets || []).filter(s => s.status !== 'dropped');
-    return (d) => live.find(s => s.devRequestId === d.id || (d.linkedDesignSheetId && s.id === d.linkedDesignSheetId)) || null;
-  }, [designSheets]);
+  //  (devFlowModel.liveSheetOfDev — 보관함 · 통계 · L/D 연결과 같은 규칙, 리팩토링 2026-11-24)
+  const sheetOfDev = useMemo(() => (d) => liveSheetOfDev(d, designSheets), [designSheets]);
   // 줄 만들기 — 끝났거나(아이템화) 생산 현황 샘플 오더로 넘어간 설계서는 이 표에서 빠짐
   const workRows = useMemo(() => {
     const rows = [];
@@ -399,16 +340,33 @@ export const DevStatusPage = ({
     return rows;
   }, [devRequests, designSheets, sheetOfDev, sampleOrderBySheet]);
 
+  // 줄의 L/D 요약 (의뢰 id 또는 설계서 id 로 이어진 L/D) — 목록이 바뀔 때만 한 번 계산
+  //  (리팩토링 2026-11-24: 예전엔 줄마다 · PC/모바일마다 그릴 때마다 L/D 전체를 몇 번씩 다시 훑었음)
+  const labdipSummaryByRow = useMemo(() => {
+    const map = new Map();
+    if (!(labdips || []).length) return map;
+    workRows.forEach(row => {
+      const list = labdipsOfDev(labdips, { devRequestId: row.dev?.id || row.sheet?.devRequestId || null, sheetId: row.sheet?.id || null });
+      if (list.length) map.set(row.key, labdipDevSummary(list));
+    });
+    return map;
+  }, [workRows, labdips]);
+  const labdipSummaryOf = (row) => labdipSummaryByRow.get(row.key) || null;
+
   // 샘플 진행 (생산 현황) 줄 — EZ-TEX 를 등록해 생산 현황 샘플 오더가 생긴 설계서 (아이템화 · Drop 전)
   //  개발 고도화 2026-11-24: 예전엔 등록하는 순간 이 화면에서 사라져 납기 · 지연이 안 보였음 → 아래 '샘플 진행' 표 + 지연 · 임박 숫자
   const sampleRows = useMemo(() => {
     const rows = [];
+    // 의뢰 찾기를 한 번에 (리팩토링 2026-11-24 — 예전엔 설계서마다 의뢰 전체를 두 번씩 훑었음)
+    const devById = new Map((devRequests || []).map(d => [d.id, d]));
+    const devBySheetId = new Map((devRequests || []).filter(d => d.linkedDesignSheetId && d.status !== 'rejected').map(d => [d.linkedDesignSheetId, d]));
     (designSheets || []).forEach(s => {
       if (s.status === 'dropped' || s.stage === 'articled') return;
       const order = sampleOrderBySheet.get(String(s.id));
       if (!order) return;
-      const owner = (devRequests || []).find(d => d.status !== 'rejected' && (d.id === s.devRequestId || d.linkedDesignSheetId === s.id)) || null;
-      const linkedDev = owner ? null : (s.devRequestId ? (devRequests || []).find(d => d.id === s.devRequestId) || null : null);
+      const pointed = s.devRequestId ? devById.get(s.devRequestId) || null : null;
+      const owner = (pointed && pointed.status !== 'rejected' ? pointed : null) || devBySheetId.get(s.id) || null;
+      const linkedDev = owner ? null : pointed;
       const done = isSampleOrderDone(order);
       const deadline = sampleRowDeadline({ order, sheet: s, dev: owner });
       rows.push({
@@ -416,7 +374,8 @@ export const DevStatusPage = ({
         state: productionStateOf(order, s),
         deadline, done,
         urgency: done ? 'normal' : getUrgency(deadline),
-        sampleDays: daysBetween(s.stageEnteredAt?.sampling || order.createdAt || s.updatedAt),
+        // 끝난 샘플(아이템화 대기)은 'N일째'를 세지 않음 (디버깅 2026-11-24)
+        sampleDays: done ? null : daysBetween(s.stageEnteredAt?.sampling || order.createdAt || s.updatedAt),
         labdip: (() => {
           const list = labdipsOfDev(labdips, { devRequestId: owner?.id || s.devRequestId || null, sheetId: s.id });
           return list.length ? labdipDevSummary(list) : null;
@@ -683,7 +642,7 @@ export const DevStatusPage = ({
             active={priorityFilter === 'all'} onClick={() => setPriorityFilter('all')} subtext="개발 의뢰 현황 표" />
           <SummaryCard icon={Factory} label="샘플 진행" value={metrics.sample} tone="amber"
             active={false} onClick={scrollToSamples}
-            subtext={metrics.sampleAwaiting ? `생산 현황 · 아이템화 대기 ${metrics.sampleAwaiting}` : '생산 현황에서 진행 중'} />
+            subtext={metrics.sampleAwaiting ? `아이템화 대기 ${metrics.sampleAwaiting} · 자체개발 포함` : '생산 현황 · 자체개발 포함'} />
           <SummaryCard icon={Flame} label="지연" value={metrics.overdue} tone="rose"
             active={priorityFilter === 'overdue'} onClick={() => setPriorityFilter(priorityFilter === 'overdue' ? 'all' : 'overdue')} subtext="납기 초과 (샘플 진행 포함)" />
           <SummaryCard icon={Hourglass} label="임박" value={metrics.urgent} tone="orange"
@@ -779,7 +738,9 @@ export const DevStatusPage = ({
                   >
                     <option value="">전체</option>
                     {assigneeOptions.names.map(n => <option key={n} value={n}>{n}</option>)}
-                    {assigneeOptions.none > 0 && <option value={NO_ASSIGNEE}>(담당자 없음)</option>}
+                    {(assigneeOptions.none > 0 || assigneeFilter === NO_ASSIGNEE) && <option value={NO_ASSIGNEE}>(담당자 없음){assigneeOptions.none > 0 ? '' : ' (0건)'}</option>}
+                    {/* 고른 담당자의 줄이 다 빠져도(이름을 고침 · 아이템화 · Drop) 칸에 그대로 보이게 — 예전엔 '전체'로 보이는데 표는 걸린 채라 못 풀었음 (디버깅 2026-11-24) */}
+                    {assigneeFilter && assigneeFilter !== NO_ASSIGNEE && !assigneeOptions.names.includes(assigneeFilter) && <option value={assigneeFilter}>{assigneeFilter} (0건)</option>}
                   </select>
                 </>
               )}
@@ -1185,7 +1146,6 @@ export const DevStatusPage = ({
         {dropSheetTarget && (
           <DevDropModal
             selfSheet={dropSheetTarget}
-            orderNo={sampleOrderBySheet.get(String(dropSheetTarget.id))?.orderNumber || ''}
             onClose={() => setDropSheetId(null)}
             onConfirm={confirmDropSheet}
           />

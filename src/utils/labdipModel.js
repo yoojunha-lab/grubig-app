@@ -518,7 +518,9 @@ export const labdipDevLink = (ld, { devRequests = [], designSheets = [], savedFa
   const sheets = (designSheets || []).filter(Boolean);
   let dev = did ? devs.find(d => sameId(d.id, did)) || null : null;
   let sheet = sid ? sheets.find(s => sameId(s.id, sid)) || null : null;
-  if (!sheet && dev) sheet = liveSheetOfDev(dev, sheets);
+  //  설계서 id 로 이었는데 그 설계서가 지워졌으면 연결이 끊긴 것 (designSheetId 가 남아 있어도)
+  //  의뢰로만 이었고 살아 있는 설계서가 없으면 — Drop된 설계서라도 보여 줌 (예전엔 '설계서 전'으로 보였음, 디버깅 2026-11-24)
+  if (!sheet && dev) sheet = liveSheetOfDev(dev, sheets) || sheets.find(s => sameId(s.devRequestId, dev.id) && s.status === 'dropped') || null;
   if (!dev && sheet) dev = devOfSheet(sheet, devs);
 
   const devNo = str(dev?.devOrderNo || sheet?.devOrderNo || ld?.devOrderNo).trim();
@@ -546,7 +548,8 @@ export const labdipDevLink = (ld, { devRequests = [], designSheets = [], savedFa
  *  반환 { fields: { article, gsm, … , designSheetId }, labels: ['ARTICLE', 'GSM'] } (다른 칸이 없으면 null)
  */
 export const devRefreshFields = (ld, link) => {
-  if (!link?.sheet) return null;
+  // Drop된 설계서 · 찾을 수 없는 연결에서는 다시 가져오지 않음 (디버깅 2026-11-24)
+  if (!link?.sheet || link.dropped || link.missing || link.sheet.status === 'dropped') return null;
   const fresh = fieldsFromDev({ dev: link.dev, sheet: link.sheet });
   const KEYS = [['article', 'ARTICLE'], ['itemName', 'ITEM NAME'], ['gsm', 'GSM'], ['widthCut', '내폭'], ['widthFull', '외폭']];
   const same = (k) => {

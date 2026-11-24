@@ -66,11 +66,6 @@ export const DevDropModal = ({ devReq, quoteInfo, sheet = null, orderNo = '', se
           </div>
 
           <div className="p-4 space-y-3 overflow-y-auto">
-            {selfSheet && orderNo && (
-              <div className="px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-[11px] text-indigo-800 leading-snug">
-                <b>생산 현황 샘플 오더({orderNo})는 'Drop'으로 닫혀요.</b> 복원하면 Drop 전 상태로 돌아와요.
-              </div>
-            )}
             {sheet && (
               <div className="px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-[11px] text-indigo-800 leading-snug">
                 <b>설계서({sheet.fabricName || '원단명 미입력'}){orderNo ? `와 생산 현황 샘플 오더(${orderNo})` : ''}도 같이 Drop돼요.</b>
