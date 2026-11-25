@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 //  - 컬러별로 그룹핑: [컬러명 + 코멘트 캡션] + [낱장 스와치 박스 3열]
 //    · 스와치 박스 1개 = 낱장 1장 (25S038 "A")  → 실물 원단을 칸마다 붙임
 //  - 머리: BUYER · L/D NO.(GB26023 — 바이어가 회신할 때 쓰는 번호) · ARTICLE · DATE(발송일) · STYLE
+//  - L/D NO.는 차수 번호 (2차 'GB26026-2', 대표님 2026-11-25) — 차수가 섞이면 머리 'GB26026' + 컬러마다 자기 번호
 // ============================================================
 
 // 헤더 라벨/값 한 칸 (밑줄 스타일 — 원본 양식 느낌 유지)
@@ -78,6 +79,7 @@ export const LabdipPrintSheet = ({ sheet }) => {
                   <div className="flex items-baseline gap-2 mb-2">
                     <span className="inline-block w-2 h-2 rounded-full bg-slate-800 shrink-0" />
                     <span className="text-[13px] font-extrabold text-slate-900 uppercase">{c.name || '(컬러명 미입력)'}</span>
+                    {sheet.ldNoPerRow && c.ldNo && <span className="text-[11px] font-mono font-extrabold text-slate-900">· L/D NO. {c.ldNo}</span>}
                     {c.factoryNo && <span className="text-[11px] font-mono font-bold text-slate-500">· {c.factoryNo}</span>}
                     {c.comment && <span className="text-[11px] text-slate-500 italic truncate">— {c.comment}</span>}
                   </div>

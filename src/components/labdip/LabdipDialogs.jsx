@@ -3,10 +3,10 @@ import { PackageCheck, Send, ClipboardCheck, RotateCcw, Printer, Info, X } from 
 import { ModalBackdrop } from '../common/ModalBackdrop';
 import { UnsavedChangesDialog } from '../common/UnsavedChangesDialog';
 import { useUnsavedGuard } from '../../hooks/useUnsavedGuard';
-import { StageChip, LettersSelect, StartLetterSelect, ldSmallCls as smallInput } from './LabdipParts';
+import { StageChip, RoundLdChip, LettersSelect, StartLetterSelect, ldSmallCls as smallInput } from './LabdipParts';
 import { todayLocalISO } from '../../utils/helpers';
 import {
-  realColors, colorStage, currentRound, prevRound, arrivalStartIdx, roundLetters, roundNoText, letterRangeText, SENT_METHODS,
+  realColors, colorStage, currentRound, prevRound, arrivalStartIdx, roundLetters, roundNoText, letterRangeText, roundLdNo, SENT_METHODS,
 } from '../../utils/labdipModel';
 
 // ============================================================
@@ -161,7 +161,7 @@ export const ArrivalDialog = ({ ld, onClose, onSave }) => {
                     <label className="flex items-center gap-1.5 min-w-[140px] cursor-pointer">
                       <input type="checkbox" checked={row.on} onChange={e => patchRow(row.colorId, { on: e.target.checked })} className="w-4 h-4 accent-teal-600" />
                       <span className="text-xs font-extrabold text-slate-800 uppercase">{colorName(c)}</span>
-                      {r.no > 1 && <span className="text-[10px] font-extrabold text-slate-500">{r.no}차</span>}
+                      <RoundLdChip ldNo={ld.ldNo} roundNo={r.no} />
                     </label>
                     <input value={row.factoryNo} onChange={e => changeNo(row, e.target.value)} disabled={!row.on}
                       placeholder={prev?.factoryNo ? `${prev.no}차 ${prev.factoryNo}` : '공장 번호'}
@@ -247,6 +247,7 @@ export const SendDialog = ({ ld, onClose, onSave, onPrint }) => {
                 <label key={row.colorId} className={`flex flex-wrap items-center gap-2 border rounded-lg px-2.5 py-2 cursor-pointer ${row.on ? 'border-teal-300 bg-teal-50/40' : 'border-slate-200 bg-white'}`}>
                   <input type="checkbox" checked={row.on} onChange={e => patchRow(row.colorId, { on: e.target.checked })} className="w-4 h-4 accent-teal-600" />
                   <span className="text-xs font-extrabold text-slate-800 uppercase min-w-[110px]">{colorName(c)}</span>
+                  <RoundLdChip ldNo={ld.ldNo} roundNo={r.no} />
                   <span className="text-[11px] font-mono font-bold text-slate-700">{roundNoText(r) || '(공장 번호 없음)'}</span>
                   {sentBefore && <StageChip stage="waiting" label={`${(r.sentDate || '').slice(5).replace('-', '/')} 보냄 — 다시 보내기`} />}
                   {c.comment && <span className="text-[10px] text-slate-500 italic truncate">— {c.comment}</span>}
@@ -318,6 +319,7 @@ export const ResultDialog = ({ ld, onClose, onSave }) => {
                 <div key={row.colorId} className="border border-slate-200 rounded-lg px-2.5 py-2 bg-white">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-extrabold text-slate-800 uppercase min-w-[110px]">{colorName(c)}</span>
+                    <RoundLdChip ldNo={ld.ldNo} roundNo={r.no} />
                     <span className="text-[11px] font-mono font-bold text-slate-600">{roundNoText(r)}</span>
                     <div className="ml-auto flex gap-1">
                       {RESULT_CHOICES.map(ch => (
@@ -369,6 +371,9 @@ export const RedipDialog = ({ ld, onClose, onSave, canPrint = false }) => {
   }));
   const nextNos = [...new Set(colors.map(c => (c.rounds || []).length + 1))];
   const title = nextNos.length === 1 ? `${nextNos[0]}차 의뢰 — 리젝 컬러 다시 의뢰` : '다음 차수 의뢰 — 리젝 컬러 다시 의뢰';
+  // 2차부터는 L/D NO. 뒤에 차수 (GB26026-2) — 공장 의뢰서 · 바이어 시트에 이 번호로 찍힘
+  const nextLdNo = nextNos.length === 1 ? roundLdNo(ld.ldNo, nextNos[0]) : '';
+  const subtitle = `${ld.factory || '공장 미정'} — ${nextLdNo ? `${nextLdNo}로 다시 의뢰해요` : ld.ldNo ? `${ld.ldNo}-2 · -3처럼 차수 번호를 붙여 다시 의뢰해요` : '같은 L/D NO.로 다시 의뢰해요'}`;
 
   const submit = (print = false) => run(async () => {
     const picked = form.rows.filter(r => r.on);
@@ -382,7 +387,7 @@ export const RedipDialog = ({ ld, onClose, onSave, canPrint = false }) => {
   });
 
   return (
-    <DialogShell width={680} title={title} subtitle={`${ld.ldNo || '새 L/D'} · ${ld.factory || '공장 미정'} — 같은 L/D NO.로 다시 의뢰해요`}
+    <DialogShell width={680} title={title} subtitle={subtitle}
       onClose={onClose} dirty={dirty} onSaveDirty={() => submit(false)} dirtyMessage="다시 의뢰할 내용이 있어요. 저장할까요?"
       footer={close => (
         <FooterButtons onCancel={close}>
@@ -416,7 +421,7 @@ export const RedipDialog = ({ ld, onClose, onSave, canPrint = false }) => {
                     <label className="flex items-center gap-1.5 min-w-[150px] cursor-pointer">
                       <input type="checkbox" checked={row.on} onChange={e => patchRow(row.colorId, { on: e.target.checked })} className="w-4 h-4 accent-teal-600" />
                       <span className="text-xs font-extrabold text-slate-800 uppercase">{colorName(c)}</span>
-                      <span className="text-[10px] font-extrabold text-slate-500">→ {(c.rounds || []).length + 1}차</span>
+                      <RoundLdChip ldNo={ld.ldNo} roundNo={(c.rounds || []).length + 1} prefix="→ " />
                     </label>
                     <span className="text-[10px] text-slate-500">{r.no}차 {[r.factoryNo, letterRangeText(r)].filter(Boolean).join(' ')} 리젝</span>
                     <LettersSelect value={row.letters} onChange={v => patchRow(row.colorId, { letters: v })} disabled={!row.on} className={`${smallInput} ml-auto`} />

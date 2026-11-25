@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom';
 //  - 컬러마다 한 칸: 컬러명 · PANTONE · 낱장 수 · 메모 + (바이어 스와치 첨부면) 스와치 붙이는 칸
 //    2차부터는 앞 차수 공장 번호 · 바이어 코멘트 · 다시 의뢰하는 말
 //  - 공장은 L/D를 만들어 번호(예: 25S038 "A")를 붙여 보내 줌 → LAB-DIP 화면 [L/D 도착]에 적음
+//  - L/D NO.는 차수 번호 (2차 'GB26026-2', 대표님 2026-11-25) — 차수가 섞이면 머리 'GB26026' + 컬러마다 자기 번호
 // ============================================================
 
 const InfoCell = ({ label, value, mono = false }) => (
@@ -48,7 +49,7 @@ export const LabdipRequestSheet = ({ sheet }) => {
 
             <div className="grid grid-cols-2 border-2 border-slate-800 mb-4">
               <div className="border-r border-slate-300">
-                <InfoCell label="L/D NO." value={sheet.ldNo} mono />
+                <InfoCell label="L/D NO." value={sheet.ldNoPerRow ? <>{sheet.ldNo} <span className="font-sans text-[11px] text-slate-500">(차수 번호는 컬러마다)</span></> : sheet.ldNo} mono />
                 <InfoCell label="수신" value={sheet.factory} />
                 <InfoCell label="담당" value={sheet.author ? `${sheet.author} (GRUBIG)` : 'GRUBIG'} />
               </div>
@@ -88,6 +89,7 @@ export const LabdipRequestSheet = ({ sheet }) => {
                       <span className="text-[11px] font-mono font-bold text-slate-400">{r.no}</span>
                       <span className="text-[15px] font-extrabold text-slate-900 uppercase">{r.name || '(컬러명 미입력)'}</span>
                       {r.roundNo > 1 && <span className="text-[10px] font-extrabold px-1.5 py-px rounded border border-slate-800 text-slate-800">{r.roundNo}차</span>}
+                      {sheet.ldNoPerRow && r.ldNo && <span className="text-[12px] font-mono font-extrabold text-slate-800">{r.ldNo}</span>}
                       <span className="ml-auto text-[11px] font-bold text-slate-700">낱장 {r.letters}장</span>
                     </div>
                     <div className="mt-1 space-y-0.5 text-[12px] text-slate-800">

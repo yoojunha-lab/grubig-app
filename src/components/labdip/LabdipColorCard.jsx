@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { Trash2, History, Undo2, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
-import { StageChip, LettersSelect, StartLetterSelect, ldInputCls as inputCls, ldSmallCls } from './LabdipParts';
+import { StageChip, RoundLdChip, LettersSelect, StartLetterSelect, ldInputCls as inputCls, ldSmallCls } from './LabdipParts';
 import { formatMonthDay, todayLocalISO } from '../../utils/helpers';
 import {
   currentRound, colorStage, isBlankColor, isFinishedStage, roundNoText, roundLetters, letterRangeText,
-  arrivalStartIdx, roundRequestDate, roundFactoryDue, dueBadge, daysFromTo, stepBackText,
+  arrivalStartIdx, roundRequestDate, roundFactoryDue, dueBadge, daysFromTo, stepBackText, roundLdNo,
   SENT_METHODS, WAITING_WARN_DAYS,
 } from '../../utils/labdipModel';
 
@@ -61,6 +61,7 @@ const RoundEditor = ({ c, ld, r, idx, onPatchRound }) => {
     <div className="border border-slate-200 rounded-lg p-2 bg-white space-y-1.5">
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
         <span className="px-1.5 py-px rounded bg-slate-800 text-white text-[10px] font-extrabold">{r.no}차</span>
+        {roundLdNo(ld.ldNo, r.no) && <span className="font-mono font-extrabold text-slate-700">{roundLdNo(ld.ldNo, r.no)}</span>}
         <span className="text-slate-400 font-bold">의뢰</span>
         {first
           ? <span className="text-slate-500">{md(roundRequestDate(r, ld))} · 납기 {md(roundFactoryDue(r, ld))} <span className="text-slate-400">(1차는 위 '의뢰일 · 공장 납기')</span></span>
@@ -176,7 +177,7 @@ export const LabdipColorCard = ({
       {!blank && (
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-600">
           <StageChip stage={stage} label={stage === 'confirm' && r.confirmedLetter ? `컨펌 "${r.confirmedLetter}"` : undefined} />
-          {r.no > 1 && !finished && <span className="text-[10px] font-extrabold text-slate-500">{r.no}차</span>}
+          <RoundLdChip ldNo={ld.ldNo} roundNo={r.no} />
           {preview && stage !== 'factory' && <span className="font-mono font-bold text-slate-700">{preview}</span>}
           <span>{stageDetail(c, ld, stage, r, today)}</span>
           {isSaved && (

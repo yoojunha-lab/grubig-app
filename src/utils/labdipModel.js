@@ -349,6 +349,23 @@ export const findLdNoOwner = (labdips, ldNo, selfId) => {
   return (labdips || []).find(d => String(d?.id) !== String(selfId || '') && normalizeLdNo(d?.ldNo) === key) || null;
 };
 
+// ── 차수 L/D NO. (대표님 2026-11-25) ──────────────────────────
+//  2차 의뢰부터 L/D NO. 뒤에 차수를 붙여 공장 의뢰서 · 바이어 시트 · 파일 이름 · 화면에 같이 씀
+//  1차 'GB26026' (그대로 — 이미 보낸 번호와 같게) · 2차 'GB26026-2' · 3차 'GB26026-3'
+//  저장하지 않고 L/D NO. + 차수로 그때그때 만듦 → L/D NO.를 고치면 뒤 번호도 같이 바뀜
+/** 차수 붙은 L/D NO. (L/D NO.가 없으면 '') */
+export const roundLdNo = (ldNo, roundNo) => {
+  const base = normalizeLdNo(ldNo);
+  if (!base) return '';
+  const n = clampInt(roundNo, 1, 99, 1);
+  return n > 1 ? `${base}-${n}` : base;
+};
+/** 인쇄 머리 L/D NO. — 컬러 차수가 모두 같으면 그 차수 번호, 섞이면 기본 번호 (컬러마다 자기 번호를 따로 찍음) */
+const sheetLdNo = (ldNo, roundNos) => {
+  const nos = [...new Set(roundNos)];
+  return { ldNo: nos.length === 1 ? roundLdNo(ldNo, nos[0]) : normalizeLdNo(ldNo), ldNoPerRow: nos.length > 1 && !!normalizeLdNo(ldNo) };
+};
+
 // ── 원단 · 울 종류 ─────────────────────────────────────────────
 const SW_RE = /(^|[^A-Z0-9])(SW|SUPER\s*WASH)(?![A-Z0-9])/i;
 const WOOL_NAME_RE = /WOOL|MERINO|LAMB|울|양모/i;
@@ -842,19 +859,28 @@ const pickColors = (ld, colorIds) => {
   return realColors(ld).filter(c => !c.droppedAt && (!ids || ids.has(c.id)));
 };
 
-/** 바이어 시트 (A4) — 공장 칸은 아예 없음 (바이어에게 공장을 밝히지 않음) */
-export const buildBuyerSheet = (ld, colorIds, date) => ({
-  kind: 'buyer',
-  ldNo: normalizeLdNo(ld?.ldNo),
-  buyerName: str(ld?.buyerName).trim(),
-  date: date || todayLocalISO(),
-  article: str(ld?.article).trim(),
-  style: str(ld?.style).trim(),
-  rows: pickColors(ld, colorIds).map(c => {
+/**
+ * 바이어 시트 (A4) — 공장 칸은 아예 없음 (바이어에게 공장을 밝히지 않음)
+ *  L/D NO.는 차수 번호 (2차 'GB26026-2') — 차수가 섞이면 머리는 'GB26026', 컬러마다 자기 번호 (ldNoPerRow)
+ */
+export const buildBuyerSheet = (ld, colorIds, date) => {
+  const rows = pickColors(ld, colorIds).map(c => {
     const r = currentRound(c);
-    return { id: c.id, name: str(c.name).trim(), comment: str(c.comment).trim(), factoryNo: str(r.factoryNo).trim(), letters: roundLetters(r) };
-  }),
-});
+    return {
+      id: c.id, name: str(c.name).trim(), comment: str(c.comment).trim(), factoryNo: str(r.factoryNo).trim(), letters: roundLetters(r),
+      roundNo: r.no, ldNo: roundLdNo(ld?.ldNo, r.no),
+    };
+  });
+  return {
+    kind: 'buyer',
+    ...sheetLdNo(ld?.ldNo, rows.map(r => r.roundNo)),
+    buyerName: str(ld?.buyerName).trim(),
+    date: date || todayLocalISO(),
+    article: str(ld?.article).trim(),
+    style: str(ld?.style).trim(),
+    rows,
+  };
+};
 
 /**
  * 바이어 시트 다시 인쇄 (머리 [바이어 시트]) — 공장 번호가 있는 컬러 모두 (보낸 · 컨펌 · 예전 기록 포함, Drop 빼고)
@@ -872,7 +898,10 @@ export const factoryPrintColorIds = (ld) => {
   return pending.length ? pending : pickColors(ld, null).map(c => c.id);
 };
 
-/** 공장 의뢰서 (A4) — 바이어 · STYLE은 안 찍음 */
+/**
+ * 공장 의뢰서 (A4) — 바이어 · STYLE은 안 찍음
+ *  L/D NO.는 차수 번호 (2차 'GB26026-2') — 차수가 섞이면 머리는 'GB26026', 컬러마다 자기 번호 (ldNoPerRow)
+ */
 export const buildFactorySheet = (ld, colorIds, { author = '' } = {}) => {
   const rows = pickColors(ld, colorIds).map((c, i) => {
     const r = currentRound(c);
@@ -886,6 +915,7 @@ export const buildFactorySheet = (ld, colorIds, { author = '' } = {}) => {
       memo: str(c.memo).trim(),
       letters: r.letters,
       roundNo: r.no,
+      ldNo: roundLdNo(ld?.ldNo, r.no),
       requestDate: roundRequestDate(r, ld),
       due: roundFactoryDue(r, ld),
       requestNote: str(r.requestNote).trim(),
@@ -899,7 +929,7 @@ export const buildFactorySheet = (ld, colorIds, { author = '' } = {}) => {
   const wool = woolTypeOf(ld?.woolType);
   return {
     kind: 'factory',
-    ldNo: normalizeLdNo(ld?.ldNo),
+    ...sheetLdNo(ld?.ldNo, rows.map(r => r.roundNo)),
     factory: str(ld?.factory).trim(),
     author: str(author).trim(),
     requestDate: reqDates.length === 1 ? reqDates[0] : str(ld?.requestDate),
@@ -917,8 +947,11 @@ export const buildFactorySheet = (ld, colorIds, { author = '' } = {}) => {
   };
 };
 
-/** 검색용 글자 (대문자) */
+/** 검색용 글자 (대문자) — 2차부터는 차수 번호(GB26026-2)도 넣음 */
 export const labdipSearchText = (ld) => [
   ld?.ldNo, ld?.buyerName, ld?.article, ld?.itemName, ld?.factory, ld?.style, ld?.eztexNo, ld?.remarks, ld?.memo, ld?.devOrderNo,
-  ...(ld?.colors || []).flatMap(c => [c.name, c.pantone, ...(c.rounds || []).map(r => r.factoryNo)]),
+  ...(ld?.colors || []).flatMap(c => [
+    c.name, c.pantone,
+    ...(c.rounds || []).flatMap((r, i) => [r.factoryNo, i > 0 ? roundLdNo(ld?.ldNo, i + 1) : '']),
+  ]),
 ].map(str).join(' ').toUpperCase();

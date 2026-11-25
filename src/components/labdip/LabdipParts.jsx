@@ -1,12 +1,25 @@
 import React, { useState } from 'react';
 import { Factory, Send, Activity } from 'lucide-react';
 import { PopoverShell } from '../order/common/PopoverShell';
-import { LD_STAGES, LD_MODES, LD_LETTERS_PICK, letterOf } from '../../utils/labdipModel';
+import { LD_STAGES, LD_MODES, LD_LETTERS_PICK, letterOf, roundLdNo } from '../../utils/labdipModel';
 
 // ============================================================
 // LAB-DIP 화면 공용 부품 — 단계 칩 · 납기 글자 · 입력 칸 · 낱장 고르기 · [+ 새 L/D ▾] 메뉴 · 진행 창 틀
 //  · 개발 건 칩 '개발 F-26D011' (+ 그 뒤 아이템화됐으면 '→ PW1060') — 2026-11-24 개발 고도화 3단계
+//  · 차수 번호 '2차 GB26026-2' — 2026-11-25 (공장 의뢰서 · 바이어 시트에 찍히는 번호와 같음)
 // ============================================================
+
+/** 차수 L/D NO. — 2차부터 '2차 GB26026-2' (L/D NO.가 없으면 '2차'만), 1차는 안 보임 */
+export const RoundLdChip = ({ ldNo, roundNo, prefix = '', className = '' }) => {
+  if (!(Number(roundNo) > 1)) return null;
+  const no = roundLdNo(ldNo, roundNo);
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold text-slate-500 whitespace-nowrap ${className}`}
+      title={no ? `공장 의뢰서 · 바이어 시트에 ${no}로 찍혀요` : undefined}>
+      {prefix}{roundNo}차{no && <span className="font-mono text-slate-800">{no}</span>}
+    </span>
+  );
+};
 
 /**
  * 개발 건 칩 — link = labdipDevLink(…) (null이면 안 보임)
