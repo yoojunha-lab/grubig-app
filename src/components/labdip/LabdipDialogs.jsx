@@ -6,7 +6,7 @@ import { useUnsavedGuard } from '../../hooks/useUnsavedGuard';
 import { StageChip, RoundLdChip, LettersSelect, StartLetterSelect, ldSmallCls as smallInput } from './LabdipParts';
 import { todayLocalISO } from '../../utils/helpers';
 import {
-  realColors, colorStage, currentRound, prevRound, arrivalStartIdx, roundLetters, roundNoText, letterRangeText, roundLdNo, SENT_METHODS,
+  realColors, colorStage, currentRound, prevRound, arrivalStartIdx, roundLetters, roundNoText, letterRangeText, roundLdNo, redipRoundNos, SENT_METHODS,
 } from '../../utils/labdipModel';
 
 // ============================================================
@@ -369,7 +369,7 @@ export const RedipDialog = ({ ld, onClose, onSave, canPrint = false }) => {
     // 의뢰 메모는 비워 둠 — 앞 차수 바이어 코멘트는 의뢰서에 '1차 … 리젝 — 바이어: …'로 따로 찍혀서 (같은 말 두 번 안 찍히게)
     rows: colors.map(c => ({ colorId: c.id, on: true, requestNote: '', letters: currentRound(c).letters })),
   }));
-  const nextNos = [...new Set(colors.map(c => (c.rounds || []).length + 1))];
+  const nextNos = redipRoundNos(ld);
   const title = nextNos.length === 1 ? `${nextNos[0]}차 의뢰 — 리젝 컬러 다시 의뢰` : '다음 차수 의뢰 — 리젝 컬러 다시 의뢰';
   // 2차부터는 L/D NO. 뒤에 차수 (GB26026-2) — 공장 의뢰서 · 바이어 시트에 이 번호로 찍힘
   const nextLdNo = nextNos.length === 1 ? roundLdNo(ld.ldNo, nextNos[0]) : '';
@@ -421,7 +421,7 @@ export const RedipDialog = ({ ld, onClose, onSave, canPrint = false }) => {
                     <label className="flex items-center gap-1.5 min-w-[150px] cursor-pointer">
                       <input type="checkbox" checked={row.on} onChange={e => patchRow(row.colorId, { on: e.target.checked })} className="w-4 h-4 accent-teal-600" />
                       <span className="text-xs font-extrabold text-slate-800 uppercase">{colorName(c)}</span>
-                      <RoundLdChip ldNo={ld.ldNo} roundNo={(c.rounds || []).length + 1} prefix="→ " />
+                      <RoundLdChip ldNo={ld.ldNo} roundNo={r.no + 1} prefix="→ " />
                     </label>
                     <span className="text-[10px] text-slate-500">{r.no}차 {[r.factoryNo, letterRangeText(r)].filter(Boolean).join(' ')} 리젝</span>
                     <LettersSelect value={row.letters} onChange={v => patchRow(row.colorId, { letters: v })} disabled={!row.on} className={`${smallInput} ml-auto`} />

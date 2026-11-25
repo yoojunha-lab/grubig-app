@@ -8,7 +8,7 @@ import { LabdipColorCard } from './LabdipColorCard';
 import { StageChip, LdField, ldInputCls, LabdipDevChip } from './LabdipParts';
 import {
   LD_MODES, WOOL_TYPES, LIGHT_SOURCES, ldModeOf, woolTypeOf, makeColor, detectWoolType, fieldsFromFabric, fabricYarnList,
-  findLdNoOwner, realColors, stageCounts, isAllDropped, colorStage, isBlankColor,
+  ldNoIssue, realColors, stageCounts, isAllDropped, isBlankColor, redipRoundNos,
   labdipDevOptions, fieldsFromDev, labdipDevLink, devRefreshFields,
 } from '../../utils/labdipModel';
 
@@ -149,7 +149,8 @@ export const LabdipForm = ({
     lightSources: (prev.lightSources || []).includes(l) ? prev.lightSources.filter(x => x !== l) : [...(prev.lightSources || []), l],
   }));
 
-  const owner = ld.ldNo ? findLdNoOwner(labdips, ld.ldNo, editingId) : null;
+  // L/D NO. 칸 아래 빨간 글자 — 저장 막는 규칙과 같음 (차수처럼 '-2'로 끝남 · 다른 의뢰가 쓰는 번호)
+  const ldNoProblem = ldNoIssue(labdips, ld.ldNo, editingId);
   const factoryOptions = [...(dyeingFactories || [])];
   if (ld.factory && !factoryOptions.includes(ld.factory)) factoryOptions.unshift(ld.factory);
 
@@ -158,7 +159,7 @@ export const LabdipForm = ({
   const n = (k) => counts[k] || 0;
   const total = realColors(ld).length;
   const finished = n('confirm') + n('drop') + n('legacy');
-  const redipNos = [...new Set(realColors(ld).filter(c => colorStage(c, ld) === 'reject').map(c => (c.rounds || []).length + 1))];
+  const redipNos = redipRoundNos(ld);
   const redipLabel = redipNos.length <= 1 ? `${redipNos[0] || 2}차 의뢰` : '다시 의뢰';
 
   // 울 종류 설명 한 줄
@@ -279,8 +280,8 @@ export const LabdipForm = ({
             <LdField label="L/D NO." hint={ld.legacy ? '예전 기록 — 넣으면 붙어요' : '비우면 저장할 때 자동'}>
               <input value={ld.ldNo || ''} onChange={e => patch({ ldNo: e.target.value.toUpperCase() })}
                 placeholder={ld.legacy ? '번호 없음' : nextNo}
-                className={`${ldInputCls} font-mono font-bold uppercase ${owner ? 'border-red-400 ring-1 ring-red-200' : ''}`} />
-              {owner && <p className="text-[10px] text-red-600 font-bold mt-0.5">이미 있는 번호예요 ({owner.buyerName || '바이어 미입력'} · {owner.article || '-'})</p>}
+                className={`${ldInputCls} font-mono font-bold uppercase ${ldNoProblem ? 'border-red-400 ring-1 ring-red-200' : ''}`} />
+              {ldNoProblem && <p className="text-[10px] text-red-600 font-bold mt-0.5">{ldNoProblem.short}</p>}
             </LdField>
             <LdField label="의뢰 방식" className="md:col-span-2">
               <div className="flex rounded-lg border border-slate-200 overflow-hidden bg-white">
@@ -320,7 +321,7 @@ export const LabdipForm = ({
             <LdField label="공장 납기" hint="1차 — L/D 오는 날">
               <input type="date" value={ld.factoryDue || ''} onChange={e => patch({ factoryDue: e.target.value })} className={ldInputCls} />
             </LdField>
-            <LdField label="바이어 납기" hint="선택 — 보내기로 한 날">
+            <LdField label="바이어 납기" hint="선택 — 1차를 보내기로 한 날">
               <input type="date" value={ld.buyerDue || ''} onChange={e => patch({ buyerDue: e.target.value })} className={ldInputCls} />
             </LdField>
           </div>

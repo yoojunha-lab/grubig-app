@@ -173,7 +173,7 @@ export const useLabdip = (labdips, saveDocToCloud, createDocToCloud, deleteDocFr
     if (!target) return false;
     const ld = normalizeLabdip(target);
     const label = [ld.ldNo || '번호 없음', ld.buyerName, ld.article].filter(Boolean).join(' · ');
-    if (!window.confirm(`이 L/D를 지울까요?\n(${label})\n\n지우면 되돌릴 수 없어요. 그만둔 의뢰는 지우지 말고 [남은 컬러 Drop]으로 남겨 두세요.`)) return false;
+    if (!window.confirm(`이 L/D를 지울까요?\n(${label})\n\n지우면 되돌릴 수 없어요. 그만둔 의뢰는 지우지 말고 [남은 컬러 모두 Drop]으로 남겨 두세요.`)) return false;
     const ok = await deleteDocFromCloud(COLLECTION, id);
     if (ok === false) return false;
     if (String(editingLabdipId) === String(id)) newLabdip(labdipInput.mode);

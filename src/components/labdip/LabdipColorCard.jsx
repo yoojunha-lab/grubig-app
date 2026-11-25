@@ -57,11 +57,18 @@ const RoundEditor = ({ c, ld, r, idx, onPatchRound }) => {
   const set = (fields) => onPatchRound(c.id, idx, fields);
   const letters = roundLetters(r);
   const first = r.no === 1;
+  const ldNo = roundLdNo(ld.ldNo, r.no); // 이 차수 L/D NO. (1차 GB26026 · 2차 GB26026-2)
+  // 결과를 고르면 결과일이 비어 있을 때 오늘로 (예전엔 비어서 완료 탭 '끝난 날'이 빈칸 — 디버깅 2026-11-25) · 컨펌이 아니면 낱장은 지움
+  const changeResult = (value) => set({
+    result: value,
+    confirmedLetter: value === 'confirm' ? r.confirmedLetter : '',
+    ...(value && !r.resultDate ? { resultDate: todayLocalISO() } : {}),
+  });
   return (
     <div className="border border-slate-200 rounded-lg p-2 bg-white space-y-1.5">
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
         <span className="px-1.5 py-px rounded bg-slate-800 text-white text-[10px] font-extrabold">{r.no}차</span>
-        {roundLdNo(ld.ldNo, r.no) && <span className="font-mono font-extrabold text-slate-700">{roundLdNo(ld.ldNo, r.no)}</span>}
+        {ldNo && <span className="font-mono font-extrabold text-slate-700">{ldNo}</span>}
         <span className="text-slate-400 font-bold">의뢰</span>
         {first
           ? <span className="text-slate-500">{md(roundRequestDate(r, ld))} · 납기 {md(roundFactoryDue(r, ld))} <span className="text-slate-400">(1차는 위 '의뢰일 · 공장 납기')</span></span>
@@ -88,7 +95,7 @@ const RoundEditor = ({ c, ld, r, idx, onPatchRound }) => {
       </div>
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
         <span className="text-slate-400 font-bold">결과</span>
-        <select value={r.result || ''} onChange={e => set({ result: e.target.value, ...(e.target.value ? {} : { confirmedLetter: '' }) })} className={ldSmallCls}>
+        <select value={r.result || ''} onChange={e => changeResult(e.target.value)} className={ldSmallCls}>
           <option value="">아직 없음</option>
           <option value="confirm">컨펌</option>
           <option value="reject">리젝</option>

@@ -7,7 +7,7 @@ import { StageChip, DueLine, NewLabdipMenu, LabdipDevChip } from '../components/
 import { todayLocalISO, formatMonthDay } from '../utils/helpers';
 import {
   normalizeLabdip, labdipTabKeys, labdipTiming, labdipSearchText, realColors, colorStage, currentRound, isFinishedStage,
-  dueBadge, nextLdNo, buildBuyerSheet, buildFactorySheet, factoryPrintColorIds, buyerReprint, isAllDropped, labdipDevLink,
+  dueBadge, nextLdNo, buildBuyerSheet, buildFactorySheet, factoryPrintColorIds, buyerReprint, isAllDropped, labdipDevLink, roundLdNo,
   LD_TABS, LD_STAGES, LD_STAGE_ORDER, WAITING_WARN_DAYS,
 } from '../utils/labdipModel';
 
@@ -47,7 +47,7 @@ const ColorChips = ({ ld, tab, max = 99 }) => {
         const extra = s === 'confirm' && r.confirmedLetter ? ` "${r.confirmedLetter}"` : (!isFinishedStage(s) && r.no > 1 ? ` ${r.no}차` : '');
         return (
           <StageChip key={c.id} stage={s} label={`${c.name || c.pantone || '컬러'}${extra}`}
-            title={`${LD_STAGES[s].label}${r.factoryNo ? ` · ${r.factoryNo}` : ''}`}
+            title={[LD_STAGES[s].label, r.no > 1 ? roundLdNo(ld.ldNo, r.no) || `${r.no}차` : '', r.factoryNo].filter(Boolean).join(' · ')}
             dim={tab !== 'done' && LD_STAGES[s].tab !== tab} className={`uppercase ${s === 'drop' ? 'line-through' : ''}`} />
         );
       })}

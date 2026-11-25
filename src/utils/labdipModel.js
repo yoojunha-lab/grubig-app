@@ -284,6 +284,10 @@ export const isAllDropped = (ld) => {
   const cs = realColors(ld);
   return cs.length > 0 && cs.every(c => !!c.droppedAt);
 };
+/** 리젝 컬러를 다시 의뢰하면 될 차수 — [2] · [2, 3] (리젝 컬러가 없으면 []) — 작성 화면 [2차 의뢰] 버튼 · 다시 의뢰 창 */
+export const redipRoundNos = (ld) => [...new Set(realColors(ld)
+  .filter(c => colorStage(c, ld) === 'reject')
+  .map(c => (c.rounds || []).length + 1))].sort((a, b) => a - b); // withRedip이 붙이는 차수와 같은 계산
 
 /** 차수의 의뢰일 · 공장 납기 — 1차는 의뢰(머리) 값 */
 export const roundRequestDate = (round, ld) => (round?.no > 1 ? str(round.requestDate) : str(round?.requestDate) || str(ld?.requestDate));
@@ -305,14 +309,15 @@ export const dueBadge = (due, today = todayLocalISO()) => {
 /**
  * 의뢰 한 건의 납기 · 경과
  *  factoryDue: 공장 진행중 컬러 중 가장 이른 공장 납기
- *  buyerDue: 아직 바이어에게 안 보낸 컬러(공장 진행중 · 도착 · 리젝)가 있을 때만
+ *  buyerDue: 아직 바이어에게 안 보낸 **1차** 컬러(공장 진행중 · 도착)가 있을 때만
+ *            — 의뢰 머리의 바이어 납기는 1차 약속이라 리젝 · 2차부터는 안 씀 (예전엔 2차 뒤에도 'N일 지남'이 계속 빨갛게 — 디버깅 2026-11-25)
  *  waitingSince / waitingDays: 컨펌대기 컬러 중 가장 먼저 보낸 날 · 그날부터 며칠
  *  doneDate: 컨펌 · Drop 날짜 중 가장 늦은 날
  */
 export const labdipTiming = (ld, today = todayLocalISO()) => {
   const cs = realColors(ld).map(c => ({ c, s: colorStage(c, ld), r: currentRound(c) }));
   const factoryDues = cs.filter(x => x.s === 'factory').map(x => roundFactoryDue(x.r, ld)).filter(Boolean).sort();
-  const notSent = cs.some(x => x.s === 'factory' || x.s === 'arrived' || x.s === 'reject');
+  const notSent = cs.some(x => (x.s === 'factory' || x.s === 'arrived') && x.r.no === 1);
   const sent = cs.filter(x => x.s === 'waiting').map(x => str(x.r.sentDate)).filter(Boolean).sort();
   const ends = cs.map(x => (x.s === 'drop' ? x.c.droppedAt : x.s === 'confirm' ? x.r.resultDate : '')).filter(Boolean).sort();
   return {
@@ -347,6 +352,39 @@ export const findLdNoOwner = (labdips, ldNo, selfId) => {
   const key = normalizeLdNo(ldNo);
   if (!key) return null;
   return (labdips || []).find(d => String(d?.id) !== String(selfId || '') && normalizeLdNo(d?.ldNo) === key) || null;
+};
+
+/** L/D NO. 끝이 차수 번호처럼 '-숫자'인지 (GB26026-2) — 차수 번호는 자동으로 붙어서 기본 번호만 넣음 */
+const ROUND_SUFFIX_RE = /-\d+$/;
+export const hasRoundSuffix = (ldNo) => ROUND_SUFFIX_RE.test(normalizeLdNo(ldNo));
+
+/**
+ * 넣은 L/D NO.의 문제 (없으면 null) — 작성 화면 칸 아래 빨간 글자(short) · 저장 막는 알림(text)이 같은 규칙
+ *  ① 끝이 '-숫자' (새로 넣거나 바꾼 번호만 — 이미 저장된 번호는 그대로 둠) → 2차가 'GB26026-2-2'가 되고 GB26026의 2차와 헷갈려서 (디버깅 2026-11-25)
+ *  ② 다른 의뢰가 쓰는 번호
+ */
+export const ldNoIssue = (labdips, ldNo, selfId) => {
+  const key = normalizeLdNo(ldNo);
+  if (!key) return null;
+  const saved = selfId ? normalizeLdNo((labdips || []).find(d => String(d?.id) === String(selfId))?.ldNo) : '';
+  if (key !== saved && hasRoundSuffix(key)) {
+    const baseNo = key.replace(ROUND_SUFFIX_RE, '');
+    return {
+      kind: 'round',
+      short: `'-2 · -3'은 2차 · 3차 때 자동으로 붙어요 — ${baseNo}만 넣어 주세요`,
+      text: `L/D NO. 뒤 '-2 · -3'은 2차 · 3차 의뢰 때 자동으로 붙어요 — 기본 번호(${baseNo})만 넣어 주세요.`,
+    };
+  }
+  const owner = findLdNoOwner(labdips, key, selfId);
+  if (owner) {
+    const who = `${owner.buyerName || '바이어 미입력'} · ${owner.article || '-'}`;
+    return {
+      kind: 'owner',
+      short: `이미 있는 번호예요 (${who})`,
+      text: `이미 있는 L/D NO.예요: ${key} (${who}). 다른 번호를 넣어 주세요.`,
+    };
+  }
+  return null;
 };
 
 // ── 차수 L/D NO. (대표님 2026-11-25) ──────────────────────────
@@ -722,8 +760,8 @@ export const cleanLabdipForSave = (ld) => ({
 export const validateLabdip = (clean, { labdips = [], selfId = '' } = {}) => {
   if (!clean.buyerName) return '바이어(거래처)를 골라 주세요.';
   if (!clean.colors.length) return '컬러를 하나 이상 넣어 주세요. (컬러명 또는 PANTONE)';
-  const owner = clean.ldNo ? findLdNoOwner(labdips, clean.ldNo, selfId) : null;
-  if (owner) return `이미 있는 L/D NO.예요: ${clean.ldNo} (${owner.buyerName || '바이어 미입력'} · ${owner.article || '-'}). 다른 번호를 넣어 주세요.`;
+  const ldNoProblem = ldNoIssue(labdips, clean.ldNo, selfId);
+  if (ldNoProblem) return ldNoProblem.text;
   // [기록]에서 결과를 '컨펌'으로 고칠 때도 낱장은 꼭 (벌크 염색 기준이라 — 결과 넣기 창과 같은 규칙)
   const noLetter = clean.colors.filter(c => c.rounds.some(r => r.result === 'confirm' && !r.confirmedLetter));
   if (noLetter.length) return `컨펌한 낱장을 골라 주세요 — ${noLetter.map(c => c.name || c.pantone).join(', ')} (컬러 칸 [기록])`;
