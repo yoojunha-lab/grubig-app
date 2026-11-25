@@ -125,10 +125,6 @@ export const LabdipRequestSheet = ({ sheet }) => {
             </div>
           )}
 
-          <p className="mt-4 text-[10px] text-slate-500">
-            L/D를 보내실 때 컬러마다 번호와 낱장 글자(예: 25S038 &quot;A&quot;)를 붙여 주세요.
-          </p>
-
           {/* ── 푸터 ── */}
           <div className="avoid-break mt-6 pt-4 border-t-2 border-slate-800">
             <div className="grid grid-cols-3 items-center gap-3">
